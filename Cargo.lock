@@ -3955,7 +3955,7 @@ dependencies = [
  "fuser",
  "futures-util",
  "gdk",
- "glib 0.18.5",
+ "glib 0.22.10",
  "gstreamer",
  "gstreamer-app",
  "gstreamer-video",

@@ -78,7 +78,7 @@ ksni = { version = "0.3.7", default-features = false, features = ["async-io"] }
 # Each app's window says its own app ID on Wayland (apps.rs): the GTK window under Tauri's.
 gtk = "0.18"
 gdk = "0.18"
-glib = "0.18"
+glib = "0.22"
 # The web views' memory cache sized for an app, not a browser (main.rs, app_cache): the same
 # build wry already compiles, so nothing new is built.
 webkit2gtk = { version = "2.0.2", features = ["v2_40"] }
