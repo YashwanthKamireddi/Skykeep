@@ -6232,8 +6232,9 @@ fn window_ready(app: tauri::AppHandle, window: tauri::WebviewWindow, needs_you: 
     // Asked in this order: started any other way the answer is no, and the tray's question —
     // a call on the session bus — was asked on the main thread just before every launch's show.
     if login::stay_hidden(needs_you.unwrap_or(true), || tray_reachable(&app)) {
-        // Its page has done what a launch needs of it (the session taken up again): it waits,
-        // drawn and hidden, so the tray opens it at once.
+        // Resume and sync live in Rust after the page has initialized the session.
+        // Release the hidden startup page too; the tray recreates it when requested.
+        apps::put_away_label(&app, window.label());
         return;
     }
     show_window(&app);
@@ -6341,6 +6342,8 @@ fn make_main(app: &tauri::AppHandle) -> Option<tauri::WebviewWindow> {
 /// whether it had to be made — its page is then still loading, not yet listening.
 fn show_window(app: &tauri::AppHandle) -> bool {
     login::shown();
+    MAIN_ASKED.store(true, Ordering::SeqCst);
+    apps::recall("main");
     if let Some(window) = app.get_webview_window("main") {
         timing::mark("main shown");
         window.show().ok();
@@ -6348,7 +6351,6 @@ fn show_window(app: &tauri::AppHandle) -> bool {
         window.set_focus().ok();
         return false;
     }
-    MAIN_ASKED.store(true, Ordering::SeqCst);
     let Some(window) = make_main(app) else {
         return false;
     };
@@ -6887,10 +6889,10 @@ fn main() {
                 }
                 if window.label() == "main" {
                     api.prevent_close();
-                    // Hidden, never given back: the tray's click shows it at once, already
-                    // drawn. Remade on demand it took about half a second, which the founder
-                    // asked to be gone; keeping its web view costs about 190 MB in the tray.
+                    // Keep the engine running, but give back this web view after the same
+                    // short grace period as the individual app windows.
                     window.hide().ok();
+                    apps::put_away(window);
                     updates::put_away(window.app_handle(), window.label());
                 } else if window.label().starts_with("app-") {
                     api.prevent_close();
@@ -7227,21 +7229,10 @@ fn main() {
                 LAUNCHED_AS_APP.store(true, Ordering::SeqCst);
                 apps::open(app.handle(), key);
             }
-            // The whole-library window, unless this launch is one app's or one file's — then
-            // made a little later, hidden, once that app's window is up, so the tray still
-            // opens the whole library at once.
+            // An app's own page initializes the shared engine. Make the whole-library
+            // page only when requested, rather than keeping a second hidden renderer warm.
             if !LAUNCHED_AS_APP.load(Ordering::SeqCst) {
                 make_main(app.handle());
-            } else {
-                let app = app.handle().clone();
-                tauri::async_runtime::spawn(async move {
-                    tokio::time::sleep(Duration::from_secs(4)).await;
-                    let warm = app.clone();
-                    app.run_on_main_thread(move || {
-                        make_main(&warm);
-                    })
-                    .ok();
-                });
             }
             show_when_ready(app.handle());
             timing::mark("setup done");

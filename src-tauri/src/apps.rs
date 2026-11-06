@@ -224,7 +224,7 @@ fn make(app: &AppHandle, key: &str, asking: &str) {
 
 /// How long a closed window — an app's, or the whole-library one — is kept, put away, before
 /// its memory is given back.
-const KEPT: std::time::Duration = std::time::Duration::from_secs(10 * 60);
+const KEPT: std::time::Duration = std::time::Duration::from_secs(30);
 
 /// When each put-away app window was closed: shown again, it is taken off the list, so a
 /// window closed, reopened and closed again is kept the full while from its last close.
@@ -235,7 +235,19 @@ static PUT_AWAY: std::sync::Mutex<Vec<(String, std::time::Instant)>> =
 /// meanwhile. The whole-library window too: `show_window` makes it again when it is next asked
 /// for, and the app goes on behind the tray with no window at all (main.rs, `ExitRequested`).
 pub fn put_away(window: &tauri::Window) {
-    let label = window.label().to_string();
+    put_away_label(window.app_handle(), window.label());
+}
+
+/// Cancel a previous close, including one on a window whose page is still loading.
+pub fn recall(label: &str) {
+    PUT_AWAY
+        .lock()
+        .unwrap_or_else(std::sync::PoisonError::into_inner)
+        .retain(|(l, _)| l != label);
+}
+
+pub fn put_away_label(app: &AppHandle, label: &str) {
+    let label = label.to_string();
     let at = std::time::Instant::now();
     {
         let mut list = PUT_AWAY
@@ -244,27 +256,47 @@ pub fn put_away(window: &tauri::Window) {
         list.retain(|(l, _)| *l != label);
         list.push((label.clone(), at));
     }
-    let app = window.app_handle().clone();
+    let app = app.clone();
     tauri::async_runtime::spawn(async move {
         tokio::time::sleep(KEPT).await;
-        let still = PUT_AWAY
-            .lock()
-            .unwrap_or_else(std::sync::PoisonError::into_inner)
-            .iter()
-            .any(|(l, t)| *l == label && *t == at);
-        if still {
-            PUT_AWAY
+        let on_main = app.clone();
+        // Check the close generation and visibility in the same event loop as reopening.
+        // A timer from an earlier close must never destroy a reopened window.
+        app.run_on_main_thread(move || {
+            let still = PUT_AWAY
                 .lock()
                 .unwrap_or_else(std::sync::PoisonError::into_inner)
-                .retain(|(l, _)| *l != label);
-            if let Some(w) = app.get_webview_window(&label) {
+                .iter()
+                .any(|(l, t)| *l == label && *t == at);
+            if !still {
+                return;
+            }
+            recall(&label);
+            if let Some(w) = on_main.get_webview_window(&label) {
                 if !w.is_visible().unwrap_or(true) {
+                    // Never leave a running app unreachable if the desktop lost its tray.
+                    if !crate::tray_reachable(&on_main) {
+                        show(&w);
+                        return;
+                    }
+                    // WebKit can cache the renderer after its last view is destroyed.
+                    // Terminate it explicitly only for the last window; a visible or
+                    // independently kept window must never lose its shared renderer.
+                    #[cfg(target_os = "linux")]
+                    if on_main.webview_windows().len() == 1 {
+                        w.with_webview(|platform| {
+                            use webkit2gtk::WebViewExt;
+                            platform.inner().terminate_web_process();
+                        })
+                        .ok();
+                    }
                     #[cfg(windows)]
                     crate::taskbar::unname_window(&w);
                     w.destroy().ok();
                 }
             }
-        }
+        })
+        .ok();
     });
 }
 
@@ -272,10 +304,7 @@ pub fn put_away(window: &tauri::Window) {
 /// takes a window's app ID only once the window is shown (measured: set before, it was
 /// silently dropped and the window went on saying the program's name).
 pub fn show(window: &tauri::WebviewWindow) {
-    PUT_AWAY
-        .lock()
-        .unwrap_or_else(std::sync::PoisonError::into_inner)
-        .retain(|(l, _)| l != window.label());
+    recall(window.label());
     crate::timing::mark(format_args!("{} shown", window.label()));
     crate::login::shown();
     window.show().ok();
