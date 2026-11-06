@@ -83,7 +83,13 @@ const seen = await page.evaluate(async () => {
     window.dispatchEvent(new KeyboardEvent("keydown", { key: "ArrowRight", bubbles: true }));
     for (let f = 0; f < 4; f++) { await new Promise((r) => requestAnimationFrame(r)); look(); }
   }
-  await new Promise((r) => setTimeout(r, 600));
+  // No neighbour is pre-decoded now, so the stepped-to screen-sized picture is made on the
+  // step itself: wait for it to land rather than for a fixed while.
+  for (let i = 0; i < 200; i++) {
+    const u = document.querySelector(".px-stage > .px-under");
+    if (!u || u.style.visibility === "hidden") break;
+    await new Promise((r) => setTimeout(r, 16));
+  }
   const under = document.querySelector(".px-stage > .px-under");
   return { bad: [...new Set(bad)], frames, held, left: !!under && under.style.visibility !== "hidden" };
 });

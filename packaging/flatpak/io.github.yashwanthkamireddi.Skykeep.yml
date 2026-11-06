@@ -34,6 +34,8 @@ sdk-extensions:
 command: skykeep
 
 finish-args:
+  # Bound glibc arena retention in this app's multithreaded image pipeline.
+  - --env=MALLOC_ARENA_MAX=2
   # iCloud.
   - --share=network
   # The window: Wayland first, X11 only where there is no Wayland.

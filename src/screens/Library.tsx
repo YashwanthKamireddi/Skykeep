@@ -60,7 +60,19 @@ const DriveView = apps.drivews.Screen;
 const PhotosView = apps.photos.Screen;
 const SettingsView = apps.settings.Screen;
 import { ScreenBoundary } from "../components/ScreenBoundary";
-import { ScreenActive, modalOpen } from "../lib/screen";
+import { ScreenActive, modalOpen, useScreenActive } from "../lib/screen";
+
+/** Photos owns decoded images: release its tree when it is no longer on screen. */
+function MemoryBoundPhotos() {
+  const active = useScreenActive();
+  const [visible, setVisible] = useState(!document.hidden);
+  useEffect(() => {
+    const changed = () => setVisible(!document.hidden);
+    document.addEventListener("visibilitychange", changed);
+    return () => document.removeEventListener("visibilitychange", changed);
+  }, []);
+  return active && visible ? <PhotosView /> : null;
+}
 import { AppIcon } from "../components/AppIcon";
 import { GlobalSearch } from "../components/GlobalSearch";
 // Only when asked for (Ctrl-/): the window opens without its code.
@@ -460,7 +472,7 @@ export function Library({ onSignOut, onShown }: { onSignOut: (keep: boolean) => 
     ) : key === "contacts" ? (
       <ContactsView />
     ) : key === "photos" ? (
-      <PhotosView />
+      <MemoryBoundPhotos />
     ) : (
       <DriveView />
     );

@@ -364,7 +364,9 @@ pub async fn fitted(app: &AppHandle, id: &str, long: u32) -> Result<Vec<u8>, Str
     }
     MAKING_READY.call_once(|| {
         let cores = std::thread::available_parallelism().map_or(4, std::num::NonZero::get);
-        MAKING.add_permits(cores);
+        // A decoded original plus resize buffers can cost tens of MiB per job. Limit
+        // memory pressure independently of how many logical CPUs the machine has.
+        MAKING.add_permits(cores.min(2));
     });
     let mut last = None;
     for size in [Size::Thumb, Size::Medium, Size::Full] {
@@ -752,6 +754,11 @@ pub fn trim_cache(app: &AppHandle) -> u64 {
 /// never waiting on the network. Newest first, two at a time, at most 600 and 3 GB a pass, after
 /// each sync; one pass at a time; what is on disk already is skipped.
 pub fn keep_ahead(app: AppHandle) {
+    // On-demand loading is the memory-saving default. Keep the original offline
+    // prefetch available as an explicit opt-in, rather than starting it at every sync.
+    if !prefetch_enabled() {
+        return;
+    }
     // The pictures the window shows, for whatever the sync brought.
     prepare(app.clone());
     static RUNNING: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
@@ -953,7 +960,14 @@ pub fn photos_prepare(shown: Shown, app: AppHandle) {
 }
 
 /// Prepare again with what the window last said it shows (after a sync brought new photos).
+fn prefetch_enabled() -> bool {
+    std::env::var_os("SKYKEEP_PREFETCH_PHOTOS").is_some_and(|value| value == "1")
+}
+
 pub fn prepare(app: AppHandle) {
+    if !prefetch_enabled() {
+        return;
+    }
     let Some(shown) = *LAST_SHOWN
         .lock()
         .unwrap_or_else(std::sync::PoisonError::into_inner)

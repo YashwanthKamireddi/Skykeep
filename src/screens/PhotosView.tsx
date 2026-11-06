@@ -4,6 +4,7 @@
  * from the disk cache and are fetched once.
  */
 import { useActiveRef, useScreenActive } from "../lib/screen";
+import { watchTileImage } from "../lib/photo-memory";
 import { memo, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, useSyncExternalStore } from "react";
 import { listen } from "@tauri-apps/api/event";
 import { getCurrentWebview } from "@tauri-apps/api/webview";
@@ -241,6 +242,11 @@ function Filmstrip({ photos, at, onPick }: { photos: PhotoList; at: number; onPi
  * full quality at once, never a smaller copy first.
  */
 const decoded = new Set<string>();
+function rememberDecoded(url: string) {
+  decoded.delete(url);
+  decoded.add(url);
+  if (decoded.size > 8) decoded.delete(decoded.values().next().value as string);
+}
 /**
  * Photos a sync has just brought into the view on screen, with when: each one's tile fades its
  * picture in as it lands (see Tile), and nothing else moves. Only for a moment — a month built
@@ -281,8 +287,9 @@ function anchorOf(el: HTMLElement | null): { id: string; top: number } | null {
   return id ? { id, top: tile.getBoundingClientRect().top } : null;
 }
 
-/** The rest on a tile before its picture is fetched (see Tile). */
-let resting: number | undefined;
+/** Explicit viewer decodes that have not finished yet. */
+const warmingImages = new Set<HTMLImageElement>();
+let warmGeneration = 0;
 const warming = new Map<string, Promise<boolean>>();
 /** The viewer's stage, in CSS pixels, as last measured (a guess from the window before). */
 let stageBox = { w: 0, h: 0 };
@@ -312,19 +319,32 @@ function warm(p: Photo): Promise<boolean> {
   if (decoded.has(url)) return Promise.resolve(true);
   let ready = warming.get(url);
   if (!ready) {
+    const generation = warmGeneration;
     const img = new Image();
+    // Bound concurrent decodes when the user opens photos faster than they arrive.
+    if (warmingImages.size >= 2) {
+      const oldest = warmingImages.values().next().value;
+      oldest?.removeAttribute("src");
+      if (oldest) warmingImages.delete(oldest);
+    }
+    warmingImages.add(img);
     img.decoding = "async";
     img.src = url;
     ready = img
       .decode()
       .then(
         () => {
-          decoded.add(url);
+          if (generation !== warmGeneration) return false;
+          rememberDecoded(url);
           return true;
         },
         () => false,
       )
-      .finally(() => warming.delete(url));
+      .finally(() => {
+        if (warming.get(url) === ready) warming.delete(url);
+        warmingImages.delete(img);
+        img.removeAttribute("src");
+      });
     warming.set(url, ready);
   }
   return ready;
@@ -332,9 +352,9 @@ function warm(p: Photo): Promise<boolean> {
 
 /** A tile's picture: the size it is drawn at — the whole cell when fitted, cropped to fill it
  *  as a square (so its longer side reaches past the cell). */
-function tileSrc(p: Photo, cell: number, fit: boolean): string {
+function tileLong(p: Photo, cell: number, fit: boolean): number {
   const r = p.width && p.height ? Math.max(p.width, p.height) / Math.min(p.width, p.height) : 1;
-  return fitSrc(p, fit ? cell : cell * r);
+  return fit ? cell : cell * r;
 }
 
 /** What a tile can ask of the screen; one object, kept the same, so tiles need not redraw. */
@@ -382,11 +402,17 @@ const Tile = memo(function Tile({
   // the webview's scheme handler — and its bytes, ~69 KB of thumbnail against ~19 KB of
   // picture, decoded and then covered. Set on the element itself: no tile draws again for it.
   const pic = useRef<HTMLSpanElement | null>(null);
+  const tileImage = useRef<HTMLImageElement | null>(null);
   const landed = useRef(false);
   const under = useCallback(() => {
-    if (!landed.current && pic.current) pic.current.style.backgroundImage = `url("${pictureSrc(photo.id, "thumb")}")`;
+    if (!landed.current && pic.current && tileImage.current?.hasAttribute("src")) pic.current.style.backgroundImage = `url("${pictureSrc(photo.id, "thumb")}")`;
   }, [photo.id]);
-  const src = tileSrc(photo, cell, fit);
+  const long = tileLong(photo, cell, fit);
+  useEffect(() => {
+    const image = tileImage.current;
+    if (!image) return undefined;
+    return watchTileImage(image, photo, long);
+  }, [long, photo]);
   const first = useRef(true);
   useEffect(() => {
     // A new size asked for (the window resized, zoomed): the thumbnail may be wanted again.
@@ -398,7 +424,7 @@ const Tile = memo(function Tile({
     // then only queued behind them — short enough to cover a picture made from the network.
     const t = window.setTimeout(under, 1500);
     return () => window.clearTimeout(t);
-  }, [src, under]);
+  }, [long, under]);
   return (
     <button
       // A photo is chosen as an option in a listbox is: aria-selected belongs to an option.
@@ -419,18 +445,6 @@ const Tile = memo(function Tile({
         act.pick(index, e);
       }}
       onDoubleClick={() => act.open(index)}
-      // A pointer that rests on a photo starts its whole picture on the way, so opening it is
-      // instant: by the double-click it is decoded. Only after a moment's rest — passing over
-      // the grid fetches nothing.
-      onPointerEnter={() => {
-        if (photo.kind === "video") return;
-        window.clearTimeout(resting);
-        resting = window.setTimeout(() => void warm(photo), 140);
-      }}
-      onPointerLeave={() => window.clearTimeout(resting)}
-      onPointerDown={() => {
-        if (photo.kind !== "video") void warm(photo);
-      }}
       draggable
       onDragStart={(e) => act.drag(photo, e)}
       onDragEnd={act.dragEnd}
@@ -447,11 +461,10 @@ const Tile = memo(function Tile({
         // The thumbnail underneath while the picture made for this tile's size comes (see under).
         style={fit && photo.width && photo.height ? fitFrame(photo) : undefined}
       >
-        {/* Fetched as soon as its month is built, well ahead of the screen — not left to the
-            engine's own lazy margin, which a fast scroll outran — and made the size it is
-            drawn at, so the engine never shrinks it. */}
+        {/* Only nearby tiles have a source. Their requested pixels share a bounded budget;
+            distant tiles release their source instead of retaining a decoded image. */}
         <img
-          src={src}
+          ref={tileImage}
           alt=""
           decoding="async"
           draggable={false}
@@ -460,6 +473,7 @@ const Tile = memo(function Tile({
           // Never made: the thumbnail stays.
           onLoad={(e) => {
             landed.current = true;
+            if (pic.current) pic.current.style.backgroundImage = "";
             e.currentTarget.dataset.in = performance.now() - born.current > 80 ? "fade" : "now";
             if (arriving.current) {
               arriving.current = false;
@@ -667,7 +681,7 @@ const Month = memo(function Month({
   useEffect(() => {
     if (eager && items.length) void list.need(items[0].index, items[items.length - 1].index);
   }, [eager, list, items]);
-  // One watcher: near the screen (within 4000px), its photos are asked for and it is built a few
+  // One watcher: near the screen (within 800px), its photos are asked for and it is built a few
   // rows a frame; gone far again before it was built, its building waits until it comes back —
   // a fling to the foot of the library builds the months it lands on, not every month it
   // passed on the way (they queued first, and the screen it landed on waited behind them).
@@ -705,12 +719,12 @@ const Month = memo(function Month({
         // The latest of what came in one go: a layout that moved it out and back within a
         // frame comes as two entries, and the first alone left it out — half built for good.
         close = entries[entries.length - 1].isIntersecting;
+        setNear(close);
         if (!close) return;
-        setNear(true);
         void list.need(items[0].index, items[items.length - 1].index);
         start();
       },
-      { root: el.closest(".px-scroll"), rootMargin: "4000px 0px" },
+      { root: el.closest(".px-scroll"), rootMargin: "800px 0px" },
     );
     watch.observe(el);
     return () => {
@@ -726,7 +740,7 @@ const Month = memo(function Month({
   // whose photos have all been let go (far off, see photos/list) goes back to its block.
   const showing = useRef(false);
   const upTo = showing.current && here > 0 ? built : Math.min(built, ready);
-  const shownCount = upTo >= items.length ? items.length : Math.floor(upTo / across) * across;
+  const shownCount = !near ? 0 : upTo >= items.length ? items.length : Math.floor(upTo / across) * across;
   const live = shownCount > 0;
   showing.current = live;
   return (
@@ -769,6 +783,15 @@ const Month = memo(function Month({
 }, sameMonth);
 
 export function PhotosView() {
+  useEffect(() => () => {
+    warmGeneration++;
+    for (const image of warmingImages) image.removeAttribute("src");
+    warmingImages.clear();
+    warming.clear();
+    decoded.clear();
+    arrived.clear();
+    stageBox = { w: 0, h: 0 };
+  }, []);
   const revision = useRevision("photos");
   const arriving = useArriving("photos");
   // Apple still preparing the library: said as it is, in place of "you have none".
@@ -1656,18 +1679,11 @@ export function PhotosView() {
     return () => el.removeEventListener("wheel", wheel);
   });
   const dragging = useRef<{ x: number; y: number; lx: number; ly: number } | null>(null);
-  // The photos either side are fetched and decoded while this one shows, so a step lands on
-  // a whole picture at once. (No slide between them: moving a picture as it changes is what
-  // tore in WebKitGTK.)
+  // Fetch nearby metadata only. Decoding neighbouring full-size images retains tens of
+  // megabytes per photo in WebKit even when none of them has been opened.
   useEffect(() => {
-    if (open === null || !photos) return;
-    // The photos either side, well past where a held key gets to before they land.
-    void photos.need(open - PAGE / 2, open + PAGE / 2);
-    for (const by of [1, -1, 2, -2]) {
-      const p = photos.at(open + by);
-      if (p && p.kind !== "video") void warm(p);
-    }
-  }, [open, photos, open !== null && photos?.at(open + 1), open !== null && photos?.at(open - 1)]); // eslint-disable-line react-hooks/exhaustive-deps
+    if (open !== null && photos) void photos.need(open - PAGE / 2, open + PAGE / 2);
+  }, [open, photos]);
 
   // The viewer's keys: arrows to go through, Escape to close, I for the details.
   const live = useActiveRef();
@@ -4015,7 +4031,8 @@ export function PhotosView() {
                       const url = viewSrc(shown);
                       learnShape(shown, img);
                       const done = () => {
-                        decoded.add(url);
+                        if (!img.isConnected) return;
+                        rememberDecoded(url);
                         painted.current = shown;
                         if (underEl.current) underEl.current.style.visibility = "hidden";
                       };
