@@ -111,6 +111,7 @@ pooled "reminder ticks"    node .uiverify/reminders-tick.mjs
 pooled "waiting to sync"   node .uiverify/outbox-pending.mjs
 pooled "photos"            node .uiverify/photos.mjs
 pooled "photos preparing"  node .uiverify/photos-preparing.mjs
+pooled "photos memory"     node .uiverify/photos-memory.mjs
 pooled "photo albums"      node .uiverify/photos-albums.mjs
 pooled "photos at scale"   node .uiverify/photos-scale.mjs
 pooled "photos drag"       node .uiverify/photos-drag.mjs
@@ -173,6 +174,7 @@ pooled "webkit: autoformat" env ENGINE=webkit node .uiverify/notes-autoformat.mj
 pooled "webkit: ticks"     env ENGINE=webkit node .uiverify/reminders-tick.mjs
 pooled "webkit: unsent"    env ENGINE=webkit node .uiverify/outbox-pending.mjs
 pooled "webkit: photos"    env ENGINE=webkit node .uiverify/photos.mjs
+pooled "webkit: hidden lock" env ENGINE=webkit node .uiverify/photos-hidden-lock.mjs
 pooled "webkit: albums"    env ENGINE=webkit node .uiverify/photos-albums.mjs
 pooled "webkit: at scale"  env ENGINE=webkit node .uiverify/photos-scale.mjs
 pooled "webkit: drag"      env ENGINE=webkit node .uiverify/photos-drag.mjs

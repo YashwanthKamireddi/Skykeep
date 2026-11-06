@@ -172,8 +172,8 @@ jobs:
           # The key flows, one or two per app: the window's security policy, accessibility,
           # sign-out, and an instant write in each app.
           suites="csp a11y boundary signout notes-compose notes-instant reminders-add-done
-                  reminders-instant calendar-edits contacts-select drive-nav photos settings
-                  search-everything updates device-approval"
+                  reminders-instant calendar-edits contacts-select drive-nav photos photos-memory
+                  settings search-everything updates device-approval"
           failed=()
           for t in $suites; do
             if node ".uiverify/$t.mjs" >"$shots/$t.log" 2>&1; then
