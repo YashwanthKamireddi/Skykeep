@@ -59,6 +59,7 @@ mod saving;
 #[cfg(target_os = "linux")]
 mod search_provider;
 mod settings;
+mod startup_guard;
 // Each app its own taskbar button on Windows, and the jump list's tasks.
 #[cfg(windows)]
 mod taskbar;
@@ -6322,6 +6323,7 @@ fn make_main(app: &tauri::AppHandle) -> Option<tauri::WebviewWindow> {
         Ok(window) => window,
         Err(e) => {
             quiet!("the window could not be made: {e}");
+            startup_guard::no_window(&e);
             return None;
         }
     };
@@ -6751,6 +6753,9 @@ fn main() {
     // Started by an update: the version it replaced finishes exiting first, so this launch is
     // not handed to it as a second one (single instance, below).
     updates::after_update();
+    // On Windows, before anything else: a window WebView2 cannot draw is offered its repair,
+    // never a launch that ends in nothing (startup_guard.rs).
+    startup_guard::ensure_webview();
     timing::start();
     login::note_launch();
     steady_drawing();
@@ -7472,7 +7477,7 @@ fn main() {
             reminder_set_repeat,
         ])
         .build(context)
-        .expect("Skykeep failed to start")
+        .unwrap_or_else(|e| startup_guard::failed(&e))
         .run(|_app, event| {
             // The last window given back (put away, then closed for good — see apps::put_away)
             // is not the app ending: it goes on behind the tray, ringing alerts and keeping

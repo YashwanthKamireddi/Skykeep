@@ -79,6 +79,9 @@ windows = { version = "0.62", features = [
     "Win32_UI_Shell",
     "Win32_UI_Shell_Common",
     "Win32_UI_Shell_PropertiesSystem",
+    # What a launch WebView2 cannot draw says, and its repair (startup_guard.rs).
+    "Win32_UI_WindowsAndMessaging",
+    "Win32_System_Com_Urlmon",
     # Windows Hello for the Hidden album (hello.rs): the consent verifier, owned by our window.
     "Foundation",
     "Security_Credentials_UI",
