@@ -242,6 +242,8 @@ function Filmstrip({ photos, at, onPick }: { photos: PhotoList; at: number; onPi
  * full quality at once, never a smaller copy first.
  */
 const decoded = new Set<string>();
+// Preserve navigation without retaining the photo tree, viewer or library objects.
+let lastPhotoView: PhotoView = "library";
 function rememberDecoded(url: string) {
   decoded.delete(url);
   decoded.add(url);
@@ -784,6 +786,7 @@ const Month = memo(function Month({
 
 export function PhotosView() {
   useEffect(() => () => {
+    void api.photosLockHidden().catch(() => {});
     warmGeneration++;
     for (const image of warmingImages) image.removeAttribute("src");
     warmingImages.clear();
@@ -796,7 +799,8 @@ export function PhotosView() {
   const arriving = useArriving("photos");
   // Apple still preparing the library: said as it is, in place of "you have none".
   const { preparing } = useServiceState("photos");
-  const [view, setView] = useState<PhotoView>("library");
+  const [view, setView] = useState<PhotoView>(() => lastPhotoView);
+  useEffect(() => { lastPhotoView = view; }, [view]);
   /** An album open instead of a view. */
   const [album, setAlbum] = useState<PhotoAlbum | null>(null);
   const [albums, setAlbums] = useState<[PhotoAlbum, number, (string | null)?][]>([]);

@@ -80,6 +80,8 @@ ok(await page.evaluate(() => window.__hiddenCalls.at(-1) === "lock" && !window._
 await unlock();
 await goAway();
 await page.waitForTimeout(250);
+ok(await page.locator(".px-tile").count() === 0 && !await page.evaluate(() => window.__hiddenOpen),
+  "a hidden window releases photo images and locks Hidden in the backend before returning");
 await comeBack();
 await page.waitForTimeout(250);
 ok(await isLocked(), "the window going out of sight locks it again");
