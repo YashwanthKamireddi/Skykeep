@@ -216,8 +216,11 @@ fn explorer_lists_and_opens_icloud_drive() {
         );
     };
     let cmd = |line: &str| {
+        // Verbatim: cmd reads quotes its own way, and an argument escaped for C (\\") is not it.
+        use std::os::windows::process::CommandExt;
         let ok = Command::new("cmd")
-            .args(["/c", line])
+            .arg("/c")
+            .raw_arg(line)
             .current_dir(&place)
             .status()
             .unwrap()
