@@ -130,6 +130,7 @@ fn explorer_lists_and_opens_icloud_drive() {
         .map(|&n| file(&format!("f{n}"), &format!("size {n}"), "bin", n))
         .collect();
     root.push(file("odd", "a:b?", "txt", 5));
+    root.push(file("keep", "keep", "bin", 50_000));
     let mut sub = DriveItem {
         drivewsid: "FOLDER::com.apple.CloudDocs::sub".into(),
         kind: "FOLDER".into(),
@@ -227,6 +228,35 @@ fn explorer_lists_and_opens_icloud_drive() {
             .success();
         assert!(ok, "{line}");
     };
+    // "Free up space" on a file already here, and "Always keep on this device" on one never
+    // opened: the marks Explorer's menu sets, carried out (bytes let go; every byte fetched).
+    use std::os::windows::fs::MetadataExt;
+    let not_all_here = |name: &str| {
+        std::fs::metadata(place.join(name))
+            .unwrap()
+            .file_attributes()
+            & 0x0040_0000
+            != 0
+    };
+    let wait_for = |what: &str, done: &dyn Fn() -> bool| {
+        for _ in 0..150 {
+            if done() {
+                return;
+            }
+            std::thread::sleep(std::time::Duration::from_millis(200));
+        }
+        panic!("{what} never happened");
+    };
+    assert!(
+        !not_all_here("size 8193.bin"),
+        "size 8193.bin was read, so it is here"
+    );
+    cmd("attrib +U -P \"size 8193.bin\"");
+    wait_for("freeing size 8193.bin", &|| not_all_here("size 8193.bin"));
+    assert!(not_all_here("keep.bin"), "keep.bin was never opened");
+    cmd("attrib +P -U keep.bin");
+    wait_for("keeping keep.bin", &|| !not_all_here("keep.bin"));
+
     cmd("echo hello> new.txt");
     until("upload new.txt");
     cmd("mkdir NewFolder && echo inside> NewFolder\\a.txt");

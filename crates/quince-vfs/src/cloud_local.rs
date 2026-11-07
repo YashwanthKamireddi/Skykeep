@@ -222,8 +222,9 @@ async fn sync_path(remote: &dyn Remote, staging: &Path, path: &Path) -> Result<(
     };
     if path.is_dir() {
         if state.is_some() {
-            // A folder of ours whose own attributes changed: nothing to send.
+            // A folder of ours whose own attributes changed: kept or freed, with what is in it.
             let _ = mark_in_sync(path);
+            keep_or_free(path).await;
             return Ok(());
         }
         let made = remote.mkdir(&folder, &name).await?;
@@ -235,7 +236,11 @@ async fn sync_path(remote: &dyn Remote, staging: &Path, path: &Path) -> Result<(
         return Ok(());
     }
     let base = match &state {
-        Some((s, _)) if *s == CF_IN_SYNC_STATE_IN_SYNC => return Ok(()),
+        Some((s, _)) if *s == CF_IN_SYNC_STATE_IN_SYNC => {
+            // In sync: only "Free up space" or "Always keep on this device" can have changed.
+            keep_or_free(path).await;
+            return Ok(());
+        }
         Some(_) => identity_of(path),
         None => None,
     };
@@ -353,4 +358,77 @@ fn mark_in_sync(path: &Path) -> windows::core::Result<()> {
             None,
         )
     }
+}
+
+const PINNED: u32 = 0x0008_0000;
+const UNPINNED: u32 = 0x0010_0000;
+const NOT_ALL_HERE: u32 = 0x0040_0000; // FILE_ATTRIBUTE_RECALL_ON_DATA_ACCESS
+
+/// "Always keep on this device" (pinned): every byte fetched now and kept. "Free up space"
+/// (unpinned): the bytes let go, the file still listed and in iCloud. Windows only marks the
+/// file; doing it is ours (Microsoft's hydration-policy notes). A folder's choice is its files'
+/// too, for the folders already listed in it; a file of a pinned folder made later is pinned
+/// by Windows itself.
+async fn keep_or_free(path: &Path) {
+    use std::os::windows::fs::MetadataExt;
+    let Ok(meta) = std::fs::metadata(path) else {
+        return;
+    };
+    let attrs = meta.file_attributes();
+    if meta.is_dir() {
+        if attrs & (PINNED | UNPINNED) == 0 {
+            return;
+        }
+        for entry in std::fs::read_dir(path).into_iter().flatten().flatten() {
+            let child = entry.path();
+            if entry
+                .metadata()
+                .is_ok_and(|m| !m.is_dir() || m.file_attributes() & 0x0004_0000 == 0)
+            {
+                Box::pin(keep_or_free(&child)).await;
+            }
+        }
+        return;
+    }
+    let here = attrs & NOT_ALL_HERE == 0;
+    if attrs & PINNED != 0 && !here {
+        let file = path.to_path_buf();
+        // Fetched through Skykeep's own requests: waited on off the runtime's threads, which
+        // answer them.
+        let fetched = tokio::task::spawn_blocking(move || hydrate(&file)).await;
+        if let Ok(Err(e)) = fetched {
+            eprintln!("quince: keeping {} on this device: {e}", path.display());
+        }
+    } else if attrs & UNPINNED != 0 && here {
+        if let Err(e) = dehydrate(path) {
+            // Open in a program now: freed once it is closed and touched again.
+            eprintln!("quince: freeing {}: {e}", path.display());
+        }
+    }
+}
+
+fn hydrate(path: &Path) -> windows::core::Result<()> {
+    let handle = crate::cloud::open_attributes(path)?;
+    // SAFETY: our handle; the whole file (length -1).
+    unsafe { CfHydratePlaceholder(handle.0, 0, -1, CF_HYDRATE_FLAG_NONE, None) }
+}
+
+/// The file's bytes let go, never under a program that has it open (opened alone).
+fn dehydrate(path: &Path) -> windows::core::Result<()> {
+    use windows::Win32::Foundation::GENERIC_ACCESS_RIGHTS;
+    use windows::Win32::Storage::FileSystem::*;
+    // SAFETY: a path string alive for the call; the handle is closed when dropped.
+    let handle = crate::cloud::Handle(unsafe {
+        CreateFileW(
+            &HSTRING::from(path.as_os_str()),
+            (FILE_READ_ATTRIBUTES | FILE_WRITE_ATTRIBUTES).0 | GENERIC_ACCESS_RIGHTS(0x4000_0000).0,
+            FILE_SHARE_NONE,
+            None,
+            OPEN_EXISTING,
+            FILE_FLAG_BACKUP_SEMANTICS,
+            None,
+        )
+    }?);
+    // SAFETY: our handle; the whole file.
+    unsafe { CfDehydratePlaceholder(handle.0, 0, -1, CF_DEHYDRATE_FLAG_NONE, None) }
 }
