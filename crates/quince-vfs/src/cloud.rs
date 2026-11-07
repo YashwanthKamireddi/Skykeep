@@ -702,7 +702,7 @@ async fn renamed(remote: &dyn Remote, item: DriveItem, now: &Path) {
     let Some(name) = now.file_name().and_then(|n| n.to_str()) else {
         return;
     };
-    let Some(parent) = now.parent().and_then(|p| folder_item(p)) else {
+    let Some(parent) = now.parent().and_then(folder_item) else {
         // Moved out of the folder Skykeep keeps: nothing at Apple changes until it is deleted.
         return;
     };

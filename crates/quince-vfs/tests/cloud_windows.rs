@@ -32,9 +32,48 @@ fn file(id: &str, name: &str, ext: &str, size: i64) -> DriveItem {
     }
 }
 
-struct Apple(HashMap<String, Vec<DriveItem>>);
+struct Apple(
+    HashMap<String, Vec<DriveItem>>,
+    Arc<std::sync::Mutex<Vec<String>>>,
+);
+
+impl Apple {
+    fn said(&self, what: String) {
+        self.1.lock().unwrap().push(what);
+    }
+}
 
 impl Remote for Apple {
+    fn mkdir(&self, parent: &DriveItem, name: &str) -> Fut<DriveItem> {
+        self.said(format!("mkdir {name}"));
+        let mut made = file(&format!("dir-{name}"), name, "", 0);
+        made.drivewsid = format!("FOLDER::com.apple.CloudDocs::dir-{name}");
+        made.kind = "FOLDER".into();
+        made.extension = None;
+        made.parent_id = Some(parent.drivewsid.clone());
+        Box::pin(async move { Ok(made) })
+    }
+    fn upload(&self, folder: &DriveItem, path: &Path) -> Fut<DriveItem> {
+        let name = path.file_name().unwrap().to_string_lossy().to_string();
+        let len = std::fs::metadata(path).map(|m| m.len() as i64).unwrap_or(0);
+        self.said(format!("upload {name} {len}"));
+        let (stem, ext) = name.rsplit_once('.').unwrap_or((&name, ""));
+        let mut sent = file(&format!("up-{name}"), stem, ext, len);
+        sent.parent_id = Some(folder.drivewsid.clone());
+        Box::pin(async move { Ok(sent) })
+    }
+    fn rename(&self, item: &DriveItem, name: &str) -> Fut<()> {
+        self.said(format!("rename {} {name}", item.display_name()));
+        Box::pin(async { Ok(()) })
+    }
+    fn move_to(&self, item: &DriveItem, folder: &DriveItem) -> Fut<()> {
+        self.said(format!("move {} {}", item.display_name(), folder.name));
+        Box::pin(async { Ok(()) })
+    }
+    fn delete(&self, item: &DriveItem) -> Fut<()> {
+        self.said(format!("delete {}", item.display_name()));
+        Box::pin(async { Ok(()) })
+    }
     fn list(&self, folder: &str) -> Fut<Vec<DriveItem>> {
         let items = self.0.get(folder).cloned().unwrap_or_default();
         Box::pin(async move { Ok(items) })
@@ -113,6 +152,7 @@ fn explorer_lists_and_opens_icloud_drive() {
     let place = base.join(format!("Skykeep test {}", std::process::id()));
     let out = std::env::temp_dir().join(format!("skykeep-out-{}", std::process::id()));
     std::fs::create_dir_all(&out).unwrap();
+    let log = Arc::new(std::sync::Mutex::new(Vec::<String>::new()));
     let id = cloud::sync_root_id(&format!("test{}", std::process::id())).unwrap();
     let shown = Shown {
         id: &id,
@@ -123,9 +163,10 @@ fn explorer_lists_and_opens_icloud_drive() {
         &place,
         &shown,
         Provider {
-            remote: Arc::new(Apple(tree.clone())),
+            remote: Arc::new(Apple(tree.clone(), Arc::clone(&log))),
             store: Arc::new(Library(tree)),
             rt: rt.handle().clone(),
+            staging: out.join("sending"),
         },
     )
     .expect("the cloud folder registers and connects");
@@ -159,6 +200,49 @@ fn explorer_lists_and_opens_icloud_drive() {
     let copy = out.join("inside.bin");
     copy_out(&place.join("Trip").join("inside.bin"), &copy);
     assert_eq!(std::fs::read(&copy).unwrap().len(), 70_000);
+
+    // Changes made here, as a person makes them, reach Apple: each waited for (a save settles
+    // for two seconds before it is sent).
+    let until = |what: &str| {
+        for _ in 0..150 {
+            if log.lock().unwrap().iter().any(|l| l.starts_with(what)) {
+                return;
+            }
+            std::thread::sleep(std::time::Duration::from_millis(200));
+        }
+        panic!(
+            "never reached Apple: {what}; Apple heard {:?}",
+            log.lock().unwrap()
+        );
+    };
+    let cmd = |line: &str| {
+        let ok = Command::new("cmd")
+            .args(["/c", line])
+            .current_dir(&place)
+            .status()
+            .unwrap()
+            .success();
+        assert!(ok, "{line}");
+    };
+    cmd("echo hello> new.txt");
+    until("upload new.txt");
+    cmd("mkdir NewFolder && echo inside> NewFolder\\a.txt");
+    until("mkdir NewFolder");
+    until("upload a.txt");
+    cmd("echo more>> \"size 4096.bin\"");
+    until("upload size 4096.bin");
+    until("delete size 4096.bin");
+    cmd("ren \"size 1.bin\" renamed.bin");
+    until("rename size 1.bin renamed.bin");
+    cmd("del \"size 4095.bin\"");
+    until("delete size 4095.bin");
+    // Nothing a person didn't do: no delete of a file that is still there.
+    assert!(
+        !log.lock().unwrap().iter().any(|l| l == "delete size 0.bin"),
+        "{:?}",
+        log.lock().unwrap()
+    );
+    println!("Apple heard: {:?}", log.lock().unwrap());
 
     drop(folder);
     cloud::unregister(&place, &id);
