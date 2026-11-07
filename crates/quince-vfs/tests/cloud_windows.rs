@@ -162,12 +162,12 @@ fn explorer_lists_and_opens_icloud_drive() {
     let folder = cloud::start(
         &place,
         &shown,
-        Provider {
-            remote: Arc::new(Apple(tree.clone(), Arc::clone(&log))),
-            store: Arc::new(Library(tree)),
-            rt: rt.handle().clone(),
-            staging: out.join("sending"),
-        },
+        Provider::new(
+            Arc::new(Apple(tree.clone(), Arc::clone(&log))),
+            Arc::new(Library(tree)),
+            rt.handle().clone(),
+            out.join("sending"),
+        ),
     )
     .expect("the cloud folder registers and connects");
     println!("registered {} (shell: {})", id, folder.shell);

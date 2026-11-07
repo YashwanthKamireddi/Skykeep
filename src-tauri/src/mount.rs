@@ -591,13 +591,13 @@ fn start(app: &AppHandle, which: Which, at: &std::path::Path) -> Result<(), Stri
             name: "iCloud Drive",
             icon: &icon,
         },
-        quince_vfs::cloud::Provider {
+        quince_vfs::cloud::Provider::new(
             remote,
-            store: Arc::new(AppStore::new(app.clone())),
-            rt: tauri::async_runtime::handle().inner().clone(),
+            Arc::new(AppStore::new(app.clone())),
+            tauri::async_runtime::handle().inner().clone(),
             // Saved files are copied here before they are sent, beside the library (owner-only).
-            staging: crate::state_dir(app).join("drive-sending"),
-        },
+            crate::state_dir(app).join("drive-sending"),
+        ),
     )
     .map_err(|e| format!("iCloud Drive could not be added to File Explorer: {e}"))?;
     CLOUD
@@ -648,6 +648,24 @@ fn mounted(_which: Which) -> Option<PathBuf> {
 #[cfg(not(windows))]
 fn forget_folder(_app: &AppHandle, which: Which) {
     stop(which);
+}
+
+/// Drive folders Apple changed (the change feed's): brought up to date in File Explorer. On
+/// Linux the mount reads the library afresh by itself.
+pub fn drive_changed(folders: &[String]) {
+    #[cfg(windows)]
+    {
+        let cloud = CLOUD.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+        for (which, _, folder) in cloud.iter() {
+            if *which == Which::Drive {
+                for id in folders {
+                    folder.refresh(id);
+                }
+            }
+        }
+    }
+    #[cfg(not(windows))]
+    let _ = folders;
 }
 
 /// At sign-out: each folder gone with the account — on Windows no longer in Explorer either.

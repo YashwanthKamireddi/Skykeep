@@ -20,6 +20,7 @@
 
 use crate::{named_on, served_size_differs, transfer, Names, Remote, Store, CHUNK, ROOT};
 use quince_core::drive::DriveItem;
+use std::collections::HashMap;
 use std::ffi::c_void;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
@@ -40,6 +41,26 @@ pub struct Provider {
     pub rt: tokio::runtime::Handle,
     /// Where a file saved here is copied before it is sent (never inside the folder itself).
     pub staging: PathBuf,
+    /// Each folder Explorer has listed, by Apple's id: where it is, so a change at Apple is
+    /// brought to it (`CloudFolder::refresh`).
+    listed: Arc<std::sync::Mutex<HashMap<String, PathBuf>>>,
+}
+
+impl Provider {
+    pub fn new(
+        remote: Arc<dyn Remote>,
+        store: Arc<dyn Store>,
+        rt: tokio::runtime::Handle,
+        staging: PathBuf,
+    ) -> Provider {
+        Provider {
+            remote,
+            store,
+            rt,
+            staging,
+            listed: Arc::default(),
+        }
+    }
 }
 
 /// The folder, connected: its requests come in until it is dropped.
@@ -81,6 +102,130 @@ impl Drop for CloudFolder {
     }
 }
 
+impl CloudFolder {
+    /// A folder Apple changed, brought up to date here if Explorer has listed it (one never
+    /// listed is made fresh when it is first opened): what is new appears, what changed at
+    /// Apple is updated and its old bytes let go, what was renamed is renamed, and what is gone
+    /// from Apple goes from here. A file changed here too is never touched: it goes to Apple as
+    /// a conflicted copy (cloud_local). Nothing is ever sent to Apple as a delete for being
+    /// missing here (Nextcloud #3444), and a folder once listed is never left stale (#10871).
+    pub fn refresh(&self, folder: &str) {
+        // SAFETY: the provider lives as long as this folder.
+        let provider = unsafe { &*self.provider };
+        let Some(dir) = provider
+            .listed
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
+            .get(folder)
+            .cloned()
+        else {
+            return;
+        };
+        let Some(items) = provider.store.children(folder) else {
+            return;
+        };
+        let mut here: HashMap<String, PathBuf> = HashMap::new();
+        for entry in std::fs::read_dir(&dir).into_iter().flatten().flatten() {
+            if let Some(item) = identity_of(&entry.path()) {
+                here.insert(item.drivewsid, entry.path());
+            }
+        }
+        let in_sync =
+            |p: &Path| placeholder_state(p).is_some_and(|(s, _)| s == CF_IN_SYNC_STATE_IN_SYNC);
+        let named = named_on(&items, Names::Windows);
+        let at_apple: std::collections::HashSet<&str> =
+            named.iter().map(|(_, i)| i.drivewsid.as_str()).collect();
+        for (name, item) in &named {
+            let want = dir.join(name);
+            match here.get(&item.drivewsid) {
+                None if !want.exists() => {
+                    let size = u64::try_from(item.size.unwrap_or(0)).unwrap_or(0);
+                    let made = Placeholder::of(name, item, size);
+                    let mut one = [made.info()];
+                    // SAFETY: the name and identity are alive for the call.
+                    let created = unsafe {
+                        CfCreatePlaceholders(
+                            &HSTRING::from(dir.as_os_str()),
+                            &mut one,
+                            CF_CREATE_FLAG_NONE,
+                            None,
+                        )
+                    };
+                    if let Err(e) = created {
+                        eprintln!("quince: {name} in {}: {e}", dir.display());
+                    }
+                }
+                None => {}
+                Some(path) if in_sync(path) => {
+                    let mut path = path.clone();
+                    if path != want && !want.exists() && std::fs::rename(&path, &want).is_ok() {
+                        path = want;
+                    }
+                    let known = identity_of(&path);
+                    if known.is_some_and(|k| k.etag != item.etag || k.size != item.size) {
+                        if let Err(e) = renew(&path, item) {
+                            // Open in a program now: brought up to date on the next change.
+                            eprintln!("quince: {} not yet updated: {e}", path.display());
+                        }
+                    }
+                }
+                Some(_) => {}
+            }
+        }
+        for (id, path) in &here {
+            // Gone from Apple (deleted, or moved to a folder of its own here): gone from here,
+            // unless it holds a change of ours not yet sent.
+            if !at_apple.contains(id.as_str()) && in_sync(path) {
+                let _ = if path.is_dir() {
+                    std::fs::remove_dir_all(path)
+                } else {
+                    std::fs::remove_file(path)
+                };
+            }
+        }
+    }
+}
+
+/// A placeholder made to stand for `item`'s new version at Apple: its size and dates, its
+/// identity, and its old bytes let go so the next open fetches the new ones. Opened alone (no
+/// sharing): a file open in a program is left until it is closed, never changed under it.
+fn renew(path: &Path, item: &DriveItem) -> windows::core::Result<()> {
+    use windows::Win32::Foundation::GENERIC_ACCESS_RIGHTS;
+    use windows::Win32::Storage::FileSystem::*;
+    // SAFETY: a path string alive for the call.
+    let handle = Handle(unsafe {
+        CreateFileW(
+            &HSTRING::from(path.as_os_str()),
+            (FILE_READ_ATTRIBUTES | FILE_WRITE_ATTRIBUTES).0 | GENERIC_ACCESS_RIGHTS(0x4000_0000).0,
+            FILE_SHARE_NONE,
+            None,
+            OPEN_EXISTING,
+            FILE_FLAG_BACKUP_SEMANTICS,
+            None,
+        )
+    }?);
+    let size = u64::try_from(item.size.unwrap_or(0)).unwrap_or(0);
+    let made = Placeholder::of("", item, size);
+    let flags = if item.is_container() {
+        CF_UPDATE_FLAG_MARK_IN_SYNC
+    } else {
+        CF_UPDATE_FLAG_MARK_IN_SYNC | CF_UPDATE_FLAG_DEHYDRATE
+    };
+    // SAFETY: the metadata and identity are alive for the call.
+    unsafe {
+        CfUpdatePlaceholder(
+            handle.0,
+            Some(&made.meta),
+            Some(made.identity.as_ptr().cast()),
+            made.identity.len() as u32,
+            None,
+            flags,
+            None,
+            None,
+        )
+    }
+}
+
 /// How Explorer shows the folder: its name in the navigation pane, its icon, and the id it is
 /// registered under (`Skykeep!<user's SID>!<account>`, at most 174 characters).
 pub struct Shown<'a> {
@@ -110,6 +255,11 @@ pub fn start(root: &Path, shown: &Shown, provider: Provider) -> Result<CloudFold
         provider.staging.clone(),
         provider.rt.clone(),
     );
+    provider
+        .listed
+        .lock()
+        .unwrap_or_else(std::sync::PoisonError::into_inner)
+        .insert(ROOT.to_string(), root.to_path_buf());
     let mut folder = connect(root, provider)?;
     folder.shell = shell;
     // What changed here while Skykeep was closed, then what changes from now on.
@@ -489,6 +639,15 @@ unsafe extern "system" fn on_fetch_placeholders(
             Arc::clone(&provider.store),
             provider.rt.clone(),
         );
+        let folder = req
+            .item
+            .as_ref()
+            .map_or(ROOT.to_string(), |i| i.drivewsid.clone());
+        provider
+            .listed
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
+            .insert(folder, req.path.clone());
         rt.spawn(async move { fetch_placeholders(remote.as_ref(), store.as_ref(), req).await });
     });
     if caught.is_err() {
