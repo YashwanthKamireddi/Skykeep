@@ -25,8 +25,7 @@ use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use windows::core::{HSTRING, PCWSTR};
 use windows::Win32::Foundation::{
-    NTSTATUS, STATUS_CLOUD_FILE_NETWORK_UNAVAILABLE, STATUS_CLOUD_FILE_UNSUCCESSFUL,
-    STATUS_SUCCESS,
+    NTSTATUS, STATUS_CLOUD_FILE_NETWORK_UNAVAILABLE, STATUS_CLOUD_FILE_UNSUCCESSFUL, STATUS_SUCCESS,
 };
 use windows::Win32::Storage::CloudFilters::*;
 use windows::Win32::Storage::FileSystem::{
@@ -106,20 +105,26 @@ fn register_with_shell(root: &Path, shown: &Shown) -> Result<(), String> {
     let info = StorageProviderSyncRootInfo::new().map_err(e)?;
     info.SetId(&HSTRING::from(shown.id)).map_err(e)?;
     info.SetPath(&folder).map_err(e)?;
-    info.SetDisplayNameResource(&HSTRING::from(shown.name)).map_err(e)?;
-    info.SetIconResource(&HSTRING::from(shown.icon)).map_err(e)?;
-    info.SetHydrationPolicy(StorageProviderHydrationPolicy::Full).map_err(e)?;
+    info.SetDisplayNameResource(&HSTRING::from(shown.name))
+        .map_err(e)?;
+    info.SetIconResource(&HSTRING::from(shown.icon))
+        .map_err(e)?;
+    info.SetHydrationPolicy(StorageProviderHydrationPolicy::Full)
+        .map_err(e)?;
     info.SetHydrationPolicyModifier(StorageProviderHydrationPolicyModifier::None)
         .map_err(e)?;
-    info.SetPopulationPolicy(StorageProviderPopulationPolicy::Full).map_err(e)?;
+    info.SetPopulationPolicy(StorageProviderPopulationPolicy::Full)
+        .map_err(e)?;
     info.SetInSyncPolicy(
         StorageProviderInSyncPolicy::FileCreationTime
             | StorageProviderInSyncPolicy::DirectoryCreationTime,
     )
     .map_err(e)?;
-    info.SetHardlinkPolicy(StorageProviderHardlinkPolicy::None).map_err(e)?;
+    info.SetHardlinkPolicy(StorageProviderHardlinkPolicy::None)
+        .map_err(e)?;
     info.SetShowSiblingsAsGroup(false).map_err(e)?;
-    info.SetVersion(&HSTRING::from(env!("CARGO_PKG_VERSION"))).map_err(e)?;
+    info.SetVersion(&HSTRING::from(env!("CARGO_PKG_VERSION")))
+        .map_err(e)?;
     StorageProviderSyncRootManager::Register(&info).map_err(e)
 }
 
@@ -175,7 +180,8 @@ fn connect(root: &Path, provider: Provider) -> Result<CloudFolder, String> {
     let path = HSTRING::from(root.as_os_str());
     // Our own reads of a placeholder (an indexer of ours, a copy) never fetch it: blocked here,
     // they can't wait on themselves.
-    let flags = CF_CONNECT_FLAG_BLOCK_SELF_IMPLICIT_HYDRATION | CF_CONNECT_FLAG_REQUIRE_FULL_FILE_PATH;
+    let flags =
+        CF_CONNECT_FLAG_BLOCK_SELF_IMPLICIT_HYDRATION | CF_CONNECT_FLAG_REQUIRE_FULL_FILE_PATH;
     // SAFETY: the table lives for the call (Windows copies it); the provider lives until the
     // CloudFolder's drop disconnects.
     match unsafe { CfConnectSyncRoot(&path, table.as_ptr(), Some(provider.cast()), flags) } {
@@ -196,19 +202,26 @@ fn connect(root: &Path, provider: Provider) -> Result<CloudFolder, String> {
 /// The id Windows wants a cloud folder registered under: `Skykeep!<this user's SID>!<account>`,
 /// at most 174 characters (Microsoft's limit; longer is refused with ERROR_INSUFFICIENT_BUFFER).
 pub fn sync_root_id(account: &str) -> Result<String, String> {
-    use windows::Win32::Foundation::{CloseHandle, HANDLE, HLOCAL, LocalFree};
+    use windows::Win32::Foundation::{CloseHandle, LocalFree, HANDLE, HLOCAL};
     use windows::Win32::Security::Authorization::ConvertSidToStringSidW;
-    use windows::Win32::Security::{GetTokenInformation, TOKEN_QUERY, TOKEN_USER, TokenUser};
+    use windows::Win32::Security::{GetTokenInformation, TokenUser, TOKEN_QUERY, TOKEN_USER};
     use windows::Win32::System::Threading::{GetCurrentProcess, OpenProcessToken};
     // SAFETY: the token is closed and the SID string freed before returning; the buffer is
     // sized by the first call.
     let sid = unsafe {
         let mut token = HANDLE::default();
-        OpenProcessToken(GetCurrentProcess(), TOKEN_QUERY, &mut token).map_err(|e| e.to_string())?;
+        OpenProcessToken(GetCurrentProcess(), TOKEN_QUERY, &mut token)
+            .map_err(|e| e.to_string())?;
         let mut needed = 0u32;
         let _ = GetTokenInformation(token, TokenUser, None, 0, &mut needed);
         let mut buf = vec![0u8; needed as usize];
-        let got = GetTokenInformation(token, TokenUser, Some(buf.as_mut_ptr().cast()), needed, &mut needed);
+        let got = GetTokenInformation(
+            token,
+            TokenUser,
+            Some(buf.as_mut_ptr().cast()),
+            needed,
+            &mut needed,
+        );
         let _ = CloseHandle(token);
         got.map_err(|e| e.to_string())?;
         let user = &*buf.as_ptr().cast::<TOKEN_USER>();
@@ -219,7 +232,11 @@ pub fn sync_root_id(account: &str) -> Result<String, String> {
         sid?
     };
     // The account, as letters and digits only: `!` separates the parts.
-    let account: String = account.chars().filter(char::is_ascii_alphanumeric).take(40).collect();
+    let account: String = account
+        .chars()
+        .filter(char::is_ascii_alphanumeric)
+        .take(40)
+        .collect();
     let id = format!("Skykeep!{sid}!{account}");
     Ok(id.chars().take(174).collect())
 }
@@ -227,7 +244,8 @@ pub fn sync_root_id(account: &str) -> Result<String, String> {
 /// Stop being the folder's provider for good: its placeholders go back to plain files the
 /// shell no longer fetches. Only at sign-out or when the person turns the folder off.
 pub fn unregister(root: &Path, id: &str) {
-    let _ = windows::Storage::Provider::StorageProviderSyncRootManager::Unregister(&HSTRING::from(id));
+    let _ =
+        windows::Storage::Provider::StorageProviderSyncRootManager::Unregister(&HSTRING::from(id));
     // SAFETY: a path string alive for the call.
     let _ = unsafe { CfUnregisterSyncRoot(&HSTRING::from(root.as_os_str())) };
 }
@@ -253,7 +271,10 @@ unsafe fn request(info: *const CF_CALLBACK_INFO) -> Option<(Request, &'static Pr
     } else {
         // SAFETY: Windows gives the identity we stored, for the length it says.
         let bytes = unsafe {
-            std::slice::from_raw_parts(info.FileIdentity.cast::<u8>(), info.FileIdentityLength as usize)
+            std::slice::from_raw_parts(
+                info.FileIdentity.cast::<u8>(),
+                info.FileIdentityLength as usize,
+            )
         };
         serde_json::from_slice::<DriveItem>(bytes).ok()
     };
@@ -269,10 +290,15 @@ unsafe fn request(info: *const CF_CALLBACK_INFO) -> Option<(Request, &'static Pr
     ))
 }
 
-unsafe extern "system" fn on_fetch_data(info: *const CF_CALLBACK_INFO, params: *const CF_CALLBACK_PARAMETERS) {
+unsafe extern "system" fn on_fetch_data(
+    info: *const CF_CALLBACK_INFO,
+    params: *const CF_CALLBACK_PARAMETERS,
+) {
     let caught = std::panic::catch_unwind(|| {
         // SAFETY: Windows' pointers, valid for this call; everything needed is copied out.
-        let Some((req, provider)) = (unsafe { request(info) }) else { return };
+        let Some((req, provider)) = (unsafe { request(info) }) else {
+            return;
+        };
         let fetch = unsafe { (*params).Anonymous.FetchData };
         let offset = u64::try_from(fetch.RequiredFileOffset).unwrap_or(0);
         let len = u64::try_from(fetch.RequiredLength).unwrap_or(0);
@@ -306,7 +332,11 @@ async fn fetch_data(remote: &dyn Remote, req: Request, offset: u64, len: u64) {
             match remote.read_part(&item, at, n).await {
                 Ok(part) if part.bytes.len() as u64 == n => part.bytes,
                 Ok(part) => {
-                    eprintln!("quince: {} answered {} of {n} bytes at {at}", item.drivewsid, part.bytes.len());
+                    eprintln!(
+                        "quince: {} answered {} of {n} bytes at {at}",
+                        item.drivewsid,
+                        part.bytes.len()
+                    );
                     fail_data(&req, at, end - at, STATUS_CLOUD_FILE_UNSUCCESSFUL);
                     return;
                 }
@@ -334,8 +364,19 @@ fn report(req: &Request, total: u64, done: u64) {
 }
 
 /// One piece handed to Windows, or with a failure status the range it fails.
-fn transfer_data(req: &Request, offset: u64, bytes: &[u8], status: NTSTATUS) -> windows::core::Result<()> {
-    transfer_range(req, offset, bytes.len() as u64, bytes.as_ptr().cast(), status)
+fn transfer_data(
+    req: &Request,
+    offset: u64,
+    bytes: &[u8],
+    status: NTSTATUS,
+) -> windows::core::Result<()> {
+    transfer_range(
+        req,
+        offset,
+        bytes.len() as u64,
+        bytes.as_ptr().cast(),
+        status,
+    )
 }
 
 fn fail_data(req: &Request, offset: u64, len: u64, status: NTSTATUS) {
@@ -349,7 +390,13 @@ fn fail_data(req: &Request, offset: u64, len: u64, status: NTSTATUS) {
     let _ = transfer_range(req, start, n, std::ptr::null(), status);
 }
 
-fn transfer_range(req: &Request, offset: u64, len: u64, buffer: *const c_void, status: NTSTATUS) -> windows::core::Result<()> {
+fn transfer_range(
+    req: &Request,
+    offset: u64,
+    len: u64,
+    buffer: *const c_void,
+    status: NTSTATUS,
+) -> windows::core::Result<()> {
     let info = CF_OPERATION_INFO {
         StructSize: size_of::<CF_OPERATION_INFO>() as u32,
         Type: CF_OPERATION_TYPE_TRANSFER_DATA,
@@ -374,11 +421,20 @@ fn transfer_range(req: &Request, offset: u64, len: u64, buffer: *const c_void, s
     unsafe { CfExecute(&info, &mut params) }
 }
 
-unsafe extern "system" fn on_fetch_placeholders(info: *const CF_CALLBACK_INFO, _params: *const CF_CALLBACK_PARAMETERS) {
+unsafe extern "system" fn on_fetch_placeholders(
+    info: *const CF_CALLBACK_INFO,
+    _params: *const CF_CALLBACK_PARAMETERS,
+) {
     let caught = std::panic::catch_unwind(|| {
         // SAFETY: as in on_fetch_data.
-        let Some((req, provider)) = (unsafe { request(info) }) else { return };
-        let (remote, store, rt) = (Arc::clone(&provider.remote), Arc::clone(&provider.store), provider.rt.clone());
+        let Some((req, provider)) = (unsafe { request(info) }) else {
+            return;
+        };
+        let (remote, store, rt) = (
+            Arc::clone(&provider.remote),
+            Arc::clone(&provider.store),
+            provider.rt.clone(),
+        );
         rt.spawn(async move { fetch_placeholders(remote.as_ref(), store.as_ref(), req).await });
     });
     if caught.is_err() {
@@ -389,14 +445,23 @@ unsafe extern "system" fn on_fetch_placeholders(info: *const CF_CALLBACK_INFO, _
 /// A folder's items as placeholders, from the library (from Apple first when the folder was
 /// never listed), one per call, the last marking the folder whole.
 async fn fetch_placeholders(remote: &dyn Remote, store: &dyn Store, req: Request) {
-    let folder = req.item.as_ref().map_or(ROOT.to_string(), |i| i.drivewsid.clone());
+    let folder = req
+        .item
+        .as_ref()
+        .map_or(ROOT.to_string(), |i| i.drivewsid.clone());
     let items = match store.children(&folder) {
         Some(items) => items,
         None => match remote.list(&folder).await {
             Ok(items) => items,
             Err(e) => {
                 eprintln!("quince: listing {folder}: {e}");
-                let _ = transfer_placeholders(&req, &mut [], 0, true, STATUS_CLOUD_FILE_NETWORK_UNAVAILABLE);
+                let _ = transfer_placeholders(
+                    &req,
+                    &mut [],
+                    0,
+                    true,
+                    STATUS_CLOUD_FILE_NETWORK_UNAVAILABLE,
+                );
                 return;
             }
         },
@@ -493,11 +558,14 @@ impl Placeholder {
                     LastAccessTime: modified,
                     LastWriteTime: modified,
                     ChangeTime: modified,
-                    FileAttributes: if folder { FILE_ATTRIBUTE_DIRECTORY.0 } else { FILE_ATTRIBUTE_NORMAL.0 },
+                    FileAttributes: if folder {
+                        FILE_ATTRIBUTE_DIRECTORY.0
+                    } else {
+                        FILE_ATTRIBUTE_NORMAL.0
+                    },
                 },
                 FileSize: if folder { 0 } else { size as i64 },
             },
-
         }
     }
 

@@ -62,12 +62,24 @@ impl Store for Library {
 
 /// `cmd` as another process: what it lists and what it copies out are what any app gets.
 fn dir(path: &Path) -> Vec<String> {
-    let out = Command::new("cmd").args(["/c", "dir", "/b"]).arg(path).output().unwrap();
-    String::from_utf8_lossy(&out.stdout).lines().map(str::to_string).collect()
+    let out = Command::new("cmd")
+        .args(["/c", "dir", "/b"])
+        .arg(path)
+        .output()
+        .unwrap();
+    String::from_utf8_lossy(&out.stdout)
+        .lines()
+        .map(str::to_string)
+        .collect()
 }
 
 fn copy_out(from: &Path, to: &Path) {
-    let status = Command::new("cmd").args(["/c", "copy", "/b", "/y"]).arg(from).arg(to).status().unwrap();
+    let status = Command::new("cmd")
+        .args(["/c", "copy", "/b", "/y"])
+        .arg(from)
+        .arg(to)
+        .status()
+        .unwrap();
     assert!(status.success(), "copying {} out failed", from.display());
 }
 
@@ -93,13 +105,20 @@ fn explorer_lists_and_opens_icloud_drive() {
     let tree: HashMap<String, Vec<DriveItem>> =
         [(ROOT.to_string(), root), (sub.drivewsid.clone(), inner)].into();
 
-    let rt = tokio::runtime::Builder::new_multi_thread().enable_all().build().unwrap();
+    let rt = tokio::runtime::Builder::new_multi_thread()
+        .enable_all()
+        .build()
+        .unwrap();
     let base = PathBuf::from(std::env::var("USERPROFILE").unwrap());
     let place = base.join(format!("Skykeep test {}", std::process::id()));
     let out = std::env::temp_dir().join(format!("skykeep-out-{}", std::process::id()));
     std::fs::create_dir_all(&out).unwrap();
     let id = cloud::sync_root_id(&format!("test{}", std::process::id())).unwrap();
-    let shown = Shown { id: &id, name: "Skykeep test", icon: "%SystemRoot%\\system32\\imageres.dll,-1043" };
+    let shown = Shown {
+        id: &id,
+        name: "Skykeep test",
+        icon: "%SystemRoot%\\system32\\imageres.dll,-1043",
+    };
     let folder = cloud::start(
         &place,
         &shown,
@@ -114,9 +133,15 @@ fn explorer_lists_and_opens_icloud_drive() {
 
     let listed = dir(&place);
     for n in sizes {
-        assert!(listed.contains(&format!("size {n}.bin")), "size {n}.bin missing from {listed:?}");
+        assert!(
+            listed.contains(&format!("size {n}.bin")),
+            "size {n}.bin missing from {listed:?}"
+        );
     }
-    assert!(listed.contains(&"a：b？.txt".to_string()), "the odd name is missing from {listed:?}");
+    assert!(
+        listed.contains(&"a：b？.txt".to_string()),
+        "the odd name is missing from {listed:?}"
+    );
     assert!(listed.contains(&"Trip".to_string()));
 
     for n in sizes {
@@ -124,7 +149,10 @@ fn explorer_lists_and_opens_icloud_drive() {
         copy_out(&place.join(format!("size {n}.bin")), &copy);
         let got = std::fs::read(&copy).unwrap();
         assert_eq!(got.len() as i64, n, "size {n}: wrong length");
-        assert!(got.iter().enumerate().all(|(i, &b)| b == byte(i as u64)), "size {n}: wrong bytes");
+        assert!(
+            got.iter().enumerate().all(|(i, &b)| b == byte(i as u64)),
+            "size {n}: wrong bytes"
+        );
     }
     // A folder never listed: from Apple, then its file opens.
     assert_eq!(dir(&place.join("Trip")), ["inside.bin"]);
