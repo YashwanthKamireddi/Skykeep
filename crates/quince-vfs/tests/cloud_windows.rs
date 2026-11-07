@@ -91,11 +91,18 @@ impl Remote for Apple {
 
 /// The library knows the root (as after a sync); the subfolder only Apple knows, so opening it
 /// lists it from Apple, as a folder never opened before does.
-struct Library(HashMap<String, Vec<DriveItem>>);
+struct Library(Arc<std::sync::Mutex<HashMap<String, Vec<DriveItem>>>>);
 
 impl Store for Library {
     fn children(&self, folder: &str) -> Option<Vec<DriveItem>> {
-        (folder == ROOT).then(|| self.0.get(folder).cloned().unwrap_or_default())
+        (folder == ROOT).then(|| {
+            self.0
+                .lock()
+                .unwrap()
+                .get(folder)
+                .cloned()
+                .unwrap_or_default()
+        })
     }
 }
 
@@ -154,6 +161,7 @@ fn explorer_lists_and_opens_icloud_drive() {
     let out = std::env::temp_dir().join(format!("skykeep-out-{}", std::process::id()));
     std::fs::create_dir_all(&out).unwrap();
     let log = Arc::new(std::sync::Mutex::new(Vec::<String>::new()));
+    let library = Arc::new(std::sync::Mutex::new(tree.clone()));
     let id = cloud::sync_root_id(&format!("test{}", std::process::id())).unwrap();
     let shown = Shown {
         id: &id,
@@ -165,7 +173,7 @@ fn explorer_lists_and_opens_icloud_drive() {
         &shown,
         Provider::new(
             Arc::new(Apple(tree.clone(), Arc::clone(&log))),
-            Arc::new(Library(tree)),
+            Arc::new(Library(Arc::clone(&library))),
             rt.handle().clone(),
             out.join("sending"),
         ),
@@ -256,6 +264,42 @@ fn explorer_lists_and_opens_icloud_drive() {
     assert!(not_all_here("keep.bin"), "keep.bin was never opened");
     cmd("attrib +P -U keep.bin");
     wait_for("keeping keep.bin", &|| !not_all_here("keep.bin"));
+
+    // Changes made at Apple reach a folder Explorer has listed: a new file appears, one gone
+    // from Apple goes from here, one changed lets its old bytes go (never opened stale).
+    {
+        let mut lib = library.lock().unwrap();
+        let root = lib.get_mut(ROOT).unwrap();
+        root.retain(|i| i.name != "size 0");
+        root.push(file("fresh", "fresh", "bin", 10));
+        let changed = root.iter_mut().find(|i| i.name == "size 4097").unwrap();
+        changed.etag = Some("e2".into());
+        changed.size = Some(5000);
+    }
+    assert!(
+        !not_all_here("size 4097.bin"),
+        "size 4097.bin was read, so it is here"
+    );
+    folder.refresh(ROOT);
+    let listed = dir(&place);
+    assert!(
+        listed.contains(&"fresh.bin".to_string()),
+        "fresh.bin missing from {listed:?}"
+    );
+    assert!(
+        !listed.contains(&"size 0.bin".to_string()),
+        "size 0.bin still in {listed:?}"
+    );
+    assert!(
+        not_all_here("size 4097.bin"),
+        "the changed file kept its old bytes"
+    );
+    assert_eq!(
+        std::fs::metadata(place.join("size 4097.bin"))
+            .unwrap()
+            .len(),
+        5000
+    );
 
     cmd("echo hello> new.txt");
     until("upload new.txt");
@@ -389,7 +433,7 @@ fn explorer_shows_icloud_photos() {
         &shown,
         Provider::new(
             Arc::new(Photos(Arc::clone(&log), cached)),
-            Arc::new(Library(tree)),
+            Arc::new(Library(Arc::new(std::sync::Mutex::new(tree)))),
             rt.handle().clone(),
             out.join("sending"),
         )

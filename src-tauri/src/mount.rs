@@ -699,6 +699,23 @@ pub fn drive_changed(folders: &[String]) {
     let _ = folders;
 }
 
+/// Photos changed at Apple: every Photos folder File Explorer has listed brought up to date
+/// (Windows). Its folders are views of the library (years, months, albums), so all of them are
+/// looked at again, not one named folder.
+pub fn photos_changed() {
+    #[cfg(windows)]
+    {
+        let cloud = CLOUD
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner);
+        for (which, _, folder) in cloud.iter() {
+            if *which == Which::Photos {
+                folder.refresh_all();
+            }
+        }
+    }
+}
+
 /// At sign-out: each folder gone with the account — on Windows no longer in Explorer either.
 pub fn forget(app: &AppHandle) {
     forget_folder(app, Which::Drive);

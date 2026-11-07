@@ -48,6 +48,9 @@ pub struct Provider {
     /// change, so renames are declined and an added photo is never taken for a replacement of
     /// one with the same name (iPhones reuse IMG_ numbers).
     add_only: bool,
+    /// What each listed folder last showed, as a fingerprint: a folder whose items at Apple are
+    /// the same is not looked at again, so one new photo touches its month and nothing else.
+    shown: std::sync::Mutex<HashMap<String, u64>>,
 }
 
 impl Provider {
@@ -71,6 +74,7 @@ impl Provider {
             staging,
             listed: Arc::default(),
             add_only: false,
+            shown: std::sync::Mutex::default(),
         }
     }
 }
@@ -115,6 +119,23 @@ impl Drop for CloudFolder {
 }
 
 impl CloudFolder {
+    /// Every folder Explorer has listed brought up to date: for a tree made of views (Photos'
+    /// years, months and albums), where one change at Apple can touch any of them.
+    pub fn refresh_all(&self) {
+        // SAFETY: the provider lives as long as this folder.
+        let provider = unsafe { &*self.provider };
+        let listed: Vec<String> = provider
+            .listed
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
+            .keys()
+            .cloned()
+            .collect();
+        for folder in listed {
+            self.refresh(&folder);
+        }
+    }
+
     /// A folder Apple changed, brought up to date here if Explorer has listed it (one never
     /// listed is made fresh when it is first opened): what is new appears, what changed at
     /// Apple is updated and its old bytes let go, what was renamed is renamed, and what is gone
@@ -136,6 +157,16 @@ impl CloudFolder {
         let Some(items) = provider.store.children(folder) else {
             return;
         };
+        let print = fingerprint(&items);
+        let mut shown = provider
+            .shown
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner);
+        if shown.get(folder) == Some(&print) {
+            return;
+        }
+        shown.insert(folder.to_string(), print);
+        drop(shown);
         let mut here: HashMap<String, PathBuf> = HashMap::new();
         for entry in std::fs::read_dir(&dir).into_iter().flatten().flatten() {
             if let Some(item) = identity_of(&entry.path()) {
@@ -196,6 +227,16 @@ impl CloudFolder {
             }
         }
     }
+}
+
+/// What a folder's items are, in one number: their ids, names, sizes and versions.
+fn fingerprint(items: &[DriveItem]) -> u64 {
+    use std::hash::{Hash, Hasher};
+    let mut h = std::collections::hash_map::DefaultHasher::new();
+    for i in items {
+        (&i.drivewsid, &i.name, &i.extension, i.size, &i.etag).hash(&mut h);
+    }
+    h.finish()
 }
 
 /// A placeholder made to stand for `item`'s new version at Apple: its size and dates, its
