@@ -1,0 +1,139 @@
+//! iCloud Drive in File Explorer, on a real Windows: a cloud folder registered under the user's
+//! profile with a stand-in for Apple behind it, listed and read by another process, as Explorer
+//! and every other app reach it. The sizes are the ones that broke other clients: none, one byte,
+//! either side of a 4 KB block (Nextcloud #10845), and across our 4 MB pieces. A name Windows
+//! can't hold must be there under its look-alike (#9524).
+#![cfg(windows)]
+
+use quince_core::drive::DriveItem;
+use quince_vfs::cloud::{self, Provider, Shown};
+use quince_vfs::{Fut, Remote, Store, ROOT};
+use std::collections::HashMap;
+use std::path::{Path, PathBuf};
+use std::process::Command;
+use std::sync::Arc;
+
+fn byte(i: u64) -> u8 {
+    ((i * 31 + 7) % 251) as u8
+}
+
+fn file(id: &str, name: &str, ext: &str, size: i64) -> DriveItem {
+    DriveItem {
+        drivewsid: format!("FILE::com.apple.CloudDocs::{id}"),
+        parent_id: Some(ROOT.into()),
+        name: name.into(),
+        extension: Some(ext.into()),
+        kind: "FILE".into(),
+        size: Some(size),
+        child_count: None,
+        created_at: Some(1_790_000_000),
+        modified_at: Some(1_790_000_000),
+        etag: Some("e1".into()),
+    }
+}
+
+struct Apple(HashMap<String, Vec<DriveItem>>);
+
+impl Remote for Apple {
+    fn list(&self, folder: &str) -> Fut<Vec<DriveItem>> {
+        let items = self.0.get(folder).cloned().unwrap_or_default();
+        Box::pin(async move { Ok(items) })
+    }
+    fn read(&self, item: &DriveItem, offset: u64, len: u64) -> Fut<Vec<u8>> {
+        let size = item.size.unwrap_or(0) as u64;
+        let end = (offset + len).min(size);
+        Box::pin(async move {
+            // As a network would: the bytes arrive a moment later, on another thread.
+            tokio::time::sleep(std::time::Duration::from_millis(20)).await;
+            Ok((offset..end).map(byte).collect())
+        })
+    }
+}
+
+/// The library knows the root (as after a sync); the subfolder only Apple knows, so opening it
+/// lists it from Apple, as a folder never opened before does.
+struct Library(HashMap<String, Vec<DriveItem>>);
+
+impl Store for Library {
+    fn children(&self, folder: &str) -> Option<Vec<DriveItem>> {
+        (folder == ROOT).then(|| self.0.get(folder).cloned().unwrap_or_default())
+    }
+}
+
+/// `cmd` as another process: what it lists and what it copies out are what any app gets.
+fn dir(path: &Path) -> Vec<String> {
+    let out = Command::new("cmd").args(["/c", "dir", "/b"]).arg(path).output().unwrap();
+    String::from_utf8_lossy(&out.stdout).lines().map(str::to_string).collect()
+}
+
+fn copy_out(from: &Path, to: &Path) {
+    let status = Command::new("cmd").args(["/c", "copy", "/b", "/y"]).arg(from).arg(to).status().unwrap();
+    assert!(status.success(), "copying {} out failed", from.display());
+}
+
+#[test]
+fn explorer_lists_and_opens_icloud_drive() {
+    let sizes: [i64; 7] = [0, 1, 4095, 4096, 4097, 8193, 9 * 1024 * 1024 + 123];
+    let mut root: Vec<DriveItem> = sizes
+        .iter()
+        .map(|&n| file(&format!("f{n}"), &format!("size {n}"), "bin", n))
+        .collect();
+    root.push(file("odd", "a:b?", "txt", 5));
+    let mut sub = DriveItem {
+        drivewsid: "FOLDER::com.apple.CloudDocs::sub".into(),
+        kind: "FOLDER".into(),
+        name: "Trip".into(),
+        extension: None,
+        size: None,
+        ..file("x", "x", "x", 0)
+    };
+    sub.parent_id = Some(ROOT.into());
+    root.push(sub.clone());
+    let inner = vec![file("in", "inside", "bin", 70_000)];
+    let tree: HashMap<String, Vec<DriveItem>> =
+        [(ROOT.to_string(), root), (sub.drivewsid.clone(), inner)].into();
+
+    let rt = tokio::runtime::Builder::new_multi_thread().enable_all().build().unwrap();
+    let base = PathBuf::from(std::env::var("USERPROFILE").unwrap());
+    let place = base.join(format!("Skykeep test {}", std::process::id()));
+    let out = std::env::temp_dir().join(format!("skykeep-out-{}", std::process::id()));
+    std::fs::create_dir_all(&out).unwrap();
+    let id = cloud::sync_root_id(&format!("test{}", std::process::id())).unwrap();
+    let shown = Shown { id: &id, name: "Skykeep test", icon: "%SystemRoot%\\system32\\imageres.dll,-1043" };
+    let folder = cloud::start(
+        &place,
+        &shown,
+        Provider {
+            remote: Arc::new(Apple(tree.clone())),
+            store: Arc::new(Library(tree)),
+            rt: rt.handle().clone(),
+        },
+    )
+    .expect("the cloud folder registers and connects");
+    println!("registered {} (shell: {})", id, folder.shell);
+
+    let listed = dir(&place);
+    for n in sizes {
+        assert!(listed.contains(&format!("size {n}.bin")), "size {n}.bin missing from {listed:?}");
+    }
+    assert!(listed.contains(&"a：b？.txt".to_string()), "the odd name is missing from {listed:?}");
+    assert!(listed.contains(&"Trip".to_string()));
+
+    for n in sizes {
+        let copy = out.join(format!("{n}.bin"));
+        copy_out(&place.join(format!("size {n}.bin")), &copy);
+        let got = std::fs::read(&copy).unwrap();
+        assert_eq!(got.len() as i64, n, "size {n}: wrong length");
+        assert!(got.iter().enumerate().all(|(i, &b)| b == byte(i as u64)), "size {n}: wrong bytes");
+    }
+    // A folder never listed: from Apple, then its file opens.
+    assert_eq!(dir(&place.join("Trip")), ["inside.bin"]);
+    let copy = out.join("inside.bin");
+    copy_out(&place.join("Trip").join("inside.bin"), &copy);
+    assert_eq!(std::fs::read(&copy).unwrap().len(), 70_000);
+
+    drop(folder);
+    cloud::unregister(&place, &id);
+    let _ = std::fs::remove_dir_all(&place);
+    let _ = std::fs::remove_dir_all(&out);
+}
