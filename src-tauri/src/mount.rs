@@ -595,6 +595,8 @@ fn start(app: &AppHandle, which: Which, at: &std::path::Path) -> Result<(), Stri
             remote,
             store: Arc::new(AppStore::new(app.clone())),
             rt: tauri::async_runtime::handle().inner().clone(),
+            // Saved files are copied here before they are sent, beside the library (owner-only).
+            staging: crate::state_dir(app).join("drive-sending"),
         },
     )
     .map_err(|e| format!("iCloud Drive could not be added to File Explorer: {e}"))?;
