@@ -6795,6 +6795,13 @@ fn build_tray(app: &tauri::App) -> tauri::Result<()> {
 fn main() {
     // First, before any thread: how freed memory goes back to the system (#11).
     return_freed_memory();
+    // The uninstaller's last word (packaging/windows/installer-hooks.nsh): iCloud Drive no
+    // longer a cloud folder in File Explorer. Nothing else is started.
+    #[cfg(windows)]
+    if std::env::args().any(|a| a == "--forget-cloud-folders") {
+        mount::forget_on_uninstall();
+        return;
+    }
     // Started by an update: the version it replaced finishes exiting first, so this launch is
     // not handed to it as a second one (single instance, below).
     updates::after_update();

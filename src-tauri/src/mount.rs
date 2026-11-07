@@ -616,6 +616,20 @@ fn stop(which: Which) {
         .retain(|(w, ..)| *w != which);
 }
 
+/// Skykeep being uninstalled: its cloud folders unregistered, from where they are by default
+/// (the shell's registration is by id; the bare one, where the shell refused, by path).
+#[cfg(windows)]
+pub fn forget_on_uninstall() {
+    let home = std::env::var_os("USERPROFILE")
+        .map(PathBuf::from)
+        .unwrap_or_default();
+    for which in [Which::Drive, Which::Photos] {
+        if let Ok(id) = cloud_id(which) {
+            quince_vfs::cloud::unregister(&home.join(which.folder()), &id);
+        }
+    }
+}
+
 /// Turned off, or signed out: no longer a cloud folder in Explorer at all.
 #[cfg(windows)]
 fn forget_folder(app: &AppHandle, which: Which) {
@@ -655,7 +669,9 @@ fn forget_folder(_app: &AppHandle, which: Which) {
 pub fn drive_changed(folders: &[String]) {
     #[cfg(windows)]
     {
-        let cloud = CLOUD.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+        let cloud = CLOUD
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner);
         for (which, _, folder) in cloud.iter() {
             if *which == Which::Drive {
                 for id in folders {
