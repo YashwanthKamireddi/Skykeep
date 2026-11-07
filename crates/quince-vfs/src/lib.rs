@@ -8,6 +8,8 @@
 
 #[cfg(windows)]
 pub mod cloud;
+#[cfg(windows)]
+mod cloud_local;
 #[cfg(target_os = "linux")]
 pub mod fuse;
 pub mod transfer;

@@ -38,6 +38,8 @@ pub struct Provider {
     pub store: Arc<dyn Store>,
     /// The app's async runtime: every request is answered there, never on Windows' thread.
     pub rt: tokio::runtime::Handle,
+    /// Where a file saved here is copied before it is sent (never inside the folder itself).
+    pub staging: PathBuf,
 }
 
 /// The folder, connected: its requests come in until it is dropped.
@@ -47,6 +49,9 @@ pub struct CloudFolder {
     pub root: PathBuf,
     /// Registered with the shell (in Explorer's navigation pane), or as the bare filter.
     pub shell: bool,
+    /// The watcher sending what changes here, and how to stop it.
+    watcher: Option<std::thread::JoinHandle<()>>,
+    stop: Arc<std::sync::atomic::AtomicBool>,
 }
 
 // SAFETY: the connection key is a plain handle Windows hands out for any thread to use, and the
@@ -56,6 +61,18 @@ unsafe impl Sync for CloudFolder {}
 
 impl Drop for CloudFolder {
     fn drop(&mut self) {
+        // The watcher first: told to stop, and woken from its wait for changes.
+        self.stop.store(true, std::sync::atomic::Ordering::Relaxed);
+        if let Some(watcher) = self.watcher.take() {
+            use std::os::windows::io::AsRawHandle;
+            // SAFETY: the thread's own handle, alive until joined.
+            unsafe {
+                let _ = windows::Win32::System::IO::CancelSynchronousIo(
+                    windows::Win32::Foundation::HANDLE(watcher.as_raw_handle()),
+                );
+            }
+            let _ = watcher.join();
+        }
         // SAFETY: the key is this folder's; once disconnected no callback holds the provider.
         unsafe {
             let _ = CfDisconnectSyncRoot(self.key);
@@ -88,8 +105,21 @@ pub fn start(root: &Path, shown: &Shown, provider: Provider) -> Result<CloudFold
             false
         }
     };
+    let (remote, staging, rt) = (
+        Arc::clone(&provider.remote),
+        provider.staging.clone(),
+        provider.rt.clone(),
+    );
     let mut folder = connect(root, provider)?;
     folder.shell = shell;
+    // What changed here while Skykeep was closed, then what changes from now on.
+    folder.watcher = crate::cloud_local::watch(
+        root.to_path_buf(),
+        remote,
+        staging,
+        rt,
+        Arc::clone(&folder.stop),
+    );
     Ok(folder)
 }
 
@@ -171,6 +201,24 @@ fn connect(root: &Path, provider: Provider) -> Result<CloudFolder, String> {
             Type: CF_CALLBACK_TYPE_FETCH_PLACEHOLDERS,
             Callback: Some(on_fetch_placeholders),
         },
+        // A delete or rename in Explorer waits on these: answered at once, so no program ever
+        // waits on Skykeep; Apple is told only once Windows has done it (the completions).
+        CF_CALLBACK_REGISTRATION {
+            Type: CF_CALLBACK_TYPE_NOTIFY_DELETE,
+            Callback: Some(on_delete),
+        },
+        CF_CALLBACK_REGISTRATION {
+            Type: CF_CALLBACK_TYPE_NOTIFY_RENAME,
+            Callback: Some(on_rename),
+        },
+        CF_CALLBACK_REGISTRATION {
+            Type: CF_CALLBACK_TYPE_NOTIFY_DELETE_COMPLETION,
+            Callback: Some(on_deleted),
+        },
+        CF_CALLBACK_REGISTRATION {
+            Type: CF_CALLBACK_TYPE_NOTIFY_RENAME_COMPLETION,
+            Callback: Some(on_renamed),
+        },
         CF_CALLBACK_REGISTRATION {
             Type: CF_CALLBACK_TYPE_NONE,
             Callback: None,
@@ -190,6 +238,8 @@ fn connect(root: &Path, provider: Provider) -> Result<CloudFolder, String> {
             provider,
             root: root.to_path_buf(),
             shell: false,
+            watcher: None,
+            stop: Arc::new(std::sync::atomic::AtomicBool::new(false)),
         }),
         Err(e) => {
             // SAFETY: not handed to Windows after all.
@@ -257,6 +307,8 @@ struct Request {
     request: i64,
     item: Option<DriveItem>,
     size: u64,
+    /// The file's full path now ("C:\\Users\\…"), from the volume and Windows' path for it.
+    path: PathBuf,
 }
 
 // SAFETY: plain values; the connection key is usable from any thread.
@@ -285,6 +337,8 @@ unsafe fn request(info: *const CF_CALLBACK_INFO) -> Option<(Request, &'static Pr
             request: info.RequestKey,
             item: identity,
             size: u64::try_from(info.FileSize).unwrap_or(0),
+            // SAFETY: Windows' strings, valid for this call (copied here).
+            path: unsafe { full_path(info.VolumeDosName, info.NormalizedPath) },
         },
         provider,
     ))
@@ -534,6 +588,237 @@ fn transfer_placeholders(
     };
     // SAFETY: the array and the names and identities it points at are alive for the call.
     unsafe { CfExecute(&info, &mut params) }
+}
+
+/// A path Windows gives as a volume ("C:") and a path on it ("\\Users\\…"), joined.
+unsafe fn full_path(volume: PCWSTR, path: PCWSTR) -> PathBuf {
+    let text = |p: PCWSTR| {
+        if p.is_null() {
+            String::new()
+        } else {
+            unsafe { p.to_string() }.unwrap_or_default()
+        }
+    };
+    PathBuf::from(format!("{}{}", text(volume), text(path)))
+}
+
+/// Answers a delete or rename notice: allowed. Nothing is waited on here.
+fn ack(req: &Request, kind: CF_OPERATION_TYPE) {
+    let info = CF_OPERATION_INFO {
+        StructSize: size_of::<CF_OPERATION_INFO>() as u32,
+        Type: kind,
+        ConnectionKey: req.connection,
+        TransferKey: req.transfer,
+        RequestKey: req.request,
+        ..Default::default()
+    };
+    let mut params = CF_OPERATION_PARAMETERS {
+        ParamSize: size_of::<CF_OPERATION_PARAMETERS>() as u32,
+        ..Default::default()
+    };
+    // AckDelete and AckRename share their layout: flags, then the status (success, zero).
+    // SAFETY: a plain call with keys Windows gave us.
+    if let Err(e) = unsafe { CfExecute(&info, &mut params) } {
+        eprintln!(
+            "quince: answering Windows about {}: {e}",
+            req.path.display()
+        );
+    }
+}
+
+unsafe extern "system" fn on_delete(
+    info: *const CF_CALLBACK_INFO,
+    _params: *const CF_CALLBACK_PARAMETERS,
+) {
+    let _ = std::panic::catch_unwind(|| {
+        // SAFETY: as in on_fetch_data.
+        if let Some((req, _)) = unsafe { request(info) } {
+            ack(&req, CF_OPERATION_TYPE_ACK_DELETE);
+        }
+    });
+}
+
+unsafe extern "system" fn on_rename(
+    info: *const CF_CALLBACK_INFO,
+    _params: *const CF_CALLBACK_PARAMETERS,
+) {
+    let _ = std::panic::catch_unwind(|| {
+        // SAFETY: as in on_fetch_data.
+        if let Some((req, _)) = unsafe { request(info) } {
+            ack(&req, CF_OPERATION_TYPE_ACK_RENAME);
+        }
+    });
+}
+
+/// Deleted in Explorer, and done: into Apple's Recently Deleted, where it can be put back for
+/// 30 days. Only for this notice from Windows, a person's own delete: Skykeep never deletes at
+/// Apple because a file is missing here (a client that did lost people's files, Nextcloud #3444).
+unsafe extern "system" fn on_deleted(
+    info: *const CF_CALLBACK_INFO,
+    _params: *const CF_CALLBACK_PARAMETERS,
+) {
+    let _ = std::panic::catch_unwind(|| {
+        // SAFETY: as in on_fetch_data.
+        let Some((req, provider)) = (unsafe { request(info) }) else {
+            return;
+        };
+        let Some(item) = req.item.clone() else { return };
+        let (remote, rt) = (Arc::clone(&provider.remote), provider.rt.clone());
+        rt.spawn(async move {
+            // Done means gone: a delete that was undone before it was done leaves the file.
+            if req.path.exists() {
+                return;
+            }
+            for wait in [0u64, 2, 8, 30] {
+                tokio::time::sleep(std::time::Duration::from_secs(wait)).await;
+                match remote.delete(&item).await {
+                    Ok(()) => return,
+                    Err(e) => eprintln!("quince: deleting {} at Apple: {e}", item.drivewsid),
+                }
+            }
+        });
+    });
+}
+
+/// Renamed or moved in Explorer, and done: the same at Apple — moved into the folder it is in
+/// now, then given its new name, each only if it changed.
+unsafe extern "system" fn on_renamed(
+    info: *const CF_CALLBACK_INFO,
+    params: *const CF_CALLBACK_PARAMETERS,
+) {
+    let _ = std::panic::catch_unwind(|| {
+        // SAFETY: as in on_fetch_data.
+        let Some((req, provider)) = (unsafe { request(info) }) else {
+            return;
+        };
+        let Some(item) = req.item.clone() else { return };
+        let _ = params;
+        let (remote, rt) = (Arc::clone(&provider.remote), provider.rt.clone());
+        rt.spawn(async move { renamed(remote.as_ref(), item, &req.path).await });
+    });
+}
+
+async fn renamed(remote: &dyn Remote, item: DriveItem, now: &Path) {
+    let Some(name) = now.file_name().and_then(|n| n.to_str()) else {
+        return;
+    };
+    let Some(parent) = now.parent().and_then(|p| folder_item(p)) else {
+        // Moved out of the folder Skykeep keeps: nothing at Apple changes until it is deleted.
+        return;
+    };
+    let moved = item.parent_id.as_deref() != Some(parent.drivewsid.as_str());
+    for wait in [0u64, 2, 8, 30] {
+        tokio::time::sleep(std::time::Duration::from_secs(wait)).await;
+        let step = async {
+            if moved {
+                remote.move_to(&item, &parent).await?;
+            }
+            if item.display_name() != name {
+                remote.rename(&item, name).await?;
+            }
+            Ok::<(), String>(())
+        };
+        match step.await {
+            Ok(()) => return,
+            Err(e) => eprintln!("quince: renaming {} at Apple: {e}", item.drivewsid),
+        }
+    }
+}
+
+/// The Apple folder a folder here stands for: its placeholder's identity, or the root's (whose
+/// registration carries none). `None` for a folder that is not one of ours.
+pub(crate) fn folder_item(dir: &Path) -> Option<DriveItem> {
+    match identity_of(dir) {
+        Some(item) => Some(item),
+        None if is_sync_root(dir) => Some(DriveItem {
+            drivewsid: ROOT.to_string(),
+            parent_id: None,
+            name: String::new(),
+            extension: None,
+            kind: "FOLDER".into(),
+            size: None,
+            child_count: None,
+            created_at: None,
+            modified_at: None,
+            etag: None,
+        }),
+        None => None,
+    }
+}
+
+/// A placeholder's identity (the Apple item it was made from), read without fetching anything.
+pub(crate) fn identity_of(path: &Path) -> Option<DriveItem> {
+    let (state, identity) = placeholder_state(path)?;
+    let _ = state;
+    serde_json::from_slice(&identity?).ok()
+}
+
+/// Whether `path` is the cloud folder itself.
+fn is_sync_root(path: &Path) -> bool {
+    use windows::Storage::Provider::StorageProviderSyncRootManager;
+    use windows::Storage::StorageFolder;
+    StorageFolder::GetFolderFromPathAsync(&HSTRING::from(path.as_os_str()))
+        .and_then(|op| op.join())
+        .and_then(|f| StorageProviderSyncRootManager::GetSyncRootInformationForFolder(&f))
+        .and_then(|info| info.Path())
+        .and_then(|p| p.Path())
+        .is_ok_and(|p| std::path::Path::new(&p.to_string_lossy()) == path)
+}
+
+/// A file or folder's placeholder state (whether it is in sync) and identity; `None` for a
+/// plain file that is not a placeholder. Opened for its attributes only: nothing is fetched.
+pub(crate) fn placeholder_state(path: &Path) -> Option<(CF_IN_SYNC_STATE, Option<Vec<u8>>)> {
+    let handle = open_attributes(path).ok()?;
+    let mut buf = vec![0u8; size_of::<CF_PLACEHOLDER_BASIC_INFO>() + 4096];
+    let mut got = 0u32;
+    // SAFETY: the buffer is as long as said; the handle is closed after.
+    let read = unsafe {
+        CfGetPlaceholderInfo(
+            handle.0,
+            CF_PLACEHOLDER_INFO_BASIC,
+            buf.as_mut_ptr().cast(),
+            buf.len() as u32,
+            Some(&mut got),
+        )
+    };
+    if read.is_err() {
+        return None;
+    }
+    // SAFETY: Windows wrote a CF_PLACEHOLDER_BASIC_INFO, its identity following it.
+    let info = unsafe { &*buf.as_ptr().cast::<CF_PLACEHOLDER_BASIC_INFO>() };
+    let len = info.FileIdentityLength as usize;
+    let at = std::mem::offset_of!(CF_PLACEHOLDER_BASIC_INFO, FileIdentity);
+    let identity = (len > 0 && at + len <= got as usize).then(|| buf[at..at + len].to_vec());
+    Some((info.InSyncState, identity))
+}
+
+/// A handle that only reads attributes (folders too), closed when dropped.
+pub(crate) struct Handle(pub windows::Win32::Foundation::HANDLE);
+
+impl Drop for Handle {
+    fn drop(&mut self) {
+        // SAFETY: our own handle, closed once.
+        unsafe {
+            let _ = windows::Win32::Foundation::CloseHandle(self.0);
+        }
+    }
+}
+
+pub(crate) fn open_attributes(path: &Path) -> windows::core::Result<Handle> {
+    use windows::Win32::Storage::FileSystem::*;
+    // SAFETY: a path string alive for the call.
+    unsafe {
+        CreateFileW(
+            &HSTRING::from(path.as_os_str()),
+            FILE_READ_ATTRIBUTES.0,
+            FILE_SHARE_READ | FILE_SHARE_WRITE | FILE_SHARE_DELETE,
+            None,
+            OPEN_EXISTING,
+            FILE_FLAG_BACKUP_SEMANTICS,
+            None,
+        )
+    }
+    .map(Handle)
 }
 
 /// One placeholder's name, identity and metadata, kept alive while Windows reads them.
