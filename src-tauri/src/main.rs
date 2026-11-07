@@ -2043,7 +2043,9 @@ async fn auth_sign_out(keep: bool, app: tauri::AppHandle, auth: State<'_, Auth>)
     LIVE.store(false, Ordering::SeqCst);
     // A notes password typed this session goes with the session.
     notes_cmds::forget_passwords();
-    tauri::async_runtime::spawn_blocking(mount::release)
+    // Gone with the account: on Windows no longer in File Explorer either (mount::forget).
+    let leaving = app.clone();
+    tauri::async_runtime::spawn_blocking(move || mount::forget(&leaving))
         .await
         .map_err(|e| e.to_string())?;
     let mut client = auth.client.lock().await;

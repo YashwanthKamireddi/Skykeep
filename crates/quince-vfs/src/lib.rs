@@ -275,7 +275,11 @@ pub enum Names {
 
 impl Names {
     /// This computer's.
-    pub const HERE: Names = if cfg!(windows) { Names::Windows } else { Names::Linux };
+    pub const HERE: Names = if cfg!(windows) {
+        Names::Windows
+    } else {
+        Names::Linux
+    };
 }
 
 /// A folder's items as names a file manager shows: the name with its extension, NFC as Apple
@@ -311,7 +315,9 @@ pub fn shown_name(name: &str, on: Names) -> String {
             (Names::Windows, '?') => '？',
             (Names::Windows, '*') => '＊',
             // Control characters as their pictures (␁…␟).
-            (Names::Windows, c) if (c as u32) < 0x20 => char::from_u32(0x2400 + c as u32).unwrap_or('�'),
+            (Names::Windows, c) if (c as u32) < 0x20 => {
+                char::from_u32(0x2400 + c as u32).unwrap_or('�')
+            }
             (Names::Windows, c) => c,
         })
         .collect();
@@ -328,7 +334,12 @@ pub fn shown_name(name: &str, on: Names) -> String {
             base.push('␠');
         }
         // CON, PRN, AUX, NUL, COM0–9, LPT0–9 — alone or before an extension — open a device.
-        let stem = base.split('.').next().unwrap_or("").trim_end().to_ascii_uppercase();
+        let stem = base
+            .split('.')
+            .next()
+            .unwrap_or("")
+            .trim_end()
+            .to_ascii_uppercase();
         let device = matches!(stem.as_str(), "CON" | "PRN" | "AUX" | "NUL")
             || ((stem.starts_with("COM") || stem.starts_with("LPT"))
                 && stem.len() == 4
@@ -1008,7 +1019,10 @@ mod tests {
             item("c", "a/b", None, "FOLDER", 0, "e"),
             item("d", "..", None, "FOLDER", 0, "e"),
         ];
-        let names: Vec<String> = named(&items).into_iter().map(|(n, _)| n).collect();
+        let names: Vec<String> = named_on(&items, Names::Linux)
+            .into_iter()
+            .map(|(n, _)| n)
+            .collect();
         assert_eq!(names, ["Report.pdf", "Report (2).pdf", "a∕b", ".._"]);
     }
 
@@ -1035,8 +1049,20 @@ mod tests {
             item("d", "Report", Some("pdf"), "FILE", 1, "e"),
             item("e", "report", Some("PDF"), "FILE", 1, "e"),
         ];
-        let names: Vec<String> = named_on(&items, Names::Windows).into_iter().map(|(n, _)| n).collect();
-        assert_eq!(names, ["a：b？.txt", "CON_.txt", "notes．", "Report.pdf", "report (2).PDF"]);
+        let names: Vec<String> = named_on(&items, Names::Windows)
+            .into_iter()
+            .map(|(n, _)| n)
+            .collect();
+        assert_eq!(
+            names,
+            [
+                "a：b？.txt",
+                "CON_.txt",
+                "notes．",
+                "Report.pdf",
+                "report (2).PDF"
+            ]
+        );
         // Linux keeps its own rules.
         assert_eq!(shown_name("a:b?", Names::Linux), "a:b?");
     }
