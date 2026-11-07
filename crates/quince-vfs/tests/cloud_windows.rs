@@ -343,11 +343,16 @@ const JPEG: &[u8] = &[
 
 /// iCloud Photos as the Photos folder makes it (Library, then photos), each read whole from the
 /// app's photo cache, only ever added to or deleted from.
-struct Photos(Arc<std::sync::Mutex<Vec<String>>>, PathBuf);
+struct Photos(
+    Arc<std::sync::Mutex<Vec<String>>>,
+    PathBuf,
+    HashMap<String, Vec<DriveItem>>,
+);
 
 impl Remote for Photos {
-    fn list(&self, _: &str) -> Fut<Vec<DriveItem>> {
-        Box::pin(async { Ok(Vec::new()) })
+    fn list(&self, folder: &str) -> Fut<Vec<DriveItem>> {
+        let items = self.2.get(folder).cloned().unwrap_or_default();
+        Box::pin(async move { Ok(items) })
     }
     fn read(&self, _: &DriveItem, _: u64, _: u64) -> Fut<Vec<u8>> {
         Box::pin(async { Err("read through the photo cache".to_string()) })
@@ -432,7 +437,7 @@ fn explorer_shows_icloud_photos() {
         &place,
         &shown,
         Provider::new(
-            Arc::new(Photos(Arc::clone(&log), cached)),
+            Arc::new(Photos(Arc::clone(&log), cached, tree.clone())),
             Arc::new(Library(Arc::new(std::sync::Mutex::new(tree)))),
             rt.handle().clone(),
             out.join("sending"),
@@ -440,6 +445,7 @@ fn explorer_shows_icloud_photos() {
         .add_only(),
     )
     .expect("the photos folder registers and connects");
+    println!("registered {} (shell: {})", id, folder.shell);
 
     let lib = place.join("Library");
     assert_eq!(dir(&place), ["Library"]);

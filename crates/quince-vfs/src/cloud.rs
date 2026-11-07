@@ -292,7 +292,12 @@ pub struct Shown<'a> {
 /// registration, or the bare filter where that is refused) and connect to it.
 pub fn start(root: &Path, shown: &Shown, provider: Provider) -> Result<CloudFolder, String> {
     std::fs::create_dir_all(root).map_err(|e| e.to_string())?;
-    let shell = match register_with_shell(root, shown) {
+    // Tried twice: the shell's registry of cloud folders can refuse one made the moment after
+    // another (Element not found, seen registering iCloud Photos right after iCloud Drive).
+    let shell = match register_with_shell(root, shown).or_else(|_| {
+        std::thread::sleep(std::time::Duration::from_millis(800));
+        register_with_shell(root, shown)
+    }) {
         Ok(()) => true,
         Err(e) => {
             // Refused by the shell (an unpackaged copy, where Windows wants package identity):
