@@ -573,33 +573,48 @@ fn start(app: &AppHandle, which: Which, at: &std::path::Path) -> Result<(), Stri
     if mounted(which).is_some() {
         return Ok(());
     }
-    if which == Which::Photos {
-        return Err("Photos in File Explorer comes next; iCloud Drive is there now.".into());
-    }
-    let remote = Arc::new(AppRemote {
-        app: app.clone(),
-        links: Arc::new(Mutex::new(HashMap::new())),
-    });
     let id = cloud_id(which)?;
     let icon = std::env::current_exe()
         .map(|exe| format!("{},0", exe.display()))
         .unwrap_or_default();
+    let rt = tauri::async_runtime::handle().inner().clone();
+    let (provider, name) = match which {
+        Which::Drive => (
+            quince_vfs::cloud::Provider::new(
+                Arc::new(AppRemote {
+                    app: app.clone(),
+                    links: Arc::new(Mutex::new(HashMap::new())),
+                }),
+                Arc::new(AppStore::new(app.clone())),
+                rt,
+                // Saved files are copied here before they are sent, beside the library.
+                crate::state_dir(app).join("drive-sending"),
+            ),
+            "iCloud Drive",
+        ),
+        // The same tree as the Photos folder on Linux (mount_photos): read through the app's
+        // own photo cache, and only ever added to or deleted from.
+        Which::Photos => (
+            quince_vfs::cloud::Provider::new(
+                Arc::new(crate::mount_photos::PhotosRemote(app.clone())),
+                Arc::new(crate::mount_photos::PhotosStore(app.clone())),
+                rt,
+                crate::state_dir(app).join("photos-sending"),
+            )
+            .add_only(),
+            "iCloud Photos",
+        ),
+    };
     let folder = quince_vfs::cloud::start(
         at,
         &quince_vfs::cloud::Shown {
             id: &id,
-            name: "iCloud Drive",
+            name,
             icon: &icon,
         },
-        quince_vfs::cloud::Provider::new(
-            remote,
-            Arc::new(AppStore::new(app.clone())),
-            tauri::async_runtime::handle().inner().clone(),
-            // Saved files are copied here before they are sent, beside the library (owner-only).
-            crate::state_dir(app).join("drive-sending"),
-        ),
+        provider,
     )
-    .map_err(|e| format!("iCloud Drive could not be added to File Explorer: {e}"))?;
+    .map_err(|e| format!("{name} could not be added to File Explorer: {e}"))?;
     CLOUD
         .lock()
         .unwrap_or_else(std::sync::PoisonError::into_inner)
@@ -707,9 +722,8 @@ fn status(app: &AppHandle, which: Which, problem: Option<String>) -> FolderStatu
         path: at.to_string_lossy().into_owned(),
         problem,
         waiting,
-        // Linux (not in the Flatpak, which has no FUSE), and Windows for iCloud Drive.
-        available: (cfg!(target_os = "linux") && !in_flatpak())
-            || (cfg!(windows) && which == Which::Drive),
+        // Linux (not in the Flatpak, which has no FUSE), and Windows.
+        available: (cfg!(target_os = "linux") && !in_flatpak()) || cfg!(windows),
     }
 }
 

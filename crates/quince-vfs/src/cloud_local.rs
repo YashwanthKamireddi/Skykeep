@@ -40,13 +40,14 @@ pub fn watch(
     staging: PathBuf,
     rt: tokio::runtime::Handle,
     stop: Arc<std::sync::atomic::AtomicBool>,
+    add_only: bool,
 ) -> Option<std::thread::JoinHandle<()>> {
     let (tx, rx) = tokio::sync::mpsc::unbounded_channel::<PathBuf>();
     // Whatever changed while Skykeep was closed.
     for path in scan(&root) {
         let _ = tx.send(path);
     }
-    rt.spawn(settle_and_send(rx, Arc::clone(&remote), staging));
+    rt.spawn(settle_and_send(rx, Arc::clone(&remote), staging, add_only));
     let watched = root.clone();
     std::thread::Builder::new()
         .name("quince:cloud-watch".into())
@@ -165,6 +166,7 @@ async fn settle_and_send(
     mut rx: tokio::sync::mpsc::UnboundedReceiver<PathBuf>,
     remote: Arc<dyn Remote>,
     staging: PathBuf,
+    add_only: bool,
 ) {
     let mut touched: HashMap<PathBuf, Instant> = HashMap::new();
     let mut tick = tokio::time::interval(std::time::Duration::from_millis(500));
@@ -182,7 +184,7 @@ async fn settle_and_send(
                     .collect();
                 for path in due {
                     touched.remove(&path);
-                    if let Err(e) = sync_path(remote.as_ref(), &staging, &path).await {
+                    if let Err(e) = sync_path(remote.as_ref(), &staging, &path, add_only).await {
                         eprintln!("quince: sending {}: {e}", path.display());
                         // Tried again in a while; the file itself stays as it is.
                         touched.insert(path, Instant::now() + std::time::Duration::from_secs(25));
@@ -194,7 +196,12 @@ async fn settle_and_send(
 }
 
 /// One path made Apple's: a new folder made there, a new or saved file sent.
-async fn sync_path(remote: &dyn Remote, staging: &Path, path: &Path) -> Result<(), String> {
+async fn sync_path(
+    remote: &dyn Remote,
+    staging: &Path,
+    path: &Path,
+    add_only: bool,
+) -> Result<(), String> {
     let Some(name) = path
         .file_name()
         .and_then(|n| n.to_str())
@@ -227,12 +234,23 @@ async fn sync_path(remote: &dyn Remote, staging: &Path, path: &Path) -> Result<(
             keep_or_free(path).await;
             return Ok(());
         }
+        if add_only {
+            // Photos has no folders to make: it stays here, marked so it never shows waiting.
+            let _ = convert(path, None);
+            return Ok(());
+        }
         let made = remote.mkdir(&folder, &name).await?;
         convert(path, Some(&made)).map_err(|e| e.to_string())?;
         // What was copied in with it.
         for entry in std::fs::read_dir(path).into_iter().flatten().flatten() {
-            Box::pin(sync_path(remote, staging, &entry.path())).await?;
+            Box::pin(sync_path(remote, staging, &entry.path(), add_only)).await?;
         }
+        return Ok(());
+    }
+    let edited_here = matches!(&state, Some((st, _)) if *st != CF_IN_SYNC_STATE_IN_SYNC);
+    if add_only && (edited_here || (state.is_none() && !remote.accepts(&folder))) {
+        // Photos: a photo saved over is not sent as a change (a photo has no versions to
+        // replace), and a view (Favorites, Videos) is no place to add one. Left as it is.
         return Ok(());
     }
     let base = match &state {
@@ -250,7 +268,18 @@ async fn sync_path(remote: &dyn Remote, staging: &Path, path: &Path) -> Result<(
     std::fs::create_dir_all(&dir).map_err(|e| e.to_string())?;
     let staged = dir.join(&name);
     std::fs::copy(path, &staged).map_err(|e| e.to_string())?;
-    let sent = send(remote, &folder, &staged, base.as_ref(), base.as_ref()).await;
+    let sent = if add_only {
+        // Only ever an addition: never a replacement of a photo found under the same name.
+        remote
+            .upload(&folder, &staged)
+            .await
+            .map(|item| crate::writes::Sent {
+                item,
+                conflicted: false,
+            })
+    } else {
+        send(remote, &folder, &staged, base.as_ref(), base.as_ref()).await
+    };
     let _ = std::fs::remove_dir_all(&dir);
     let sent = sent?;
     if stamp(path) != Some(before) {

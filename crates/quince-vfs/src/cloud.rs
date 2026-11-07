@@ -44,9 +44,20 @@ pub struct Provider {
     /// Each folder Explorer has listed, by Apple's id: where it is, so a change at Apple is
     /// brought to it (`CloudFolder::refresh`).
     listed: Arc<std::sync::Mutex<HashMap<String, PathBuf>>>,
+    /// Only adding and deleting (iCloud Photos): a photo has no name or folder of its own to
+    /// change, so renames are declined and an added photo is never taken for a replacement of
+    /// one with the same name (iPhones reuse IMG_ numbers).
+    add_only: bool,
 }
 
 impl Provider {
+    /// Only adding and deleting, as iCloud Photos is.
+    #[must_use]
+    pub fn add_only(mut self) -> Provider {
+        self.add_only = true;
+        self
+    }
+
     pub fn new(
         remote: Arc<dyn Remote>,
         store: Arc<dyn Store>,
@@ -59,6 +70,7 @@ impl Provider {
             rt,
             staging,
             listed: Arc::default(),
+            add_only: false,
         }
     }
 }
@@ -263,12 +275,15 @@ pub fn start(root: &Path, shown: &Shown, provider: Provider) -> Result<CloudFold
     let mut folder = connect(root, provider)?;
     folder.shell = shell;
     // What changed here while Skykeep was closed, then what changes from now on.
+    // SAFETY: the provider lives as long as the folder.
+    let add_only = unsafe { (*folder.provider).add_only };
     folder.watcher = crate::cloud_local::watch(
         root.to_path_buf(),
         remote,
         staging,
         rt,
         Arc::clone(&folder.stop),
+        add_only,
     );
     Ok(folder)
 }
@@ -527,6 +542,39 @@ async fn fetch_data(remote: &dyn Remote, req: Request, offset: u64, len: u64) {
         return;
     };
     let end = pieces.last().map_or(start, |&(at, n)| at + n);
+    // Kept whole by the app already (a photo in its photo cache): read from there, fetched
+    // once if need be, never through Apple in pieces.
+    if let Some(whole) = remote.file(&item) {
+        report(&req, end - start, 0);
+        let path = match whole.await {
+            Ok(path) => path,
+            Err(e) => {
+                eprintln!("quince: fetching {}: {e}", item.drivewsid);
+                fail_data(
+                    &req,
+                    start,
+                    end - start,
+                    STATUS_CLOUD_FILE_NETWORK_UNAVAILABLE,
+                );
+                return;
+            }
+        };
+        for (at, n) in pieces {
+            let bytes = read_at(&path, at, n);
+            match bytes {
+                Some(bytes) if bytes.len() as u64 == n => {
+                    if transfer_data(&req, at, &bytes, STATUS_SUCCESS).is_err() {
+                        return;
+                    }
+                }
+                _ => {
+                    fail_data(&req, at, end - at, STATUS_CLOUD_FILE_UNSUCCESSFUL);
+                    return;
+                }
+            }
+        }
+        return;
+    }
     for (at, n) in pieces {
         // Each piece read takes seconds on a slow line: progress keeps Windows' 60 s limit off.
         report(&req, end - start, at - start);
@@ -558,6 +606,16 @@ async fn fetch_data(remote: &dyn Remote, req: Request, offset: u64, len: u64) {
             return;
         }
     }
+}
+
+/// `n` bytes of a file kept on this computer, from `at`.
+fn read_at(path: &Path, at: u64, n: u64) -> Option<Vec<u8>> {
+    use std::io::{Read, Seek, SeekFrom};
+    let mut f = std::fs::File::open(path).ok()?;
+    f.seek(SeekFrom::Start(at)).ok()?;
+    let mut buf = vec![0u8; usize::try_from(n).ok()?];
+    f.read_exact(&mut buf).ok()?;
+    Some(buf)
 }
 
 fn report(req: &Request, total: u64, done: u64) {
@@ -761,8 +819,9 @@ unsafe fn full_path(volume: PCWSTR, path: PCWSTR) -> PathBuf {
     PathBuf::from(format!("{}{}", text(volume), text(path)))
 }
 
-/// Answers a delete or rename notice: allowed. Nothing is waited on here.
-fn ack(req: &Request, kind: CF_OPERATION_TYPE) {
+/// Answers a delete or rename notice: allowed, or (`status` not success) declined. Nothing is
+/// waited on here.
+fn ack(req: &Request, kind: CF_OPERATION_TYPE, status: NTSTATUS) {
     let info = CF_OPERATION_INFO {
         StructSize: size_of::<CF_OPERATION_INFO>() as u32,
         Type: kind,
@@ -773,9 +832,14 @@ fn ack(req: &Request, kind: CF_OPERATION_TYPE) {
     };
     let mut params = CF_OPERATION_PARAMETERS {
         ParamSize: size_of::<CF_OPERATION_PARAMETERS>() as u32,
-        ..Default::default()
+        Anonymous: CF_OPERATION_PARAMETERS_0 {
+            // AckDelete and AckRename share their layout: flags, then the status.
+            AckRename: CF_OPERATION_PARAMETERS_0_6 {
+                Flags: CF_OPERATION_ACK_RENAME_FLAG_NONE,
+                CompletionStatus: status,
+            },
+        },
     };
-    // AckDelete and AckRename share their layout: flags, then the status (success, zero).
     // SAFETY: a plain call with keys Windows gave us.
     if let Err(e) = unsafe { CfExecute(&info, &mut params) } {
         eprintln!(
@@ -792,7 +856,7 @@ unsafe extern "system" fn on_delete(
     let _ = std::panic::catch_unwind(|| {
         // SAFETY: as in on_fetch_data.
         if let Some((req, _)) = unsafe { request(info) } {
-            ack(&req, CF_OPERATION_TYPE_ACK_DELETE);
+            ack(&req, CF_OPERATION_TYPE_ACK_DELETE, STATUS_SUCCESS);
         }
     });
 }
@@ -803,8 +867,15 @@ unsafe extern "system" fn on_rename(
 ) {
     let _ = std::panic::catch_unwind(|| {
         // SAFETY: as in on_fetch_data.
-        if let Some((req, _)) = unsafe { request(info) } {
-            ack(&req, CF_OPERATION_TYPE_ACK_RENAME);
+        if let Some((req, provider)) = unsafe { request(info) } {
+            // A photo has no name of its own to change: declined, as the Photos folder on
+            // Linux declines it, and the file stays as it was.
+            let status = if provider.add_only {
+                windows::Win32::Foundation::STATUS_CLOUD_FILE_NOT_SUPPORTED
+            } else {
+                STATUS_SUCCESS
+            };
+            ack(&req, CF_OPERATION_TYPE_ACK_RENAME, status);
         }
     });
 }
