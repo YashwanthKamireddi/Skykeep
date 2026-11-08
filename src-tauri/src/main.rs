@@ -57,6 +57,7 @@ mod push;
 mod refresh;
 mod reminders_cmds;
 mod saving;
+mod send;
 // Skykeep's results in GNOME's and KDE's own search, on the session bus.
 #[cfg(target_os = "linux")]
 mod search_provider;
@@ -7270,6 +7271,8 @@ fn main() {
             }
             alerts::spawn(app.handle().clone());
             alerts::spawn_events(app.handle().clone());
+            #[cfg(windows)]
+            send::offer_in_send_to();
             if let Err(e) = build_tray(app) {
                 quiet!("no tray on this desktop, so closing the window quits: {e}");
             }

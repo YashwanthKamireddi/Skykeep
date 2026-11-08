@@ -76,6 +76,21 @@ pub fn new_asked(args: &[String]) -> Option<&'static str> {
 /// directory the launch came from. Only files of the kinds Skykeep opens are taken; any
 /// other argument is someone else's business.
 pub fn files_asked(args: &[String], cwd: &std::path::Path) -> Vec<std::path::PathBuf> {
+    paths_asked(args, cwd)
+        .into_iter()
+        .filter(|path| {
+            path.extension().and_then(|e| e.to_str()).is_some_and(|e| {
+                matches!(
+                    e.to_ascii_lowercase().as_str(),
+                    "ics" | "ical" | "icalendar" | "vcf" | "vcard"
+                )
+            })
+        })
+        .collect()
+}
+
+/// Every file or folder a launch names (a path or a `file://` URI), made absolute.
+pub fn paths_asked(args: &[String], cwd: &std::path::Path) -> Vec<std::path::PathBuf> {
     let mut skip_next = false;
     let mut out = Vec::new();
     for a in args.iter().skip(1) {
@@ -104,19 +119,11 @@ pub fn files_asked(args: &[String], cwd: &std::path::Path) -> Vec<std::path::Pat
             None if a.contains("://") => continue,
             None => std::path::PathBuf::from(a),
         };
-        let wanted = path.extension().and_then(|e| e.to_str()).is_some_and(|e| {
-            matches!(
-                e.to_ascii_lowercase().as_str(),
-                "ics" | "ical" | "icalendar" | "vcf" | "vcard"
-            )
+        out.push(if path.is_absolute() {
+            path
+        } else {
+            cwd.join(path)
         });
-        if wanted {
-            out.push(if path.is_absolute() {
-                path
-            } else {
-                cwd.join(path)
-            });
-        }
     }
     out
 }

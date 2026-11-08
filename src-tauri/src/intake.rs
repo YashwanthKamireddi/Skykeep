@@ -102,6 +102,11 @@ pub struct ImportContact {
 /// capture, or files to import. Whether it asked for either; if not, the caller opens what
 /// it would have opened anyway.
 pub fn arrived(app: &AppHandle, args: &[String], cwd: &Path) -> bool {
+    // Send to iPhone, from a file manager: sent, and no window opened for it.
+    if let Some(files) = crate::send::asked(args, cwd) {
+        crate::send::send(app, files);
+        return true;
+    }
     if let Some(kind) = crate::apps::new_asked(args) {
         // An event is made in Calendar's own window, with its days and times; the others in
         // the one-field capture.

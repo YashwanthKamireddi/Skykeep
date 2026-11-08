@@ -77,6 +77,14 @@ apps:
     plugs: [network, network-status, home, removable-media, password-manager-service, audio-playback]
     environment:
       WEBKIT_GST_USE_PLAYBIN3: "1"
+  # Send to iPhone from the file manager's Open With (src-tauri/src/send.rs).
+  send-to-iphone:
+    command: usr/bin/skykeep --send-to-iphone
+    desktop: usr/share/applications/io.github.yashwanthkamireddi.Skykeep.SendToiPhone.desktop
+    extensions: [gnome]
+    plugs: [network, network-status, home, removable-media, password-manager-service, audio-playback]
+    environment:
+      WEBKIT_GST_USE_PLAYBIN3: "1"
 
 parts:
   skykeep:

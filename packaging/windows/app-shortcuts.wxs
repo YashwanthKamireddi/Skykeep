@@ -41,5 +41,16 @@
         <RegistryValue Root="HKCU" Key="Software\Yashwanth Kamireddi\Skykeep" Name="App Shortcuts" Type="integer" Value="1" KeyPath="yes"/>
       </Component>
     </DirectoryRef>
+    <!-- Send to → iPhone (Skykeep): Skykeep keeps it in the Send To folder itself
+         (src-tauri/src/send.rs); the MSI takes it away on uninstall, as the .exe's does. -->
+    <DirectoryRef Id="TARGETDIR">
+      <Directory Id="SendToFolder" />
+    </DirectoryRef>
+    <DirectoryRef Id="SendToFolder">
+      <Component Id="SkykeepSendTo" Guid="*">
+        <RemoveFile Id="SkykeepSendToEntry" Name="iPhone (Skykeep).lnk" On="uninstall"/>
+        <RegistryValue Root="HKCU" Key="Software\Yashwanth Kamireddi\Skykeep" Name="Send To" Type="integer" Value="1" KeyPath="yes"/>
+      </Component>
+    </DirectoryRef>
   </Fragment>
 </Wix>

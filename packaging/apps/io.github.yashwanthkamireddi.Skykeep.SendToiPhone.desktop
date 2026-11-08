@@ -1,0 +1,14 @@
+# Send to iPhone: in every file manager's Open With, for the files people send to a phone.
+# Delivered through iCloud (src-tauri/src/send.rs): photos and videos into Photos, anything
+# else into iCloud Drive, in the Files app. An action, not an app: hidden from the launcher.
+[Desktop Entry]
+Type=Application
+Name=Send to iPhone
+GenericName=Send to iPhone
+Comment=Send to your iPhone through iCloud
+Exec=skykeep --send-to-iphone %F
+Icon=io.github.yashwanthkamireddi.Skykeep
+Terminal=false
+NoDisplay=true
+MimeType=image/jpeg;image/png;image/heic;image/heif;image/gif;image/tiff;image/webp;image/x-adobe-dng;video/mp4;video/quicktime;video/x-m4v;video/x-msvideo;application/pdf;application/zip;application/x-7z-compressed;application/x-tar;application/gzip;text/plain;text/markdown;text/csv;audio/mpeg;audio/mp4;audio/x-wav;application/vnd.openxmlformats-officedocument.wordprocessingml.document;application/vnd.openxmlformats-officedocument.spreadsheetml.sheet;application/vnd.openxmlformats-officedocument.presentationml.presentation;application/vnd.oasis.opendocument.text;application/vnd.oasis.opendocument.spreadsheet;application/vnd.apple.pages;application/vnd.apple.numbers;application/vnd.apple.keynote;application/epub+zip;application/octet-stream;
+StartupNotify=false

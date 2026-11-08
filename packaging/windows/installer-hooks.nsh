@@ -106,6 +106,9 @@
 
 !macro NSIS_HOOK_POSTUNINSTALL
   ${If} $UpdateMode <> 1
+    ; Send to → iPhone (Skykeep), which Skykeep keeps in this person's Send To folder
+    ; (src-tauri/src/send.rs).
+    Delete "$SENDTO\iPhone (Skykeep).lnk"
     !insertmacro SKYKEEP_MENU
     !insertmacro SKYKEEP_APP_SHORTCUT_GONE "Notes"
     !insertmacro SKYKEEP_APP_SHORTCUT_GONE "Reminders"

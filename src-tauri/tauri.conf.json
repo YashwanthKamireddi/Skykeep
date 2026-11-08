@@ -74,7 +74,7 @@
       },
       "wix": {
         "fragmentPaths": ["../packaging/windows/app-shortcuts.wxs"],
-        "componentRefs": ["SkykeepAppShortcuts"]
+        "componentRefs": ["SkykeepAppShortcuts", "SkykeepSendTo"]
       },
       "webviewInstallMode": {
         "type": "downloadBootstrapper",
@@ -103,6 +103,7 @@
           "/usr/share/applications/io.github.yashwanthkamireddi.Skykeep.Contacts.desktop": "../packaging/apps/io.github.yashwanthkamireddi.Skykeep.Contacts.desktop",
           "/usr/share/applications/io.github.yashwanthkamireddi.Skykeep.Drive.desktop": "../packaging/apps/io.github.yashwanthkamireddi.Skykeep.Drive.desktop",
           "/usr/share/applications/io.github.yashwanthkamireddi.Skykeep.Photos.desktop": "../packaging/apps/io.github.yashwanthkamireddi.Skykeep.Photos.desktop",
+          "/usr/share/applications/io.github.yashwanthkamireddi.Skykeep.SendToiPhone.desktop": "../packaging/apps/io.github.yashwanthkamireddi.Skykeep.SendToiPhone.desktop",
           "/usr/share/gnome-shell/search-providers/io.github.yashwanthkamireddi.Skykeep.search-provider.ini": "../packaging/io.github.yashwanthkamireddi.Skykeep.search-provider.ini",
           "/usr/share/dbus-1/services/io.github.yashwanthkamireddi.Skykeep.SearchProvider.service": "../packaging/io.github.yashwanthkamireddi.Skykeep.SearchProvider.service",
           "/usr/share/krunner/dbusplugins/io.github.yashwanthkamireddi.Skykeep.krunner.desktop": "../packaging/io.github.yashwanthkamireddi.Skykeep.krunner.desktop",
@@ -137,6 +138,7 @@
           "/usr/share/applications/io.github.yashwanthkamireddi.Skykeep.Contacts.desktop": "../packaging/apps/io.github.yashwanthkamireddi.Skykeep.Contacts.desktop",
           "/usr/share/applications/io.github.yashwanthkamireddi.Skykeep.Drive.desktop": "../packaging/apps/io.github.yashwanthkamireddi.Skykeep.Drive.desktop",
           "/usr/share/applications/io.github.yashwanthkamireddi.Skykeep.Photos.desktop": "../packaging/apps/io.github.yashwanthkamireddi.Skykeep.Photos.desktop",
+          "/usr/share/applications/io.github.yashwanthkamireddi.Skykeep.SendToiPhone.desktop": "../packaging/apps/io.github.yashwanthkamireddi.Skykeep.SendToiPhone.desktop",
           "/usr/share/gnome-shell/search-providers/io.github.yashwanthkamireddi.Skykeep.search-provider.ini": "../packaging/io.github.yashwanthkamireddi.Skykeep.search-provider.ini",
           "/usr/share/dbus-1/services/io.github.yashwanthkamireddi.Skykeep.SearchProvider.service": "../packaging/io.github.yashwanthkamireddi.Skykeep.SearchProvider.service",
           "/usr/share/krunner/dbusplugins/io.github.yashwanthkamireddi.Skykeep.krunner.desktop": "../packaging/io.github.yashwanthkamireddi.Skykeep.krunner.desktop",

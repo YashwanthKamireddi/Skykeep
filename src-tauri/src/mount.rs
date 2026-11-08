@@ -53,6 +53,14 @@ async fn context(
     Ok((client.http().clone(), root, client.service_params()))
 }
 
+/// iCloud Drive as the folders on this computer reach it: for Send to iPhone (send.rs) too.
+pub fn drive_remote(app: &AppHandle) -> Arc<dyn Remote> {
+    Arc::new(AppRemote {
+        app: app.clone(),
+        links: Arc::new(Mutex::new(HashMap::new())),
+    })
+}
+
 impl Remote for AppRemote {
     fn list(&self, folder: &str) -> Fut<Vec<DriveItem>> {
         let (app, folder) = (self.app.clone(), folder.to_string());
