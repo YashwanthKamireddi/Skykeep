@@ -584,6 +584,10 @@ public static class Thumb {{
                 .any(|(_, p)| p.ends_with("IMG_0001.JPG")),
             "the provider asked Skykeep over the pipe"
         );
+        // The provider's own trace, on for this ask only: where the shell's way stops, if it does.
+        let trace = PathBuf::from(std::env::var("USERPROFILE").unwrap())
+            .join(r"AppData\LocalLow\Skykeep thumbnails trace");
+        std::fs::create_dir_all(&trace).unwrap();
         let asked = Command::new("powershell")
             .env_remove("PSModulePath")
             .args([
@@ -594,6 +598,11 @@ public static class Thumb {{
             .output()
             .unwrap();
         let answer = String::from_utf8_lossy(&asked.stdout).trim().to_string();
+        println!(
+            "provider trace:\n{}",
+            std::fs::read_to_string(trace.join("trace.txt")).unwrap_or_default()
+        );
+        let _ = std::fs::remove_dir_all(&trace);
         // Where the shell ran the provider: in the asking process, or isolated in another.
         let hosts = Command::new("tasklist")
             .args(["/m", "quince_thumbs.dll", "/fo", "csv"])

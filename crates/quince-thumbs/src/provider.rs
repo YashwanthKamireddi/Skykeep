@@ -24,6 +24,27 @@ pub const CLSID: GUID = GUID::from_u128(0x4ee8b6ba_8522_41f1_a17e_19126a88c38e);
 /// milliseconds; one fetched from Apple may take a few seconds; past this, no thumbnail.
 const PATIENCE_MS: u32 = 8_000;
 
+/// What the provider did, step by step, appended to `trace.txt` in a folder of that name under
+/// `AppData\LocalLow\Skykeep thumbnails trace` only when that folder exists: off everywhere
+/// except where a test made it (LocalLow, so a low-integrity host can write it too).
+fn trace(line: &str) {
+    use std::io::Write;
+    let Some(home) = std::env::var_os("USERPROFILE") else {
+        return;
+    };
+    let dir = std::path::Path::new(&home).join(r"AppData\LocalLow\Skykeep thumbnails trace");
+    if !dir.is_dir() {
+        return;
+    }
+    if let Ok(mut f) = std::fs::OpenOptions::new()
+        .create(true)
+        .append(true)
+        .open(dir.join("trace.txt"))
+    {
+        let _ = writeln!(f, "{} {line}", std::process::id());
+    }
+}
+
 /// Objects alive, for `DllCanUnloadNow`.
 static LIVE: AtomicUsize = AtomicUsize::new(0);
 
@@ -50,6 +71,7 @@ impl Drop for Provider {
 impl IInitializeWithItem_Impl for Provider_Impl {
     fn Initialize(&self, item: Ref<IShellItem>, _mode: u32) -> windows_core::Result<()> {
         caught(|| {
+            trace("initialize");
             let item = item.ok()?;
             // SAFETY: a live shell item; the string is ours to free, and freed once read.
             let path = unsafe {
@@ -58,6 +80,7 @@ impl IInitializeWithItem_Impl for Provider_Impl {
                 CoTaskMemFree(Some(name.0 as *const c_void));
                 path
             };
+            trace(&format!("initialized: {}", String::from_utf16_lossy(&path)));
             *self.path.lock().map_err(|_| E_UNEXPECTED)? = Some(path);
             Ok(())
         })
@@ -81,7 +104,9 @@ impl IThumbnailProvider_Impl for Provider_Impl {
                 .map_err(|_| E_UNEXPECTED)?
                 .clone()
                 .ok_or(E_UNEXPECTED)?;
+            trace(&format!("thumbnail asked at {cx}"));
             let (w, h, pixels) = ask(&path, cx.clamp(1, protocol::MAX_SIDE)).ok_or(E_FAIL)?;
+            trace(&format!("answered {w}x{h}"));
             let made = drawn(w, h, &pixels)?;
             // SAFETY: both checked non-null above; Explorer owns the bitmap from here.
             unsafe {
@@ -106,6 +131,7 @@ fn ask(path: &[u16], size: u32) -> Option<(u32, u32, Vec<u8>)> {
     // Busy with another thumbnail: wait a little for it, never long. Closed: false at once.
     // SAFETY: a name string alive for the call.
     if !unsafe { WaitNamedPipeW(&name, 1_000) }.as_bool() {
+        trace(&format!("no pipe: {:?}", windows_core::Error::from_win32()));
         return None;
     }
     // SAFETY: as above; the handle is closed by `Pipe`'s drop.
@@ -121,6 +147,7 @@ fn ask(path: &[u16], size: u32) -> Option<(u32, u32, Vec<u8>)> {
                 None,
             )
         }
+        .map_err(|e| trace(&format!("pipe refused: {e:?}")))
         .ok()?,
     );
     let deadline = std::time::Instant::now() + std::time::Duration::from_millis(PATIENCE_MS.into());
@@ -273,6 +300,7 @@ pub unsafe extern "system" fn DllGetClassObject(
     object: *mut *mut c_void,
 ) -> HRESULT {
     std::panic::catch_unwind(|| {
+        trace("class asked");
         if class.is_null() || iid.is_null() || object.is_null() {
             return E_POINTER;
         }
