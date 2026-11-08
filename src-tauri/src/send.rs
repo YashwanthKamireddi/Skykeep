@@ -234,7 +234,7 @@ fn make_send_to() -> windows::core::Result<()> {
                 let mut target = [0u16; 1024];
                 if link.GetPath(&mut target, std::ptr::null_mut(), 0).is_ok() {
                     let end = target.iter().position(|&u| u == 0).unwrap_or(target.len());
-                    if PathBuf::from(String::from_utf16_lossy(&target[..end])) == exe {
+                    if Path::new(&String::from_utf16_lossy(&target[..end])) == exe {
                         return Ok(());
                     }
                 }

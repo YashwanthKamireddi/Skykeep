@@ -166,7 +166,7 @@ fn is_system(p: &Path) -> bool {
         let s = p.to_string_lossy().to_ascii_lowercase();
         let s = s.trim_start_matches(r"\\?\");
         let rest = s.get(2..).unwrap_or("");
-        return rest.is_empty()
+        rest.is_empty()
             || rest == r"\"
             || [
                 r"\windows",
@@ -175,7 +175,7 @@ fn is_system(p: &Path) -> bool {
                 r"\programdata",
             ]
             .iter()
-            .any(|d| rest == *d || rest.starts_with(&format!(r"{d}\")));
+            .any(|d| rest == *d || rest.starts_with(&format!(r"{d}\")))
     }
     #[cfg(not(windows))]
     {

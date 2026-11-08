@@ -300,39 +300,33 @@ pub(crate) fn renew_unless_changed(
 /// package declares the same in its manifest.
 pub fn add_thumbnails(id: &str, clsid: &str, dll: &Path) -> Result<(), String> {
     use windows::Win32::System::Registry::{HKEY_CURRENT_USER, HKEY_LOCAL_MACHINE};
+    // Hosted by Windows' own DLL surrogate (dllhost), as the shell asks a cloud folder's
+    // thumbnail provider to be, never loaded into Explorer: an AppID that says DllSurrogate,
+    // and the class pointing at it. Nextcloud registers its provider the same way, per user.
+    let app_id = format!(r"Software\Classes\AppID\{{{clsid}}}");
+    reg_set(HKEY_CURRENT_USER, &app_id, None, "Skykeep thumbnails")?;
+    reg_set(HKEY_CURRENT_USER, &app_id, Some("DllSurrogate"), "")?;
     let class = format!(r"Software\Classes\CLSID\{{{clsid}}}");
+    reg_set(HKEY_CURRENT_USER, &class, None, "Skykeep thumbnails")?;
     reg_set(
         HKEY_CURRENT_USER,
         &class,
-        None,
-        Reg::Text("Skykeep thumbnails"),
-    )?;
-    // A cloud folder's provider is told the item, not handed a stream: Explorer's isolation
-    // process is for stream providers only.
-    reg_set(
-        HKEY_CURRENT_USER,
-        &class,
-        Some("DisableProcessIsolation"),
-        Reg::Number(1),
+        Some("AppID"),
+        &format!("{{{clsid}}}"),
     )?;
     let server = format!(r"{class}\InprocServer32");
-    reg_set(
-        HKEY_CURRENT_USER,
-        &server,
-        None,
-        Reg::Text(&dll.display().to_string()),
-    )?;
+    reg_set(HKEY_CURRENT_USER, &server, None, &dll.display().to_string())?;
     reg_set(
         HKEY_CURRENT_USER,
         &server,
         Some("ThreadingModel"),
-        Reg::Text("Apartment"),
+        "Apartment",
     )?;
     reg_set(
         HKEY_LOCAL_MACHINE,
         &format!(r"SOFTWARE\Microsoft\Windows\CurrentVersion\Explorer\SyncRootManager\{id}"),
         Some("ThumbnailProvider"),
-        Reg::Text(&format!("{{{clsid}}}")),
+        &format!("{{{clsid}}}"),
     )
 }
 
@@ -340,25 +334,20 @@ pub fn add_thumbnails(id: &str, clsid: &str, dll: &Path) -> Result<(), String> {
 /// folder, when it is unregistered).
 pub fn remove_thumbnails(clsid: &str) {
     use windows::Win32::System::Registry::{RegDeleteTreeW, HKEY_CURRENT_USER};
-    // SAFETY: a predefined key and a path string alive for the call.
-    let _ = unsafe {
-        RegDeleteTreeW(
-            HKEY_CURRENT_USER,
-            &HSTRING::from(format!(r"Software\Classes\CLSID\{{{clsid}}}")),
-        )
-    };
-}
-
-enum Reg<'a> {
-    Text(&'a str),
-    Number(u32),
+    for key in [
+        format!(r"Software\Classes\CLSID\{{{clsid}}}"),
+        format!(r"Software\Classes\AppID\{{{clsid}}}"),
+    ] {
+        // SAFETY: a predefined key and a path string alive for the call.
+        let _ = unsafe { RegDeleteTreeW(HKEY_CURRENT_USER, &HSTRING::from(key)) };
+    }
 }
 
 fn reg_set(
     root: windows::Win32::System::Registry::HKEY,
     key: &str,
     name: Option<&str>,
-    value: Reg<'_>,
+    value: &str,
 ) -> Result<(), String> {
     use windows::Win32::System::Registry::*;
     let mut opened = HKEY::default();
@@ -379,17 +368,12 @@ fn reg_set(
         .map_err(|e| format!("{key}: {e}"))?;
         let name = name.map(HSTRING::from);
         let name = name.as_ref().map_or(PCWSTR::null(), |n| PCWSTR(n.as_ptr()));
-        let set = match value {
-            Reg::Text(t) => {
-                let wide: Vec<u8> = t
-                    .encode_utf16()
-                    .chain(std::iter::once(0))
-                    .flat_map(u16::to_le_bytes)
-                    .collect();
-                RegSetValueExW(opened, name, None, REG_SZ, Some(&wide))
-            }
-            Reg::Number(n) => RegSetValueExW(opened, name, None, REG_DWORD, Some(&n.to_le_bytes())),
-        };
+        let wide: Vec<u8> = value
+            .encode_utf16()
+            .chain(std::iter::once(0))
+            .flat_map(u16::to_le_bytes)
+            .collect();
+        let set = RegSetValueExW(opened, name, None, REG_SZ, Some(&wide));
         let _ = RegCloseKey(opened);
         set.ok().map_err(|e| format!("{key}: {e}"))
     }
