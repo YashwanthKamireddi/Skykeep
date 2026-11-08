@@ -93,10 +93,154 @@ pub fn send(app: &AppHandle, paths: Vec<PathBuf>) {
             crate::show_window(&app);
             return;
         }
-        let ended = deliver(&app, &paths).await;
+        // How much it is, before anything goes: a folder can hold a project's thousands of files.
+        let sizing = paths.clone();
+        let Ok(survey) = tokio::task::spawn_blocking(move || survey(&sizing)).await else {
+            return;
+        };
+        if let Some(free) = icloud_free(&app).await {
+            if survey.bytes > free {
+                crate::alerts::tell(
+                    &app,
+                    "Not enough room in iCloud",
+                    &format!(
+                        "This is {}; your iCloud has {} free. Free up space in iCloud, or send less.",
+                        bytes_words(survey.bytes),
+                        bytes_words(free)
+                    ),
+                );
+                return;
+            }
+        }
+        if survey.files >= BIG_FILES || survey.bytes >= BIG_BYTES {
+            let question = format!(
+                "Send {} to your iPhone? {} {}, {}.",
+                match paths.as_slice() {
+                    [one] => format!("\u{201c}{}\u{201d}", name_of(one)),
+                    many => format!("{} items", many.len()),
+                },
+                survey.files.to_string_with_commas(),
+                if survey.files == 1 { "file" } else { "files" },
+                bytes_words(survey.bytes),
+            );
+            let asking = app.clone();
+            let yes = tokio::task::spawn_blocking(move || {
+                use tauri_plugin_dialog::{DialogExt, MessageDialogButtons};
+                asking
+                    .dialog()
+                    .message(question)
+                    .title("Send to iPhone")
+                    .buttons(MessageDialogButtons::OkCancelCustom(
+                        "Send".into(),
+                        "Cancel".into(),
+                    ))
+                    .blocking_show()
+            })
+            .await
+            .unwrap_or(false);
+            if !yes {
+                return;
+            }
+        }
+        let ended = deliver(&app, &paths, survey).await;
         let (title, body) = ended.words();
         crate::alerts::tell(&app, &title, &body);
     });
+}
+
+/// Past either, a sending is asked about first, with its size.
+const BIG_FILES: u64 = 500;
+const BIG_BYTES: u64 = 2 * 1024 * 1024 * 1024;
+/// Files sent at once to iCloud Drive: a folder of thousands goes several times faster than one
+/// by one, without asking Apple for dozens of uploads at once.
+const AT_ONCE: usize = 3;
+
+/// What a sending holds: its files (a system's own and editors' scratch files left out, as
+/// `put` leaves them) and their bytes. Walked holding only the folders still to read, so a tree
+/// of a hundred thousand files costs the memory of a few hundred names.
+#[derive(Clone, Copy, Default)]
+struct Survey {
+    files: u64,
+    bytes: u64,
+}
+
+fn survey(paths: &[PathBuf]) -> Survey {
+    let mut s = Survey::default();
+    let mut dirs = Vec::new();
+    for path in paths {
+        match std::fs::symlink_metadata(path) {
+            Ok(m) if m.is_dir() => dirs.push(path.clone()),
+            Ok(m) if m.is_file() => {
+                s.files += 1;
+                s.bytes += m.len();
+            }
+            _ => {}
+        }
+    }
+    while let Some(dir) = dirs.pop() {
+        for entry in std::fs::read_dir(&dir).into_iter().flatten().flatten() {
+            if not_sent(&entry.file_name().to_string_lossy()) {
+                continue;
+            }
+            match entry.file_type() {
+                Ok(t) if t.is_dir() => dirs.push(entry.path()),
+                Ok(t) if t.is_file() => {
+                    s.files += 1;
+                    s.bytes += entry.metadata().map_or(0, |m| m.len());
+                }
+                _ => {}
+            }
+        }
+    }
+    s
+}
+
+/// iCloud's free space, when Apple says.
+async fn icloud_free(app: &AppHandle) -> Option<u64> {
+    let (http, setup, params) = {
+        let auth = tauri::Manager::state::<crate::Auth>(app);
+        let client = auth.client.lock().await;
+        (
+            client.http().clone(),
+            client.setup_url().to_string(),
+            client.service_params(),
+        )
+    };
+    let s = quince_icloud::drive::storage(&http, &setup, params)
+        .await
+        .ok()?;
+    (s.total_bytes > 0).then(|| s.total_bytes.saturating_sub(s.used_bytes))
+}
+
+fn bytes_words(bytes: u64) -> String {
+    const GB: f64 = 1024.0 * 1024.0 * 1024.0;
+    const MB: f64 = 1024.0 * 1024.0;
+    let b = bytes as f64;
+    if b >= GB {
+        format!("{:.1} GB", b / GB)
+    } else if b >= MB {
+        format!("{:.0} MB", b / MB)
+    } else {
+        format!("{} KB", (bytes / 1024).max(1))
+    }
+}
+
+trait Commas {
+    fn to_string_with_commas(&self) -> String;
+}
+
+impl Commas for u64 {
+    fn to_string_with_commas(&self) -> String {
+        let digits = self.to_string();
+        let mut out = String::new();
+        for (i, c) in digits.chars().enumerate() {
+            if i > 0 && (digits.len() - i) % 3 == 0 {
+                out.push(',');
+            }
+            out.push(c);
+        }
+        out
+    }
 }
 
 /// How a sending ended.
@@ -160,7 +304,7 @@ impl Ended {
 /// Drive, and leave two. The second waits for the first.
 static SENDING: tokio::sync::Mutex<()> = tokio::sync::Mutex::const_new(());
 
-async fn deliver(app: &AppHandle, paths: &[PathBuf]) -> Ended {
+async fn deliver(app: &AppHandle, paths: &[PathBuf], survey: Survey) -> Ended {
     let _one = SENDING.lock().await;
     let mut ended = Ended::default();
     let mut folder: Option<DriveItem> = None;
@@ -180,7 +324,7 @@ async fn deliver(app: &AppHandle, paths: &[PathBuf]) -> Ended {
                     };
                 }
                 let into = folder.as_ref().expect("made just above");
-                put(remote.as_ref(), into, path, &mut ended).await;
+                put(app, remote.as_ref(), into, path, &mut ended, survey).await;
                 continue;
             }
         };
@@ -221,42 +365,83 @@ async fn ours(remote: &dyn Remote) -> Result<DriveItem, String> {
 }
 
 /// A file, or a folder and everything in it, into `into`: each file counted as sent or failed
-/// on its own, so one that can't go never stops the rest. Left out: a system's own files
-/// (`Thumbs.db`, `.DS_Store`, …) and editors' scratch files, and links to folders, which can
-/// lead back into themselves.
-async fn put(remote: &dyn Remote, into: &DriveItem, path: &Path, ended: &mut Ended) {
-    let name = name_of(path);
-    let Ok(meta) = std::fs::symlink_metadata(path) else {
-        ended.failed.push((name, "It's no longer there.".into()));
-        return;
-    };
-    if meta.file_type().is_symlink() && path.is_dir() {
-        return;
+/// on its own, so one that can't go never stops the rest. The folders are made first (a file
+/// needs its folder), then the files go [`AT_ONCE`] at a time; a sending of 50 files or more says
+/// how far it is at each quarter. Left out: a system's own files (`Thumbs.db`, `.DS_Store`, …),
+/// editors' scratch files, and links to folders, which can lead back into themselves.
+async fn put(
+    app: &AppHandle,
+    remote: &dyn Remote,
+    into: &DriveItem,
+    path: &Path,
+    ended: &mut Ended,
+    survey: Survey,
+) {
+    use futures_util::StreamExt;
+    let mut files: Vec<(DriveItem, PathBuf)> = Vec::new();
+    let mut folders = vec![(into.clone(), path.to_path_buf())];
+    while let Some((parent, path)) = folders.pop() {
+        let name = name_of(&path);
+        let Ok(meta) = std::fs::symlink_metadata(&path) else {
+            ended.failed.push((name, "It's no longer there.".into()));
+            continue;
+        };
+        if meta.is_file() {
+            files.push((parent, path));
+            continue;
+        }
+        if !meta.is_dir() {
+            continue;
+        }
+        let made = match remote.mkdir(&parent, &name).await {
+            Ok(made) => made,
+            Err(why) => {
+                ended.failed.push((name, why));
+                continue;
+            }
+        };
+        let mut entries: Vec<PathBuf> = std::fs::read_dir(&path)
+            .into_iter()
+            .flatten()
+            .flatten()
+            .filter(|e| !not_sent(&e.file_name().to_string_lossy()))
+            .filter(|e| {
+                e.file_type()
+                    .is_ok_and(|t| !t.is_symlink() || e.path().is_file())
+            })
+            .map(|e| e.path())
+            .collect();
+        entries.sort();
+        for entry in entries.into_iter().rev() {
+            folders.push((made.clone(), entry));
+        }
     }
-    if !path.is_dir() {
-        match remote.upload(into, path).await {
-            Ok(_) => ended.files += 1,
+    let total = survey.files.max(files.len() as u64);
+    let mut told = 0u64;
+    let mut done = futures_util::stream::iter(files.into_iter().map(|(folder, path)| async move {
+        let sent = remote.upload(&folder, &path).await.map(|_| ());
+        (name_of(&path), sent)
+    }))
+    .buffer_unordered(AT_ONCE);
+    while let Some((name, sent)) = done.next().await {
+        match sent {
+            Ok(()) => ended.files += 1,
             Err(why) => ended.failed.push((name, why)),
         }
-        return;
-    }
-    let made = match remote.mkdir(into, &name).await {
-        Ok(made) => made,
-        Err(why) => {
-            ended.failed.push((name, why));
-            return;
+        let gone = (ended.files + ended.failed.len()) as u64;
+        let quarter = gone * 4 / total.max(1);
+        if total >= 50 && quarter > told && quarter < 4 {
+            told = quarter;
+            crate::alerts::tell(
+                app,
+                "Sending to your iPhone",
+                &format!(
+                    "{} of {} files",
+                    gone.to_string_with_commas(),
+                    total.to_string_with_commas()
+                ),
+            );
         }
-    };
-    let mut entries: Vec<PathBuf> = std::fs::read_dir(path)
-        .into_iter()
-        .flatten()
-        .flatten()
-        .map(|e| e.path())
-        .filter(|p| !not_sent(&name_of(p)))
-        .collect();
-    entries.sort();
-    for entry in entries {
-        Box::pin(put(remote, &made, &entry, ended)).await;
     }
 }
 
@@ -441,6 +626,40 @@ mod tests {
             ])
         );
         assert!(!list.exists(), "deleted once read");
+    }
+
+    #[test]
+    fn a_sending_is_sized_as_it_is_sent() {
+        let dir = tempfile::tempdir().unwrap();
+        let project = dir.path().join("Project");
+        std::fs::create_dir_all(project.join("src/deep")).unwrap();
+        std::fs::write(project.join("README.md"), vec![0u8; 100]).unwrap();
+        std::fs::write(project.join("src/main.rs"), vec![0u8; 200]).unwrap();
+        std::fs::write(project.join("src/deep/a.txt"), vec![0u8; 300]).unwrap();
+        std::fs::write(project.join(".DS_Store"), vec![0u8; 999]).unwrap();
+        #[cfg(unix)]
+        std::os::unix::fs::symlink(&project, project.join("src/back")).unwrap();
+        let loose = dir.path().join("photo.jpg");
+        std::fs::write(&loose, vec![0u8; 50]).unwrap();
+        let s = survey(&[project, loose]);
+        assert_eq!(
+            (s.files, s.bytes),
+            (4, 650),
+            "system files and a link back left out"
+        );
+    }
+
+    #[test]
+    fn sizes_and_counts_read_as_people_read_them() {
+        assert_eq!(
+            bytes_words(3 * 1024 * 1024 * 1024 + 300 * 1024 * 1024),
+            "3.3 GB"
+        );
+        assert_eq!(bytes_words(512 * 1024 * 1024), "512 MB");
+        assert_eq!(bytes_words(10), "1 KB");
+        assert_eq!(12_340u64.to_string_with_commas(), "12,340");
+        assert_eq!(999u64.to_string_with_commas(), "999");
+        assert_eq!(1_234_567u64.to_string_with_commas(), "1,234,567");
     }
 
     #[test]
