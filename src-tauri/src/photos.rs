@@ -2833,6 +2833,19 @@ pub async fn photos_upload(
         }
     }
     files.sort();
+    queue_files(&app, &data, batch, files, album).await
+}
+
+/// Files queued for Photos as one batch, each checked against Photos' limits first (a file
+/// Photos would refuse is failed at once with why), and the queue started: what the window's
+/// uploads and Send to iPhone share. Answers the batch.
+pub(crate) async fn queue_files(
+    app: &AppHandle,
+    data: &Data,
+    batch: String,
+    files: Vec<PathBuf>,
+    album: Option<String>,
+) -> UiResult<String> {
     let now = jiff::Timestamp::now().as_second();
     let mut queued = Vec::new();
     for path in files {
@@ -2871,7 +2884,7 @@ pub async fn photos_upload(
         .map_err(|e| e.to_string())?;
     for (u, size) in &queued {
         say(
-            &app,
+            app,
             u,
             if u.state == "failed" {
                 "failed"
@@ -2884,9 +2897,9 @@ pub async fn photos_upload(
         );
     }
     if let Some((u, _)) = queued.first() {
-        say(&app, u, "planned", 0, 0, None);
+        say(app, u, "planned", 0, 0, None);
     }
-    work(app);
+    work(app.clone());
     Ok(batch)
 }
 
@@ -3039,6 +3052,8 @@ pub async fn photos_upload_cancel(
 /// The queue drained, one file at a time; started on demand and at launch to resume what a
 /// quit left half done.
 pub fn work(app: AppHandle) {
+    // Photos sent before a quit, still being made: asked about again, never sent twice.
+    confirm(app.clone());
     if WORKING.swap(true, std::sync::atomic::Ordering::SeqCst) {
         return;
     }
@@ -3048,7 +3063,7 @@ pub fn work(app: AppHandle) {
                 let data = app.state::<Data>();
                 let library = data.0.lock().await;
                 library
-                    .unfinished_uploads()
+                    .uploads_to_send()
                     .ok()
                     .and_then(|u| u.into_iter().next())
             };
@@ -3210,7 +3225,7 @@ async fn one(app: &AppHandle, u: quince_core::photos::Upload) -> bool {
             ))
             .await;
         let result = futures_util::future::Abortable::new(
-            quince_icloud::photos_upload::upload(
+            quince_icloud::photos_upload::send(
                 &http,
                 &upload_root,
                 &dsid,
@@ -3237,24 +3252,31 @@ async fn one(app: &AppHandle, u: quince_core::photos::Upload) -> bool {
             refresh_photos(app).await;
             return true;
         };
-        use quince_icloud::photos_upload::{Outcome, Refusal};
+        use quince_icloud::photos_upload::{Refusal, Sending};
         match result {
-            Ok(Outcome::Uploaded(made)) => {
-                set("done", None, Some(&made.asset)).await;
-                into_album(app, &http, &ck, &params, &u, &made.asset).await;
-                say(app, &u, "done", size, size, None);
-                refresh_photos(app).await;
+            // Sent: Apple makes the photo while the next file goes; the checker (`confirm`)
+            // asks about every photo being made at once, and finishes each as it is ready.
+            Ok(Sending::Sent(sent)) => {
+                {
+                    let data = app.state::<Data>();
+                    let library = data.0.lock().await;
+                    library
+                        .set_upload_job(&u.id, &sent.job, &sent.made.asset)
+                        .ok();
+                }
+                say(app, &u, "verifying", 0, size, None);
+                confirm(app.clone());
                 return true;
             }
             // Already in the library: finished — never sent again — but not uploaded, which is
             // how icloud.com lists it ("Duplicate item.").
-            Ok(Outcome::Refused(Refusal::Duplicate)) => {
+            Ok(Sending::Refused(Refusal::Duplicate)) => {
                 let words = Refusal::Duplicate.words();
                 set("done", Some(&words), None).await;
                 say(app, &u, "failed", 0, size, Some(words));
                 return true;
             }
-            Ok(Outcome::Refused(r)) => {
+            Ok(Sending::Refused(r)) => {
                 set("failed", Some(&r.words()), None).await;
                 say(app, &u, "failed", 0, size, Some(r.words()));
                 return true;
@@ -3297,6 +3319,136 @@ async fn one(app: &AppHandle, u: quince_core::photos::Upload) -> bool {
             }
         }
     }
+}
+
+/// One checker at a time asks Apple about every photo being made.
+static CONFIRMING: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
+/// A photo whose making hasn't moved for this long is one Apple won't finish.
+const STALLED: Duration = Duration::from_secs(600);
+
+/// Every upload sent whose photo Apple is still making, asked about together every two seconds
+/// (one request for all of them, as icloud.com asks about an import), and each finished as it
+/// is ready: put in its album, said done. Nothing waits behind a slow one; one that hasn't moved
+/// in ten minutes is failed with why. Runs while any are being made, and again after a launch.
+fn confirm(app: AppHandle) {
+    if CONFIRMING.swap(true, std::sync::atomic::Ordering::SeqCst) {
+        return;
+    }
+    tauri::async_runtime::spawn(async move {
+        use quince_icloud::photos_upload::JobState;
+        let mut moved: HashMap<String, (f64, Instant)> = HashMap::new();
+        // Ended for having none left (not for a sign-in it waits for): only then looked again.
+        let mut emptied = false;
+        loop {
+            tokio::time::sleep(Duration::from_secs(2)).await;
+            let being_made = {
+                let data = app.state::<Data>();
+                let library = data.0.lock().await;
+                library.uploads_being_made().unwrap_or_default()
+            };
+            if being_made.is_empty() {
+                emptied = true;
+                break;
+            }
+            let auth = app.state::<Auth>();
+            let (http, ck, params, upload_root) = {
+                let client = auth.client.lock().await;
+                let s = client.session();
+                (
+                    client.http().clone(),
+                    s.service_url("ckdatabasews"),
+                    client.service_params(),
+                    s.service_url("photosupload"),
+                )
+            };
+            let (Some(ck), Some(upload_root)) = (ck, upload_root) else {
+                // Not signed in yet: the next sync starts the queue, and this, again.
+                break;
+            };
+            let dsid = params
+                .iter()
+                .find(|(k, _)| k == "dsid")
+                .map(|(_, v)| v.clone())
+                .unwrap_or_default();
+            let jobs: Vec<String> = being_made.iter().map(|(_, j)| j.clone()).collect();
+            let states =
+                match quince_icloud::photos_upload::job_states(&http, &upload_root, &dsid, &jobs)
+                    .await
+                {
+                    Ok(states) => states,
+                    Err(quince_icloud::Error::ReauthRequired) => break,
+                    // Offline or Apple busy: asked again on the next round.
+                    Err(_) => continue,
+                };
+            let mut finished = false;
+            for (u, job) in being_made {
+                let set = |state: &'static str, error: Option<String>| {
+                    let (app, id, asset) = (app.clone(), u.id.clone(), u.asset.clone());
+                    async move {
+                        let data = app.state::<Data>();
+                        data.0
+                            .lock()
+                            .await
+                            .set_upload(&id, state, error.as_deref(), asset.as_deref())
+                            .ok();
+                    }
+                };
+                match states.get(&job).copied().unwrap_or(JobState::Working(0.0)) {
+                    JobState::Done => {
+                        set("done", None).await;
+                        if let Some(asset) = &u.asset {
+                            into_album(&app, &http, &ck, &params, &u, asset).await;
+                        }
+                        say(&app, &u, "done", 1, 1, None);
+                        moved.remove(&u.id);
+                        finished = true;
+                    }
+                    JobState::Failed(code) => {
+                        let words =
+                            format!("iCloud couldn\u{2019}t make that photo (error {code}).");
+                        set("failed", Some(words.clone())).await;
+                        say(&app, &u, "failed", 0, 0, Some(words));
+                        moved.remove(&u.id);
+                    }
+                    JobState::Working(done) => {
+                        let now = Instant::now();
+                        let (last, since) = *moved.entry(u.id.clone()).or_insert((done, now));
+                        if done > last {
+                            moved.insert(u.id.clone(), (done, now));
+                        } else if now.duration_since(since) > STALLED {
+                            let words = "iCloud stopped making that photo.".to_string();
+                            set("failed", Some(words.clone())).await;
+                            say(&app, &u, "failed", 0, 0, Some(words));
+                            moved.remove(&u.id);
+                            continue;
+                        }
+                        say(
+                            &app,
+                            &u,
+                            "verifying",
+                            done.clamp(0.0, 100.0) as u64,
+                            100,
+                            None,
+                        );
+                    }
+                }
+            }
+            // The library read once for every photo finished this round, never once each.
+            if finished {
+                refresh_photos(&app).await;
+            }
+        }
+        CONFIRMING.store(false, std::sync::atomic::Ordering::SeqCst);
+        // A photo sent just as this ended would wait for the next sync: looked for once more.
+        let more = {
+            let data = app.state::<Data>();
+            let library = data.0.lock().await;
+            library.uploads_being_made().is_ok_and(|m| !m.is_empty())
+        };
+        if emptied && more {
+            confirm(app);
+        }
+    });
 }
 
 /// Whether Apple has already made the photo an upload was sending.

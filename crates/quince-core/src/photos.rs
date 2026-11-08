@@ -695,6 +695,91 @@ impl Library {
         Ok(())
     }
 
+    /// An upload sent, its photo being made at Apple under `job`.
+    pub fn set_upload_job(&self, id: &str, job: &str, asset: &str) -> Result<()> {
+        self.conn.execute(
+            "UPDATE photo_uploads SET state = 'verifying', error = NULL, job = ?2, asset = ?3 WHERE id = ?1",
+            params![id, job, asset],
+        )?;
+        Ok(())
+    }
+
+    /// Uploads to send, oldest first: waiting, cut off while sending, or made before jobs were
+    /// kept (no job to ask about, so checked the old way).
+    pub fn uploads_to_send(&self) -> Result<Vec<Upload>> {
+        self.uploads_where(
+            "state IN ('waiting', 'sending') OR (state = 'verifying' AND job IS NULL)",
+        )
+    }
+
+    /// Uploads sent whose photos Apple is still making, with their jobs.
+    pub fn uploads_being_made(&self) -> Result<Vec<(Upload, String)>> {
+        let mut stmt = self.conn.prepare(
+            "SELECT id, batch, path, name, state, error, asset, added_at, album, job FROM photo_uploads
+             WHERE state = 'verifying' AND job IS NOT NULL ORDER BY added_at, id",
+        )?;
+        let rows = stmt.query_map([], |r| {
+            Ok((
+                Upload {
+                    id: r.get(0)?,
+                    batch: r.get(1)?,
+                    path: r.get(2)?,
+                    name: r.get(3)?,
+                    state: r.get(4)?,
+                    error: r.get(5)?,
+                    asset: r.get(6)?,
+                    added_at: r.get(7)?,
+                    album: r.get(8)?,
+                },
+                r.get(9)?,
+            ))
+        })?;
+        Ok(rows.collect::<std::result::Result<_, _>>()?)
+    }
+
+    /// Every upload of a batch: how a sending ended, photo by photo.
+    pub fn batch_uploads(&self, batch: &str) -> Result<Vec<Upload>> {
+        let mut stmt = self.conn.prepare(
+            "SELECT id, batch, path, name, state, error, asset, added_at, album FROM photo_uploads
+             WHERE batch = ?1 ORDER BY added_at, id",
+        )?;
+        let rows = stmt.query_map([batch], |r| {
+            Ok(Upload {
+                id: r.get(0)?,
+                batch: r.get(1)?,
+                path: r.get(2)?,
+                name: r.get(3)?,
+                state: r.get(4)?,
+                error: r.get(5)?,
+                asset: r.get(6)?,
+                added_at: r.get(7)?,
+                album: r.get(8)?,
+            })
+        })?;
+        Ok(rows.collect::<std::result::Result<_, _>>()?)
+    }
+
+    fn uploads_where(&self, filter: &str) -> Result<Vec<Upload>> {
+        let mut stmt = self.conn.prepare(&format!(
+            "SELECT id, batch, path, name, state, error, asset, added_at, album FROM photo_uploads
+             WHERE {filter} ORDER BY added_at, id"
+        ))?;
+        let rows = stmt.query_map([], |r| {
+            Ok(Upload {
+                id: r.get(0)?,
+                batch: r.get(1)?,
+                path: r.get(2)?,
+                name: r.get(3)?,
+                state: r.get(4)?,
+                error: r.get(5)?,
+                asset: r.get(6)?,
+                added_at: r.get(7)?,
+                album: r.get(8)?,
+            })
+        })?;
+        Ok(rows.collect::<std::result::Result<_, _>>()?)
+    }
+
     /// Uploads not yet finished, oldest first: what a launch resumes.
     pub fn unfinished_uploads(&self) -> Result<Vec<Upload>> {
         let mut stmt = self.conn.prepare(

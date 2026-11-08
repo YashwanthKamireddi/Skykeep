@@ -153,9 +153,25 @@ impl Service<'_> {
     }
 }
 
+/// A file sent and made into a photo, Apple still finishing it: the job to ask about
+/// ([`job_states`]), and the photo it is making.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Sent {
+    pub job: String,
+    pub made: Uploaded,
+}
+
+/// What [`send`] ended with, short of an error in a request.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum Sending {
+    Sent(Sent),
+    Refused(Refusal),
+}
+
 /// One file uploaded to the library: checked, sent, made into a photo, and waited on until
 /// Apple says it is there. `library` is the zone the library lives in
-/// ([`crate::photos::library_zone`]). `progress` hears each stage.
+/// ([`crate::photos::library_zone`]). `progress` hears each stage. For many files, [`send`]
+/// each and ask about them together with [`job_states`]: nothing waits behind a slow one.
 #[allow(clippy::too_many_arguments)]
 pub async fn upload(
     http: &reqwest::Client,
@@ -170,12 +186,134 @@ pub async fn upload(
     import_group: &str,
     progress: std::sync::Arc<dyn Fn(Stage) + Send + Sync>,
 ) -> Result<Outcome> {
+    let sent = match send(
+        http,
+        photosupload_root,
+        dsid,
+        library,
+        path,
+        name,
+        modified_ms,
+        time_zone,
+        offset_minutes,
+        import_group,
+        progress.clone(),
+    )
+    .await?
+    {
+        Sending::Refused(r) => return Ok(Outcome::Refused(r)),
+        Sending::Sent(sent) => sent,
+    };
+    // Waited on until Apple says the photo is made: a second apart at first, then easing off,
+    // for as long as the job is moving — a large video takes a while.
+    progress(Stage::Processing(0.0));
+    let mut wait = Duration::from_millis(800);
+    let mut stalled = 0;
+    let mut last = -1.0;
+    loop {
+        tokio::time::sleep(wait).await;
+        let state = job_states(
+            http,
+            photosupload_root,
+            dsid,
+            std::slice::from_ref(&sent.job),
+        )
+        .await?
+        .remove(&sent.job)
+        .unwrap_or(JobState::Working(0.0));
+        match state {
+            JobState::Failed(code) => {
+                return Err(Error::Refused(format!(
+                    "iCloud couldn\u{2019}t make that photo (error {code})."
+                )))
+            }
+            JobState::Done => return Ok(Outcome::Uploaded(sent.made)),
+            JobState::Working(done) => {
+                progress(Stage::Processing(done));
+                if done > last {
+                    last = done;
+                    stalled = 0;
+                } else {
+                    stalled += 1;
+                }
+            }
+        }
+        // Five minutes without any movement is a job that will not finish.
+        if stalled as u64 * wait.as_millis() as u64 > 300_000 {
+            return Err(Error::Refused("iCloud stopped making that photo.".into()));
+        }
+        wait = (wait + Duration::from_millis(400)).min(Duration::from_secs(4));
+    }
+}
+
+/// Where an upload job is, as Apple says.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub enum JobState {
+    /// Still making the photo: how far, 0 to 100.
+    Working(f64),
+    Done,
+    /// It couldn't: Apple's error code.
+    Failed(i64),
+}
+
+/// Many upload jobs asked about in one request (`uploadStatus` takes a list), as icloud.com
+/// asks about a whole import: a job Apple doesn't mention is still working.
+pub async fn job_states(
+    http: &reqwest::Client,
+    photosupload_root: &str,
+    dsid: &str,
+    jobs: &[String],
+) -> Result<std::collections::HashMap<String, JobState>> {
+    let service = Service {
+        http,
+        base: photosupload_root.trim_end_matches('/').to_string(),
+        dsid: dsid.to_string(),
+    };
+    let mut out = std::collections::HashMap::new();
+    for some in jobs.chunks(100) {
+        let (_, status) = service
+            .call("uploadStatus", &json!({ "uploadJobIds": some }))
+            .await?;
+        for job in some {
+            let state = status.get(job).cloned().unwrap_or(Value::Null);
+            let s = if let Some(code) = state.get("errorCode").and_then(Value::as_i64) {
+                JobState::Failed(code)
+            } else {
+                let done = state.get("progress").and_then(Value::as_f64).unwrap_or(0.0);
+                if done >= 100.0 {
+                    JobState::Done
+                } else {
+                    JobState::Working(done)
+                }
+            };
+            out.insert(job.clone(), s);
+        }
+    }
+    Ok(out)
+}
+
+/// One file checked, sent, and made into a photo, returning as soon as Apple has the job: what
+/// is left is Apple's to finish ([`job_states`]).
+#[allow(clippy::too_many_arguments)]
+pub async fn send(
+    http: &reqwest::Client,
+    photosupload_root: &str,
+    dsid: &str,
+    library: &str,
+    path: &std::path::Path,
+    name: &str,
+    modified_ms: i64,
+    time_zone: &str,
+    offset_minutes: i64,
+    import_group: &str,
+    progress: std::sync::Arc<dyn Fn(Stage) + Send + Sync>,
+) -> Result<Sending> {
     let size = tokio::fs::metadata(path)
         .await
         .map_err(|e| Error::Protocol(format!("could not read {name}: {e}")))?
         .len();
     if let Some(r) = refusal(name, size) {
-        return Ok(Outcome::Refused(r));
+        return Ok(Sending::Refused(r));
     }
     let service = Service {
         http,
@@ -192,7 +330,7 @@ pub async fn upload(
         )
         .await?;
     if status == 507 {
-        return Ok(Outcome::Refused(Refusal::OverQuota));
+        return Ok(Sending::Refused(Refusal::OverQuota));
     }
     let url = answer
         .pointer(&format!("/uploadUrls/{key}"))
@@ -233,7 +371,7 @@ pub async fn upload(
     let sent_status = sent.status();
     let text = sent.text().await.unwrap_or_default();
     if text.contains("QUOTA_EXCEEDED") {
-        return Ok(Outcome::Refused(Refusal::OverQuota));
+        return Ok(Sending::Refused(Refusal::OverQuota));
     }
     if !sent_status.is_success() {
         return Err(Error::Protocol(format!(
@@ -243,7 +381,7 @@ pub async fn upload(
     let receipt: Value = serde_json::from_str(&text)
         .map_err(|e| Error::Protocol(format!("the upload's receipt was not JSON: {e}")))?;
     if receipt.get("isDuplicate").and_then(Value::as_bool) == Some(true) {
-        return Ok(Outcome::Refused(Refusal::Duplicate));
+        return Ok(Sending::Refused(Refusal::Duplicate));
     }
     let single = receipt
         .get("singleFile")
@@ -270,7 +408,7 @@ pub async fn upload(
         )
         .await?;
     if status == 507 {
-        return Ok(Outcome::Refused(Refusal::OverQuota));
+        return Ok(Sending::Refused(Refusal::OverQuota));
     }
     let first = made.get(0).cloned().unwrap_or(Value::Null);
     let (Some(job), Some(asset), Some(master)) = (
@@ -287,52 +425,45 @@ pub async fn upload(
         )));
     };
 
-    progress(Stage::Named(Uploaded {
+    let made = Uploaded {
         asset: asset.to_string(),
         master: master.to_string(),
-    }));
-
-    // 4. Waited on until Apple says the photo is made: a second apart at first, then easing
-    // off, for as long as the job is moving — a large video takes a while.
-    progress(Stage::Processing(0.0));
-    let mut wait = Duration::from_millis(800);
-    let mut stalled = 0;
-    let mut last = -1.0;
-    loop {
-        tokio::time::sleep(wait).await;
-        let (_, status) = service
-            .call("uploadStatus", &json!({ "uploadJobIds": [job] }))
-            .await?;
-        let state = status.get(job).cloned().unwrap_or(Value::Null);
-        if let Some(code) = state.get("errorCode").and_then(Value::as_i64) {
-            return Err(Error::Refused(format!(
-                "iCloud couldn’t make that photo (error {code})."
-            )));
-        }
-        let done = state.get("progress").and_then(Value::as_f64).unwrap_or(0.0);
-        progress(Stage::Processing(done));
-        if done >= 100.0 {
-            return Ok(Outcome::Uploaded(Uploaded {
-                asset: asset.to_string(),
-                master: master.to_string(),
-            }));
-        }
-        if done > last {
-            last = done;
-            stalled = 0;
-        } else {
-            stalled += 1;
-        }
-        // Five minutes without any movement is a job that will not finish.
-        if stalled as u64 * wait.as_millis() as u64 > 300_000 {
-            return Err(Error::Refused("iCloud stopped making that photo.".into()));
-        }
-        wait = (wait + Duration::from_millis(400)).min(Duration::from_secs(4));
-    }
+    };
+    progress(Stage::Named(made.clone()));
+    Ok(Sending::Sent(Sent {
+        job: job.to_string(),
+        made,
+    }))
 }
 
 #[cfg(test)]
 mod tests {
+
+    /// Every job asked about in one request, each answered as Apple has it: done, still
+    /// working, or failed; one Apple doesn't mention is still working.
+    #[tokio::test]
+    async fn many_jobs_are_asked_about_at_once() {
+        use wiremock::matchers::{method, path_regex};
+        use wiremock::{Mock, MockServer, ResponseTemplate};
+        let server = MockServer::start().await;
+        Mock::given(method("POST"))
+            .and(path_regex(r".*/photosupload/uploadStatus$"))
+            .respond_with(ResponseTemplate::new(200).set_body_json(json!({
+                "a": { "progress": 100.0 },
+                "b": { "progress": 40.0 },
+                "c": { "errorCode": 7 },
+            })))
+            .expect(1)
+            .mount(&server)
+            .await;
+        let http = reqwest::Client::new();
+        let jobs: Vec<String> = ["a", "b", "c", "d"].map(String::from).to_vec();
+        let states = job_states(&http, &server.uri(), "1", &jobs).await.unwrap();
+        assert_eq!(states["a"], JobState::Done);
+        assert_eq!(states["b"], JobState::Working(40.0));
+        assert_eq!(states["c"], JobState::Failed(7));
+        assert_eq!(states["d"], JobState::Working(0.0));
+    }
     use super::*;
 
     /// Files Photos would refuse are refused here, with the reason, before anything is sent.

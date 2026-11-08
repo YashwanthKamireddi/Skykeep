@@ -983,6 +983,12 @@ pub const MIGRATIONS: &[&str] = &[
         PRIMARY KEY (source, item, part)
     ) STRICT, WITHOUT ROWID;
     "#,
+    // 54 — a photo upload's job at Apple, once its bytes are sent and the photo is being made:
+    // asked about with every other's in one request, so nothing waits behind a slow one, and a
+    // quit or crash carries on asking rather than sending the photo twice.
+    r#"
+    ALTER TABLE photo_uploads ADD COLUMN job TEXT;
+    "#,
 ];
 
 /// Migrations that need more than SQL, run in the same transaction as the one numbered.

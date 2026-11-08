@@ -10,7 +10,6 @@
 //! Each file goes up through the uploads the apps themselves use, so it is proven intact and
 //! retried as theirs are. What could not go is said by name, with why, never dropped quietly.
 
-use crate::photos::add_from_folder;
 use quince_core::drive::DriveItem;
 use quince_vfs::{Remote, ROOT};
 use std::path::{Path, PathBuf};
@@ -249,6 +248,8 @@ struct Ended {
     photos: usize,
     /// Photos already in the library: on the iPhone already, nothing to send.
     already: usize,
+    /// Photos still on their way when the sending stopped being followed.
+    pending: usize,
     files: usize,
     failed: Vec<(String, String)>,
 }
@@ -267,6 +268,26 @@ impl Ended {
                 folder_name()
             ),
         };
+        if self.pending > 0 {
+            let on_way = format!(
+                "{} still on {} way and arriving by {}.",
+                match self.pending {
+                    1 => "1 photo is".to_string(),
+                    n => format!("{n} photos are"),
+                },
+                if self.pending == 1 { "its" } else { "their" },
+                if self.pending == 1 {
+                    "itself"
+                } else {
+                    "themselves"
+                },
+            );
+            where_ = if where_.is_empty() {
+                on_way
+            } else {
+                format!("{where_} {on_way}")
+            };
+        }
         if self.already > 0 {
             let already = match self.already {
                 1 => "1 photo was in Photos already.".to_string(),
@@ -307,36 +328,104 @@ static SENDING: tokio::sync::Mutex<()> = tokio::sync::Mutex::const_new(());
 async fn deliver(app: &AppHandle, paths: &[PathBuf], survey: Survey) -> Ended {
     let _one = SENDING.lock().await;
     let mut ended = Ended::default();
-    let mut folder: Option<DriveItem> = None;
-    let remote = crate::mount::drive_remote(app);
-    for path in paths {
-        let name = name_of(path);
-        let sent = match destination(path) {
-            To::Photos => add_from_folder(app, path, None).await.map(|_| To::Photos),
-            To::Files => {
-                if folder.is_none() {
-                    folder = match ours(remote.as_ref()).await {
-                        Ok(f) => Some(f),
-                        Err(e) => {
-                            ended.failed.push((name, e));
-                            continue;
-                        }
-                    };
+    let (photos, others): (Vec<PathBuf>, Vec<PathBuf>) = paths
+        .iter()
+        .cloned()
+        .partition(|p| destination(p) == To::Photos);
+    // Every photo queued at once, as one batch: the Photos queue sends them back to back while
+    // Apple makes each, shows the batch in its panel, and carries on after a quit.
+    let batch = if photos.is_empty() {
+        None
+    } else {
+        let data = tauri::Manager::state::<crate::Data>(app);
+        let batch = uuid::Uuid::new_v4().to_string();
+        match crate::photos::queue_files(app, &data, batch, photos.clone(), None).await {
+            Ok(batch) => Some(batch),
+            Err(why) => {
+                for p in &photos {
+                    ended.failed.push((name_of(p), why.to_string()));
                 }
-                let into = folder.as_ref().expect("made just above");
-                put(app, remote.as_ref(), into, path, &mut ended, survey).await;
-                continue;
+                None
             }
-        };
-        match sent {
-            Ok(_) => ended.photos += 1,
-            Err(why) if why == quince_icloud::photos_upload::Refusal::Duplicate.words() => {
-                ended.already += 1;
+        }
+    };
+    if !others.is_empty() {
+        let remote = crate::mount::drive_remote(app);
+        match ours(remote.as_ref()).await {
+            Ok(folder) => {
+                for path in &others {
+                    put(app, remote.as_ref(), &folder, path, &mut ended, survey).await;
+                }
             }
-            Err(why) => ended.failed.push((name, why)),
+            Err(why) => {
+                for p in &others {
+                    ended.failed.push((name_of(p), why.clone()));
+                }
+            }
         }
     }
+    if let Some(batch) = batch {
+        follow(app, &batch, &mut ended).await;
+    }
     ended
+}
+
+/// The photo batch followed to its end, by its own uploads' states: each made in Photos, already
+/// there, or failed with why. Never waited on for ever: twenty minutes without any change and
+/// the rest are said to be on their way, as they are (the queue goes on by itself).
+async fn follow(app: &AppHandle, batch: &str, ended: &mut Ended) {
+    const QUIET: std::time::Duration = std::time::Duration::from_secs(20 * 60);
+    let duplicate = quince_icloud::photos_upload::Refusal::Duplicate.words();
+    let mut seen = String::new();
+    let mut changed = std::time::Instant::now();
+    let mut told = 0u64;
+    loop {
+        let uploads = {
+            let data = tauri::Manager::state::<crate::Data>(app);
+            let library = data.0.lock().await;
+            library.batch_uploads(batch).unwrap_or_default()
+        };
+        let open = uploads
+            .iter()
+            .filter(|u| matches!(u.state.as_str(), "waiting" | "sending" | "verifying"))
+            .count();
+        let now: String = uploads.iter().map(|u| u.state.as_str()).collect();
+        if now != seen {
+            seen = now;
+            changed = std::time::Instant::now();
+        }
+        let total = uploads.len() as u64;
+        let gone = total - open as u64;
+        let quarter = gone * 4 / total.max(1);
+        if total >= 50 && open > 0 && quarter > told && quarter < 4 {
+            told = quarter;
+            crate::alerts::tell(
+                app,
+                "Sending to your iPhone",
+                &format!(
+                    "{} of {} photos",
+                    gone.to_string_with_commas(),
+                    total.to_string_with_commas()
+                ),
+            );
+        }
+        if open == 0 || changed.elapsed() > QUIET {
+            for u in uploads {
+                match (u.state.as_str(), u.error.as_deref()) {
+                    ("done", None) => ended.photos += 1,
+                    ("done", Some(e)) if e == duplicate => ended.already += 1,
+                    ("done", Some(_)) => ended.photos += 1,
+                    ("waiting" | "sending" | "verifying", _) => ended.pending += 1,
+                    (_, error) => ended.failed.push((
+                        u.name.clone(),
+                        error.unwrap_or("It was stopped.").to_string(),
+                    )),
+                }
+            }
+            return;
+        }
+        tokio::time::sleep(std::time::Duration::from_secs(2)).await;
+    }
 }
 
 /// The folder in iCloud Drive that sent files land in: found by name, or made.
