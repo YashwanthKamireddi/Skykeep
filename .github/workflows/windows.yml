@@ -123,6 +123,23 @@ jobs:
         with:
           path: ~/AppData/Local/tauri
           key: tauri-bundler-tools-wix314-nsis-v1
+      # WiX fetched here, patiently, before tauri looks for it: tauri's own single try failed
+      # twice on GitHub 504s (8 Nov). Checked against the checksum tauri itself checks
+      # (tauri-bundler's WIX_SHA256), so nothing else ever lands in its place.
+      - name: WiX, fetched with retries
+        shell: pwsh
+        run: |
+          $dir = Join-Path $env:LOCALAPPDATA "tauri\WixTools314"
+          if (-not (Test-Path (Join-Path $dir "candle.exe"))) {
+            $zip = Join-Path $env:RUNNER_TEMP "wix314-binaries.zip"
+            curl.exe --fail --silent --show-error --location --retry 8 --retry-all-errors --retry-delay 15 `
+              -o $zip https://github.com/wixtoolset/wix3/releases/download/wix3141rtm/wix314-binaries.zip
+            if ($LASTEXITCODE) { throw "WiX could not be downloaded ($LASTEXITCODE)" }
+            $hash = (Get-FileHash $zip -Algorithm SHA256).Hash.ToLower()
+            if ($hash -ne "6ac824e1642d6f7277d0ed7ea09411a508f6116ba6fae0aa5f2c7daa2ff43d31") { throw "WiX download has the wrong checksum: $hash" }
+            Expand-Archive $zip $dir -Force
+          }
+          "WiX: $((Get-ChildItem $dir).Count) files"
       - name: Build the installers
         # The build machine's paths are never written into the program. A release also signs
         # the installers for the in-app updater (createUpdaterArtifacts: a .sig beside each);
