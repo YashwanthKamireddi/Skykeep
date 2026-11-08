@@ -7,6 +7,7 @@ import { useEffect, useRef, useState, useSyncExternalStore } from "react";
 import { getVersion } from "@tauri-apps/api/app";
 import { listen } from "@tauri-apps/api/event";
 import { pickOpen } from "../lib/pick";
+import { UnlockSheet } from "./PhotosView";
 import {
   api,
   EXPORT_CANCELLED,
@@ -203,8 +204,9 @@ function FolderRow({
 }
 
 /**
- * Export Everything, kept outside the screen: an export runs on while Settings is closed, and
- * coming back finds it where it is, not idle.
+ * Export a Copy, kept outside the screen: an export runs on while Settings is closed, and
+ * coming back finds it where it is, not idle. Photos are Back Up Photos' (every original, kept up
+ * to date); a copy of only the photos on this computer read as a backup and wasn't one.
  */
 type ExportState =
   | { phase: "idle" }
@@ -237,7 +239,7 @@ function exportShare(p: ExportProgress | null): number | null {
   return (p.step - 1 + within) / p.steps;
 }
 
-async function runExport(photos: boolean, onError: (m: string) => void) {
+async function runExport(onError: (m: string) => void) {
   const dest = (await pickOpen({ directory: true, multiple: false, title: "Choose where to export" }))?.[0];
   if (!dest) return;
   setExportState({ phase: "running", progress: null, cancelling: false });
@@ -245,7 +247,7 @@ async function runExport(photos: boolean, onError: (m: string) => void) {
     if (exportState.phase === "running") setExportState({ ...exportState, progress: e.payload });
   });
   try {
-    const summary = await exportApi.start(dest, photos);
+    const summary = await exportApi.start(dest, false);
     setExportState({ phase: "done", path: summary.path, photosMissing: summary.photosMissing });
     toast({
       message: `Exported to ${folderName(summary.path)}`,
@@ -266,12 +268,14 @@ const folderName = (path: string) => path.split(/[\\/]/).filter(Boolean).pop() ?
 
 /** The row: what goes out and where, Export, then the bar and Cancel, then Show in Folder. */
 /**
- * Backup: Photos copied, as originals, into a folder the person chooses, and kept up to date as
- * new ones arrive (src-tauri/src/backup.rs). Off until a folder is chosen; the Hidden album only
- * when asked for.
+ * Back Up Photos: every photo and video copied, as the original, into a folder the person
+ * chooses, and kept up to date as new ones arrive (src-tauri/src/backup.rs). Off until a folder
+ * is chosen. The Hidden album is offered always, and included only once unlocked, with the same
+ * sheet Photos unlocks it with (Windows Hello, or the Apple Account password).
  */
 function BackupRow({ onError }: { onError: (m: string) => void }) {
   const [state, setState] = useState<BackupStatus | null>(null);
+  const [unlocking, setUnlocking] = useState(false);
   useEffect(() => {
     let live = true;
     void backupApi.status().then((s) => live && setState(s), () => {});
@@ -290,6 +294,11 @@ function BackupRow({ onError }: { onError: (m: string) => void }) {
     });
     if (picked) await set(picked[0], state?.hidden ?? false);
   };
+  const hidden = () => {
+    if (!state) return;
+    if (!state.hidden && state.hiddenLocked) setUnlocking(true);
+    else void set(state.folder, !state.hidden);
+  };
   const on = Boolean(state?.folder);
   const counted = state && state.total > 0 ? `${state.copied.toLocaleString()} of ${state.total.toLocaleString()}` : "";
   const hint = !state
@@ -297,7 +306,7 @@ function BackupRow({ onError }: { onError: (m: string) => void }) {
     : state.problem
       ? state.problem
       : !on
-        ? "Every photo and video, as the original, in a folder you choose"
+        ? "Every photo and video as the original, kept up to date in a folder you choose"
         : state.running
           ? `Copying · ${counted}`
           : state.copied >= state.total
@@ -334,21 +343,31 @@ function BackupRow({ onError }: { onError: (m: string) => void }) {
       {on && state?.running && state.total > 0 && (
         <Progress value={state.copied / state.total} label="Backup progress" />
       )}
-      {on && (
-        <div className="settings-row-line" style={{ alignItems: "center" }}>
-          <span className="settings-label settings-stack">
-            <span className="settings-hint">Include the Hidden album</span>
+      <div className="settings-row-line" style={{ alignItems: "center" }}>
+        <span className="settings-label settings-stack">
+          <span className="settings-hint">
+            {state && !state.hidden && state.hiddenLocked ? "Include the Hidden album · asks to unlock it first" : "Include the Hidden album"}
           </span>
-          <button
-            className="switch"
-            role="switch"
-            aria-checked={state?.hidden ?? false}
-            aria-label="Include the Hidden album"
-            onClick={() => void set(state!.folder, !state!.hidden)}
-          >
-            <span className="switch-knob" />
-          </button>
-        </div>
+        </span>
+        <button
+          className="switch"
+          role="switch"
+          aria-checked={state?.hidden ?? false}
+          aria-label="Include the Hidden album"
+          disabled={!state}
+          onClick={hidden}
+        >
+          <span className="switch-knob" />
+        </button>
+      </div>
+      {unlocking && (
+        <UnlockSheet
+          onCancel={() => setUnlocking(false)}
+          onUnlocked={() => {
+            setUnlocking(false);
+            void set(state?.folder ?? null, true);
+          }}
+        />
       )}
     </div>
   );
@@ -356,7 +375,6 @@ function BackupRow({ onError }: { onError: (m: string) => void }) {
 
 function ExportRow({ onError }: { onError: (m: string) => void }) {
   const state = useSyncExternalStore(subscribeExport, () => exportState);
-  const [photos, setPhotos] = useState(false);
   const running = state.phase === "running";
   const p = running ? state.progress : null;
   const hint = running
@@ -366,13 +384,13 @@ function ExportRow({ onError }: { onError: (m: string) => void }) {
         ? `${SERVICE_LABEL[p.service]} · ${p.total > 0 ? `${Math.min(p.done, p.total).toLocaleString()} of ${p.total.toLocaleString()}` : "nothing to export"}`
         : "Getting ready…"
     : state.phase === "done"
-      ? `Exported to ${folderName(state.path)}${state.photosMissing > 0 ? ` · ${state.photosMissing.toLocaleString()} ${state.photosMissing === 1 ? "photo wasn't" : "photos weren't"} on this computer` : ""}`
-      : "Notes, reminders, contacts, calendars and Drive, in open formats";
+      ? `Exported to ${folderName(state.path)}`
+      : "A one-time copy of notes, reminders, contacts, calendars and Drive, in formats any app opens";
   return (
-    <div className="settings-row is-stacked" aria-label="Export Everything" role="group">
+    <div className="settings-row is-stacked" aria-label="Export a Copy" role="group">
       <div className="settings-row-line" style={{ alignItems: "center" }}>
         <span className="settings-label settings-stack">
-          Export Everything
+          Export a Copy
           <span className="settings-hint" aria-live="polite" title={state.phase === "done" ? state.path : undefined}>
             {hint}
           </span>
@@ -394,29 +412,12 @@ function ExportRow({ onError }: { onError: (m: string) => void }) {
             Cancel
           </button>
         ) : (
-          <button className="quiet" onClick={() => void runExport(photos, onError)}>
+          <button className="quiet" onClick={() => void runExport(onError)}>
             Export
           </button>
         )}
       </div>
-      {running ? (
-        <Progress value={exportShare(p)} label="Export progress" />
-      ) : (
-        <div className="settings-row-line" style={{ alignItems: "center" }}>
-          <span className="settings-label settings-stack">
-            <span className="settings-hint">Include Photos · only those on this computer, and it can be large</span>
-          </span>
-          <button
-            className="switch"
-            role="switch"
-            aria-checked={photos}
-            aria-label="Include Photos"
-            onClick={() => setPhotos(!photos)}
-          >
-            <span className="switch-knob" />
-          </button>
-        </div>
-      )}
+      {running && <Progress value={exportShare(p)} label="Export progress" />}
     </div>
   );
 }
@@ -805,11 +806,15 @@ export function SettingsView({ onSignOut }: { onSignOut: (keep: boolean) => Prom
             {clearing ? "Clearing…" : "Clear"}
           </button>
         </div>
-        <BackupRow onError={setError} />
-        <ExportRow onError={setError} />
       </section>
 
       <PhotoCacheGroup onError={setError} />
+
+      <h2 className="settings-heading">Backup and Export</h2>
+      <section className="settings-group">
+        <BackupRow onError={setError} />
+        <ExportRow onError={setError} />
+      </section>
 
       <h2 className="settings-heading">General</h2>
       <section className="settings-group">

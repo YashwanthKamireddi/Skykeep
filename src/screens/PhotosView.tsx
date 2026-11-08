@@ -4377,7 +4377,7 @@ export function PhotosView() {
  * by the app (against the password it keeps, else with Apple); a wrong one says so here and
  * the field is cleared for another try.
  */
-function UnlockSheet({ onCancel, onUnlocked }: { onCancel: () => void; onUnlocked: () => void }) {
+export function UnlockSheet({ onCancel, onUnlocked }: { onCancel: () => void; onUnlocked: () => void }) {
   const sheetRef = useRef<HTMLFormElement | null>(null);
   useModalFocus(sheetRef);
   const field = useRef<HTMLInputElement | null>(null);

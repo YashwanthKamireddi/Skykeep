@@ -116,6 +116,13 @@ jobs:
         env:
           RUSTFLAGS: --remap-path-prefix=${{ github.workspace }}=skykeep -C target-feature=+crt-static
         run: cargo test --release --workspace --lib --bins --tests --locked --no-fail-fast
+      # The installers' own tools (WiX for the .msi, NSIS for the .exe), which tauri downloads
+      # from GitHub on first use: kept between runs, so a release never fails on a download
+      # GitHub answered with a 504 (8 Nov).
+      - uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: ~/AppData/Local/tauri
+          key: tauri-bundler-tools-wix314-nsis-v1
       - name: Build the installers
         # The build machine's paths are never written into the program. A release also signs
         # the installers for the in-app updater (createUpdaterArtifacts: a .sig beside each);

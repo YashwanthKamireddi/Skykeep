@@ -1443,6 +1443,8 @@ export type BackupStatus = {
   total: number;
   running: boolean;
   problem: string | null;
+  /** Hidden is locked: including it asks for the unlock first. */
+  hiddenLocked: boolean;
 };
 
 export const backupApi = {

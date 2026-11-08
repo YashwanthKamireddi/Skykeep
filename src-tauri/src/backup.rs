@@ -63,6 +63,8 @@ pub struct Status {
     total: i64,
     running: bool,
     problem: Option<String>,
+    /// Hidden is locked this run: including it asks for the unlock first (the window's sheet).
+    hidden_locked: bool,
 }
 
 async fn settings(app: &AppHandle) -> (Option<PathBuf>, bool) {
@@ -95,6 +97,7 @@ async fn status(app: &AppHandle) -> Status {
         total,
         running: RUNNING.load(Ordering::SeqCst),
         problem: PROBLEM.lock().ok().and_then(|p| p.clone()),
+        hidden_locked: !crate::photos::HIDDEN_OPEN.load(Ordering::SeqCst),
     }
 }
 

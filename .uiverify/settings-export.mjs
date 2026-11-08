@@ -1,6 +1,6 @@
-// Settings › Storage on This Computer › Export Everything: a folder is chosen, the bar moves
-// service by service, it can be cancelled, it ends with Show in Folder; Photos are off unless
-// switched on, and a refusal is said.
+// Settings › Backup and Export › Export a Copy: a folder is chosen, the bar moves service by
+// service, it can be cancelled, it ends with Show in Folder, and a refusal is said. Photos are
+// Back Up Photos' own, never part of a copy.
 import { engine } from "./engine.mjs";
 import { SERVICES, installStub, openScreen } from "./stub.mjs";
 const b = await engine.launch();
@@ -18,15 +18,12 @@ const open = async (init) => {
   await page.locator(".sidebar-account").click();
   await page.waitForSelector(".settings");
   await page.waitForTimeout(300);
-  return { ctx, page, row: page.getByRole("group", { name: "Export Everything" }) };
+  return { ctx, page, row: page.getByRole("group", { name: "Export a Copy" }) };
 };
 
 {
   const { ctx, page, row } = await open(() => { window.__pick = "/home/test/Backups"; window.__exportStepMs = 60; });
-  const section = page.locator(".settings-group", { has: page.getByText("Cached pictures") });
-  ok(await section.getByRole("group", { name: "Export Everything" }).isVisible(), "the row sits in Storage on This Computer");
-  const photos = row.getByRole("switch", { name: "Include Photos" });
-  ok((await photos.getAttribute("aria-checked")) === "false", "photos are off by default");
+  ok(!(await row.getByRole("switch").count()), "no photos switch: photos are Back Up Photos' own");
   await row.getByRole("button", { name: "Export" }).click();
   await page.waitForTimeout(250);
   const bar = row.getByRole("progressbar", { name: "Export progress" });
@@ -45,9 +42,7 @@ const open = async (init) => {
   await page.waitForTimeout(100);
   ok((await page.evaluate(() => window.__exportRevealed)) === 1, "Show in Folder asks the backend to show it");
 
-  // Photos switched on, and the export kept across leaving Settings and coming back.
-  await photos.click();
-  ok((await photos.getAttribute("aria-checked")) === "true", "Include Photos switches on");
+  // An export under way, kept across leaving Settings and coming back.
   await page.evaluate(() => { window.__exportStepMs = 120; });
   await row.getByRole("button", { name: "Export" }).click();
   await page.waitForTimeout(200);
@@ -55,10 +50,9 @@ const open = async (init) => {
   await page.waitForTimeout(200);
   await page.locator(".sidebar-account").click();
   await page.waitForSelector(".settings");
-  const back = page.getByRole("group", { name: "Export Everything" });
+  const back = page.getByRole("group", { name: "Export a Copy" });
   ok(await back.getByRole("progressbar").isVisible(), "an export under way is still shown on coming back");
-  await page.waitForFunction(() => document.body.innerText.includes("photo wasn't on this computer"), null, { timeout: 8000 });
-  ok((await page.evaluate(() => window.__exportArgs.photos)) === true, "photos are asked for when switched on");
+  await page.waitForFunction(() => document.body.innerText.includes("Exported to"), null, { timeout: 8000 });
   await ctx.close();
 }
 {
