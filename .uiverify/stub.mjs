@@ -1359,6 +1359,16 @@ export function installStub({ screen, services, twoFactor, calendarFixture, note
         }
         case "library_export_cancel": window.__exportCancel = true; return null;
         case "library_export_reveal": window.__exportRevealed = (window.__exportRevealed ?? 0) + 1; return null;
+        // Backup (src-tauri/src/backup.rs): off until a folder is set; Hidden refused while locked.
+        case "backup_status":
+          return (window.__backup ??= { folder: null, hidden: false, copied: 0, total: 2140, running: false, problem: null });
+        case "backup_set": {
+          const was = (window.__backup ??= { folder: null, hidden: false, copied: 0, total: 2140, running: false, problem: null });
+          if (args.hidden && !was.hidden && window.__hiddenLocked) throw "Unlock the Hidden album in Photos first, then include it.";
+          window.__backupArgs = args;
+          window.__backup = { ...was, folder: args.folder, hidden: args.hidden, running: Boolean(args.folder), copied: args.folder ? 812 : 0 };
+          return window.__backup;
+        }
         default: throw new Error(`unstubbed command: ${cmd}`);
       }
     },

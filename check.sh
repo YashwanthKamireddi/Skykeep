@@ -239,6 +239,8 @@ pooled "new iCloud terms"  node .uiverify/icloud-terms.mjs
 pooled "security keys"     node .uiverify/security-key.mjs
 pooled "webkit: approval" env ENGINE=webkit node .uiverify/device-approval.mjs
 pooled "calendar undo"    node .uiverify/calendar-undo.mjs
+pooled "backup"           node .uiverify/settings-backup.mjs
+pooled "webkit: backup"   env ENGINE=webkit node .uiverify/settings-backup.mjs
 
 
 wait "${pids[@]}" 2>/dev/null
