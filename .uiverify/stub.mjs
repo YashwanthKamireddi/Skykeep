@@ -1362,13 +1362,13 @@ export function installStub({ screen, services, twoFactor, calendarFixture, note
         // Backup (src-tauri/src/backup.rs): off until a folder is set; Hidden only while unlocked,
         // the same lock Photos keeps (`__hiddenOpen`).
         case "backup_status":
-          window.__backup ??= { folder: null, hidden: false, copied: 0, total: 2140, running: false, problem: null };
+          window.__backup ??= { folder: null, hidden: false, drive: true, driveRunning: false, driveNote: null, copied: 0, total: 2140, running: false, problem: null };
           return { ...window.__backup, hiddenLocked: !window.__hiddenOpen };
         case "backup_set": {
-          const was = (window.__backup ??= { folder: null, hidden: false, copied: 0, total: 2140, running: false, problem: null });
+          const was = (window.__backup ??= { folder: null, hidden: false, drive: true, driveRunning: false, driveNote: null, copied: 0, total: 2140, running: false, problem: null });
           if (args.hidden && !was.hidden && !window.__hiddenOpen) throw "Unlock the Hidden album in Photos first, then include it.";
           window.__backupArgs = args;
-          window.__backup = { ...was, folder: args.folder, hidden: args.hidden, running: Boolean(args.folder), copied: args.folder ? 812 : 0 };
+          window.__backup = { ...was, folder: args.folder, hidden: args.hidden, drive: args.drive, running: Boolean(args.folder), copied: args.folder ? 812 : 0 };
           return { ...window.__backup, hiddenLocked: !window.__hiddenOpen };
         }
         default: throw new Error(`unstubbed command: ${cmd}`);

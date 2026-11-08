@@ -156,6 +156,17 @@ pub(crate) struct Request<'a> {
     pub into: &'a Path,
     /// Where unfinished downloads are remembered; none, and nothing is resumable.
     pub journal: Option<&'a Journal>,
+    /// A backup's (src-tauri/src/backup.rs), not a download's: the one item goes into this same
+    /// folder every time, carried on in place, and a file changed in iCloud since is not written
+    /// over: the copy here is moved into `earlier` first, under the date it was last changed.
+    pub backup: Option<Backup<'a>>,
+}
+
+/// Where a backup keeps iCloud Drive: `top`, the folder its whole tree lives in, and `earlier`,
+/// where a file replaced by a newer version goes, at the same place in the tree.
+pub(crate) struct Backup<'a> {
+    pub top: &'a Path,
+    pub earlier: &'a Path,
 }
 
 // ── Stopping ────────────────────────────────────────────────────────────────────────────────
@@ -629,6 +640,8 @@ struct Run<'a> {
     drive: &'a Drive,
     batch: &'a str,
     into: &'a Path,
+    /// A backup's earlier versions, when this run is a backup's (`Request::backup`).
+    earlier: Option<PathBuf>,
     emit: Emit,
     stop: &'a Stop,
     tops: Vec<Top>,
@@ -964,6 +977,14 @@ impl Run<'_> {
                 fail("a folder is already where it would go".into());
                 return;
             }
+            // A backup keeps the version it had: moved into its earlier versions before the new
+            // one comes. Not moved, it is never written over.
+            if let Some(earlier) = &self.earlier {
+                if let Err(e) = keep_earlier(self.into, earlier, &job.path) {
+                    fail(format!("its earlier version couldn't be kept: {e}"));
+                    return;
+                }
+            }
             // Partial files a crash left behind are cleared, so they cannot pile up.
             for partial in partials(&job.path) {
                 if std::fs::symlink_metadata(&partial).is_ok_and(|m| m.is_file()) {
@@ -1094,6 +1115,51 @@ fn whole_here(path: &Path, item: &DriveItem) -> bool {
     same_size && same_version
 }
 
+/// A backup's copy of a file, about to be replaced by a newer version, moved to the same place
+/// under `earlier` and named for when it was last changed ("Report (2026-11-08 15.10).docx"),
+/// numbered when that name is taken. A plain file only; nothing there, nothing to keep.
+fn keep_earlier(into: &Path, earlier: &Path, path: &Path) -> std::io::Result<()> {
+    let Ok(meta) = std::fs::symlink_metadata(path) else {
+        return Ok(());
+    };
+    if !meta.is_file() {
+        return Ok(());
+    }
+    let rel = path.strip_prefix(into).unwrap_or(path);
+    let dir = earlier.join(rel.parent().unwrap_or(Path::new("")));
+    std::fs::create_dir_all(&dir)?;
+    let when = meta
+        .modified()
+        .ok()
+        .and_then(|t| t.duration_since(std::time::UNIX_EPOCH).ok())
+        .and_then(|d| jiff::Timestamp::from_second(d.as_secs() as i64).ok())
+        .map(|t| {
+            t.to_zoned(jiff::tz::TimeZone::system())
+                .strftime("%Y-%m-%d %H.%M")
+                .to_string()
+        })
+        .unwrap_or_else(|| "earlier".into());
+    let name = path
+        .file_name()
+        .map(|n| n.to_string_lossy().into_owned())
+        .unwrap_or_default();
+    let (stem, ext) = match name.rsplit_once('.') {
+        Some((s, e)) if !s.is_empty() => (s.to_string(), format!(".{e}")),
+        _ => (name.clone(), String::new()),
+    };
+    for n in 1.. {
+        let candidate = if n == 1 {
+            dir.join(format!("{stem} ({when}){ext}"))
+        } else {
+            dir.join(format!("{stem} ({when}) {n}{ext}"))
+        };
+        if std::fs::symlink_metadata(&candidate).is_err() {
+            return std::fs::rename(path, candidate);
+        }
+    }
+    unreachable!("a free name is always found")
+}
+
 fn now_seconds() -> i64 {
     std::time::SystemTime::now()
         .duration_since(std::time::UNIX_EPOCH)
@@ -1117,6 +1183,7 @@ pub(crate) async fn run(
         items,
         into,
         journal,
+        backup,
     } = request;
     if !into.is_dir() {
         return Err("Couldn\u{2019}t find your Downloads folder.".into());
@@ -1147,10 +1214,17 @@ pub(crate) async fn run(
         };
         fits.then(|| placed.path.clone())
     };
+    // A backup's one item always goes on in its own folder, made if it is not there yet.
+    if let Some(b) = &backup {
+        std::fs::create_dir_all(b.top).map_err(|e| disk_words(&e))?;
+    }
     let tops: Vec<Top> = items
         .iter()
         .map(|item| {
-            let path = resumed_at(item);
+            let path = match &backup {
+                Some(b) => Some(b.top.to_path_buf()),
+                None => resumed_at(item),
+            };
             Top {
                 item: item.clone(),
                 resumed: path.is_some(),
@@ -1164,6 +1238,7 @@ pub(crate) async fn run(
         drive,
         batch,
         into,
+        earlier: backup.as_ref().map(|b| b.earlier.to_path_buf()),
         emit: emit.clone(),
         stop,
         tops,

@@ -228,6 +228,8 @@ async fn read_zones(
         // File Explorer's folders too (Windows), off the async threads: it touches the disk.
         let changed = listed.clone();
         tauri::async_runtime::spawn_blocking(move || crate::mount::drive_changed(&changed));
+        // And into the backup, when it is on and keeps iCloud Drive.
+        crate::backup::drive_changed();
     }
     failed.map_or(Ok(()), Err)
 }

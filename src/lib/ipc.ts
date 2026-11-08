@@ -1435,7 +1435,7 @@ export type ExportSummary = {
   photosMissing: number;
 };
 
-/** Backup: every photo and video copied as the original into a chosen folder, kept up to date. */
+/** Backup: every photo, video and iCloud Drive file copied as the original into a chosen folder, kept up to date. */
 export type BackupStatus = {
   folder: string | null;
   hidden: boolean;
@@ -1445,12 +1445,17 @@ export type BackupStatus = {
   problem: string | null;
   /** Hidden is locked: including it asks for the unlock first. */
   hiddenLocked: boolean;
+  /** iCloud Drive is in the backup too; its pass under way; what its last pass couldn't copy. */
+  drive: boolean;
+  driveRunning: boolean;
+  driveNote: string | null;
 };
 
 export const backupApi = {
   status: () => invoke<BackupStatus>("backup_status"),
-  /** On into `folder` (from the folder dialog), or off with `null`; the Hidden album or not. */
-  set: (folder: string | null, hidden: boolean) => invoke<BackupStatus>("backup_set", { folder, hidden }),
+  /** On into `folder` (from the folder dialog), or off with `null`; the Hidden album, iCloud Drive. */
+  set: (folder: string | null, hidden: boolean, drive: boolean) =>
+    invoke<BackupStatus>("backup_set", { folder, hidden, drive }),
 };
 
 export const exportApi = {

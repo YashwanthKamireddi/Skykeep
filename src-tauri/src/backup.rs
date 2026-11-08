@@ -29,6 +29,8 @@ use tauri::{AppHandle, Emitter, Manager};
 
 const FOLDER_KEY: &str = "backup.folder";
 const HIDDEN_KEY: &str = "backup.hidden";
+/// iCloud Drive in the backup too: on unless turned off ("0").
+const DRIVE_KEY: &str = "backup.drive";
 /// The window hears how a backup is going here.
 pub const PROGRESS: &str = "quince://backup";
 
@@ -54,6 +56,16 @@ static CHECKED: AtomicBool = AtomicBool::new(false);
 static PROBLEM: Mutex<Option<String>> = Mutex::new(None);
 static SKIPPED: Mutex<Vec<String>> = Mutex::new(Vec::new());
 
+/// iCloud Drive's tree is walked folder by folder, so it is gone through only when due: once at
+/// launch, when Drive's change feed says something changed, and when backup is turned on or set
+/// again. Photos' own pass, one query when nothing is new, runs after every Photos sync.
+static DRIVE_DUE: AtomicBool = AtomicBool::new(true);
+static DRIVE_RUNNING: AtomicBool = AtomicBool::new(false);
+/// How iCloud Drive's last pass ended: the files it couldn't copy, if any.
+static DRIVE_NOTE: Mutex<Option<String>> = Mutex::new(None);
+/// The pass under way, stopped when backup is turned off.
+static DRIVE_STOP: Mutex<Option<crate::folder_download::Stop>> = Mutex::new(None);
+
 #[derive(Clone, serde::Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct Status {
@@ -65,9 +77,21 @@ pub struct Status {
     problem: Option<String>,
     /// Hidden is locked this run: including it asks for the unlock first (the window's sheet).
     hidden_locked: bool,
+    /// iCloud Drive is in the backup too.
+    drive: bool,
+    /// iCloud Drive's pass is under way.
+    drive_running: bool,
+    /// What iCloud Drive's last pass couldn't copy, said in words.
+    drive_note: Option<String>,
 }
 
-async fn settings(app: &AppHandle) -> (Option<PathBuf>, bool) {
+struct Settings {
+    folder: Option<PathBuf>,
+    hidden: bool,
+    drive: bool,
+}
+
+async fn settings(app: &AppHandle) -> Settings {
     let data = app.state::<Data>();
     let library = data.0.lock().await;
     let folder = library
@@ -77,11 +101,20 @@ async fn settings(app: &AppHandle) -> (Option<PathBuf>, bool) {
         .filter(|f| !f.is_empty())
         .map(PathBuf::from);
     let hidden = library.state(HIDDEN_KEY).ok().flatten().as_deref() == Some("1");
-    (folder, hidden)
+    let drive = library.state(DRIVE_KEY).ok().flatten().as_deref() != Some("0");
+    Settings {
+        folder,
+        hidden,
+        drive,
+    }
 }
 
 async fn status(app: &AppHandle) -> Status {
-    let (folder, hidden) = settings(app).await;
+    let Settings {
+        folder,
+        hidden,
+        drive,
+    } = settings(app).await;
     let Progress { copied, total } = {
         let data = app.state::<Data>();
         let library = data.0.lock().await;
@@ -98,6 +131,9 @@ async fn status(app: &AppHandle) -> Status {
         running: RUNNING.load(Ordering::SeqCst),
         problem: PROBLEM.lock().ok().and_then(|p| p.clone()),
         hidden_locked: !crate::photos::HIDDEN_OPEN.load(Ordering::SeqCst),
+        drive,
+        drive_running: DRIVE_RUNNING.load(Ordering::SeqCst),
+        drive_note: DRIVE_NOTE.lock().ok().and_then(|n| n.clone()),
     }
 }
 
@@ -107,13 +143,14 @@ pub async fn backup_status(app: AppHandle) -> Result<Status, String> {
 }
 
 /// Backup on into `folder` (chosen in the folder dialog, so granted), or off (`None`); with the
-/// Hidden album or without. A new folder starts from nothing: what is there is checked as
-/// it is copied, never assumed.
+/// Hidden album or without; with iCloud Drive or without. A new folder starts from nothing:
+/// what is there is checked as it is copied, never assumed.
 #[tauri::command]
 pub async fn backup_set(
     app: AppHandle,
     folder: Option<String>,
     hidden: bool,
+    drive: bool,
 ) -> Result<Status, String> {
     if let Some(f) = &folder {
         crate::grants::take_write(f)?;
@@ -139,9 +176,20 @@ pub async fn backup_set(
         library
             .set_state(HIDDEN_KEY, if hidden { "1" } else { "0" })
             .map_err(|e| e.to_string())?;
+        library
+            .set_state(DRIVE_KEY, if drive { "1" } else { "0" })
+            .map_err(|e| e.to_string())?;
     }
     if let Ok(mut p) = PROBLEM.lock() {
         *p = None;
+    }
+    // Off, or iCloud Drive left out: a pass of it under way stops; on, it is gone through.
+    if folder.is_none() || !drive {
+        if let Some(stop) = DRIVE_STOP.lock().ok().and_then(|s| s.clone()) {
+            stop.stop();
+        }
+    } else {
+        DRIVE_DUE.store(true, Ordering::SeqCst);
     }
     kick(&app);
     Ok(status(&app).await)
@@ -155,6 +203,14 @@ pub fn init(app: &AppHandle) {
 
 /// Photos changed at Apple: what is new goes into the backup, when backup is on.
 pub fn photos_changed() {
+    if let Some(app) = APP.get() {
+        kick(app);
+    }
+}
+
+/// iCloud Drive changed at Apple (its change feed, drive_watch.rs): gone through again.
+pub fn drive_changed() {
+    DRIVE_DUE.store(true, Ordering::SeqCst);
     if let Some(app) = APP.get() {
         kick(app);
     }
@@ -188,11 +244,106 @@ pub fn kick(app: &AppHandle) {
     });
 }
 
-/// One pass: check the folder against the record (once), then copy everything not copied.
+/// One pass: Photos, then iCloud Drive when it is due.
 async fn pass(app: &AppHandle) -> Result<(), String> {
-    let (Some(folder), hidden) = settings(app).await else {
+    let Settings {
+        folder: Some(folder),
+        hidden,
+        drive,
+    } = settings(app).await
+    else {
         return Ok(());
     };
+    photos_pass(app, &folder, hidden).await?;
+    if drive && DRIVE_DUE.swap(false, Ordering::SeqCst) {
+        if let Err(e) = drive_pass(app, &folder).await {
+            // Due again: the next pass (two minutes on) carries on where this one stopped.
+            DRIVE_DUE.store(true, Ordering::SeqCst);
+            return Err(e);
+        }
+    }
+    Ok(())
+}
+
+/// iCloud Drive's whole tree into `folder/iCloud Drive`, carried on in place every time by the
+/// same engine as a Drive folder's download (folder_download.rs): any size, safe names, whole
+/// files only, unchanged files left alone. A file changed in iCloud since keeps the version it
+/// had, in `folder/Earlier versions`. Nothing is ever deleted.
+async fn drive_pass(app: &AppHandle, folder: &Path) -> Result<(), String> {
+    use crate::folder_download as fd;
+    let (http, drivews, params) = crate::drive_context(&app.state::<crate::Auth>()).await?;
+    let docws = {
+        let auth = app.state::<crate::Auth>();
+        let client = auth.client.lock().await;
+        client
+            .session()
+            .service_url("docws")
+            .ok_or("Apple hasn't offered iCloud Drive downloads for this account.")?
+    };
+    let drive = fd::Drive {
+        http,
+        drivews,
+        docws,
+        params,
+        retry_after: Duration::from_secs(1),
+        free_space: fd::free_space,
+        room_every: fd::ROOM_EVERY,
+    };
+    let root = quince_core::drive::DriveItem {
+        drivewsid: quince_vfs::ROOT.to_string(),
+        parent_id: None,
+        name: "iCloud Drive".into(),
+        extension: None,
+        kind: "FOLDER".into(),
+        size: None,
+        child_count: None,
+        created_at: None,
+        modified_at: None,
+        etag: None,
+    };
+    let top = folder.join("iCloud Drive");
+    let earlier = folder.join("Earlier versions");
+    let stop = fd::Stop::default();
+    if let Ok(mut s) = DRIVE_STOP.lock() {
+        *s = Some(stop.clone());
+    }
+    DRIVE_RUNNING.store(true, Ordering::SeqCst);
+    app.emit(PROGRESS, status(app).await).ok();
+    let request = fd::Request {
+        batch: "backup",
+        title: "iCloud Drive",
+        items: vec![root],
+        into: folder,
+        journal: None,
+        backup: Some(fd::Backup {
+            top: &top,
+            earlier: &earlier,
+        }),
+    };
+    let report = fd::run(&drive, request, std::sync::Arc::new(|_| {}), &stop).await;
+    DRIVE_RUNNING.store(false, Ordering::SeqCst);
+    if let Ok(mut s) = DRIVE_STOP.lock() {
+        *s = None;
+    }
+    let report = report?;
+    if let Some(problem) = report.problem {
+        return Err(problem);
+    }
+    let missed = report.failed.len() + report.more_failed;
+    if let Ok(mut n) = DRIVE_NOTE.lock() {
+        *n = (missed > 0).then(|| match report.failed.first() {
+            Some(first) if missed == 1 => {
+                format!("1 iCloud Drive file couldn't be backed up: {first}")
+            }
+            _ => format!("{missed} iCloud Drive files couldn't be backed up"),
+        });
+    }
+    Ok(())
+}
+
+/// Photos' pass: check the folder against the record (once), then copy everything not copied.
+async fn photos_pass(app: &AppHandle, folder: &Path, hidden: bool) -> Result<(), String> {
+    let folder = folder.to_path_buf();
     // An external drive unplugged is not an empty backup: nothing is forgotten, it waits.
     if !folder.is_dir() {
         return Err(format!(

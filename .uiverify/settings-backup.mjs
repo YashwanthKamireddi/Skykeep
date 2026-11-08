@@ -1,4 +1,4 @@
-// Settings › Backup and Export › Back Up Photos: off until a folder is chosen; once on, it says
+// Settings › Backup and Export › Back Up iCloud (photos, and iCloud Drive unless left out): off until a folder is chosen; once on, it says
 // how far it is and where, with Change Folder and the switch to turn it off. "Include the Hidden
 // album" shows always, and switching it on while locked asks for the unlock right there.
 import { engine } from "./engine.mjs";
@@ -22,7 +22,9 @@ for (const scheme of ["light", "dark"]) {
   await row.scrollIntoViewIfNeeded();
   await page.waitForTimeout(200);
   ok(await section.getByRole("group", { name: "Backup" }).isVisible(), `${scheme}: Backup and Export share their own section`);
-  ok((await row.innerText()).includes("kept up to date in a folder you choose"), `${scheme}: off, it says what it does`);
+  ok((await row.innerText()).includes("Every photo, video and iCloud Drive file"), `${scheme}: off, it says what it does`);
+  const drive = row.getByRole("switch", { name: "Include iCloud Drive" });
+  ok((await drive.getAttribute("aria-checked")) === "true", `${scheme}: iCloud Drive is in by default`);
   const hidden = row.getByRole("switch", { name: "Include the Hidden album" });
   ok(await hidden.isVisible(), `${scheme}: the Hidden option shows before a folder is chosen`);
   if (shots) await section.screenshot({ path: `${shots}/backup-off-${scheme}.png` });
@@ -39,12 +41,15 @@ for (const scheme of ["light", "dark"]) {
   await row.getByRole("button", { name: "Choose Folder" }).click();
   await page.waitForTimeout(150);
   const args = await page.evaluate(() => window.__backupArgs);
-  ok(args?.folder === "/media/yash/Backup Drive" && args.hidden === true, `${scheme}: the chosen folder is set, with Hidden`);
+  ok(args?.folder === "/media/yash/Backup Drive" && args.hidden === true && args.drive === true, `${scheme}: the chosen folder is set, with Hidden and iCloud Drive`);
   const text = await row.innerText();
-  ok(text.includes("Copying · 812 of 2,140"), `${scheme}: it says how far it is  [${text.split("\n")[1]}]`);
+  ok(text.includes("Copying photos · 812 of 2,140"), `${scheme}: it says how far it is  [${text.split("\n")[1]}]`);
   ok(await row.getByRole("progressbar", { name: "Backup progress" }).isVisible(), `${scheme}: a bar shows while it copies`);
   if (shots) await section.screenshot({ path: `${shots}/backup-on-${scheme}.png` });
-  await row.getByRole("switch", { name: "Back Up Photos" }).click();
+  await drive.click();
+  await page.waitForTimeout(150);
+  ok((await page.evaluate(() => window.__backupArgs.drive)) === false && (await drive.getAttribute("aria-checked")) === "false", `${scheme}: iCloud Drive can be left out`);
+  await row.getByRole("switch", { name: "Back Up iCloud" }).click();
   await page.waitForTimeout(150);
   ok((await page.evaluate(() => window.__backupArgs.folder)) === null, `${scheme}: the switch turns it off`);
   await ctx.close();

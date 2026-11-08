@@ -507,6 +507,7 @@ async fn download(
         items: roots.iter().map(|n| item(n)).collect(),
         into,
         journal,
+        backup: None,
     };
     run(drive, request, emit, stop).await
 }
@@ -1631,5 +1632,84 @@ async fn a_real_full_disk_stops_it_cleanly() {
             .all(|k| !k.contains("too-big") && !k.contains(".part")),
         "nothing half-written is left: {:?}",
         left.keys()
+    );
+}
+
+/// A backup (`Request::backup`) carries on in the same folder every time, never numbering a new
+/// one; a file changed in iCloud since is fetched again, the copy it had moved first into the
+/// earlier versions, at the same place in the tree under its date; one unchanged is left alone.
+#[tokio::test]
+async fn a_backup_keeps_the_version_it_had_and_its_own_folder() {
+    const MONDAY: i64 = 1_793_000_000;
+    const TUESDAY: i64 = MONDAY + 86_400;
+    let mut edited = file("a", "a", Some("txt"), b"fixed");
+    edited.changed = Some(TUESDAY);
+    let mut same = file("b", "b", Some("txt"), b"as it was");
+    same.changed = Some(MONDAY);
+    let tree = folder("r", "R", vec![folder("d", "Docs", vec![edited]), same]);
+    let backup = tempfile::tempdir().unwrap();
+    let top = backup.path().join("iCloud Drive");
+    let earlier = backup.path().join("Earlier versions");
+    std::fs::create_dir_all(top.join("Docs")).unwrap();
+    let at = |secs: i64| std::time::UNIX_EPOCH + std::time::Duration::from_secs(secs as u64);
+    for (name, bytes) in [("Docs/a.txt", &b"fixd!"[..]), ("b.txt", &b"as it was"[..])] {
+        std::fs::write(top.join(name), bytes).unwrap();
+        let f = std::fs::File::options()
+            .write(true)
+            .open(top.join(name))
+            .unwrap();
+        f.set_modified(at(MONDAY)).unwrap();
+    }
+    let (_server, drive, hits) = drive_of(std::slice::from_ref(&tree), Setup::default()).await;
+    let (_heard, emit) = hearing();
+    for _ in 0..2 {
+        let request = Request {
+            batch: "b",
+            title: "iCloud Drive",
+            items: vec![item(&tree)],
+            into: backup.path(),
+            journal: None,
+            backup: Some(Backup {
+                top: &top,
+                earlier: &earlier,
+            }),
+        };
+        let report = run(&drive, request, emit.clone(), &Stop::default())
+            .await
+            .unwrap();
+        assert!(report.failed.is_empty(), "{report:?}");
+    }
+    assert_eq!(std::fs::read(top.join("Docs/a.txt")).unwrap(), b"fixed");
+    let kept: Vec<_> = std::fs::read_dir(earlier.join("iCloud Drive/Docs"))
+        .unwrap()
+        .map(|e| e.unwrap().file_name().into_string().unwrap())
+        .collect();
+    assert_eq!(kept.len(), 1, "one earlier version: {kept:?}");
+    assert!(
+        kept[0].starts_with("a (") && kept[0].ends_with(").txt"),
+        "{kept:?}"
+    );
+    assert_eq!(
+        std::fs::read(earlier.join("iCloud Drive/Docs").join(&kept[0])).unwrap(),
+        b"fixd!",
+        "the version it had"
+    );
+    assert_eq!(
+        hits.lock().unwrap().get("b"),
+        None,
+        "the unchanged one is left alone"
+    );
+    assert_eq!(
+        hits.lock().unwrap().get("a").copied(),
+        Some(1),
+        "fetched once, not again"
+    );
+    let names: Vec<_> = std::fs::read_dir(backup.path())
+        .unwrap()
+        .map(|e| e.unwrap().file_name().into_string().unwrap())
+        .collect();
+    assert!(
+        !names.iter().any(|n| n.starts_with("iCloud Drive ")),
+        "no second folder: {names:?}"
     );
 }

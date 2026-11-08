@@ -4679,6 +4679,7 @@ async fn drive_download_items(
         items: chosen,
         into: &downloads,
         journal: Some(&journal),
+        backup: None,
     };
     let report = folder_download::run(&drive, request, emit, &stop).await;
     downloads_running()
