@@ -48,7 +48,9 @@ Skykeep keeps your iCloud on your own computer and syncs it quietly in the backg
 
 **Send to iPhone.** Right-click any file on your computer and choose Send to iPhone. Photos and videos appear in your iPhone's Photos, documents in Files, whether the phone is on your desk or on the other side of the world. Nothing to install on the iPhone, nothing to pair.
 
-**Back up every photo.** Every photo and video you've ever taken, copied as the original to a folder or drive you choose, and kept up to date as you take more. Unplug the drive and it waits; plug it back in and it carries on. A backup never deletes.
+**Back up iCloud.** Every photo and video you've ever taken, and everything in iCloud Drive, copied as the original to a folder or drive you choose, and kept up to date as you add more. Photos are filed by month; Drive keeps its own folders, and a file changed in iCloud keeps its earlier version in an Earlier versions folder. Unplug the drive and it waits; plug it back in and it carries on. A backup never deletes.
+
+<p align="center"><picture><source media="(prefers-color-scheme: dark)" srcset="docs/media/backup-dark.webp"><img src="docs/media/backup-light.webp" width="880" alt="Back Up iCloud in Settings, copying Photos and iCloud Drive to a backup drive"></picture></p>
 
 **iCloud in your file manager.** iCloud Drive and Photos are real folders in your file manager, and photos show their thumbnails before anything downloads.
 

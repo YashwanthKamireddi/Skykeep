@@ -168,6 +168,19 @@ const SCENES = {
     await page.waitForSelector(".settings");
     await page.waitForTimeout(800);
   },
+  // Back Up iCloud part way through: Photos and iCloud Drive into a drive of the person's own.
+  backup: async (page) => {
+    await page.evaluate(() => {
+      window.__backup = { folder: "/media/Backup Drive", hidden: false, drive: true, driveRunning: true, driveNote: null,
+        copied: 1486, total: 2140, running: true, problem: null, photosBytes: 5_120_000_000, photosBytesTotal: 7_340_000_000,
+        driveFiles: 2930, driveFilesTotal: 4120, driveBytes: 2_870_000_000, driveBytesTotal: 4_100_000_000 };
+    });
+    await page.locator(".sidebar-account").click();
+    await page.waitForSelector(".settings");
+    await page.locator(".backup").first().scrollIntoViewIfNeeded();
+    await page.locator(".backup").first().evaluate((el) => el.scrollIntoView({ block: "center" }));
+    await page.waitForTimeout(800);
+  },
 };
 
 /** The window, framed: rounded, shadowed, on a soft wash of Skykeep's blue. */
@@ -222,7 +235,7 @@ const has = (cmd) => { try { execFileSync("sh", ["-c", `command -v ${cmd}`], { s
 
 // ---- Stills.
 const stills = { notes: ["light", "dark"], reminders: ["light", "dark"], calendar: ["light", "dark"], contacts: ["light", "dark"],
-  drive: ["light", "dark"], photos: ["light", "dark"], settings: ["light", "dark"] };
+  drive: ["light", "dark"], photos: ["light", "dark"], settings: ["light", "dark"], backup: ["light", "dark"] };
 for (const [scene, schemes] of Object.entries(stills)) {
   if (!want(scene)) continue;
   for (const scheme of schemes) {

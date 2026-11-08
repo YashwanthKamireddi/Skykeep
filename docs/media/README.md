@@ -21,6 +21,7 @@ Needs ImageMagick and ffmpeg. Each still is a 1200 × 760 window drawn at 2x, fr
 | `drive-light.webp`, `drive-dark.webp` | A folder in grid view with picture and document thumbnails |
 | `photos-light.webp`, `photos-dark.webp` | The library by month, with videos, favourites and albums |
 | `settings-light.webp`, `settings-dark.webp` | Account, storage and sync |
+| `backup-light.webp`, `backup-dark.webp` | Back Up iCloud part way through, Photos and iCloud Drive into a drive |
 | `signin-light.webp`, `signin-dark.webp` | Signing in with a demo Apple Account |
 
 ## Rules for every image
