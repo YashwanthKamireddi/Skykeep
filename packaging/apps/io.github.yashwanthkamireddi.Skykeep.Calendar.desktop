@@ -1,9 +1,10 @@
 # One of Skykeep's six apps, on its own in the launcher. Its window says this file's name as
 # its app ID (src-tauri/src/apps.rs), so a dock shows it as this app. All six run in one
-# Skykeep: one sign-in, one library.
+# Skykeep: one sign-in, one library. Named "Skykeep Calendar", as its Start-menu shortcut is, so it
+# is never mistaken for the desktop's own Calendar app.
 [Desktop Entry]
 Type=Application
-Name=Calendar
+Name=Skykeep Calendar
 GenericName=Calendar for iCloud
 Comment=Your iCloud calendars, on this computer
 Exec=skykeep --app calendar

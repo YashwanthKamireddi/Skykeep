@@ -168,19 +168,6 @@ const SCENES = {
     await page.waitForSelector(".settings");
     await page.waitForTimeout(800);
   },
-  // Back Up iCloud part way through: Photos and iCloud Drive into a drive of the person's own.
-  backup: async (page) => {
-    await page.evaluate(() => {
-      window.__backup = { folder: "/media/Backup Drive", hidden: false, drive: true, driveRunning: true, driveNote: null,
-        copied: 1486, total: 2140, running: true, problem: null, photosBytes: 5_120_000_000, photosBytesTotal: 7_340_000_000,
-        driveFiles: 2930, driveFilesTotal: 4120, driveBytes: 2_870_000_000, driveBytesTotal: 4_100_000_000 };
-    });
-    await openSettings(page);
-    await page.waitForSelector(".settings");
-    await page.locator(".backup").first().scrollIntoViewIfNeeded();
-    await page.locator(".backup").first().evaluate((el) => el.scrollIntoView({ block: "center" }));
-    await page.waitForTimeout(800);
-  },
 };
 
 /** The window, framed: rounded, shadowed, on a soft wash of Skykeep's blue. */
@@ -233,45 +220,105 @@ function publish(framed, name) {
 
 const has = (cmd) => { try { execFileSync("sh", ["-c", `command -v ${cmd}`], { stdio: "ignore" }); return true; } catch { return false; } };
 
-// ---- Stills.
+// ---- Stills. Those in STORE are also the app stores' screenshots, Skykeep's own window first.
+const STORE = ["settings", "notes", "reminders", "calendar", "photos"];
 const stills = { notes: ["light", "dark"], reminders: ["light", "dark"], calendar: ["light", "dark"], contacts: ["light", "dark"],
-  drive: ["light", "dark"], photos: ["light", "dark"], settings: ["light", "dark"], backup: ["light", "dark"] };
+  drive: ["light", "dark"], photos: ["light", "dark"], settings: ["light"] };
 for (const [scene, schemes] of Object.entries(stills)) {
   if (!want(scene)) continue;
   for (const scheme of schemes) {
-    const { ctx, page } = await open({ scheme, storage: { "quince.drive.view": "grid" } });
+    // Skykeep's own window is shown whole: the launcher and the three cards under it.
+    const tall = scene === "settings" ? { height: 872 } : {};
+    const { ctx, page } = await open({ scheme, ...tall, storage: { "quince.drive.view": "grid" } });
     await SCENES[scene](page);
     await settled(page);
     const raw = path.join(WORK, `${scene}-${scheme}.raw.png`);
     await page.screenshot({ path: raw });
     await ctx.close();
-    publish(await frame(raw, scheme), `${scene}-${scheme}`);
+    const framed = await frame(raw, scheme);
+    // Skykeep's own window is in the README's animation; its still is for the stores only.
+    if (scene !== "settings") publish(framed, `${scene}-${scheme}`);
+    // The app stores' screenshots (the metainfo's), lossless, light only.
+    if (scheme === "light" && STORE.includes(scene)) {
+      fs.mkdirSync(path.join(OUT, "screenshots"), { recursive: true });
+      sh("magick", [framed, "-strip", "-filter", "Lanczos", "-resize", `${WIDTH}x`, path.join(OUT, "screenshots", `${scene === "settings" ? "skykeep" : scene}-light.png`)]);
+    }
   }
 }
-if (want("signin")) {
-  for (const scheme of ["light", "dark"]) {
-    const { ctx, page } = await open({ scheme, screen: "signin" });
-    await page.getByLabel("Apple Account").fill("jamie.rivera@example.com");
-    await page.getByLabel("Password").fill("demo-password");
-    await page.locator("body").click({ position: { x: 5, y: 5 } });
-    await page.waitForTimeout(400);
-    const raw = path.join(WORK, `signin-${scheme}.raw.png`);
-    await page.screenshot({ path: raw });
-    await ctx.close();
-    publish(await frame(raw, scheme), `signin-${scheme}`);
+// ---- The hero: Skykeep's window and its launcher; each app opens from its tile in a window of
+// its own, over Skykeep's, as on a desktop. Every window is the real interface on the demo
+// library, each at its own address (`?app=notes`), laid out on a stage page.
+// Made in light and dark: the README shows the one that matches the reader's GitHub.
+for (const scheme of want("hero") ? ["light", "dark"] : []) {
+  // A small stage the windows fill, drawn at 2x: the README shows it at 880 px, so its text
+  // reads at the size it has on a screen.
+  const W = 1040, H = 640, SCALE = 2;
+  // One window at a time, whole and centred: Skykeep's, then the app its tile opens.
+  const SKY = { x: (W - 720) / 2, y: 0, w: 720, h: 0 };
+  // An app fills the frame, as a window opened to work in does; Skykeep's stays its own size.
+  const APP = { x: 20, y: 18, w: W - 40, h: H - 36 };
+  const SHOWN = ["notes", "calendar", "photos"];
+  const ctx = await browser.newContext({ viewport: { width: W, height: H }, deviceScaleFactor: SCALE, colorScheme: scheme,
+    timezoneId: TZ, locale: "en-US", reducedMotion: "no-preference" });
+  await ctx.clock.setFixedTime(NOW);
+  await ctx.route(`${PICS}/**`, (route) => {
+    const body = pictureFor(decodeURIComponent(route.request().url().slice(PICS.length + 1)));
+    return body ? route.fulfill({ body, contentType: "image/jpeg" }) : route.fulfill({ status: 404, body: "" });
+  });
+  await ctx.addInitScript(installDemo, { picBase: PICS, tz: TZ, library: LIBRARY });
+  await ctx.addInitScript(installStub, { screen: "library", services: SERVICES, twoFactor: null, notesFixture: true, calendarFixture: true,
+    remindersFixture: true, contactsFixture: true, driveFixture: true, demoFixture: true });
+  // The stage: the backdrop the stills sit on, Skykeep's window, and each app's window, put away
+  // until its tile is clicked. A pointer is drawn on top, since a screencast shows none.
+  await ctx.route(`${URL_}/__stage`, (route) => route.fulfill({ contentType: "text/html", body: `<!doctype html><html><head><style>
+    ${frameHtml(scheme, W, H, [0, 0], "").match(/<style>([\s\S]*)<\/style>/)[1].replace(/\.win\{[\s\S]*$/, "")}
+    .w{position:absolute;border:0;border-radius:12px;overflow:hidden;background:${scheme === "dark" ? "#1c1c1e" : "#f5f5f7"};
+      box-shadow:${scheme === "dark"
+        ? "0 0 0 1px rgba(255,255,255,.10),0 2px 6px rgba(0,0,0,.35),0 24px 48px -12px rgba(0,0,0,.55),0 60px 110px -40px rgba(0,10,40,.8)"
+        : "0 0 0 1px rgba(16,40,90,.10),0 2px 6px rgba(16,40,90,.08),0 24px 48px -14px rgba(18,62,157,.28),0 60px 110px -40px rgba(18,62,157,.40)"}}
+    .w iframe{display:block;width:100%;height:100%;border:0}
+    /* Put away but still painted, so a window shows on the very frame its tile is clicked. */
+    .away{opacity:0;pointer-events:none}
+    #cur{position:fixed;left:0;top:0;z-index:99;pointer-events:none;filter:drop-shadow(0 1px 1.5px rgba(0,0,0,.35))}
+  </style></head><body>
+    <div class="w" id="sky" style="left:${SKY.x}px;top:${SKY.y}px;width:${SKY.w}px;height:${H - 2 * SKY.y}px;z-index:1"><iframe src="/"></iframe></div>
+    ${SHOWN.map((k) => `<div class="w away" id="${k}" style="left:${APP.x}px;top:${APP.y}px;width:${APP.w}px;height:${APP.h}px"><iframe src="/?app=${k}"></iframe></div>`).join("")}
+    <svg id="cur" width="22" height="28" viewBox="0 0 22 28" style="transform:translate(${W - 24}px,${H - 24}px)"><path d="M2 2v20l5.2-4.6 3.4 8 3.6-1.6-3.4-7.7H18z" fill="#111" stroke="#fff" stroke-width="1.6" stroke-linejoin="round"/></svg>
+  </body></html>` }));
+  const page = await ctx.newPage();
+  page.on("pageerror", (e) => console.log(`page error: ${e.message}`));
+  await page.goto(`${URL_}/__stage`, { waitUntil: "networkidle" });
+  const sky = page.frameLocator("#sky iframe");
+  const app = (k) => page.frameLocator(`#${k} iframe`);
+  await sky.locator(".launch-tile").first().waitFor();
+  // Skykeep's window ends just under its launcher: a whole window, never one cut through a card.
+  SKY.h = Math.ceil(await sky.locator(".launcher").evaluate((el) => el.getBoundingClientRect().bottom)) + 26;
+  SKY.y = Math.round((H - SKY.h) / 2);
+  await page.evaluate(([h, y]) => { const w = document.getElementById("sky"); w.style.height = `${h}px`; w.style.top = `${y}px`; }, [SKY.h, SKY.y]);
+  for (const k of SHOWN) await app(k).locator({ notes: ".notes", calendar: ".cx", photos: ".px" }[k]).first().waitFor();
+  // Calendar's week, the working day in view, before it is ever shown.
+  await app("calendar").getByRole("button", { name: "Week", exact: true }).evaluate((b) => b.click());
+  await page.frame({ url: /app=calendar/ }).evaluate(() => {
+    const s = [...document.querySelectorAll(".cx *")].find((e) => e.scrollHeight > e.clientHeight + 200 && getComputedStyle(e).overflowY !== "visible");
+    if (s) s.scrollTop = s.scrollHeight * (7.6 / 24);
+  });
+  // Every picture in every window drawn before the recording starts: a window shown on the frame
+  // its tile is clicked must never show a grey box where its picture will be.
+  for (const f of page.frames()) {
+    await f.evaluate(() => document.fonts.ready).catch(() => {});
+    await f.waitForFunction(() => [...document.querySelectorAll("img")].every((i) => i.complete && (i.naturalWidth > 0 || !i.currentSrc)),
+      null, { timeout: 20000 }).catch(() => console.log("some pictures still loading"));
   }
-}
+  // Each app shown once before recording: a note's pictures load when they come into view, so
+  // a window first shown on camera would show a grey box where its picture lands.
+  for (const k of SHOWN) {
+    await page.evaluate((id) => { for (const w of document.querySelectorAll(".w")) w.classList.toggle("away", w.id !== id); }, k);
+    await page.waitForTimeout(1500);
+  }
+  await page.evaluate(() => { for (const w of document.querySelectorAll(".w")) w.classList.toggle("away", w.id !== "sky"); });
+  await page.waitForTimeout(2500);
 
-// ---- The hero: switch apps, tick a reminder, watch a note arrive from the phone.
-if (want("hero")) {
-  const W = 1120, H = 700, PAD = [40, 36];
-  const { ctx, page } = await open({ scheme: "light", scale: 1, width: W, height: H, cursor: true });
-  await openScreen(page, "Reminders");
-  await page.mouse.move(W - 40, H - 60);
-  await page.waitForTimeout(500);
-  // Each frame goes to disk as it arrives and only its time is kept: held in memory, a dozen
-  // seconds of frames (and their copies on the way to files) filled a 16 GB machine.
-  const dir = path.join(WORK, "hero");
+  const dir = path.join(WORK, `hero-${scheme}`);
   fs.rmSync(dir, { recursive: true, force: true });
   fs.mkdirSync(dir, { recursive: true });
   const frames = [];
@@ -282,73 +329,74 @@ if (want("hero")) {
     frames.push({ t: f.metadata.timestamp });
     await cdp.send("Page.screencastFrameAck", { sessionId: f.sessionId }).catch(() => {});
   });
-  await cdp.send("Page.startScreencast", { format: "png", everyNthFrame: 1, maxWidth: W, maxHeight: H });
-  const glide = async (loc, { click = "single", hold = 0, offset } = {}) => {
+  await cdp.send("Page.startScreencast", { format: "png", everyNthFrame: 1, maxWidth: W * SCALE, maxHeight: H * SCALE });
+  let at = { x: W - 24, y: H - 24 };
+  // The drawn pointer glides in the page at the screen's own rate; the real one follows it in
+  // a few steps, for the hover each tile and row shows.
+  const glide = async (loc, { click = "single", hold = 0 } = {}) => {
     const box = await loc.boundingBox();
-    const x = box.x + (offset?.x ?? box.width / 2), y = box.y + (offset?.y ?? box.height / 2);
-    await page.mouse.move(x, y, { steps: 18 });
-    await page.waitForTimeout(160);
-    if (click === "single") await page.mouse.click(x, y);
-    if (click === "double") await page.mouse.dblclick(x, y);
+    const to = { x: box.x + box.width / 2, y: box.y + box.height / 2 };
+    const ms = Math.min(620, 260 + Math.hypot(to.x - at.x, to.y - at.y) * 0.45);
+    await Promise.all([
+      page.evaluate(([a, b, ms]) => new Promise((done) => {
+        const cur = document.getElementById("cur");
+        const t0 = performance.now();
+        const step = (now) => {
+          const k = Math.min(1, (now - t0) / ms), e = 1 - Math.pow(1 - k, 3);
+          cur.style.transform = `translate(${a.x + (b.x - a.x) * e - 2}px,${a.y + (b.y - a.y) * e - 2}px)`;
+          if (k < 1) requestAnimationFrame(step); else done();
+        };
+        requestAnimationFrame(step);
+      }), [at, to, ms]),
+      page.mouse.move(to.x, to.y, { steps: 6 }),
+    ]);
+    at = to;
+    await page.waitForTimeout(70);
+    if (click === "single") await page.mouse.click(to.x, to.y);
+    if (click === "double") await page.mouse.dblclick(to.x, to.y);
     if (hold) await page.waitForTimeout(hold);
   };
-  await page.waitForTimeout(1100);
-  // Tick a reminder.
-  await glide(page.getByRole("checkbox", { name: "Send the Q4 slides to Jordan" }), { hold: 1400 });
-  // To Calendar, and its week.
-  await glide(page.locator(".nav-item", { hasText: "Calendar" }), { hold: 600 });
-  await glide(page.getByRole("button", { name: "Week", exact: true }), { hold: 1500 });
-  // To Notes; a note arrives from the phone.
-  await glide(page.locator(".nav-item", { hasText: "Notes" }), { hold: 900 });
-  await page.mouse.move(W * 0.62, H * 0.55, { steps: 16 });
-  await page.evaluate(() => { window.__demoArrive(); const now = Math.floor(Date.now() / 1000);
-    // As a real pass reports it: Notes synced now and changed — with no services named, the
-    // footer read "Not synced yet" as the note arrived.
-    const apps = [["notes", "Notes"], ["reminders", "Reminders"], ["calendar", "Calendar"], ["contacts", "Contacts"], ["drive", "iCloud Drive"], ["photos", "Photos"]];
-    window.__emit?.("quince://synced", { services: apps.map(([service, label]) => ({ service, label, outcome: "ok", detail: null, lastSyncedAt: now })),
-      asOf: now, tookMs: 5, changed: ["notes"] }); });
-  await page.waitForTimeout(1200);
-  await glide(page.locator(".note-rows").getByText("Farmers market").first(), { hold: 1800 });
-  // The other three apps: a contact's card, a Drive folder, the photo library.
-  await glide(page.locator(".nav-item", { hasText: "Contacts" }), { hold: 500 });
-  await glide(page.locator(".contacts").getByText("Maya Chen", { exact: true }).first(), { hold: 1500 });
-  await glide(page.locator(".nav-item", { hasText: "Drive" }), { hold: 500 });
-  await glide(page.locator(".drive").getByText("Summer at the Lake", { exact: true }).first(), { click: "double", hold: 1600 });
-  await glide(page.locator(".nav-item", { hasText: "Photos" }), { hold: 2400 });
+  let z = 1;
+  // Only the window asked for shows: an app's window, opened from its tile, stands alone.
+  const raise = (id) => page.evaluate(([id, z]) => {
+    for (const w of document.querySelectorAll(".w")) w.classList.toggle("away", w.id !== id);
+    document.getElementById(id).style.zIndex = z;
+  }, [id, ++z]);
+  await page.waitForTimeout(1300);
+  const names = { notes: "Notes", calendar: "Calendar", photos: "Photos" };
+  for (const [i, k] of SHOWN.entries()) {
+    if (i > 0) {
+      // Back to Skykeep's window, as its icon in the dock or tray brings it.
+      await raise("sky");
+      await page.waitForTimeout(700);
+    }
+    await glide(sky.locator(".launch-tile", { hasText: names[k] }), { hold: 0 });
+    await raise(k);
+    if (k === "notes") {
+      await page.waitForTimeout(700);
+      // Another note than the one open, so the click is seen to open it.
+      await glide(app("notes").locator(".note-rows").getByText("Sourdough starter").first(), { hold: 2000 });
+    } else {
+      await page.waitForTimeout(k === "photos" ? 2600 : 2000);
+    }
+  }
   await cdp.send("Page.stopScreencast");
   await ctx.close();
 
-  // Frames to a GIF, framed like the stills.
-  const end = frames[frames.length - 1].t + 1.2;
+  // Frames straight to animated WebP, in full colour: through a GIF's 192-colour palette first,
+  // the gradients and pictures came out banded and dithered.
+  const end = frames[frames.length - 1].t + 2.4;
+  const hold = (i) => Math.min(2.4, Math.max(0.004, (frames[i + 1]?.t ?? end) - frames[i].t));
   let list = "";
-  frames.forEach((f, i) => {
-    // A still stretch plays for at most 0.9 s: the screencast sends no frame while nothing
-    // moves, and those gaps made the loop twice as long as anyone watches.
-    list += `file '${frameFile(i)}'\nduration ${Math.min(0.9, Math.max(0.004, (frames[i + 1]?.t ?? end) - f.t)).toFixed(3)}\n`;
-  });
+  // A still stretch plays for at most 2.4 s: long enough to read an app's window, never the
+  // waits the recording itself had (the screencast sends no frame while nothing moves).
+  frames.forEach((f, i) => { list += `file '${frameFile(i)}'\nduration ${hold(i).toFixed(3)}\n`; });
   list += `file '${frameFile(frames.length - 1)}'\n`;
   fs.writeFileSync(path.join(dir, "list.txt"), list);
-  // The backdrop and the window's rounded shape, from the same frame as the stills.
-  const bgPage = await browser.newPage({ viewport: { width: W + PAD[0] * 2, height: H + PAD[1] * 2 }, deviceScaleFactor: 1 });
-  await bgPage.setContent(frameHtml("light", W, H, PAD, ""));
-  await bgPage.screenshot({ path: path.join(dir, "bg.png") });
-  await bgPage.close();
-  sh("magick", ["-size", `${W}x${H}`, "xc:black", "-fill", "white", "-draw", `roundrectangle 0,0 ${W - 1},${H - 1} 12,12`, path.join(dir, "mask.png")]);
-  const gif = path.join(OUT, "hero.gif");
-  // Two passes, each bounded to the clip's length: the palette first, then the frames through
-  // it. In one pass the palette waited on every frame held in memory, and the looped backdrop
-  // and mask never ended.
-  const dur = frames.reduce((n, f, i) => n + Math.min(0.9, Math.max(0.004, (frames[i + 1]?.t ?? end) - f.t)), 0).toFixed(2);
-  const inputs = ["-f", "concat", "-safe", "0", "-i", path.join(dir, "list.txt"), "-loop", "1", "-t", dur, "-i", path.join(dir, "mask.png"), "-loop", "1", "-t", dur, "-i", path.join(dir, "bg.png")];
-  const comp = `[0:v]fps=15,scale=${W}:${H},format=rgba[v];[1:v]format=gray[m];[v][m]alphamerge[w];[2:v][w]overlay=${PAD[0]}:${PAD[1]}:shortest=1`;
-  const palette = path.join(dir, "palette.png");
-  sh("ffmpeg", ["-y", "-loglevel", "error", ...inputs, "-filter_complex", `${comp},palettegen=max_colors=192:stats_mode=diff`, "-update", "1", "-frames:v", "1", palette]);
-  sh("ffmpeg", ["-y", "-loglevel", "error", ...inputs, "-i", palette, "-filter_complex",
-    `${comp}[c];[c][3:v]paletteuse=dither=bayer:bayer_scale=5:diff_mode=rectangle`, "-t", dur, "-loop", "0", gif]);
-  // The README shows it as animated WebP: the same frames at about half the GIF's size.
-  const webp = path.join(OUT, "hero.webp");
-  sh("ffmpeg", ["-y", "-loglevel", "error", "-i", gif, "-c:v", "libwebp_anim", "-lossless", "0", "-q:v", "80", "-compression_level", "6", "-loop", "0", webp]);
-  fs.rmSync(gif);
+  const webp = path.join(OUT, `hero-${scheme}.webp`);
+  sh("ffmpeg", ["-y", "-loglevel", "error", "-f", "concat", "-safe", "0", "-i", path.join(dir, "list.txt"),
+    "-vf", `fps=24,scale=${WIDTH}:-2:flags=lanczos`, "-c:v", "libwebp_anim", "-lossless", "0", "-q:v", "82",
+    "-compression_level", "6", "-loop", "0", webp]);
   console.log(`${path.relative(ROOT, webp)}  ${Math.round(fs.statSync(webp).size / 1024)} KB`);
 }
 

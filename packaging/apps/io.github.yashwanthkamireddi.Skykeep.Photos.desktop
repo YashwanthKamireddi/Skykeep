@@ -1,9 +1,10 @@
 # One of Skykeep's six apps, on its own in the launcher. Its window says this file's name as
 # its app ID (src-tauri/src/apps.rs), so a dock shows it as this app. All six run in one
-# Skykeep: one sign-in, one library.
+# Skykeep: one sign-in, one library. Named "Skykeep Photos", as its Start-menu shortcut is, so it
+# is never mistaken for the desktop's own Photos app.
 [Desktop Entry]
 Type=Application
-Name=Photos
+Name=Skykeep Photos
 GenericName=Photos for iCloud
 Comment=iCloud Photos, on this computer
 Exec=skykeep --app photos

@@ -353,6 +353,20 @@ export function installDemo({ picBase, tz, library }) {
           if (args.id === "M1") return { id: "M1", uti: "public.jpeg", kind: "image", filename: "Porch.jpeg", title: null, width: 1600, height: 560, size: 412000, hasPreview: true };
           if (args.id === "H1") return { id: "H1", uti: "com.apple.notes.inlinetextattachment.hashtag", kind: "inline", filename: null, title: "#trips", width: null, height: null, size: null, hasPreview: false };
           return undefined;
+        // The launcher's tiles, read off the same demo library the apps show.
+        case "launcher_summary": {
+          const start = at(0), end = at(1), now = Math.floor(Date.now() / 1000);
+          const today = events.filter((e) => e.startsAt < end && e.endsAt > start);
+          const next = today.filter((e) => !e.allDay && e.startsAt >= now).sort((a, b) => a.startsAt - b.startsAt)[0] ?? null;
+          return {
+            notes: window.__demo.noteList.length,
+            remindersToday: reminderItems.filter((r) => !r.completedAt && !r.parentGuid && r.dueAt !== null && r.dueAt < end).length,
+            eventsToday: today.length,
+            nextEvent: next && { title: next.title, startsAt: next.startsAt, allDay: false },
+            contacts: window.__demo.contactList.length,
+            photos: (window.__photos ?? []).length,
+          };
+        }
         case "reminder_counts": {
           const open = reminderItems.filter((r) => !r.completedAt && !r.parentGuid);
           const end = at(1);

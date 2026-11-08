@@ -27,20 +27,24 @@
 
 Skykeep keeps your iCloud on your own computer and syncs it quietly in the background. Every app opens instantly, works with no connection at all, and stays in step with your iPhone, iPad and Mac as you use them. Underneath is a small Rust engine that idles at under 0.1% of a CPU core.
 
-<p align="center"><img src="docs/media/hero.webp" alt="Skykeep ticking off a reminder, switching to the week in Calendar, opening a note, then a contact card, an iCloud Drive folder and the photo library" width="880"></p>
+<p align="center"><picture><source media="(prefers-color-scheme: dark)" srcset="docs/media/hero-dark.webp"><img src="docs/media/hero-light.webp" width="880" alt="Skykeep's window with its six app tiles; Notes, Calendar and Photos each open from their tile in a window of their own"></picture></p>
 
 ## Your iCloud, as apps
 
+Open Skykeep and your six apps are right there, each showing what it holds, with your account, backup and settings below them. Each app also has its own icon in your launcher and Start menu, and opens in a window of its own. Click a picture to see it full size.
+
 <table>
   <tr>
-    <td width="33%" align="center" valign="top"><picture><source media="(prefers-color-scheme: dark)" srcset="docs/media/notes-dark.webp"><img src="docs/media/notes-light.webp" alt="Notes with folders, pinned notes and a trip note"></picture><br><b>Notes</b><br><sub>Checklists, tables, drawings, #tags. Edits from two devices merge.</sub></td>
-    <td width="33%" align="center" valign="top"><picture><source media="(prefers-color-scheme: dark)" srcset="docs/media/reminders-dark.webp"><img src="docs/media/reminders-light.webp" alt="Reminders with lists, sections and subtasks"></picture><br><b>Reminders</b><br><sub>Smart lists, subtasks, tags. Alerts with Complete and Snooze.</sub></td>
-    <td width="33%" align="center" valign="top"><picture><source media="(prefers-color-scheme: dark)" srcset="docs/media/calendar-dark.webp"><img src="docs/media/calendar-light.webp" alt="Calendar in week view"></picture><br><b>Calendar</b><br><sub>Day to year views, drag to edit, time zones, video-call Join.</sub></td>
+    <td width="50%" valign="top"><p align="center"><img src="packaging/icons/apps/notes-256.png" width="64" alt=""><br><b>Skykeep Notes</b><br><sub>Checklists, tables, drawings and #tags.</sub></p><a href="docs/media/notes-light.webp"><picture><source media="(prefers-color-scheme: dark)" srcset="docs/media/notes-dark.webp"><img src="docs/media/notes-light.webp" alt="Notes with folders, pinned notes and a trip note"></picture></a></td>
+    <td width="50%" valign="top"><p align="center"><img src="packaging/icons/apps/reminders-256.png" width="64" alt=""><br><b>Skykeep Reminders</b><br><sub>Smart lists, subtasks, tags and alerts.</sub></p><a href="docs/media/reminders-light.webp"><picture><source media="(prefers-color-scheme: dark)" srcset="docs/media/reminders-dark.webp"><img src="docs/media/reminders-light.webp" alt="Reminders with lists, sections and subtasks"></picture></a></td>
   </tr>
   <tr>
-    <td width="33%" align="center" valign="top"><picture><source media="(prefers-color-scheme: dark)" srcset="docs/media/contacts-dark.webp"><img src="docs/media/contacts-light.webp" alt="A full contact card"></picture><br><b>Contacts</b><br><sub>Every field, photos, lists, duplicate merging, vCard and CSV import.</sub></td>
-    <td width="33%" align="center" valign="top"><picture><source media="(prefers-color-scheme: dark)" srcset="docs/media/drive-dark.webp"><img src="docs/media/drive-light.webp" alt="An iCloud Drive folder in grid view"></picture><br><b>iCloud Drive</b><br><sub>Previews, uploads, resumable downloads, and a real folder in File Explorer or Files.</sub></td>
-    <td width="33%" align="center" valign="top"><picture><source media="(prefers-color-scheme: dark)" srcset="docs/media/photos-dark.webp"><img src="docs/media/photos-light.webp" alt="The photo library by month"></picture><br><b>Photos</b><br><sub>Library by month, albums, Shared Library, Live Photos and videos, and a backup to any drive.</sub></td>
+    <td width="50%" valign="top"><p align="center"><img src="packaging/icons/apps/calendar-256.png" width="64" alt=""><br><b>Skykeep Calendar</b><br><sub>Day to year views, drag to edit, time zones.</sub></p><a href="docs/media/calendar-light.webp"><picture><source media="(prefers-color-scheme: dark)" srcset="docs/media/calendar-dark.webp"><img src="docs/media/calendar-light.webp" alt="Calendar in week view"></picture></a></td>
+    <td width="50%" valign="top"><p align="center"><img src="packaging/icons/apps/contacts-256.png" width="64" alt=""><br><b>Skykeep Contacts</b><br><sub>Every field, lists, merging, vCard and CSV.</sub></p><a href="docs/media/contacts-light.webp"><picture><source media="(prefers-color-scheme: dark)" srcset="docs/media/contacts-dark.webp"><img src="docs/media/contacts-light.webp" alt="A full contact card"></picture></a></td>
+  </tr>
+  <tr>
+    <td width="50%" valign="top"><p align="center"><img src="packaging/icons/apps/drive-256.png" width="64" alt=""><br><b>Skykeep Drive</b><br><sub>Previews, resumable downloads, a real folder.</sub></p><a href="docs/media/drive-light.webp"><picture><source media="(prefers-color-scheme: dark)" srcset="docs/media/drive-dark.webp"><img src="docs/media/drive-light.webp" alt="An iCloud Drive folder in grid view"></picture></a></td>
+    <td width="50%" valign="top"><p align="center"><img src="packaging/icons/apps/photos-256.png" width="64" alt=""><br><b>Skykeep Photos</b><br><sub>Albums, Shared Library, Live Photos, videos.</sub></p><a href="docs/media/photos-light.webp"><picture><source media="(prefers-color-scheme: dark)" srcset="docs/media/photos-dark.webp"><img src="docs/media/photos-light.webp" alt="The photo library by month"></picture></a></td>
   </tr>
 </table>
 
@@ -49,8 +53,6 @@ Skykeep keeps your iCloud on your own computer and syncs it quietly in the backg
 **Send to iPhone.** Right-click any file on your computer and choose Send to iPhone. Photos and videos appear in your iPhone's Photos, documents in Files, whether the phone is on your desk or on the other side of the world. Nothing to install on the iPhone, nothing to pair.
 
 **Back up iCloud.** Every photo and video you've ever taken, and everything in iCloud Drive, copied as the original to a folder or drive you choose, and kept up to date as you add more. Photos are filed by month; Drive keeps its own folders, and a file changed in iCloud keeps its earlier version in an Earlier versions folder. Unplug the drive and it waits; plug it back in and it carries on. A backup never deletes.
-
-<p align="center"><picture><source media="(prefers-color-scheme: dark)" srcset="docs/media/backup-dark.webp"><img src="docs/media/backup-light.webp" width="880" alt="Back Up iCloud in Settings, copying Photos and iCloud Drive to a backup drive"></picture></p>
 
 **iCloud in your file manager.** iCloud Drive and Photos are real folders in your file manager, and photos show their thumbnails before anything downloads.
 
@@ -122,7 +124,7 @@ No. It's an independent, open-source app that works with iCloud. Apple, iCloud a
 <details>
 <summary>How is this different from iCloud for Windows?</summary>
 
-iCloud for Windows brings Photos and iCloud Drive to File Explorer, and Calendar and Contacts through Outlook. Skykeep has Notes and Reminders too, all six as apps of their own, works offline, and runs on Linux as well.
+iCloud for Windows brings Photos and iCloud Drive to File Explorer, and Calendar and Contacts through Outlook. Skykeep has Notes and Reminders too, all six as apps of their own in your launcher, works offline, and runs on Linux as well.
 </details>
 
 <details>

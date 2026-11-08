@@ -1,9 +1,10 @@
 # One of Skykeep's six apps, on its own in the launcher. Its window says this file's name as
 # its app ID (src-tauri/src/apps.rs), so a dock shows it as this app. All six run in one
-# Skykeep: one sign-in, one library.
+# Skykeep: one sign-in, one library. Named "Skykeep Drive", as its Start-menu shortcut is, so it
+# is never mistaken for the desktop's own Drive app.
 [Desktop Entry]
 Type=Application
-Name=Drive
+Name=Skykeep Drive
 GenericName=Drive for iCloud
 Comment=iCloud Drive, on this computer
 Exec=skykeep --app drive

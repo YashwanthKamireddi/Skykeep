@@ -62,6 +62,10 @@
 
   <screenshots>
     <screenshot type="default">
+      <caption>Skykeep, with your six apps and your account</caption>
+      <image type="source">https://raw.githubusercontent.com/YashwanthKamireddi/Skykeep/main/docs/media/screenshots/skykeep-light.png</image>
+    </screenshot>
+    <screenshot>
       <caption>Notes, in their folders</caption>
       <image type="source">https://raw.githubusercontent.com/YashwanthKamireddi/Skykeep/main/docs/media/screenshots/notes-light.png</image>
     </screenshot>
