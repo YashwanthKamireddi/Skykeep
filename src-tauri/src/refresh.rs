@@ -15,6 +15,7 @@
 //! on screen.
 
 use crate::library_lock::LibraryLock;
+use futures_util::FutureExt;
 use quince_auth::Client;
 use quince_core::changes::Items;
 use quince_core::Library;
@@ -289,12 +290,43 @@ where
     }
     // Counted before the pass reads anything, so whoever asks from here on waits for the next.
     let n = turns.started.fetch_add(1, Ordering::SeqCst) + 1;
-    let report = pass().await;
+    // A panic inside one service's pass (a record Apple holds that its reader didn't expect)
+    // ends that pass as failed. Before, it unwound the whole refresh: the other services never
+    // stored what they read, and Sync Now waited forever (issue #14).
+    let report = match std::panic::AssertUnwindSafe(pass()).catch_unwind().await {
+        Ok(report) => report,
+        Err(panic) => failed_by_panic(service, panic.as_ref()),
+    };
     *turns
         .last
         .lock()
         .unwrap_or_else(std::sync::PoisonError::into_inner) = Some((n, report.clone()));
     (report, true)
+}
+
+/// The report of a pass that panicked: failed, saying so plainly, with the panic in the log.
+fn failed_by_panic(service: &'static str, panic: &(dyn std::any::Any + Send)) -> ServiceReport {
+    let what = panic
+        .downcast_ref::<&str>()
+        .map(|s| (*s).to_string())
+        .or_else(|| panic.downcast_ref::<String>().cloned())
+        .unwrap_or_else(|| "unknown".into());
+    quiet!("{service} pass panicked: {what}");
+    let label = COVERED
+        .iter()
+        .find(|(s, _)| *s == service)
+        .map_or(service, |(_, l)| *l);
+    ServiceReport {
+        service,
+        label,
+        outcome: Outcome::Failed,
+        detail: Some(format!(
+            "Skykeep couldn’t read something in {label} ({what}). The other apps carried on."
+        )),
+        last_synced_at: None,
+        changed: false,
+        items: None,
+    }
 }
 
 /// A pass's report, told to the screens as it lands when this pass ran it. One taken from a
@@ -1247,6 +1279,25 @@ mod tests {
     /// over the one being made), says so calmly as its own state rather than a failure or an
     /// empty library, and sets another look for later. Ready, or Apple not saying, the read
     /// goes ahead.
+    /// A pass that panics ends as failed, and the refresh it is part of still finishes (#14).
+    #[tokio::test]
+    async fn a_pass_that_panics_fails_alone() {
+        let lock = tokio::sync::Mutex::new(());
+        let (report, ran) = super::once("reminders", &lock, || async {
+            if lock.try_lock().is_err() {
+                panic!("invalid time");
+            }
+            unreachable!()
+        })
+        .await;
+        assert!(ran);
+        assert_eq!(report.outcome, super::Outcome::Failed);
+        assert_eq!(report.label, "Reminders");
+        assert!(report.detail.unwrap().contains("invalid time"));
+        // The pass lock is let go: the next pass runs.
+        assert!(lock.try_lock().is_ok());
+    }
+
     #[tokio::test]
     async fn a_library_apple_is_still_preparing_waits_and_says_so() {
         use quince_icloud::photos::Readiness;

@@ -304,6 +304,13 @@ impl<'a> ZoneClient<'a> {
             return Err(Error::ReauthRequired);
         }
         if !status.is_success() {
+            crate::approval_needed(status, &text)?;
+            // A lapsed session, as Drive's and push's readers already read it: 421 is Apple
+            // missing the X-APPLE-WEBAUTH-USER cookie. Said as a protocol fault, it stuck as
+            // the service's error after a fresh sign-in had cured it (#14).
+            if matches!(status.as_u16(), 401 | 421) {
+                return Err(Error::ReauthRequired);
+            }
             return Err(Error::Protocol(format!(
                 "CloudKit zone {zone} returned {status}: {}",
                 text.chars().take(200).collect::<String>()
@@ -2260,6 +2267,30 @@ mod trouble_tests {
                 .err()
                 .expect("refused");
             assert!(matches!(err, Error::ReauthRequired), "{code}: {err:?}");
+        }
+    }
+
+    /// Issue #14: a 421 (no X-APPLE-WEBAUTH-USER cookie) or 401 is a lapsed session, as
+    /// Drive and push read it, never a protocol fault that outlives the next sign-in.
+    #[tokio::test]
+    async fn a_zone_answering_421_or_401_wants_a_sign_in() {
+        for status in [421u16, 401] {
+            let server = MockServer::start().await;
+            Mock::given(method("POST"))
+                .and(path_regex(r".*/changes/zone"))
+                .respond_with(ResponseTemplate::new(status).set_body_string(
+                    r#"{"reason":"Missing X-APPLE-WEBAUTH-USER cookie","errorCode":"421"}"#,
+                ))
+                .mount(&server)
+                .await;
+            let http = reqwest::Client::new();
+            let uri = server.uri();
+            let err = client(&http, &uri, "com.apple.reminders")
+                .all_records("Reminders", None)
+                .await
+                .err()
+                .expect("refused");
+            assert!(matches!(err, Error::ReauthRequired), "{status}: {err:?}");
         }
     }
 

@@ -4847,12 +4847,17 @@ fn trigger_from_record(record: &Value) -> Option<quince_core::alarms::AlarmTrigg
     let data = record
         .pointer("/fields/DateComponentsData/value")
         .and_then(Value::as_str)?;
+    let Some(fires_at) = moment_of(data) else {
+        // Named in the log (no contents), so such a record is found without a backtrace.
+        quiet!("reminders: alarm trigger {name} names no moment; left out");
+        return None;
+    };
     Some(quince_core::alarms::AlarmTrigger {
         id: name
             .strip_prefix("AlarmTrigger/")
             .unwrap_or(&name)
             .to_string(),
-        fires_at: moment_of(data)?,
+        fires_at,
     })
 }
 
@@ -4870,17 +4875,18 @@ fn moment_of(components_base64: &str) -> Option<i64> {
         .and_then(Value::as_str)
         .and_then(|id| jiff::tz::TimeZone::get(id).ok())
         .unwrap_or_else(jiff::tz::TimeZone::system);
-    let at = jiff::civil::date(
+    // Checked: `civil::date(..).at(..)` panics on an out-of-range part, and these come from
+    // Apple. A trigger that names no real moment is left out, as an unreadable one is (#14).
+    let at = jiff::civil::DateTime::new(
         i16::try_from(part("year")?).ok()?,
         i8::try_from(part("month")?).ok()?,
         i8::try_from(part("day")?).ok()?,
-    )
-    .at(
         i8::try_from(part("hour").unwrap_or(0)).ok()?,
         i8::try_from(part("minute").unwrap_or(0)).ok()?,
         i8::try_from(part("second").unwrap_or(0)).ok()?,
         0,
-    );
+    )
+    .ok()?;
     Some(at.to_zoned(zone).ok()?.timestamp().as_second())
 }
 
@@ -5067,6 +5073,24 @@ mod alarm_tests {
             Some(at)
         );
         assert_eq!(moment_of("not base64 at all"), None);
+    }
+
+    /// Parts no calendar has (a 31 November, a 24 o'clock, Apple's "unset" of i64::MAX, a
+    /// negative minute) leave the trigger out instead of panicking the Reminders pass (#14).
+    #[test]
+    fn an_impossible_moment_is_none_never_a_panic() {
+        for bad in [
+            r#"{"year":2026,"month":11,"day":31,"hour":9}"#,
+            r#"{"year":2026,"month":13,"day":1}"#,
+            r#"{"year":2026,"month":1,"day":0}"#,
+            r#"{"year":2026,"month":1,"day":1,"hour":24}"#,
+            r#"{"year":2026,"month":1,"day":1,"minute":-1}"#,
+            r#"{"year":2026,"month":1,"day":1,"second":60}"#,
+            r#"{"year":2026,"month":1,"day":1,"hour":9223372036854775807}"#,
+            r#"{"year":99999,"month":1,"day":1}"#,
+        ] {
+            assert_eq!(moment_of(&B64.encode(bad)), None, "{bad}");
+        }
     }
 
     #[test]
