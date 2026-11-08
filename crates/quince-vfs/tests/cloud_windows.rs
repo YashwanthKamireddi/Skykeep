@@ -618,6 +618,29 @@ public static class Thumb {{
             });
             println!("served out of process: {}", registered.recv().unwrap());
         }
+        // The class registered machine-wide too (HKLM, as Nextcloud's per-machine installer
+        // registers its own): whether the shell's thumbnail host ignores a per-user class.
+        let machine = format!(r"HKLM\SOFTWARE\Classes\CLSID\{{{clsid}}}");
+        for (key, name, value) in [
+            (
+                format!(r"{machine}\InprocServer32"),
+                None,
+                dll.display().to_string(),
+            ),
+            (
+                format!(r"{machine}\InprocServer32"),
+                Some("ThreadingModel"),
+                "Apartment".into(),
+            ),
+        ] {
+            let mut add = Command::new("reg");
+            add.args(["add", &key, "/f", "/d", &value]);
+            match name {
+                Some(n) => add.args(["/v", n]),
+                None => add.arg("/ve"),
+            };
+            println!("machine-wide class: {}", add.status().unwrap().success());
+        }
         // The provider's own trace, on for this ask only: where the shell's way stops, if it does.
         let trace = PathBuf::from(std::env::var("USERPROFILE").unwrap())
             .join(r"AppData\LocalLow\Skykeep thumbnails trace");
