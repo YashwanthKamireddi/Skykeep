@@ -293,6 +293,108 @@ pub(crate) fn renew_unless_changed(
     .map(|_| true)
 }
 
+/// File Explorer's thumbnails in the folder registered `id` drawn by the COM class `clsid`, the
+/// DLL at `dll` (crates/quince-thumbs): the class registered for this user, and named in the
+/// folder's own key, where Explorer looks for it (the shell keeps that key machine-wide; it
+/// has no per-user copy). Only for a folder registered by path, outside an MSIX package; a
+/// package declares the same in its manifest.
+pub fn add_thumbnails(id: &str, clsid: &str, dll: &Path) -> Result<(), String> {
+    use windows::Win32::System::Registry::{HKEY_CURRENT_USER, HKEY_LOCAL_MACHINE};
+    let class = format!(r"Software\Classes\CLSID\{{{clsid}}}");
+    reg_set(
+        HKEY_CURRENT_USER,
+        &class,
+        None,
+        Reg::Text("Skykeep thumbnails"),
+    )?;
+    // A cloud folder's provider is told the item, not handed a stream: Explorer's isolation
+    // process is for stream providers only.
+    reg_set(
+        HKEY_CURRENT_USER,
+        &class,
+        Some("DisableProcessIsolation"),
+        Reg::Number(1),
+    )?;
+    let server = format!(r"{class}\InprocServer32");
+    reg_set(
+        HKEY_CURRENT_USER,
+        &server,
+        None,
+        Reg::Text(&dll.display().to_string()),
+    )?;
+    reg_set(
+        HKEY_CURRENT_USER,
+        &server,
+        Some("ThreadingModel"),
+        Reg::Text("Apartment"),
+    )?;
+    reg_set(
+        HKEY_LOCAL_MACHINE,
+        &format!(r"SOFTWARE\Microsoft\Windows\CurrentVersion\Explorer\SyncRootManager\{id}"),
+        Some("ThumbnailProvider"),
+        Reg::Text(&format!("{{{clsid}}}")),
+    )
+}
+
+/// The thumbnail class's own registration let go (its naming in a folder's key goes with the
+/// folder, when it is unregistered).
+pub fn remove_thumbnails(clsid: &str) {
+    use windows::Win32::System::Registry::{RegDeleteTreeW, HKEY_CURRENT_USER};
+    // SAFETY: a predefined key and a path string alive for the call.
+    let _ = unsafe {
+        RegDeleteTreeW(
+            HKEY_CURRENT_USER,
+            &HSTRING::from(format!(r"Software\Classes\CLSID\{{{clsid}}}")),
+        )
+    };
+}
+
+enum Reg<'a> {
+    Text(&'a str),
+    Number(u32),
+}
+
+fn reg_set(
+    root: windows::Win32::System::Registry::HKEY,
+    key: &str,
+    name: Option<&str>,
+    value: Reg<'_>,
+) -> Result<(), String> {
+    use windows::Win32::System::Registry::*;
+    let mut opened = HKEY::default();
+    // SAFETY: a predefined root and strings alive for the calls; the key is closed below.
+    unsafe {
+        RegCreateKeyExW(
+            root,
+            &HSTRING::from(key),
+            None,
+            None,
+            REG_OPTION_NON_VOLATILE,
+            KEY_SET_VALUE,
+            None,
+            &mut opened,
+            None,
+        )
+        .ok()
+        .map_err(|e| format!("{key}: {e}"))?;
+        let name = name.map(HSTRING::from);
+        let name = name.as_ref().map_or(PCWSTR::null(), |n| PCWSTR(n.as_ptr()));
+        let set = match value {
+            Reg::Text(t) => {
+                let wide: Vec<u8> = t
+                    .encode_utf16()
+                    .chain(std::iter::once(0))
+                    .flat_map(u16::to_le_bytes)
+                    .collect();
+                RegSetValueExW(opened, name, None, REG_SZ, Some(&wide))
+            }
+            Reg::Number(n) => RegSetValueExW(opened, name, None, REG_DWORD, Some(&n.to_le_bytes())),
+        };
+        let _ = RegCloseKey(opened);
+        set.ok().map_err(|e| format!("{key}: {e}"))
+    }
+}
+
 /// How Explorer shows the folder: its name in the navigation pane, its icon, and the id it is
 /// registered under (`Skykeep!<user's SID>!<account>`, at most 174 characters).
 pub struct Shown<'a> {
@@ -1037,7 +1139,7 @@ pub(crate) fn folder_item(dir: &Path) -> Option<DriveItem> {
 }
 
 /// A placeholder's identity (the Apple item it was made from), read without fetching anything.
-pub(crate) fn identity_of(path: &Path) -> Option<DriveItem> {
+pub fn identity_of(path: &Path) -> Option<DriveItem> {
     let (state, identity) = placeholder_state(path)?;
     let _ = state;
     serde_json::from_slice(&identity?).ok()

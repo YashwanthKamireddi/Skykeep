@@ -4045,6 +4045,7 @@ dependencies = [
  "quince-core",
  "quince-icloud",
  "quince-media",
+ "quince-thumbs",
  "quince-vfs",
  "reqwest 0.12.28",
  "rfd",
@@ -4184,6 +4185,14 @@ dependencies = [
 ]
 
 [[package]]
+name = "quince-thumbs"
+version = "0.1.14"
+dependencies = [
+ "windows 0.62.2",
+ "windows-core 0.62.2",
+]
+
+[[package]]
 name = "quince-vfs"
 version = "0.1.14"
 dependencies = [
@@ -4193,6 +4202,7 @@ dependencies = [
  "md-5",
  "quince-core",
  "quince-media",
+ "quince-thumbs",
  "serde",
  "serde_json",
  "tempfile",

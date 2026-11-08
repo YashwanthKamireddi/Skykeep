@@ -114,6 +114,14 @@ fn photo_of(item: &DriveItem) -> Option<(&str, bool)> {
         .or_else(|| item.drivewsid.strip_prefix(LIVE).map(|id| (id, true)))
 }
 
+/// The photo a file in File Explorer's iCloud Photos folder stands for (a Live Photo's `.MOV`:
+/// its still), read from the file's own placeholder: for its thumbnail (thumbs.rs).
+#[cfg(windows)]
+pub fn photo_at(path: &std::path::Path) -> Option<String> {
+    let item = quince_vfs::cloud::identity_of(path)?;
+    photo_of(&item).map(|(id, _)| id.to_string())
+}
+
 /// (year, month 1–12) a photo was taken in, in this computer's time zone.
 fn taken(p: &Photo) -> (i16, i8) {
     let zone = jiff::tz::TimeZone::system();

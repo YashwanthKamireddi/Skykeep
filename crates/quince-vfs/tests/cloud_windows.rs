@@ -450,6 +450,7 @@ fn explorer_shows_icloud_photos() {
     // Who may write the folder's own SyncRootManager key, where a thumbnail provider is named:
     // printed, the fact the thumbnail provider's registration is built on.
     let acl = Command::new("powershell")
+        .env_remove("PSModulePath")
         .args([
             "-NoProfile",
             "-Command",
@@ -511,6 +512,68 @@ public static class Thumb {{
         "thumbnail of a photo never opened: answer {:?}, fetched the photo: {fetched}",
         String::from_utf8_lossy(&asked.stdout).trim()
     );
+
+    // Skykeep's thumbnail provider (crates/quince-thumbs), built beside this test by the
+    // workflow: registered for this folder, answered over its pipe with a stand-in picture,
+    // and asked as Explorer asks. The thumbnail comes back; the photo is never fetched.
+    if let Some(dll) = std::env::var_os("SKYKEEP_THUMBS_DLL").map(PathBuf::from) {
+        use tokio::io::{AsyncReadExt, AsyncWriteExt};
+        let clsid = format!("{:?}", quince_thumbs::CLSID);
+        cloud::add_thumbnails(&id, &clsid, &dll).expect("the thumbnail provider registers");
+        let asked_for = Arc::new(std::sync::Mutex::new(Vec::<(u32, String)>::new()));
+        let heard = Arc::clone(&asked_for);
+        let name = quince_thumbs::protocol::pipe_name(quince_thumbs::this_session().unwrap());
+        rt.spawn(async move {
+            let mut first = true;
+            loop {
+                let mut pipe = tokio::net::windows::named_pipe::ServerOptions::new()
+                    .first_pipe_instance(first)
+                    .create(&name)
+                    .unwrap();
+                first = false;
+                pipe.connect().await.unwrap();
+                let mut head = [0u8; 8];
+                pipe.read_exact(&mut head).await.unwrap();
+                let (size, units) = quince_thumbs::protocol::request_head(head).unwrap();
+                let mut body = vec![0u8; units as usize * 2];
+                pipe.read_exact(&mut body).await.unwrap();
+                let path = String::from_utf16_lossy(&quince_thumbs::protocol::path_of(&body));
+                heard.lock().unwrap().push((size, path));
+                let px = [0x20u8, 0x80, 0xE0, 0xFF].repeat(64 * 48);
+                let reply = quince_thumbs::protocol::reply(Some((64, 48, &px)));
+                pipe.write_all(&reply).await.unwrap();
+                let _ = pipe.read(&mut [0u8; 1]).await;
+            }
+        });
+        let before = log.lock().unwrap().len();
+        let asked = Command::new("powershell")
+            .env_remove("PSModulePath")
+            .args([
+                "-NoProfile",
+                "-Command",
+                &thumb.replace("IMG_0002", "IMG_0003"),
+            ])
+            .output()
+            .unwrap();
+        let answer = String::from_utf8_lossy(&asked.stdout).trim().to_string();
+        println!(
+            "thumbnail through Skykeep's provider: answer {answer:?}, asked {:?} {}",
+            asked_for.lock().unwrap(),
+            String::from_utf8_lossy(&asked.stderr)
+        );
+        assert_eq!(answer, "0", "Explorer drew Skykeep's thumbnail");
+        let asked_for = asked_for.lock().unwrap();
+        assert!(
+            asked_for.iter().any(|(_, p)| p.ends_with("IMG_0003.JPG")),
+            "the provider asked Skykeep for that photo"
+        );
+        assert!(
+            !log.lock().unwrap()[before..]
+                .iter()
+                .any(|l| l.contains("IMG_0003")),
+            "a thumbnail never downloads the photo"
+        );
+    }
 
     let until = |what: &str| {
         for _ in 0..150 {

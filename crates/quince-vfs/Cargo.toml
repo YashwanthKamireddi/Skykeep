@@ -27,6 +27,7 @@ windows = { version = "0.62", features = [
     "Win32_Foundation",
     "Win32_Storage_CloudFilters",
     "Win32_Storage_FileSystem",
+    "Win32_System_Registry",
     "Win32_System_CorrelationVector",
     "Win32_System_IO",
     "Win32_Security",
@@ -39,4 +40,7 @@ windows-future = "0.3"
 image = { version = "0.25", default-features = false, features = ["jpeg", "png"] }
 tempfile = "3"
 libc = "0.2"
-tokio = { workspace = true, features = ["sync", "rt", "macros", "rt-multi-thread"] }
+tokio = { workspace = true, features = ["sync", "rt", "macros", "rt-multi-thread", "net", "io-util"] }
+
+[target.'cfg(windows)'.dev-dependencies]
+quince-thumbs = { path = "../quince-thumbs" }

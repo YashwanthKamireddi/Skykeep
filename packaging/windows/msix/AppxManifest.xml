@@ -18,6 +18,7 @@
   xmlns:desktop="http://schemas.microsoft.com/appx/manifest/desktop/windows10"
   xmlns:desktop3="http://schemas.microsoft.com/appx/manifest/desktop/windows10/3"
   xmlns:rescap="http://schemas.microsoft.com/appx/manifest/foundation/windows10/restrictedcapabilities"
+  xmlns:com="http://schemas.microsoft.com/appx/manifest/com/windows10"
   IgnorableNamespaces="uap uap10 desktop desktop3 rescap">
 
   <Identity
@@ -57,8 +58,18 @@
              package's own, which Windows removes with it — undeclared, it stayed registered
              after uninstall (Microsoft Q&A 5551232). -->
         <desktop3:Extension Category="windows.cloudFiles">
-          <desktop3:CloudFiles />
+          <desktop3:CloudFiles>
+            <!-- Thumbnails of photos not on this computer yet (crates/quince-thumbs). -->
+            <desktop3:ThumbnailProviderHandler Clsid="4ee8b6ba-8522-41f1-a17e-19126a88c38e" />
+          </desktop3:CloudFiles>
         </desktop3:Extension>
+        <com:Extension Category="windows.comServer">
+          <com:ComServer>
+            <com:SurrogateServer DisplayName="Skykeep thumbnails">
+              <com:Class Id="4ee8b6ba-8522-41f1-a17e-19126a88c38e" Path="quince_thumbs.dll" ThreadingModel="STA" />
+            </com:SurrogateServer>
+          </com:ComServer>
+        </com:Extension>
         <!-- Open at Login: off until turned on in Settings (src-tauri/src/login.rs), then
              listed in Task Manager's Startup apps. Started hidden, as the Run key starts it. -->
         <desktop:Extension Category="windows.startupTask" Executable="skykeep.exe" EntryPoint="Windows.FullTrustApplication" uap10:Parameters="--background">

@@ -1,0 +1,7 @@
+{
+  "bundle": {
+    "resources": {
+      "../target/release/quince_thumbs.dll": "quince_thumbs.dll"
+    }
+  }
+}

@@ -25,7 +25,7 @@ serde.workspace = true
 serde_json.workspace = true
 # "sync": a folder download hands files from the reading to the fetching through a bounded
 # queue (folder_download.rs).
-tokio = { workspace = true, features = ["signal", "sync"] }
+tokio = { workspace = true, features = ["signal", "sync", "net", "io-util"] }
 anyhow.workspace = true
 jiff = "0.2.37"
 uuid.workspace = true
@@ -57,6 +57,8 @@ tauri = { version = "2", features = ["tray-icon"] }
 
 # Toasts with buttons on Windows (notify-rust sends none there): the same crate notify-rust uses.
 [target.'cfg(windows)'.dependencies]
+# File Explorer's thumbnails for the iCloud Photos folder: the pipe both sides speak (thumbs.rs).
+quince-thumbs = { path = "../crates/quince-thumbs" }
 tauri-winrt-notification = "0.8"
 # The asynchronous operations the windows crate's WinRT calls answer with (hello.rs waits on
 # Windows Hello's): the same 0.3 the windows crate itself is built on.

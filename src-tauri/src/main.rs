@@ -41,6 +41,8 @@ mod outbox;
 mod package;
 mod photo_cache;
 mod photos;
+#[cfg(windows)]
+mod thumbs;
 #[cfg(target_os = "linux")]
 use quince_media::poster;
 mod power;

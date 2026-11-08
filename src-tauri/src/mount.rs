@@ -615,6 +615,23 @@ fn start(app: &AppHandle, which: Which, at: &std::path::Path) -> Result<(), Stri
         provider,
     )
     .map_err(|e| format!("{name} could not be added to File Explorer: {e}"))?;
+    if which == Which::Photos {
+        crate::thumbs::serve(app);
+        // An MSIX package names its provider in its manifest; an installed copy here, from the
+        // DLL beside it. Without it the photos are all there, drawn with Windows' own icons.
+        if !crate::package::packaged() {
+            let dll = std::env::current_exe()
+                .ok()
+                .and_then(|exe| exe.parent().map(|d| d.join("quince_thumbs.dll")))
+                .filter(|dll| dll.exists());
+            if let Some(dll) = dll {
+                let clsid = format!("{:?}", quince_thumbs::CLSID);
+                if let Err(e) = quince_vfs::cloud::add_thumbnails(&id, &clsid, &dll) {
+                    eprintln!("Photos thumbnails in File Explorer: {e}");
+                }
+            }
+        }
+    }
     CLOUD
         .lock()
         .unwrap_or_else(std::sync::PoisonError::into_inner)
@@ -643,6 +660,7 @@ pub fn forget_on_uninstall() {
             quince_vfs::cloud::unregister(&home.join(which.folder()), &id);
         }
     }
+    quince_vfs::cloud::remove_thumbnails(&format!("{:?}", quince_thumbs::CLSID));
 }
 
 /// Turned off, or signed out: no longer a cloud folder in Explorer at all.
@@ -651,6 +669,9 @@ fn forget_folder(app: &AppHandle, which: Which) {
     stop(which);
     if let Ok(id) = cloud_id(which) {
         quince_vfs::cloud::unregister(&place(app, which), &id);
+    }
+    if which == Which::Photos {
+        quince_vfs::cloud::remove_thumbnails(&format!("{:?}", quince_thumbs::CLSID));
     }
 }
 

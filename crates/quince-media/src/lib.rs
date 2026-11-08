@@ -167,6 +167,31 @@ pub fn to_png_and_dib(bytes: &[u8]) -> Result<(Vec<u8>, Vec<u8>), String> {
     Ok((png_of(&picture)?, dib_of(&picture.to_rgb8())))
 }
 
+/// A photo as File Explorer's thumbnail takes it: upright, at most `long` pixels on its longer
+/// side, as 32-bit pixels, blue first and the top row first (a top-down bitmap's own order),
+/// opaque. Made by Skykeep and handed to its thumbnail provider ready to draw, so the code that
+/// runs inside Explorer never decodes a picture.
+///
+/// # Errors
+/// When the bytes are not a picture this can decode.
+pub fn thumbnail_bgra(bytes: &[u8], long: u32) -> Result<(u32, u32, Vec<u8>), String> {
+    let picture = upright(bytes)?;
+    let long = long.max(1);
+    let picture = if picture.width().max(picture.height()) > long {
+        picture.thumbnail(long, long)
+    } else {
+        picture
+    };
+    let rgb = picture.to_rgb8();
+    let (w, h) = rgb.dimensions();
+    let mut out = Vec::with_capacity(w as usize * h as usize * 4);
+    for p in rgb.pixels() {
+        let [r, g, b] = p.0;
+        out.extend_from_slice(&[b, g, r, 255]);
+    }
+    Ok((w, h, out))
+}
+
 /// A photo decoded and turned upright: a HEIC by libheif (which turns it as the file says),
 /// anything else the way its camera wrote it.
 fn upright(bytes: &[u8]) -> Result<image::DynamicImage, String> {
@@ -748,6 +773,21 @@ fn transparent(image: &image::DynamicImage) -> bool {
 
 #[cfg(test)]
 mod tests {
+
+    #[test]
+    fn a_thumbnail_for_explorer_keeps_its_shape_blue_first() {
+        let red = image::DynamicImage::ImageRgb8(image::RgbImage::from_pixel(
+            400,
+            200,
+            image::Rgb([255, 0, 0]),
+        ));
+        let png = super::png_of(&red).unwrap();
+        let (w, h, px) = super::thumbnail_bgra(&png, 100).unwrap();
+        assert_eq!((w, h, px.len()), (100, 50, 100 * 50 * 4));
+        assert_eq!(&px[..4], &[0, 0, 255, 255]);
+        // Smaller than asked: as it is, never enlarged.
+        assert_eq!(super::thumbnail_bgra(&png, 1000).unwrap().0, 400);
+    }
     #[test]
     fn a_photo_is_made_its_shown_size_turned_the_camera_s_way() {
         // 400×300 with a red left half; JPEG.
