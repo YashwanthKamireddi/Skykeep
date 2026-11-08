@@ -1,7 +1,7 @@
 // A detail's label is picked from Apple's own list, so the phone reads it as its own
 // "work" or "mobile". Anything else is typed in as a custom label.
 import { engine } from "./engine.mjs";
-import { SERVICES, installStub } from "./stub.mjs";
+import { SERVICES, installStub, openScreen } from "./stub.mjs";
 
 const b = await engine.launch();
 const ctx = await b.newContext({ viewport: { width: 1280, height: 820 } });
@@ -9,7 +9,7 @@ await ctx.addInitScript(installStub, { screen: "library", services: SERVICES, tw
   calendarFixture: false, notesFixture: false, contactsFixture: true, driveFixture: false, remindersFixture: false });
 const page = await ctx.newPage();
 await page.goto(process.env.URL ?? "http://localhost:4173", { waitUntil: "networkidle" });
-await page.locator(".nav-item", { hasText: "Contacts" }).click();
+await openScreen(page, "Contacts");
 await page.waitForTimeout(400);
 await page.locator(".contact-row", { hasText: "Zoya" }).click();
 await page.waitForTimeout(300);

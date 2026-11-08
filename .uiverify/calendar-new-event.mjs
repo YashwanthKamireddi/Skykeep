@@ -22,26 +22,23 @@ const stub = { screen: "library", services: SERVICES, twoFactor: null, calendarF
   await ctx.close();
 }
 
+// Calendar's own window, told again with Calendar built (apps.rs new_event): another starts.
 {
   const ctx = await b.newContext({ viewport: { width: 1300, height: 850 } });
   await ctx.addInitScript(installStub, stub);
   const page = await ctx.newPage();
   page.on("pageerror", (e) => { console.log(`FAIL page error: ${e.message}`); failures++; });
-  // The main window, open on Notes.
-  await page.addInitScript(() => localStorage.setItem("quince.library.screen", "notes"));
-  await page.goto("http://localhost:4173/", { waitUntil: "networkidle" });
+  await page.goto("http://localhost:4173/?app=calendar", { waitUntil: "networkidle" });
   await page.waitForTimeout(800);
-  ok((await started(page)) === 0, "a window open on Notes has no event started");
-  // As Skykeep tells the open window (apps.rs, new_event).
+  ok((await started(page)) === 0, "Calendar's window, opened plainly, has no event started");
   await page.evaluate(() => window.__emit("quince://new-event", null));
-  await page.waitForTimeout(1000);
-  ok((await page.locator('main.content[data-screen="calendar"]').count()) === 1, "told, it comes to Calendar");
-  ok((await started(page)) === 1, "and starts a new event there");
+  await page.waitForTimeout(600);
+  ok((await started(page)) === 1, "told, it starts a new event");
   await page.keyboard.press("Escape");
   await page.waitForTimeout(300);
   await page.evaluate(() => window.__emit("quince://new-event", null));
   await page.waitForTimeout(600);
-  ok((await started(page)) === 1, "told again with Calendar built, it starts another");
+  ok((await started(page)) === 1, "told again, it starts another");
   await ctx.close();
 }
 

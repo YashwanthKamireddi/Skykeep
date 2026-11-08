@@ -2,7 +2,7 @@
 // how far it is and where, with Change Folder and the switch to turn it off. "Include the Hidden
 // album" shows always, and switching it on while locked asks for the unlock right there.
 import { engine } from "./engine.mjs";
-import { SERVICES, installStub } from "./stub.mjs";
+import { SERVICES, installStub, openSettings } from "./stub.mjs";
 const b = await engine.launch();
 let failures = 0;
 const ok = (p, m) => { console.log(`${p ? "PASS" : "FAIL"} ${m}`); if (!p) failures++; };
@@ -15,13 +15,13 @@ for (const scheme of ["light", "dark"]) {
   const page = await ctx.newPage();
   page.on("pageerror", (e) => ok(false, `page error: ${e.message}`));
   await page.goto(process.env.URL ?? "http://localhost:4173", { waitUntil: "networkidle" });
-  await page.locator(".sidebar-account").click();
+  await openSettings(page);
   await page.waitForSelector(".settings");
-  const section = page.locator(".settings-group", { has: page.getByRole("group", { name: "Export a Copy" }) });
+  const section = page.locator(".dash-card", { has: page.getByRole("heading", { name: "Backup", exact: true }) });
   const row = page.getByRole("group", { name: "Backup", exact: true });
   await row.scrollIntoViewIfNeeded();
   await page.waitForTimeout(200);
-  ok(await section.getByRole("group", { name: "Backup", exact: true }).isVisible(), `${scheme}: Backup and Export share their own section`);
+  ok(await section.getByRole("group", { name: "Backup", exact: true }).isVisible() && await section.getByRole("group", { name: "Export a Copy" }).getByRole("button", { name: "Export" }).isVisible(), `${scheme}: Backup has its own card, Export a Copy in it`);
   ok((await row.innerText()).includes("Originals, kept up to date in a folder or drive you choose"), `${scheme}: off, it says what it does`);
   const drive = row.getByRole("switch", { name: "Include iCloud Drive" });
   ok((await drive.getAttribute("aria-checked")) === "true", `${scheme}: iCloud Drive is in by default`);

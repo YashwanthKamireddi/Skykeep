@@ -3,7 +3,7 @@
 // other folders, or nothing, it does nothing — no timed checks — and it stands aside while a
 // change of this computer's own is on its way. Coming back to the window still looks once.
 import { engine } from "./engine.mjs";
-import { SERVICES, installStub } from "./stub.mjs";
+import { SERVICES, installStub, openScreen } from "./stub.mjs";
 
 const b = await engine.launch();
 const ctx = await b.newContext({ viewport: { width: 1280, height: 800 } });
@@ -26,7 +26,7 @@ await ctx.addInitScript(() => {
 const page = await ctx.newPage();
 page.on("pageerror", (e) => { console.log(`FAIL page error: ${e.message}`); process.exitCode = 1; });
 await page.goto("http://localhost:4173", { waitUntil: "networkidle" });
-await page.locator(".nav-item", { hasText: "Drive" }).click();
+await openScreen(page, "Drive");
 await page.waitForTimeout(600);
 let failures = 0;
 const ok = (p, m) => { console.log(`${p ? "PASS" : "FAIL"} ${m}`); if (!p) failures++; };

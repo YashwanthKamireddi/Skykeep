@@ -753,6 +753,14 @@ impl Library {
         }))
     }
 
+    /// How many contacts there are, counted rather than read: the Skykeep window's launcher
+    /// puts the number under Contacts.
+    pub fn contact_count(&self) -> Result<i64> {
+        Ok(self
+            .conn
+            .query_row("SELECT count(*) FROM contacts", [], |r| r.get(0))?)
+    }
+
     /// The address book in display order, optionally filtered.
     ///
     /// The filter matches names and any stored method, so searching a phone number finds the

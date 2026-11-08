@@ -23,7 +23,7 @@ async function open(reducedMotion) {
   const page = await ctx.newPage();
   page.on("pageerror", (e) => { console.log(`FAIL page error: ${e.message}`); failures++; });
   await page.goto(process.env.URL ?? "http://localhost:4173", { waitUntil: "networkidle" });
-  await page.locator(".nav-item").first().waitFor();
+  await page.locator("main.content[data-screen]").first().waitFor();
   return { ctx, page };
 }
 

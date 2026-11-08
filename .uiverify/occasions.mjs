@@ -2,7 +2,7 @@
 // each day opening to say what it is, with nothing to edit or delete, and each calendar able
 // to be switched off.
 import { engine } from "./engine.mjs";
-import { SERVICES, installStub } from "./stub.mjs";
+import { SERVICES, installStub, openScreen } from "./stub.mjs";
 
 const b = await engine.launch();
 const ctx = await b.newContext({ viewport: { width: 1400, height: 900 } });
@@ -10,7 +10,7 @@ await ctx.addInitScript(installStub, { screen: "library", services: SERVICES, tw
   calendarFixture: true, notesFixture: true, contactsFixture: true, driveFixture: true, remindersFixture: true });
 const page = await ctx.newPage();
 await page.goto("http://localhost:4173", { waitUntil: "networkidle" });
-await page.locator(".nav-item", { hasText: "Calendar" }).click();
+await openScreen(page, "Calendar");
 await page.getByRole("button", { name: "Month", exact: true }).click();
 await page.waitForTimeout(500);
 

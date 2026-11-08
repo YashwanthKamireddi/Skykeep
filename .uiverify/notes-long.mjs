@@ -1,3 +1,4 @@
+import { openScreen } from "./stub.mjs";
 // A very long note types as a short one does, and saves exactly what was typed.
 //
 // A keystroke must change the line typed in and nothing else: an editor that redrew the note
@@ -33,7 +34,7 @@ await ctx.addInitScript(() => {
 });
 const page = await ctx.newPage();
 await page.goto("http://localhost:4173", { waitUntil: "networkidle" });
-await page.locator(".nav-item", { hasText: "Notes" }).click();
+await openScreen(page, "Notes");
 await page.waitForTimeout(600);
 
 let failures = 0;

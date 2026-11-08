@@ -2,7 +2,7 @@
 // service, it can be cancelled, it ends with Show in Folder, and a refusal is said. Photos are
 // Back Up Photos' own, never part of a copy.
 import { engine } from "./engine.mjs";
-import { SERVICES, installStub, openScreen } from "./stub.mjs";
+import { SERVICES, installStub, openSettings } from "./stub.mjs";
 const b = await engine.launch();
 let failures = 0;
 const ok = (p, m) => { console.log(`${p ? "PASS" : "FAIL"} ${m}`); if (!p) failures++; };
@@ -15,7 +15,7 @@ const open = async (init) => {
   const page = await ctx.newPage();
   page.on("pageerror", (e) => ok(false, `page error: ${e.message}`));
   await page.goto(process.env.URL ?? "http://localhost:4173", { waitUntil: "networkidle" });
-  await page.locator(".sidebar-account").click();
+  await openSettings(page);
   await page.waitForSelector(".settings");
   await page.waitForTimeout(300);
   return { ctx, page, row: page.getByRole("group", { name: "Export a Copy" }) };
@@ -42,16 +42,15 @@ const open = async (init) => {
   await page.waitForTimeout(100);
   ok((await page.evaluate(() => window.__exportRevealed)) === 1, "Show in Folder asks the backend to show it");
 
-  // An export under way, kept across leaving Settings and coming back.
+  // An export under way stays shown while an app is opened from the launcher: the app opens in
+  // its own window, and Skykeep's window keeps the export.
   await page.evaluate(() => { window.__exportStepMs = 120; });
   await row.getByRole("button", { name: "Export" }).click();
   await page.waitForTimeout(200);
-  await openScreen(page, "Reminders");
+  await page.locator(".launch-tile", { hasText: "Reminders" }).click();
   await page.waitForTimeout(200);
-  await page.locator(".sidebar-account").click();
-  await page.waitForSelector(".settings");
   const back = page.getByRole("group", { name: "Export a Copy" });
-  ok(await back.getByRole("progressbar").isVisible(), "an export under way is still shown on coming back");
+  ok(await back.getByRole("progressbar").isVisible(), "an export under way is still shown after opening an app");
   await page.waitForFunction(() => document.body.innerText.includes("Exported to"), null, { timeout: 8000 });
   await ctx.close();
 }

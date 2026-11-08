@@ -13,7 +13,6 @@ export const SHORTCUTS: { app: string; key: string; rows: Row[] }[] = [
     app: "Everywhere",
     key: "",
     rows: [
-      [[["Ctrl", "K"]], "Search everything"],
       [[["Ctrl", "R"], ["F5"]], "Sync the app in front"],
       [[["Ctrl", ","]], "Settings"],
       [[["Ctrl", "/"]], "Keyboard shortcuts"],

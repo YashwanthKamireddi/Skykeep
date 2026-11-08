@@ -4,7 +4,7 @@
 // the backend's switch is off.
 //   BASE=http://localhost:4173 ENGINE=webkit node .uiverify/notes-keys.mjs
 import { engine } from "./engine.mjs";
-import { SERVICES, installStub } from "./stub.mjs";
+import { SERVICES, installStub, openScreen } from "./stub.mjs";
 
 const BASE = process.env.BASE ?? "http://localhost:4173";
 const b = await engine.launch();
@@ -19,7 +19,7 @@ async function open(setup = () => {}) {
   const page = await ctx.newPage();
   page.on("pageerror", (e) => ok(false, "", `page error: ${e.message}`));
   await page.goto(BASE, { waitUntil: "networkidle" });
-  await page.locator(".nav-item", { hasText: "Notes" }).click();
+  await openScreen(page, "Notes");
   await page.locator(".note-row").first().waitFor();
   return { ctx, page };
 }

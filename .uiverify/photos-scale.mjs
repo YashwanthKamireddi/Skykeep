@@ -73,7 +73,7 @@ ok(ms < 150, `a click that selects stays quick  (${Math.round(ms)}ms, the middle
 
 // Down, row after row, past the months that were built when it began — after a real click,
 // with the app list holding the focus first, as it does once Photos is chosen from it.
-await page.locator(".nav-item", { hasText: "Photos" }).focus();
+await page.locator(".px-source", { hasText: "Library" }).focus();
 await page.locator(".px-tile").nth(3).click();
 const start = await page.locator('.px-tile[aria-selected="true"]').getAttribute("data-index");
 for (let i = 0; i < 60; i++) await page.keyboard.press("ArrowDown");

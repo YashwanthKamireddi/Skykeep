@@ -90,7 +90,7 @@ const heading = (page) => page.getByRole("heading", { name: HEADING });
 // Apple couldn't reach any of the person's devices; then, Sync Now on the page.
 {
   const { ctx, page } = await open({ state: "notSent", services: ["photos"], problem: null }, { state: "waiting", services: ["photos"], problem: null });
-  await page.locator(".nav-item", { hasText: "Photos" }).click();
+  await openScreen(page, "Photos");
   await page.waitForTimeout(400);
   ok(await heading(page).isVisible(), "Photos shows the approval page");
   ok((await page.locator(".device-approval").innerText()).includes("Apple couldn’t reach your devices."), "and says Apple couldn't reach the devices");
@@ -108,7 +108,7 @@ const heading = (page) => page.getByRole("heading", { name: HEADING });
 {
   const { ctx, page } = await open({ state: "needed", services: ALL, problem: null });
   await page.evaluate(() => { window.__passes = []; });
-  await page.locator(".sidebar-sync").click();
+  await page.getByRole("button", { name: "Sync Now" }).click();
   await page.waitForTimeout(300);
   ok(JSON.stringify(await page.evaluate(() => window.__passes)) === "[true]", "the sync button's pass is the person asking");
   await ctx.close();
@@ -128,7 +128,7 @@ const heading = (page) => page.getByRole("heading", { name: HEADING });
 // The page is reachable by keyboard and reads as a status for a screen reader.
 {
   const { ctx, page } = await open({ state: "needed", services: ALL, problem: null });
-  await page.locator(".nav-item", { hasText: "Drive" }).click();
+  await openScreen(page, "Drive");
   await page.waitForTimeout(300);
   ok((await page.locator(".device-approval [role=status]").count()) === 1, "where it stands is announced politely");
   await page.getByRole("button", { name: "Sync Now" }).focus();

@@ -1,14 +1,14 @@
 // Names iCloud Drive won't take are refused before anything is sent, in icloud.com's words:
 // a leading dot (hidden), ":" or a line break, and a name already used in the folder.
 import { engine } from "./engine.mjs";
-import { SERVICES, installStub } from "./stub.mjs";
+import { SERVICES, installStub, openScreen } from "./stub.mjs";
 const b = await engine.launch();
 const ctx = await b.newContext({ viewport: { width: 1280, height: 800 } });
 await ctx.addInitScript(installStub, { screen: "library", services: SERVICES, twoFactor: null,
   calendarFixture: false, notesFixture: false, contactsFixture: false, driveFixture: true, remindersFixture: false });
 const page = await ctx.newPage();
 await page.goto("http://localhost:4173", { waitUntil: "networkidle" });
-await page.locator(".nav-item", { hasText: "Drive" }).click();
+await openScreen(page, "Drive");
 await page.waitForTimeout(500);
 let failures = 0;
 const ok = (p, m) => { console.log(`${p ? "PASS" : "FAIL"} ${m}`); if (!p) failures++; };

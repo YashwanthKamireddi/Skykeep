@@ -2,7 +2,7 @@
 // Drive folder is up (that is where a kept file lives); a check beside it when kept; chosen,
 // it is kept at once, and chosen again let go of.
 import { engine } from "./engine.mjs";
-import { SERVICES, installStub } from "./stub.mjs";
+import { SERVICES, installStub, openScreen } from "./stub.mjs";
 const b = await engine.launch();
 let failures = 0;
 const ok = (p, m) => { console.log(`${p ? "PASS" : "FAIL"} ${m}`); if (!p) failures++; };
@@ -13,7 +13,7 @@ for (const on of [false, true]) {
   const page = await ctx.newPage();
   page.on("pageerror", (e) => { console.log(`FAIL page error: ${e.message}`); process.exitCode = 1; });
   await page.goto("http://localhost:4173", { waitUntil: "networkidle" });
-  await page.locator(".nav-item", { hasText: "Drive" }).click();
+  await openScreen(page, "Drive");
   await page.waitForTimeout(500);
   const row = page.locator(".drive-row-hit").filter({ hasNot: page.locator("[data-kind='FOLDER']") }).last();
   const name = (await row.innerText()).split("\n")[0];

@@ -2,7 +2,7 @@
 // yet is said plainly; Cancel and Escape change nothing; the choice reaches the backend as
 // asked, and the window starts over.
 import { engine } from "./engine.mjs";
-import { SERVICES, installStub } from "./stub.mjs";
+import { SERVICES, installStub, openSettings } from "./stub.mjs";
 const b = await engine.launch();
 const ctx = await b.newContext({ viewport: { width: 1200, height: 900 } });
 await ctx.addInitScript(installStub, { screen: "library", services: SERVICES, twoFactor: null });
@@ -11,7 +11,7 @@ page.on("pageerror", (e) => { console.log(`FAIL page error: ${e.message}`); proc
 await page.goto("http://localhost:4173", { waitUntil: "networkidle" });
 let failures = 0;
 const ok = (p, m) => { console.log(`${p ? "PASS" : "FAIL"} ${m}`); if (!p) failures++; };
-const settings = () => page.locator(".sidebar-account").click();
+const settings = () => openSettings(page);
 await settings();
 await page.waitForTimeout(400);
 const signOut = page.getByRole("button", { name: "Sign Out" });

@@ -98,7 +98,7 @@ const report = (name, m, limit) => {
     return [...out, ...Array.from({ length: n }, (_, i) => ({
       drivewsid: "FILE::bulk" + i, parentId: null, name: "Scan " + String(i).padStart(4, "0"), extension: "pdf",
       kind: "FILE", size: 1000 + i, childCount: null, createdAt: 1780000000, modifiedAt: 1780000000 + i, etag: "e" + i }))];`);
-  await page.locator(".nav-item", { hasText: "Drive" }).click();
+  await openScreen(page, "Drive");
   await page.waitForFunction((n) => document.querySelectorAll(".drive-row-hit").length >= n, N, { timeout: 20000 });
   await page.locator("button.drive-row-hit").first().click();
   await page.waitForTimeout(300);

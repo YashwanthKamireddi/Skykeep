@@ -6,13 +6,13 @@
   flex: 1;
   min-height: 0;
   display: grid;
-  grid-template-columns: var(--folders-w, 208px) minmax(250px, 320px) minmax(0, 1fr);
+  grid-template-columns: var(--folders-w, var(--source-w)) minmax(250px, 320px) minmax(0, 1fr);
   position: relative;
 }
 /* The folders' edge, dragged to make them wider or narrower, as on the Mac; a double-click
    fits the longest name. Over the hairline, wider than it, so it is easy to catch. */
 .notes-folders-edge {
-  position: absolute; top: 0; bottom: 0; left: calc(var(--folders-w, 208px) - 4px); width: 8px;
+  position: absolute; top: 0; bottom: 0; left: calc(var(--folders-w, var(--source-w)) - 4px); width: 8px;
   cursor: col-resize; z-index: 2; touch-action: none;
 }
 
@@ -325,6 +325,9 @@ textarea.note-title::placeholder { color: var(--text-3); }
   background: color-mix(in srgb, var(--text) 8%, transparent); color: var(--text-2); font-size: var(--t-13);
 }
 .note-rich ::selection { background: color-mix(in srgb, var(--accent) 32%, transparent); }
+/* A picture inside a selection keeps its own colours under a light veil, as Notes draws it:
+   at the text's 32% a whole photo went gold. */
+.note-rich img::selection { background: color-mix(in srgb, var(--accent) 14%, transparent); }
 
 /* ---- Aa ----------------------------------------------------------------------------
    As icloud.com and the Mac draw it: the four marks in a row, the styles beneath, each set

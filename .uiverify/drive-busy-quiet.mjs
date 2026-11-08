@@ -2,7 +2,7 @@
 // every app syncs at once): the folder shows, nothing is said, and it is asked again quietly.
 // A folder with nothing kept that can't be read still says so.
 import { engine } from "./engine.mjs";
-import { SERVICES, installStub } from "./stub.mjs";
+import { SERVICES, installStub, openScreen } from "./stub.mjs";
 const b = await engine.launch();
 let failures = 0;
 const ok = (pass, what) => { console.log(`${pass ? "PASS" : "FAIL"} ${what}`); if (!pass) failures++; };
@@ -12,7 +12,7 @@ await ctx.addInitScript(() => { window.__driveBusy = 1; });
 const page = await ctx.newPage();
 page.on("pageerror", (e) => { console.log(`FAIL page error: ${e.message}`); process.exitCode = 1; });
 await page.goto(process.env.URL ?? "http://localhost:4173", { waitUntil: "networkidle" });
-await page.locator(".nav-item", { hasText: "Drive" }).click();
+await openScreen(page, "Drive");
 await page.waitForTimeout(800);
 ok((await page.evaluate(() => (window.__busyAsks ?? []).length)) === 1, "Apple was busy for the first ask");
 ok((await page.locator(".drive-row-hit").count()) > 0, "the folder kept here shows");

@@ -33,7 +33,7 @@ await ctx.addInitScript(() => {
 });
 const page = await ctx.newPage();
 await page.clock.setFixedTime(new Date(2026, 8, 29, 22, 18));
-await page.goto(process.env.BASE ?? "http://localhost:4173", { waitUntil: "networkidle" });
+await page.goto(`${process.env.BASE ?? "http://localhost:4173"}/?app=calendar`, { waitUntil: "networkidle" });
 await page.getByRole("button", { name: "Day", exact: true }).click();
 await page.waitForSelector(".cal-hours.is-day");
 await page.waitForTimeout(300);
@@ -196,7 +196,7 @@ ok(/Sep/.test(title) && /Oct/.test(title), `a week across two months is named fo
   const tall = await ctx.newPage();
   await tall.setViewportSize({ width: 1920, height: 1040 });
   await tall.clock.setFixedTime(new Date(2026, 8, 29, 8, 30));
-  await tall.goto(process.env.BASE ?? "http://localhost:4173", { waitUntil: "networkidle" });
+  await tall.goto(`${process.env.BASE ?? "http://localhost:4173"}/?app=calendar`, { waitUntil: "networkidle" });
   await tall.getByRole("button", { name: "Week", exact: true }).click();
   await tall.waitForTimeout(400);
   const first = await tall.evaluate(() => {
@@ -224,7 +224,7 @@ ok(/Sep/.test(title) && /Oct/.test(title), `a week across two months is named fo
 // An event's bottom edge, dragged, changes when it ends — its start stays where it was.
 {
   const p = await ctx.newPage();
-  await p.goto(process.env.BASE ?? "http://localhost:4173", { waitUntil: "networkidle" });
+  await p.goto(`${process.env.BASE ?? "http://localhost:4173"}/?app=calendar`, { waitUntil: "networkidle" });
   await p.getByRole("button", { name: "Week", exact: true }).click();
   await p.waitForTimeout(300);
   const grip = p.locator(".cx-block", { hasText: "New Event" }).first().locator(".cx-block-grip");
@@ -250,7 +250,7 @@ ok(/Sep/.test(title) && /Oct/.test(title), `a week across two months is named fo
 // line of the request and Apple's JSON under the toolbar.
 {
   const p = await ctx.newPage();
-  await p.goto(process.env.BASE ?? "http://localhost:4173", { waitUntil: "networkidle" });
+  await p.goto(`${process.env.BASE ?? "http://localhost:4173"}/?app=calendar`, { waitUntil: "networkidle" });
   await p.getByRole("button", { name: "Week", exact: true }).click();
   await p.waitForTimeout(300);
   await p.locator(".cx-block", { hasText: "New Event" }).first().click();
@@ -294,7 +294,7 @@ ok(/Sep/.test(title) && /Oct/.test(title), `a week across two months is named fo
   await small.setViewportSize({ width: 800, height: 600 });
   // A Wednesday whose week crosses into the next month, so Week's title is its longest.
   await small.clock.setFixedTime(new Date(2026, 8, 30, 18, 0));
-  await small.goto(process.env.BASE ?? "http://localhost:4173", { waitUntil: "networkidle" });
+  await small.goto(`${process.env.BASE ?? "http://localhost:4173"}/?app=calendar`, { waitUntil: "networkidle" });
   await openScreen(small, "Calendar");
   for (const view of ["Week", "Month"]) {
   await small.getByRole("button", { name: view, exact: true }).click();

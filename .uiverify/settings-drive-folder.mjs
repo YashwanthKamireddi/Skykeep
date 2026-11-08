@@ -2,7 +2,7 @@
 // at once; once on, where it is and an Open button; one that cannot come up says why and is
 // left off.
 import { engine } from "./engine.mjs";
-import { SERVICES, installStub, openScreen } from "./stub.mjs";
+import { SERVICES, installStub, openScreen, openSettings } from "./stub.mjs";
 const b = await engine.launch();
 const ctx = await b.newContext({ viewport: { width: 1200, height: 900 } });
 await ctx.addInitScript(installStub, { screen: "library", services: SERVICES, twoFactor: null });
@@ -11,7 +11,7 @@ page.on("pageerror", (e) => { console.log(`FAIL page error: ${e.message}`); proc
 await page.goto("http://localhost:4173", { waitUntil: "networkidle" });
 let failures = 0;
 const ok = (p, m) => { console.log(`${p ? "PASS" : "FAIL"} ${m}`); if (!p) failures++; };
-await page.locator(".sidebar-account").click();
+await openSettings(page);
 await page.waitForTimeout(400);
 const sw = page.getByRole("switch", { name: "Drive folder" });
 ok((await sw.getAttribute("aria-checked")) === "false", "off until turned on");

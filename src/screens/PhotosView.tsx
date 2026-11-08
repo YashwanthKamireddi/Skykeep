@@ -2132,6 +2132,8 @@ export function PhotosView() {
       if (!live.current) return;
       const t = e.target as HTMLElement | null;
       if (t?.closest?.("input, textarea, [contenteditable], .row-menu, [role=dialog]") || naming) return;
+      // The arrows in the sidebar move through the sidebar (Library.tsx), never the grid.
+      if (t?.closest?.(".px-side") && /^(Arrow|Home$|End$)/.test(e.key)) return;
       const list = photos?.ids ?? [];
       const ctrl = e.ctrlKey || e.metaKey;
       // Ctrl+A is the photos' wherever the focus rests on this screen — the app list keeps it

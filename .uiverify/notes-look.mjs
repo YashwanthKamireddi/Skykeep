@@ -1,7 +1,7 @@
 // Notes at a given size, in the chosen engine, for looking at.
 //   ENGINE=webkit node .uiverify/notes-look.mjs <out-dir> [width] [height]
 import { engine } from "./engine.mjs";
-import { SERVICES, installStub } from "./stub.mjs";
+import { SERVICES, installStub, openScreen } from "./stub.mjs";
 // Never into the repository: with no folder given, the system's temporary one.
 const [out = (await import("node:os")).tmpdir(), w = "1920", h = "1040"] = process.argv.slice(2);
 const b = await engine.launch();
@@ -11,7 +11,7 @@ for (const scheme of ["dark", "light"]) {
     calendarFixture: true, notesFixture: true, contactsFixture: true, driveFixture: true, remindersFixture: true });
   const p = await ctx.newPage();
   await p.goto("http://localhost:4173", { waitUntil: "networkidle" });
-  await p.locator(".nav-item", { hasText: "Notes" }).click();
+  await openScreen(p, "Notes");
   await p.waitForTimeout(500);
   await p.screenshot({ path: `${out}/notes-${scheme}-${w}.png` });
   await ctx.close();

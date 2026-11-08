@@ -2,7 +2,7 @@
 // not on every ten-second look that found nothing new, which sent and redrew every picture in
 // the folder each time. A folder whose pictures never came is asked again.
 import { engine } from "./engine.mjs";
-import { SERVICES, installStub } from "./stub.mjs";
+import { SERVICES, installStub, openScreen } from "./stub.mjs";
 
 const b = await engine.launch();
 const ctx = await b.newContext({ viewport: { width: 1280, height: 800 } });
@@ -28,7 +28,7 @@ await ctx.addInitScript(() => {
 const page = await ctx.newPage();
 page.on("pageerror", (e) => { console.log(`FAIL page error: ${e.message}`); process.exitCode = 1; });
 await page.goto(process.env.BASE ?? process.env.URL ?? "http://localhost:4173", { waitUntil: "networkidle" });
-await page.locator(".nav-item", { hasText: "Drive" }).click();
+await openScreen(page, "Drive");
 await page.waitForTimeout(800);
 let failures = 0;
 const ok = (p, m) => { console.log(`${p ? "ok  " : "FAIL"} ${m}`); if (!p) failures++; };
@@ -57,7 +57,7 @@ await look();
 ok((await thumbs()) === before + 1, "a file arriving asks for the pictures again");
 
 // Pictures that never came (offline) are asked for at the next look, changed or not.
-await page.locator(".nav-item", { hasText: "Drive" }).click();
+await openScreen(page, "Drive");
 await page.evaluate(() => { window.__thumbsFail = true; window.__phone = false; });
 await page.locator(".drive-row-hit", { hasText: "Downloads" }).dblclick();
 await page.waitForTimeout(800);

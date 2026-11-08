@@ -191,7 +191,7 @@ pub fn open(app: &AppHandle, key: &str) {
 /// Each app's own icon (packaging/icons/apps, made by its make.py), for its window: the
 /// taskbar button and Alt-Tab on Windows and X11. Wayland docks take the launcher's, which
 /// names the same icon.
-fn icon_of(key: &str) -> Option<tauri::image::Image<'static>> {
+pub(crate) fn icon_of(key: &str) -> Option<tauri::image::Image<'static>> {
     let bytes: &'static [u8] = match key {
         "notes" => include_bytes!("../../packaging/icons/apps/notes-256.png"),
         "reminders" => include_bytes!("../../packaging/icons/apps/reminders-256.png"),
@@ -357,34 +357,52 @@ pub fn app_open(key: String, app: AppHandle) {
     open(&app, &key);
 }
 
-/// An item in another app, asked for from an app's own window (Calendar's Show in Reminders,
-/// a download's Show): that app's window brought up showing it. An open window is told as the
-/// desktop's search tells one (`quince://reveal`); a window made for it finds the request in
-/// its address, so it never misses it while its page loads.
-#[tauri::command]
-pub fn app_reveal(key: String, reveal: serde_json::Value, app: AppHandle) {
+/// An item shown in its app's own window: Calendar's Show in Reminders, a download's Show, a
+/// reminder's alert, a result from the desktop's search. The one way any of them is handed over.
+/// An open window is told (`quince://reveal`, as its page listens from the moment it loads); a
+/// window made for it finds the request in its address, so it never misses it while loading.
+pub fn reveal(app: &AppHandle, key: &str, reveal: &serde_json::Value) {
     use base64::{engine::general_purpose::URL_SAFE_NO_PAD, Engine};
-    if let Some(w) = app.get_webview_window(&label(&key)) {
+    if let Some(w) = app.get_webview_window(&label(key)) {
         w.unminimize().ok();
         show(&w);
-        app.emit_to(label(&key).as_str(), "quince://reveal", &reveal)
-            .ok();
+        app.emit_to(label(key).as_str(), REVEAL, reveal).ok();
         return;
     }
     let asked = URL_SAFE_NO_PAD.encode(reveal.to_string());
-    make(&app, &key, &format!("&reveal={asked}"));
+    make(app, key, &format!("&reveal={asked}"));
 }
 
-/// Told to the whole-library window: show Settings.
-pub const OPEN_SETTINGS: &str = "quince://open-settings";
+/// [`reveal`], asked from a page.
+#[tauri::command]
+pub fn app_reveal(key: String, reveal: serde_json::Value, app: AppHandle) {
+    self::reveal(&app, &key, &reveal);
+}
 
-/// Settings from an app's own window, as a Mac app's Settings: in Skykeep's main window, the
-/// one place they live, made and shown first when it isn't open.
+/// What a page is told to show (Library.tsx listens for it).
+const REVEAL: &str = "quince://reveal";
+
+/// Skykeep's own window: the account, each app's sync, Backup, storage and settings — what
+/// the Skykeep icon, a click on the tray, a plain launch and an app's account card all open
+/// (the sign-in while signed out). Skykeep is the account; the six apps are the apps
+/// (docs/apps-as-windows.md).
+pub fn open_skykeep(app: &AppHandle) {
+    crate::show_window(app);
+}
+
+/// Signed out: every app's window goes, so the one sign-in is Skykeep's own window's.
+pub fn close_all(app: &AppHandle) {
+    for (key, _) in APPS {
+        if let Some(w) = app.get_webview_window(&label(key)) {
+            w.destroy().ok();
+        }
+    }
+}
+
+/// Skykeep's window, asked from a page (an app's account card, Ctrl+,).
 #[tauri::command]
 pub fn settings_open(app: AppHandle) {
-    crate::show_window_then(&app, |app| {
-        app.emit_to("main", OPEN_SETTINGS, ()).ok();
-    });
+    open_skykeep(&app);
 }
 
 #[cfg(test)]

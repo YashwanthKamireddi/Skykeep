@@ -162,7 +162,6 @@ pooled "drive recents"     node .uiverify/drive-recents.mjs
 pooled "drive gone folder" node .uiverify/drive-gone.mjs
 pooled "settings"          node .uiverify/settings.mjs
 pooled "calendar day steps" node .uiverify/calendar-daystep.mjs
-pooled "sidebar fold"      node .uiverify/sidebar-fold.mjs
 pooled "pending writes"    node .uiverify/pending-writes.mjs
 pooled "row hover"         node .uiverify/row-hover.mjs
 pooled "reminders switch"  node .uiverify/reminders-switch.mjs
@@ -210,7 +209,6 @@ pooled "webkit: search"    env ENGINE=webkit node .uiverify/photos-search.mjs
 pooled "webkit: full quality" env ENGINE=webkit node .uiverify/photos-quality.mjs
 pooled "webkit: delete"    env ENGINE=webkit node .uiverify/notes-delete.mjs
 pooled "webkit: row hover" env ENGINE=webkit node .uiverify/row-hover.mjs
-pooled "webkit: fold"      env ENGINE=webkit node .uiverify/sidebar-fold.mjs
 pooled "reminder colours"  node .uiverify/calendar-reminder-colour.mjs
 pooled "calendar dblclick"  node .uiverify/calendar-dblclick.mjs
 pooled "menus"             node .uiverify/menus.mjs

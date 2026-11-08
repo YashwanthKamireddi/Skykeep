@@ -2,7 +2,7 @@
 // name (prefix, middle, suffix, nickname, phonetic), work, dates, related people, social
 // profiles, instant messages, labels in Apple's own words — and the photo, chosen and cropped.
 import { engine } from "./engine.mjs";
-import { SERVICES, installStub } from "./stub.mjs";
+import { SERVICES, installStub, openScreen } from "./stub.mjs";
 
 const b = await engine.launch();
 const ctx = await b.newContext({ viewport: { width: 1280, height: 860 } });
@@ -30,7 +30,7 @@ await ctx.addInitScript(() => {
 });
 const page = await ctx.newPage();
 await page.goto(process.env.URL ?? "http://localhost:4173", { waitUntil: "networkidle" });
-await page.locator(".nav-item", { hasText: "Contacts" }).click();
+await openScreen(page, "Contacts");
 await page.waitForTimeout(400);
 await page.locator(".contact-row", { hasText: "Zoya" }).click();
 await page.waitForTimeout(300);

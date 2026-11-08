@@ -10,7 +10,7 @@
 //                                           emulates it in Chromium alone
 //   BASE=http://localhost:4232 ONLY=drive   another server, or only the scenarios matching
 import { engine as browserEngine, engineName } from "./engine.mjs";
-import { SERVICES, installStub, openScreen } from "./stub.mjs";
+import { SERVICES, installStub, openScreen, openSettings } from "./stub.mjs";
 import AxeBuilder from "@axe-core/playwright";
 
 const BASE = process.env.BASE ?? "http://localhost:4173";
@@ -75,20 +75,13 @@ const scenarios = [
       await p.locator('[aria-label="Go to a Month"]').click();
     }) },
   { name: "settings", ready: ".settings, [data-screen='settings']", act: async (p) => {
-      await p.locator(".sidebar-account").click();
+      await openSettings(p);
       await settle(p, 500);
     } },
   { name: "sign-out confirm", ready: '[role="alertdialog"]', act: async (p) => {
-      await p.locator(".sidebar-account").click();
+      await openSettings(p);
       await settle(p, 500);
       await p.getByRole("button", { name: "Sign Out" }).click();
-    } },
-  { name: "search", ready: '[role="listbox"]', act: async (p) => {
-      await p.getByRole("combobox", { name: "Search everything" }).fill("a");
-      await settle(p, 500);
-    } },
-  { name: "sidebar rail", ready: ".is-rail", act: async (p) => {
-      await p.getByRole("button", { name: "Fold Sidebar to Icons" }).click();
     } },
   // The other calendar views, each a grid of its own.
   { name: "calendar week", ready: ".cx", act: then(open("Calendar"), async (p) => { await p.keyboard.press("Control+2"); await settle(p, 400); }) },
@@ -109,17 +102,6 @@ const scenarios = [
   { name: "photos selected", ready: '.px-tile[aria-selected="true"]', act: then(open("Photos"), async (p) => {
       await p.locator(".px-tile").first().click();
     }) },
-  // Search over Notes' gold, folded out of the rail, and in a narrow window.
-  { name: "search over notes", ready: '[role="listbox"]', act: then(open("Notes"), async (p) => {
-      await p.getByRole("combobox", { name: "Search everything" }).fill("a");
-      await settle(p, 500);
-    }) },
-  { name: "search folded", ready: ".gsearch-out", act: then(open("Notes"), async (p) => {
-      await p.getByRole("button", { name: "Fold Sidebar to Icons" }).click();
-      await p.keyboard.press("Control+k");
-      await p.keyboard.type("cur");
-      await settle(p, 500);
-    }) },
   // A new version offered (components/UpdateNotice), with its notes open.
   { name: "update notice", ready: ".update-notice .update-notes[open]",
     init: () => { window.__update = { version: "0.2.0", notes: "Faster Photos.\nCalendar fixes." }; },
@@ -127,10 +109,10 @@ const scenarios = [
       await p.locator(".update-notice summary").click();
       await settle(p, 300);
     } },
-  { name: "narrow sidebar", ready: ".is-sidebar-open", viewport: { width: 800, height: 700 }, act: async (p) => {
-      await p.getByRole("button", { name: "Show Sidebar" }).click();
-      await settle(p, 500);
-    } },
+  // Each app's own window: its account card at the foot of its sidebar, and the window narrow,
+  // where an app folds its own sidebar into a picker.
+  { name: "app foot", ready: ".app-foot .sidebar-account", act: open("Notes") },
+  { name: "narrow notes", ready: ".notes-folder-picker", viewport: { width: 800, height: 700 }, act: open("Notes") },
 ];
 
 // "more" is Increase Contrast (prefers-contrast: more), where a11y.css firms the design up.
@@ -159,7 +141,7 @@ for (const mode of modes) {
     const label = `${s.name} (${mode})`.padEnd(32);
     try {
       await page.goto(BASE, { waitUntil: "networkidle" });
-      if ((s.screen ?? "library") === "library") await page.waitForSelector(".sidebar .nav-item", { state: "attached" });
+      if ((s.screen ?? "library") === "library") await page.waitForSelector("main.content[data-screen]", { state: "attached" });
       if (s.act) await s.act(page);
       await page.locator(s.ready).first().waitFor({ state: "attached", timeout: 5000 });
       await settle(page, 400);

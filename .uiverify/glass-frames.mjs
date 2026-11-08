@@ -69,7 +69,7 @@ if (process.env.GLASS === "live") await ctx.addInitScript(() => {
 const page = await ctx.newPage();
 page.on("pageerror", (e) => { console.log(`FAIL page error: ${e.message}`); failures++; });
 await page.goto(BASE, { waitUntil: "networkidle" });
-await page.locator(".nav-item").first().waitFor();
+await page.locator("main.content[data-screen]").first().waitFor();
 await page.waitForFunction(() => ["NotesView", "DriveView", "PhotosView"]
   .every((n) => performance.getEntriesByType("resource").some((r) => r.name.includes(`/${n}-`))), null, { timeout: 20000 });
 
@@ -147,16 +147,6 @@ const checkBlurs = async (where) => {
   ok(bl.nested.length === 0, `${where}: no blur on a blur ${bl.nested.join(", ")}`);
   if (gtkLike) ok(bl.count === 0, `${where}: WebKitGTK draws no live blur`);
 };
-
-// ---- switching apps -----------------------------------------------------------------------
-const order = ["Notes", "Calendar", "Contacts", "Drive", "Reminders", "Photos", "Notes", "Drive"];
-for (const name of order.slice(0, 6)) { await openScreen(page, name); await page.waitForTimeout(300); }
-const switchGaps = [];
-for (const name of order) {
-  switchGaps.push(...await framesAfter(`[...document.querySelectorAll(".nav-item")].find((b) => b.textContent.includes(${JSON.stringify(name)})).click()`, 12));
-  await page.waitForTimeout(250);
-}
-report("switching apps", switchGaps);
 
 // ---- Photos ----------------------------------------------------------------------------------
 await openScreen(page, "Photos");

@@ -2,7 +2,7 @@
 // what it does; on one that does not (Hyprland without uwsm, Sway), it says so and gives the
 // exact line, selectable whole; a refusal puts the switch back with the reason.
 import { engine } from "./engine.mjs";
-import { SERVICES, installStub } from "./stub.mjs";
+import { SERVICES, installStub, openSettings } from "./stub.mjs";
 const b = await engine.launch();
 let failures = 0;
 const ok = (p, m) => { console.log(`${p ? "PASS" : "FAIL"} ${m}`); if (!p) failures++; };
@@ -12,7 +12,7 @@ for (const scheme of ["light", "dark"]) {
   const page = await ctx.newPage();
   page.on("pageerror", (e) => { console.log(`FAIL page error: ${e.message}`); process.exitCode = 1; });
   await page.goto("http://localhost:4173", { waitUntil: "networkidle" });
-  await page.locator(".sidebar-account").click();
+  await openSettings(page);
   await page.waitForTimeout(400);
   const sw = page.getByRole("switch", { name: "Open at Login" });
   const row = page.locator(".settings-row", { has: sw });

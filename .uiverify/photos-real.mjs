@@ -54,10 +54,10 @@ ok((await page.locator(".px-scroll").evaluate((e) => e.scrollTop)) === 0, "and t
 await page.locator(".px-source", { hasText: "Library" }).click();
 await page.waitForTimeout(300);
 
-await page.locator(".nav-item", { hasText: "Photos" }).focus();
+await page.locator(".px-source", { hasText: "Library" }).focus();
 await page.keyboard.press("Control+a");
 await page.waitForTimeout(100);
-ok((await page.evaluate(() => window.getSelection()?.toString() ?? "")) === "", "Ctrl+A with the app list focused selects no text");
+ok((await page.evaluate(() => window.getSelection()?.toString() ?? "")) === "", "Ctrl+A with Photos' sidebar focused selects no text");
 ok((await page.locator('.px-tile[aria-selected="true"]').count()) === 5, "and selects every photo");
 await page.keyboard.press("Escape");
 

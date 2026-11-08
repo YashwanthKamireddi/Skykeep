@@ -1,3 +1,4 @@
+import { openScreen } from "./stub.mjs";
 // Everything this app was built and checked against was one machine in one place: Asia/
 // Kolkata, English, a clock that has never moved. Most people are somewhere else.
 //
@@ -79,13 +80,13 @@ for (const place of PLACES) {
   await page.goto("http://localhost:4173", { waitUntil: "networkidle" });
 
   for (const screen of ["Reminders", "Calendar", "Notes", "Contacts", "Drive"]) {
-    await page.getByRole("button", { name: screen, exact: true }).click();
+    await openScreen(page, screen);
     await page.waitForTimeout(300);
   }
 
   // Something due tomorrow must not be called today. Counting days in milliseconds gets this
   // wrong on the two days a year a clock moves.
-  await page.getByRole("button", { name: "Reminders", exact: true }).click();
+  await openScreen(page, "Reminders");
   await page.waitForTimeout(400);
   const said = (await page.locator(".rx-rows").allInnerTexts()).join(" ");
   const muddled = /Tomorrow evening[\s\S]{0,60}\bToday\b/.test(said);
@@ -142,7 +143,7 @@ for (const place of PLACES) {
   await ctx.addInitScript(stub, { services: SERVICES, now, edge });
   const page = await ctx.newPage();
   await page.goto("http://localhost:4173", { waitUntil: "networkidle" });
-  await page.getByRole("button", { name: "Reminders", exact: true }).click();
+  await openScreen(page, "Reminders");
   await page.waitForTimeout(400);
 
   // A reminder's title is an editable field, so its text is a value rather than content —

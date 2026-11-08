@@ -1,6 +1,4 @@
-// What axe cannot judge, checked as a keyboard and screen-reader user meets it: the search is
-// reachable however the sidebar is drawn (whole, folded to icons, or put away in a narrow
-// window) and its Show All is reached by the arrows; Escape closes the topmost layer and the
+// What axe cannot judge, checked as a keyboard and screen-reader user meets it: Escape closes the topmost layer and the
 // focus goes back to what opened it — menus, sheets, popovers, the photo viewer; modal sheets
 // keep Tab inside; one Tab stop for a date grid, with the arrows inside it; the note editor
 // lets the keys out; states are named (aria-checked, aria-current, aria-pressed); notices are
@@ -11,7 +9,7 @@
 //   BASE=http://localhost:4260 ENGINE=webkit node .uiverify/a11y-keys.mjs
 //   ONLY=search                              only the checks whose group matches
 import { engine, engineName } from "./engine.mjs";
-import { SERVICES, installStub, openScreen } from "./stub.mjs";
+import { SERVICES, installStub, openScreen, openSettings } from "./stub.mjs";
 
 const BASE = process.env.BASE ?? "http://localhost:4173";
 const ONLY = process.env.ONLY ? new RegExp(process.env.ONLY, "i") : null;
@@ -39,7 +37,7 @@ async function fresh(opts = {}, extra, fixtures = FIXTURES) {
   const page = await ctx.newPage();
   page.on("pageerror", (e) => ok(false, `page error: ${e.message}`));
   await page.goto(BASE, { waitUntil: "networkidle" });
-  await page.waitForSelector(".sidebar .nav-item", { state: "attached" });
+  await page.waitForSelector("main.content[data-screen]", { state: "attached" });
   return { ctx, page };
 }
 async function group(name, run) {
@@ -55,81 +53,6 @@ const keyFocus = async (p, locator) => {
   await locator.evaluate((el) => el.focus());
   await p.keyboard.press("Shift");
 };
-
-// ---- Search ----------------------------------------------------------------------------------
-
-const manyContacts = () => {
-  window.__moreContacts = Array.from({ length: 40 }, (_, i) => ({ guid: `m${i}`, firstName: "Marlowe", lastName: `Test ${i + 1}`,
-    company: null, isCompany: false, birthday: null, notes: null, etag: null, methods: [] }));
-};
-
-await group("search", async () => {
-  const { ctx, page } = await fresh({}, manyContacts);
-  const field = page.getByRole("combobox", { name: "Search everything" });
-  const list = page.getByRole("listbox", { name: "Found" });
-  await openScreen(page, "Drive");
-  await page.keyboard.press("Control+k");
-  ok(await field.evaluate((f) => f === document.activeElement), "search: Ctrl+K comes to the field");
-  await page.keyboard.type("marlowe");
-  await wait(page, 300);
-  ok(/\d+ results?/.test(await page.locator(".gsearch [role=status]").innerText()), `search: how many were found is said  (${await page.locator(".gsearch [role=status]").innerText()})`);
-  const sel = () => list.locator('[role="option"][aria-selected="true"]').innerText().catch(() => "");
-  ok(/Marlowe/.test(await sel()), "search: the first result is selected, not Show All");
-  await page.keyboard.press("ArrowUp");
-  ok(/Show All/.test(await sel()), `search: Up from the first result reaches Show All  (${await sel()})`);
-  const active = await field.getAttribute("aria-activedescendant");
-  ok(active && /Show all 40 in Contacts/.test((await page.locator(`#${active}`).getAttribute("aria-label")) ?? ""), "search: and the field names it to assistive tech");
-  await page.keyboard.press("Enter");
-  await wait(page);
-  ok(await list.getByRole("option", { name: /^Show less of Contacts/ }).isVisible(), "search: Return on Show All shows the app whole, with Show Less");
-  await page.keyboard.press("Escape");
-  await wait(page);
-  ok(/Show All/.test(await sel()), "search: Escape comes back to every app, on the Show All it left from");
-  ok(await field.evaluate((f) => f === document.activeElement), "search: the focus never left the field");
-  const rows = await list.locator('[role="option"]').evaluateAll((els) => els.map((e) => e.tabIndex));
-  ok(rows.every((t) => t === -1), "search: results are no Tab stops of their own (the field holds the keys)");
-  await ctx.close();
-});
-
-await group("search folded", async () => {
-  const { ctx, page } = await fresh();
-  // Notes first: the suites' openScreen presses anything named "Show Sidebar…".
-  await openScreen(page, "Notes");
-  await page.getByRole("button", { name: "Fold Sidebar to Icons" }).click();
-  await wait(page);
-  const magnifier = page.locator(".gsearch-magnifier");
-  ok(await magnifier.isVisible(), "search folded: the rail keeps a magnifier");
-  await page.locator("main.content").click({ position: { x: 600, y: 400 } });
-  await page.keyboard.press("Control+k");
-  await wait(page);
-  const field = page.getByRole("combobox", { name: "Search everything" });
-  ok((await field.isVisible()) && (await field.evaluate((f) => f === document.activeElement)), "search folded: Ctrl+K brings the field out, focused");
-  await page.keyboard.type("curtains");
-  await wait(page, 300);
-  ok(await page.getByRole("listbox", { name: "Found" }).isVisible(), "search folded: results show under it");
-  await page.keyboard.press("Escape");
-  await page.keyboard.press("Escape");
-  await wait(page);
-  ok(!(await field.isVisible()) && (await has(page, ".gsearch-magnifier")), `search folded: Escape puts it away, the focus back on the magnifier  (${await focused(page)})`);
-  await page.keyboard.press("Enter");
-  await wait(page);
-  ok(await field.evaluate((f) => f === document.activeElement), "search folded: the magnifier brings it out by the keys too");
-  await ctx.close();
-});
-
-await group("search narrow", async () => {
-  const { ctx, page } = await fresh({ viewport: { width: 800, height: 700 } });
-  await page.locator("main.content").click({ position: { x: 400, y: 400 } });
-  await page.keyboard.press("Control+k");
-  await wait(page, 400);
-  const field = page.getByRole("combobox", { name: "Search everything" });
-  ok((await field.isVisible()) && (await field.evaluate((f) => f === document.activeElement)), "search narrow: Ctrl+K brings the sidebar out, the field focused");
-  await page.keyboard.press("Escape");
-  await page.keyboard.press("Escape");
-  await wait(page, 400);
-  ok(await has(page, ".sidebar-toggle"), `search narrow: put away, the focus is on Show Sidebar  (${await focused(page)})`);
-  await ctx.close();
-});
 
 // ---- Menus, sheets and popovers: Escape, and the focus back ---------------------------------
 
@@ -182,7 +105,7 @@ await group("menus and sheets", async () => {
   ok(await listActions.evaluate((el) => el === document.activeElement), `list info: Escape returns the focus to ⋯  (${await focused(page)})`);
 
   // A question: Escape is Cancel, and the focus goes back to what asked it.
-  await page.locator(".sidebar-account").click();
+  await openSettings(page);
   await wait(page, 500);
   const signOut = page.getByRole("button", { name: "Sign Out" });
   await keyFocus(page, signOut);
@@ -285,7 +208,9 @@ await group("notes", async () => {
 await group("states", async () => {
   // Reminders' sample alone: Calendar's sample reminders share its ids.
   const { ctx, page } = await fresh({}, null, { remindersFixture: true, notesFixture: true, contactsFixture: true, calendarFixture: false });
-  ok((await page.locator('.nav-item[aria-current="true"]').count()) === 1, "states: the sidebar marks its current app aria-current");
+  await openScreen(page, "Notes");
+  await wait(page, 300);
+  ok((await page.locator('.notes-folders .source-row[aria-current="true"]').count()) === 1, "states: an app's own sidebar marks its current place aria-current");
   await openScreen(page, "Reminders");
   await wait(page, 400);
   const name = await page.locator('.rx-tick[role="checkbox"]').first().getAttribute("aria-label");
@@ -373,11 +298,6 @@ if (engineName === "chromium" || engineName === "msedge") {
     });
     ok(/solid 2px/.test(ring), `forced colours: focus is a solid ring in the system highlight  (${ring})`);
     await page.keyboard.press("Escape");
-    await page.getByRole("combobox", { name: "Search everything" }).fill("a");
-    await wait(page, 300);
-    ok(Boolean(await edge(".gsearch-panel")), "forced colours: the search's results keep a drawn edge");
-    ok(Boolean(await edge(".gsearch-row.is-at")) || (await page.locator(".gsearch-row.is-at").evaluate((el) => getComputedStyle(el).backgroundColor !== "rgba(0, 0, 0, 0)")),
-      "forced colours: the selected result is drawn in the highlight");
     await ctx.close();
   });
 }

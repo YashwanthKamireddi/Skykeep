@@ -294,75 +294,10 @@
 
 /* Chrome, so it gets glass. The content pane deliberately does not — Apple forbids glass
    on content layers, and a photo grid is exactly the thing it would fight. */
-.sidebar {
-  position: absolute;
-  z-index: 2;
-  left: 8px;
-  top: 8px;
-  bottom: 8px;
-  width: 196px;
-  /* Folding is a single step, with no animation. While the sidebar's width moved, every frame
-     laid out its rows again, and the content beside it, already in its new place, showed
-     through and then hid behind it. WebKitGTK drew that as a flicker of text on his machine. */
-  /* Its own width changing lays out only itself. */
-  contain: layout paint;
-  overflow: hidden;
-  /* Frosted to opaque, without a live blur: folding animates its width, and a blurred layer
-     has its blur worked out again on every frame of that — a stutter in WebKitGTK, which
-     does not draw the blur on many machines in any case. Content still passes under it. */
-  background: var(--glass-frost);
-  box-shadow: var(--glass-specular), 0 0 0 var(--hairline) var(--glass-edge);
-  border-radius: var(--r-plateau);
-  padding: 12px 9px;
-  overflow-y: auto;
-  /* The foot holds the one global control, so the list above it takes the slack rather
-     than the status floating mid-column on a short account. */
-  display: flex;
-  flex-direction: column;
-}
-
-.sidebar-foot {
-  margin-top: auto;
-  padding-top: 10px;
-  display: flex;
-  flex-direction: column;
-  gap: 2px;
-}
 
 /* One statement of freshness for the whole library, and the one control that refreshes it.
    Quiet by default — it is status, not an action anyone has to take. */
-.sync-row {
-  display: flex;
-  align-items: center;
-  gap: 7px;
-  width: 100%;
-  border: 0;
-  background: none;
-  padding: 5px 8px;
-  border-radius: var(--r-field);
-  font: inherit;
-  font-size: var(--t-11);
-  color: var(--text-2);
-  cursor: pointer;
-  text-align: left;
-  transition: background 140ms var(--ease);
-}
-
-.sync-row:hover:not(:disabled) { background: var(--fill-hover); }
-.sync-row:disabled { cursor: default; }
-
-.sync-dot {
-  flex: none;
-  width: 6px;
-  height: 6px;
-  border-radius: var(--r-pill);
-  background: var(--sys-green);
-}
-
-.sync-dot.working { background: var(--accent); }
-.sync-dot.trouble { background: var(--sys-orange); }
 /* Nothing to vouch for yet — never synced, or not available: grey, not the all-clear green. */
-.sync-dot.idle { background: var(--sys-gray); }
 
 .sync-label {
   flex: 1;
@@ -409,34 +344,6 @@
   gap: 4px;
 }
 
-.sidebar h2 {
-  margin: 6px 8px 10px;
-  font-size: var(--t-11);
-  font-weight: 600;
-  color: var(--text-3);
-}
-
-.nav-item {
-  display: flex;
-  align-items: center;
-  justify-content: flex-start;
-  gap: 10px;
-  min-height: 34px;
-  white-space: nowrap;
-  /* No transition here: what the base state is reached by — the current app changing, the
-     pointer leaving — happens at once, so the selection moves crisply, as in a Mac sidebar. */
-  width: 100%;
-  border: 0;
-  background: none;
-  color: var(--text);
-  font: inherit;
-  font-size: var(--t-13);
-  text-align: left;
-  padding: 6px 8px;
-  border-radius: var(--r-field);
-  cursor: pointer;
-}
-
 /* Each app's mark: one symbol in the app's colour (AppIcon), as a Mac sidebar draws its places.
    The tints are the system's own hues, a shade deeper in light mode so they hold on white —
    3:1 or better on the sidebar and on its selected row (WCAG 1.4.11), since folded to icons
@@ -456,27 +363,12 @@
   --app-notes: #ffd23f; --app-reminders: #ff8a4c; --app-calendar: #ff5a5f;
   --app-contacts: #aab1bd; --app-drive: #5ab0ff; --app-photos: #d38bff;
 }
-.nav-name { overflow: hidden; text-overflow: ellipsis; }
-.sidebar-head { display: flex; align-items: center; justify-content: space-between; margin: 0 0 6px; min-height: 28px; }
-.sidebar-head h2 { margin: 0 8px; }
 /* Folded: the icons alone, centred, names gone; the foot keeps only its status dot. */
-@media (min-width: 901px) {
-  .is-rail .sidebar { width: 60px; }
-  .is-rail .sidebar-head { flex-direction: column; }
-  .is-rail .sidebar-head h2, .is-rail .nav-name { opacity: 0; width: 0; margin: 0; transition: none; }
-  .is-rail .nav-item { justify-content: center; gap: 0; padding-inline: 0; }
-  .is-rail .sidebar-foot { display: none; }
-}
-@media (max-width: 900px) { .sidebar-fold { display: none; } }
-@media (prefers-reduced-motion: reduce) { .content, .sidebar, .nav-item { transition: none; } }
-.nav-item:hover { background: var(--fill-hover); transition: background-color var(--motion-hover) var(--motion-ease-out); }
+@media (prefers-reduced-motion: reduce) { .content { transition: none; } }
 /* Pressed: a shade deeper at once, as a Mac sidebar row darkens under the click. */
-.nav-item:active:not([aria-current="true"]) { background: var(--fill-press); transition: none; }
 /* The current app: a neutral highlight, as a Tahoe sidebar draws one, the label unchanged in
    colour. Tinting it with the app's accent made three apps — Reminders, Drive, Contacts —
    select in the same blue; the icon is what tells them apart. */
-.nav-item[aria-current="true"] { background: var(--fill-selected); color: var(--text); font-weight: 590; transition: none; }
-.nav-item:focus-visible { outline: var(--focus-ring); outline-offset: -1px; }
 
 .badge {
   font-size: var(--t-11);
@@ -497,9 +389,8 @@
 /* The content begins 16px past the sidebar's card (8px in, 196px wide), open or folded alike:
    a wider gutter here left a band of nothing between the sidebar and every app. */
 .library { --side: 220px; }
-.library.is-rail { --side: 84px; }
 
-.sidebar-toggle, .sidebar-scrim, .compact-back { display: none; }
+.compact-back { display: none; }
 
 /*
  * A narrow window, as iPadOS does it: the sidebar steps aside and the content takes the whole
@@ -510,47 +401,6 @@
 @media (max-width: 900px) {
   /* Outranks each screen's own `.content[data-screen]` padding. */
   .library > main.content { padding: 54px 16px 16px; }
-  .sidebar {
-    z-index: 30;
-    /* Over content, so nearly opaque: a list read through another list is two lists. */
-    background: color-mix(in srgb, var(--bg) 94%, transparent);
-    /* Room at the top for the button that opened it, which stays where it was. */
-    padding-top: 52px;
-    box-shadow: var(--glass-specular), 0 0 0 var(--hairline) var(--glass-edge), var(--shadow-sheet);
-    /* Out and back at once, as the scrim is: a full-height, shadowed layer sliding over the
-       content is the large-layer motion that flickered on his WebKitGTK (tokens.css). */
-    visibility: hidden;
-  }
-  .is-sidebar-open .sidebar {
-    visibility: visible;
-  }
-  .sidebar-toggle {
-    position: absolute;
-    z-index: 35;
-    top: 12px;
-    left: 12px;
-    display: grid;
-    place-items: center;
-    width: 32px;
-    height: 32px;
-    padding: 0;
-    border: 0;
-    border-radius: 50%;
-    background: var(--glass);
-    -webkit-backdrop-filter: var(--glass-blur);
-    backdrop-filter: var(--glass-blur);
-    box-shadow: var(--glass-specular), 0 0 0 var(--hairline) var(--glass-edge);
-    color: var(--text);
-    cursor: default;
-  }
-  .sidebar-toggle:focus-visible { outline: var(--focus-ring); }
-  .is-sidebar-open .sidebar-scrim {
-    position: absolute;
-    z-index: 25;
-    inset: 0;
-    display: block;
-    background: rgba(0, 0, 0, 0.35);
-  }
 }
 
 /* Narrower again, where a screen shows one column at a time and needs a way back. */
@@ -609,7 +459,7 @@
 .contacts {
   display: grid;
   /* The lists' column is the other apps' source list: the same inset either side of its rows. */
-  grid-template-columns: 202px minmax(230px, 300px) minmax(0, 1fr);
+  grid-template-columns: var(--source-w) minmax(230px, 300px) minmax(0, 1fr);
   height: 100%;
   min-height: 0;
 }
@@ -1684,11 +1534,6 @@
    starts again whenever its screen comes back into view — every face in Contacts faded in
    anew on every visit, a flicker (and fades flicker on WebKitGTK's compositor anyway). */
 .face-photo.is-ready, .face-photo.is-instant { opacity: 1; }
-@media (min-width: 901px) {
-  .is-rail .sidebar-foot { display: flex; }
-  .is-rail .sidebar-account { justify-content: center; padding-inline: 0; }
-  .is-rail .sidebar-account-text { display: none; }
-}
 
 /* ── Settings, as System Settings lays it out ─────────────────────────────────────────── */
 .settings { max-width: 640px; margin: 0 auto; padding-bottom: 40px; }
@@ -1779,69 +1624,13 @@
 /* ---- Search across everything (components/GlobalSearch) ---------------------------------
    A field at the head of the sidebar, as Finder's; what it finds over the window under it,
    grouped by app as Spotlight groups it. */
-.gsearch { margin: 0 0 8px; }
-.gsearch-panel {
-  position: fixed; z-index: 70; width: min(440px, calc(100vw - 24px)); overflow: hidden; border-radius: 12px;
-  /* Solid, as a menu of results must be: what lies under it must never read through. */
-  background: var(--sheet, var(--bg)); color: var(--text);
-  /* One soft shadow and a drawn edge — not --glass-float's five layers with an inset
-     highlight: WebKit painted those again on every frame the list scrolled (16 ms a frame
-     here, 20–23 with them). */
-  box-shadow: 0 8px 28px rgba(0, 0, 0, 0.16), 0 0 0 1px var(--separator);
-}
 /* What scrolls is inside the shadow, never the surface that casts it. */
-.gsearch-results { max-height: min(70vh, 560px); overflow-y: auto; overscroll-behavior: contain; padding: 6px; }
-.gsearch-group + .gsearch-group { margin-top: 6px; padding-top: 6px; border-top: var(--hairline) solid var(--separator); }
-.gsearch-group h3 {
-  display: flex; align-items: center; gap: 6px; height: 28px; margin: 0 0 2px; padding: 0 6px 0 8px;
-  font-size: var(--t-11); font-weight: 600; color: var(--text-2);
-}
 /* Show All: the app's heading stays at the top of the list as it scrolls under it. */
-.gsearch-group h3.is-stuck {
-  position: sticky; top: -6px; z-index: 1; height: 34px; margin: -6px -6px 0; padding: 6px 12px 0 14px;
-  background: var(--sheet, var(--bg)); border-bottom: var(--hairline) solid var(--separator);
-}
-.gsearch-group h3 .app-icon { width: 16px; height: 16px; }
-.gsearch-count { color: var(--text-3); font-weight: 500; font-variant-numeric: tabular-nums; }
-.gsearch-more {
-  margin-left: auto; padding: 2px 7px; border: 0; border-radius: 5px; background: none;
-  font: inherit; font-weight: 500; color: var(--accent-strong, var(--accent)); cursor: default;
-}
-.gsearch-more:hover { background: color-mix(in srgb, var(--accent) 12%, transparent); }
-.gsearch-more:focus-visible { outline: var(--focus-ring); outline-offset: 1px; }
-.gsearch-row {
-  display: flex; align-items: center; gap: 10px; width: 100%; height: 44px; padding: 0 10px; border: 0;
-  /* Concentric with the panel: its 12px corner less the results' 6px inset. */
-  border-radius: calc(var(--r-float) - 6px); background: none; color: inherit; font: inherit; text-align: start; cursor: default;
-}
 /* White on the deep accent, as a filled control is drawn (tokens.css): --on-accent is the text
    for the bright fill, and on Notes' gold-deep its near-black read at 3.3:1. */
-.gsearch-row.is-at { background: var(--accent-deep); color: #fff; }
-.gsearch-more.is-at { background: var(--accent-deep); color: #fff; }
-.gsearch-row.is-waiting { pointer-events: none; }
-.gsearch-pic { width: 30px; height: 30px; border-radius: 6px; object-fit: cover; flex: none; background: var(--fill, color-mix(in srgb, var(--text) 6%, transparent)); }
-.gsearch-pic.is-round { border-radius: 50%; }
-.gsearch-initials {
-  display: grid; place-items: center; font-size: var(--t-11); font-weight: 600; letter-spacing: 0.02em;
-  color: #fff; background: linear-gradient(180deg, #a5abb6, #858b96);
-}
-.gsearch-text { display: flex; flex: 1; flex-direction: column; gap: 1px; min-width: 0; }
-.gsearch-title { font-size: var(--t-13); line-height: 1.3; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.gsearch-detail { font-size: var(--t-11); line-height: 1.3; color: var(--text-2); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.gsearch-when { flex: none; max-width: 40%; font-size: var(--t-11); color: var(--text-3); font-variant-numeric: tabular-nums; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 /* Where the typed words fall: bold, as Spotlight marks them, in the row's own colour. */
-.gsearch-row mark { background: none; color: inherit; font-weight: 650; }
-.gsearch-detail mark { color: var(--text); }
-.gsearch-row.is-at :is(.gsearch-detail, .gsearch-when) { color: rgba(255, 255, 255, 0.92); }
-.gsearch-row.is-at mark { color: #fff; }
 /* Folded to icons: a magnifier in the rail; the field comes out over the window beside it,
    drawn in the top layer (the sidebar clips what leaves it). */
-.gsearch.is-folded { display: flex; justify-content: center; }
-.gsearch-out {
-  position: fixed; z-index: 70; width: 240px; border-radius: var(--r-field, 8px);
-  background: var(--sheet, var(--bg)); box-shadow: 0 8px 28px rgba(0, 0, 0, 0.16), 0 0 0 1px var(--separator);
-}
-.gsearch-none { margin: 0; padding: 14px 10px; font-size: var(--t-13); color: var(--text-2); text-align: center; }
 
 /* ---- a session Apple signed out -------------------------------------------- */
 
@@ -1852,46 +1641,50 @@
 .lapsed { position: fixed; top: 10px; left: 0; right: 0; width: fit-content; margin-inline: auto; z-index: 50; max-width: calc(100vw - 32px); padding-right: 5px; }
 .lapsed > button { min-height: 26px; padding-inline: 12px; }
 
-/* ---- the sidebar's foot: freshness, then the account ------------------------- */
-
-.sidebar-foot-stack { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
-/* The freshness line is the update control, as a whole: quiet text that, under the pointer,
-   says what a click does — no extra glyph standing apart in the corner. */
-.sidebar-sync {
-  /* Lined up with the account below: the dot on the avatar's centre (8px in, 30px wide), the
-     words on the name's edge (8 + 30 + 9). */
-  position: relative; display: flex; align-items: center; gap: 21px; min-width: 0;
-  min-height: 24px; min-width: 24px;
-  padding: 4px 8px 4px 20px; border: 0; border-radius: var(--r-field); background: none; text-align: left;
-  color: var(--text-2); font: inherit; font-size: var(--t-11); cursor: default;
-}
-.sidebar-sync-text, .sidebar-sync-now { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.sidebar-sync-now { position: absolute; left: 47px; right: 8px; opacity: 0; color: var(--text); }
-.sidebar-sync:hover:not(:disabled) { background: var(--fill-hover); }
-.sidebar-sync:hover:not(:disabled) .sidebar-sync-text { opacity: 0; }
-.sidebar-sync:hover:not(:disabled) .sidebar-sync-now { opacity: 1; }
-.sidebar-sync:active:not(:disabled) { background: var(--fill-press); }
-.sidebar-sync:focus-visible { outline: var(--focus-ring); outline-offset: -1px; }
-.sidebar-sync.is-trouble { color: var(--danger); }
-/* Working: the dot becomes a small ring turning in place — the same spot, the same size. */
-.sidebar-sync.is-working .sync-dot {
-  background: none; border: 1.5px solid color-mix(in srgb, var(--text) 22%, transparent);
-  border-top-color: var(--text-2); animation: sync-spin 800ms linear infinite;
-}
-@media (prefers-reduced-motion: reduce) { .sidebar-sync.is-working .sync-dot { animation: none; opacity: 0.6; } }
-.sidebar-foot-stack .sidebar-account { align-items: center; }
-.sidebar-foot-stack .sidebar-account-name { flex: 1; min-width: 0; }
-.is-rail .sidebar-sync { justify-content: center; padding-inline: 0; }
-.is-rail .sidebar-sync-text, .is-rail .sidebar-sync-now { display: none; }
-.is-rail .sidebar-foot-stack .sidebar-account-name { display: none; }
-/* A session no keyring would keep: one quiet line under who is signed in, the whole sentence
-   in Settings. */
-.sidebar-not-kept {
-  margin: 0; padding: 0 8px 0 47px; color: var(--text-2); font-size: var(--t-11);
+/* ---- the sidebar's foot: one account card ------------------------------------- */
+/* The picture, the name and how fresh the app is, as one card that opens Settings; a round
+   button beside it updates now. Quiet at rest, like the rows above it: no fill until the
+   pointer is on it. */
+.account-card { position: relative; display: flex; align-items: center; gap: 4px; min-width: 0; }
+.account-card .sidebar-account { flex: 1; min-width: 0; min-height: 46px; padding: 6px 6px 6px 6px; gap: 10px; border-radius: 12px; }
+.account-lines { display: flex; flex-direction: column; gap: 1px; min-width: 0; }
+.account-lines .sidebar-account-name { line-height: 1.2; }
+.account-status {
+  color: var(--text-2); font-size: var(--t-11); line-height: 1.25;
   overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
 }
-.is-rail .sidebar-not-kept { display: none; }
-.sidebar .status-line { padding: 4px 8px; font-size: var(--t-11); }
+.account-card.is-trouble .account-status { color: var(--danger); }
+/* The picture, inside a ring that is only drawn while updating. */
+.account-ring { position: relative; display: grid; place-items: center; flex: none; width: 32px; height: 32px; border-radius: 50%; }
+.account-ring .account-avatar { width: 28px; height: 28px; }
+.account-ring::after {
+  content: ""; position: absolute; inset: 0; border-radius: 50%;
+  border: 1.5px solid transparent; opacity: 0;
+}
+.account-card.is-working .account-ring::after {
+  opacity: 1; border-color: color-mix(in srgb, var(--accent) 22%, transparent); border-top-color: var(--accent);
+  animation: sync-spin 900ms linear infinite;
+}
+/* In trouble: a small badge on the picture, as a Mac marks an account that needs attention. */
+.account-card.is-trouble .account-ring::before {
+  content: "!"; position: absolute; z-index: 1; right: -1px; bottom: -1px; width: 13px; height: 13px;
+  display: grid; place-items: center; border-radius: 50%;
+  background: var(--danger); color: #fff; font-size: 9px; font-weight: 800; line-height: 1;
+  box-shadow: 0 0 0 2px var(--glass-frost, var(--bg));
+}
+/* Update now: a round glass button, always there, quiet until the pointer reaches it. */
+.account-update {
+  flex: none; display: grid; place-items: center; width: 28px; height: 28px; padding: 0;
+  border: 0; border-radius: 50%; background: none; color: var(--text-2); cursor: pointer;
+}
+.account-update:hover:not(:disabled) { background: var(--fill-hover); color: var(--text); }
+.account-update:active:not(:disabled) { background: var(--fill-press); }
+.account-update:focus-visible { outline: var(--focus-ring); outline-offset: 1px; }
+.account-update:disabled { cursor: default; opacity: 0.45; }
+.account-card.is-trouble .account-update { color: var(--danger); }
+@media (prefers-reduced-motion: reduce) {
+  .account-card.is-working .account-ring::after { animation: none; border-color: var(--accent); }
+}
 .drive-bar .drive-title { flex: 1 1 14ch; }
 
 /* Photos Cache: the cap as a ruler of the sizes offered — the native slider for the hand and the
@@ -2017,8 +1810,8 @@
  */
 .library.is-solo { --side: 0px; }
 .library.is-solo > main.content { padding-left: 8px; }
-.library.is-solo > main.content[data-screen="drivews"] { padding-left: 34px; }
-.library.is-solo :is(.notes-folders, .contacts-lists, .rx-side, .px-side, .cx-side) {
+.library.is-solo > main.content[data-screen="settings"] { padding-left: 34px; }
+.library.is-solo :is(.notes-folders, .contacts-lists, .rx-side, .px-side, .cx-side, .dx-side) {
   /* Reaching from 8px below the window's top to 8px above its foot, past the content's own
      top and bottom padding. */
   margin-top: calc(8px - var(--pane-top));
@@ -2030,7 +1823,7 @@
   border-right: 0;
 }
 /* Photos' grid and Calendar's month run to their column's edge: a gutter from the card. */
-.library.is-solo :is(.px-side, .cx-side) { margin-right: 12px; }
+.library.is-solo :is(.px-side, .cx-side, .dx-side) { margin-right: 12px; }
 .app-foot {
   margin-top: auto;
   padding-top: 10px;
@@ -2049,10 +1842,10 @@
 /* Where an app folds its own sidebar away (each at its own width), the content keeps a
    margin from the window's edge instead of the card's 8px. */
 @media (max-width: 1000px) {
-  .library.is-solo > main.content:is([data-screen="notes"], [data-screen="contacts"]) { padding-left: 16px; }
+  .library.is-solo > main.content:is([data-screen="notes"], [data-screen="contacts"], [data-screen="settings"]) { padding-left: 16px; }
 }
 @media (max-width: 720px) {
-  .library.is-solo > main.content:is([data-screen="photos"], [data-screen="reminders"]) { padding-left: 16px; }
+  .library.is-solo > main.content:is([data-screen="photos"], [data-screen="reminders"], [data-screen="drivews"]) { padding-left: 16px; }
   /* No band beside a sidebar button for the library's pop-up: it sits above the library. */
   .library.is-solo .px-compact { margin: 0 0 12px 18px; }
   /* Reminders as on iPhone: the lists are the page itself, not a card on it. */
@@ -2061,3 +1854,105 @@
 @container cx-page (max-width: 860px) {
   .library.is-solo .cx { margin-left: 8px; }
 }
+
+/* ── Skykeep's window: the apps, on top ─────────────────────────────────────────────────── */
+/* Six tiles, each the app's own icon, its name, what it holds and how fresh it is; one click
+   into the app's own window. Frosted as the sidebars are; the pointer brightens a tile and
+   moves nothing (motion flickered on WebKitGTK). Only an app updating animates: a small ring
+   turned by the compositor. */
+.launcher { margin: 6px 0 26px; }
+.launcher-head {
+  display: flex; align-items: center; justify-content: space-between; gap: 12px;
+  margin: 0 4px 10px;
+}
+.launcher-hint { color: var(--text-2); font-size: var(--t-12); }
+.launcher-grid { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 12px; }
+@media (max-width: 640px) { .launcher-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
+.launch-tile {
+  display: flex; flex-direction: column; align-items: flex-start; gap: 3px; min-width: 0;
+  padding: 16px 16px 14px; border: 0; border-radius: 18px; text-align: left;
+  background: var(--glass-frost);
+  box-shadow: var(--glass-specular), 0 0 0 var(--hairline) var(--glass-edge);
+  color: var(--text); font: inherit; cursor: pointer;
+}
+.launch-tile:hover { background: color-mix(in srgb, var(--glass-frost) 88%, var(--text) 12%); }
+.launch-tile:active { background: color-mix(in srgb, var(--glass-frost) 82%, var(--text) 18%); }
+.launch-tile:focus-visible { outline: var(--focus-ring); outline-offset: 2px; }
+.launch-icon { width: 56px; height: 56px; margin: 0 0 8px -4px; -webkit-user-drag: none; }
+.launch-name { font-size: var(--t-15); font-weight: 650; letter-spacing: -0.01em; }
+.launch-holds, .launch-fresh {
+  max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+.launch-holds { color: var(--text); font-size: var(--t-13); opacity: 0.86; }
+.launch-fresh { display: flex; align-items: center; gap: 6px; color: var(--text-2); font-size: var(--t-12); }
+.launch-dot {
+  flex: none; width: 7px; height: 7px; border-radius: 50%;
+  background: var(--sys-green, #34c759);
+}
+.launch-tile.is-idle .launch-dot { background: var(--sys-gray, #8e8e93); }
+.launch-tile.is-trouble .launch-fresh { color: var(--danger); }
+.launch-tile.is-trouble .launch-dot { background: var(--danger); }
+.launch-tile.is-working .launch-dot {
+  width: 9px; height: 9px; background: none;
+  border: 1.5px solid color-mix(in srgb, var(--accent) 25%, transparent); border-top-color: var(--accent);
+  animation: sync-spin 900ms linear infinite;
+}
+@media (prefers-reduced-motion: reduce) {
+  .launch-tile.is-working .launch-dot { animation: none; border-color: var(--accent); }
+}
+
+/* Drive's own window: its sidebar (iCloud Drive, Recents, Recently Deleted, the account at its
+   foot) beside the folder, as every app's is. Folded away in a narrow window, as Photos'. */
+.dx { display: grid; grid-template-columns: var(--source-w) minmax(0, 1fr); height: 100%; min-height: 0; }
+.dx-side {
+  display: flex; flex-direction: column; gap: 1px; min-height: 0; overflow-y: auto;
+  padding: var(--source-pad);
+}
+.dx-glyph { flex: none; color: var(--accent); }
+.dx-main { display: flex; flex-direction: column; min-width: 0; min-height: 0; }
+.dx-main > * { flex: 1; min-height: 0; }
+@media (max-width: 720px) {
+  .dx { grid-template-columns: minmax(0, 1fr); }
+  .dx-side { display: none; }
+}
+
+/* Skykeep's window: the apps on top, then cards in balanced rows — Account, Backup, This
+   Computer; General, Notifications — each card's actions at its foot so a row ends level, the
+   long lists behind its Details. One page, centred, no scrolling on a large screen. */
+.content[data-screen="settings"] { container: settings-page / inline-size; }
+.settings.dash { max-width: 1080px; margin-inline: auto; }
+.dash-row { display: grid; gap: 12px; margin-top: 14px; align-items: stretch; }
+.dash-three { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+.dash-two { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+.dash-card {
+  display: flex; flex-direction: column; min-width: 0; padding: 14px 14px 12px; border-radius: 14px;
+  background: color-mix(in srgb, var(--text) 4%, transparent);
+  border: var(--hairline) solid color-mix(in srgb, var(--text) 8%, transparent);
+}
+.dash-title { margin: 0 0 8px; font-size: var(--t-13); font-weight: 650; color: var(--text-2); }
+.dash-card .settings-row { padding-inline: 0; }
+.dash-card .settings-heading { margin: 12px 0 2px; }
+.dash-card .settings-group { background: none; border: 0; }
+.dash-account { display: flex; align-items: center; gap: 12px; margin: 2px 0 8px; min-width: 0; }
+.dash-account .settings-account-text { min-width: 0; }
+.dash-actions {
+  display: flex; align-items: center; gap: 10px; margin-top: auto; padding-top: 10px;
+}
+.dash-actions > :last-child { margin-left: auto; }
+.dash-foot {
+  display: flex; flex-wrap: wrap; align-items: center; justify-content: center; gap: 10px;
+  margin: 18px 0 6px; color: var(--text-2); font-size: var(--t-12);
+}
+.dash-foot-sep { width: 3px; height: 3px; border-radius: 50%; background: currentColor; opacity: 0.5; }
+@container settings-page (min-width: 1180px) {
+  .launcher-grid { grid-template-columns: repeat(6, minmax(0, 1fr)); }
+}
+@container settings-page (max-width: 820px) {
+  .dash-three, .dash-two { grid-template-columns: minmax(0, 1fr); }
+}
+
+/* In a card a line wraps rather than being cut with "…": its words and any link at its end
+   (the backup's Show in Folder) stay readable and reachable at every card width. */
+.dash-card :is(.settings-hint, .settings-label, .settings-stack) { white-space: normal; overflow: visible; text-overflow: clip; }
+.dash-reach { margin-top: 14px; }
+.dash-reach > .settings-heading:first-child { margin-top: 6px; }

@@ -4,7 +4,7 @@
 // checklist item the cursor is in.
 //   BASE=http://localhost:4173 ENGINE=webkit node .uiverify/notes-search-marks.mjs
 import { engine } from "./engine.mjs";
-import { SERVICES, installStub } from "./stub.mjs";
+import { SERVICES, installStub, openScreen } from "./stub.mjs";
 
 const BASE = process.env.BASE ?? "http://localhost:4173";
 const b = await engine.launch();
@@ -18,7 +18,7 @@ await ctx.addInitScript(installStub, { screen: "library", services: SERVICES, tw
 const page = await ctx.newPage();
 page.on("pageerror", (e) => ok(false, "", `page error: ${e.message}`));
 await page.goto(BASE, { waitUntil: "networkidle" });
-await page.locator(".nav-item", { hasText: "Notes" }).click();
+await openScreen(page, "Notes");
 await page.locator(".note-row").first().waitFor();
 
 // One element a row: the option itself sits in its section's group, with no box around it.

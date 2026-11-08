@@ -22,7 +22,7 @@ use serde::Serialize;
 use std::collections::HashMap;
 use std::sync::{Arc, Mutex, OnceLock};
 use std::time::{Duration, Instant};
-use tauri::{AppHandle, Emitter, Manager};
+use tauri::{AppHandle, Manager};
 use zbus::zvariant::Value;
 
 /// The name both desktops call; the same in the `.ini`, the `.service` and the KRunner entry.
@@ -31,12 +31,6 @@ pub const BUS_NAME: &str = "io.github.yashwanthkamireddi.Skykeep.SearchProvider"
 pub const GNOME_PATH: &str = "/io/github/yashwanthkamireddi/Skykeep/SearchProvider";
 /// KRunner's object.
 pub const KRUNNER_PATH: &str = "/io/github/yashwanthkamireddi/Skykeep/KRunner";
-/// What an app window is told to show; `payload` is a [`Reveal`], the shape `src/lib/reveal.ts`
-/// takes.
-pub const REVEAL: &str = "quince://reveal";
-/// What the library window is told when the person asks the shell for more: the query to
-/// search for there.
-pub const SEARCH: &str = "quince://search";
 /// The program's own icon, installed with every package.
 const MAIN_ICON: &str = "io.github.yashwanthkamireddi.Skykeep";
 /// At most this many of each app.
@@ -522,38 +516,36 @@ fn search_library(app: &AppHandle, query: &str) -> Option<Everything> {
     library.search_everything(query, EACH).ok()
 }
 
-/// Brings up the app's window and tells it what to show: at once when the window was already
-/// made (its page is listening), once it has drawn when it is new.
+/// A result opened in its app's own window, showing it: the one hand-off every window uses
+/// (apps::reveal).
 fn open_app(app: &AppHandle, reveal: Reveal) {
-    let app = app.clone();
-    tauri::async_runtime::spawn(async move {
-        let label = format!("app-{}", reveal.screen);
-        let made = app.get_webview_window(&label).is_some();
-        crate::apps::open(&app, &reveal.screen);
-        if !made {
-            // A new window is shown by its window_ready, once its page has drawn — the page is
-            // up, and listening, by then. Given up after the same few seconds apps::open waits.
-            let until = Instant::now() + Duration::from_secs(5);
-            while Instant::now() < until {
-                if app
-                    .get_webview_window(&label)
-                    .is_some_and(|w| w.is_visible().unwrap_or(false))
-                {
-                    break;
-                }
-                tokio::time::sleep(Duration::from_millis(50)).await;
-            }
-        }
-        if let Err(e) = app.emit_to(label.as_str(), REVEAL, &reveal) {
-            quiet!("a search result could not be shown: {e}");
-        }
-    });
+    match serde_json::to_value(&reveal) {
+        Ok(asked) => crate::apps::reveal(app, &reveal.screen, &asked),
+        Err(_) => crate::apps::open(app, &reveal.screen),
+    }
 }
 
-/// The library window, asked to search for `query`.
+/// "Show all results" from the desktop's search: Skykeep's apps are windows of their own, with
+/// no search across all six, so the result the shell listed first opens in its app; nothing
+/// found, the app used last opens. Off the async threads: the library is waited on briefly.
 fn search_in_window(app: &AppHandle, query: String) {
-    crate::show_window_then(app, move |app| {
-        app.emit_to("main", SEARCH, query).ok();
+    let app = app.clone();
+    std::thread::spawn(move || {
+        let first =
+            search_library(&app, &query).and_then(|found| hits(found, 1).into_iter().next());
+        match first {
+            Some(hit) => open_app(
+                &app,
+                Reveal {
+                    screen: hit.screen.to_string(),
+                    id: hit.id,
+                    within: hit.within,
+                    at: hit.at,
+                    query,
+                },
+            ),
+            None => crate::apps::open_skykeep(&app),
+        }
     });
 }
 

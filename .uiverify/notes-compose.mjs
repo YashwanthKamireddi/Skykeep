@@ -1,3 +1,4 @@
+import { openScreen } from "./stub.mjs";
 // Writing a new note the way a person does: New Note, type, pause, keep typing.
 //
 // The pause is where it went wrong. The box being typed into was swapped for another when
@@ -56,7 +57,7 @@ await ctx.addInitScript(() => {
 
 const page = await ctx.newPage();
 await page.goto(process.env.BASE ?? "http://localhost:4173", { waitUntil: "networkidle" });
-await page.locator(".nav-item", { hasText: "Notes" }).click();
+await openScreen(page, "Notes");
 await page.waitForTimeout(300);
 
 // Watch for the moment nothing is open, and for focus leaving the editor.

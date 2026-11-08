@@ -535,20 +535,6 @@ pub fn trim(root: &Path, cap: u64, guard: &Guard<'_>) -> Outcome {
     trim_with(root, cap, guard, None)
 }
 
-/// Every original and preview under `root` let go of, but what is held, protected or still
-/// landing. The grid's pictures stay.
-pub fn clear(root: &Path, guard: &Guard<'_>) -> Outcome {
-    trim_with(
-        root,
-        0,
-        &Guard {
-            recent: None,
-            ..*guard
-        },
-        None,
-    )
-}
-
 /// The most the cache may take on a disk: the cap chosen, or a fifth of the room it could have
 /// (free space and its own) when that is less — a full disk is never the price of a cache.
 pub fn limit(cap: u64, free: u64, used: u64) -> u64 {
@@ -594,7 +580,7 @@ use tauri::{AppHandle, Emitter, Manager};
 
 /// The cap chosen, once read from the library (0: not read yet).
 static CAP: AtomicU64 = AtomicU64::new(0);
-/// One pass at a time: a trim and a Clear Cache never run over each other.
+/// One pass at a time: a trim and Settings' Clear never run over each other.
 static PASS: Mutex<()> = Mutex::new(());
 
 /// What Settings shows of the cache.
@@ -805,31 +791,18 @@ pub async fn photos_cache_set(bytes: u64, app: AppHandle) -> Result<Status, Stri
     Ok(status)
 }
 
-/// Every original and preview let go of (Apple keeps them all), off the window's thread; the
-/// grid's pictures stay. Answers what is there after.
-#[tauri::command]
-pub async fn photos_cache_clear(app: AppHandle) -> Result<Status, String> {
-    tauri::async_runtime::spawn_blocking(move || {
+/// `clear` run as the one pass over the cache (no trim runs over it), off the window's thread;
+/// the window is then told what the cache holds after. Settings' Clear goes through here.
+pub fn clearing<T>(app: &AppHandle, clear: impl FnOnce() -> T) -> T {
+    let out = {
         let _pass = PASS
             .lock()
             .unwrap_or_else(std::sync::PoisonError::into_inner);
-        let root = root(&app);
-        let cap = cap_blocking(&app);
-        let protected = waiting_uploads(&app);
-        let out = clear(
-            &root,
-            &Guard {
-                protected: &protected,
-                recent: None,
-                now: SystemTime::now(),
-            },
-        );
-        let status = status_of(&root, cap, out.after);
-        let _ = app.emit(EVENT, status.clone());
-        status
-    })
-    .await
-    .map_err(|e| e.to_string())
+        clear()
+    };
+    let root = root(app);
+    let _ = app.emit(EVENT, status_of(&root, cap_blocking(app), scan(&root).used));
+    out
 }
 
 #[cfg(test)]
@@ -918,6 +891,20 @@ mod side_tests {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// Every original and preview under `root` let go of, but what is held, protected or still
+    /// landing. The grid's pictures stay.
+    fn clear(root: &Path, guard: &Guard<'_>) -> Outcome {
+        trim_with(
+            root,
+            0,
+            &Guard {
+                recent: None,
+                ..*guard
+            },
+            None,
+        )
+    }
 
     /// A cached picture at `rel` of `kb` kilobytes, last seen `ago` ago.
     fn put(root: &Path, rel: &str, kb: usize, ago: Duration) -> PathBuf {

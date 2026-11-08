@@ -68,13 +68,11 @@
   }
   :root:root:root[data-theme="dark"][data-app="calendar"] { --accent-strong: #ff7a7a; }
   :root:root:root[data-theme="dark"][data-app="notes"] { --accent-strong: #ffd600; }
-  /* Floating surfaces and toolbar capsules: a drawn edge, not only a shadow. */
-  :is(.modal-sheet, .popover, .toast, .row-menu, .picker-menu, .cx-popover, .cx-zones,
-    .gsearch-panel, .gsearch-out, .format-panel, .upload-menu, .upload-tray, .px-info, .px-jump,
-    .toolbar-group, .sidebar) {
+  :is(.modal-sheet, .popover, .toast, .row-menu, .picker-menu, .cx-popover, .cx-zones, .format-panel, .upload-menu, .upload-tray, .px-info, .px-jump, .toolbar-group) {
     outline: 1px solid var(--glass-edge);
     outline-offset: -1px;
   }
+  /* Floating surfaces and toolbar capsules: a drawn edge, not only a shadow. */
   /* A quiet button is a fill alone; here it has an edge too. */
   :is(.quiet, .segment, .picker-button) { box-shadow: inset 0 0 0 1px var(--field-edge); }
   /* A toast's action (Undo, Update and Restart): its words in the text colour, edged, rather
@@ -133,9 +131,7 @@
 }
 :root:root:root[data-contrast="more"][data-theme="dark"][data-app="calendar"] { --accent-strong: #ff7a7a; }
 :root:root:root[data-contrast="more"][data-theme="dark"][data-app="notes"] { --accent-strong: #ffd600; }
-:root[data-contrast="more"] :is(.modal-sheet, .popover, .toast, .row-menu, .picker-menu, .cx-popover, .cx-zones,
-  .gsearch-panel, .gsearch-out, .format-panel, .upload-menu, .upload-tray, .px-info, .px-jump,
-  .toolbar-group, .sidebar) {
+:root[data-contrast="more"] :is(.modal-sheet, .popover, .toast, .row-menu, .picker-menu, .cx-popover, .cx-zones, .format-panel, .upload-menu, .upload-tray, .px-info, .px-jump, .toolbar-group) {
   outline: 1px solid var(--glass-edge);
   outline-offset: -1px;
 }
@@ -147,11 +143,10 @@
 @media (forced-colors: active) {
   /* A note's table is framed by a shadow, which forced colours drop: a real border instead. */
   .nf-table { border: 1px solid CanvasText; }
-  /* Every control with an edge of its own: the fill that marked it is gone. */
-  :is(.primary, .quiet, .icon-button, .tool, .segment, .picker-button, .toast-action,
-    .sidebar-toggle, .compact-back, .search-clear, .confirm-answer) {
+  :is(.primary, .quiet, .icon-button, .tool, .segment, .picker-button, .toast-action, .compact-back, .search-clear, .confirm-answer) {
     border: 1px solid ButtonText;
   }
+  /* Every control with an edge of its own: the fill that marked it is gone. */
   .primary { background: ButtonText; color: ButtonFace; }
   :is(.primary, .quiet, .icon-button, .tool):disabled { border-color: GrayText; color: GrayText; }
   .primary:disabled { background: ButtonFace; }
@@ -163,21 +158,18 @@
     border: 1px solid CanvasText;
   }
   .field-group input, .search-field input { border: 0; }
-
-  /* Floating surfaces, the sidebar and toolbar capsules: shadows are dropped, so an edge. */
-  :is(.modal-sheet, .popover, .toast, .row-menu, .picker-menu, .cx-popover, .cx-zones,
-    .gsearch-panel, .gsearch-out, .format-panel, .upload-menu, .upload-tray, .px-info, .px-jump,
-    .px-nav, .px-scrub-tip, .toolbar-group) {
+  :is(.source-row, .sidebar-account, .note-row, .contact-row, .rx-tile, .rx-tag-chip, .segment, .px-source, .crumb):is([aria-current="true"], [aria-selected="true"], [aria-pressed="true"], .is-at), :is(.row-menu-item, .picker-option, [role="option"], [role="menuitem"], [role="menuitemradio"]):is(.is-active, .is-at, [aria-selected="true"]), :is(.drive-row, .cx-day).is-selected, :is(.icon-button, .tool):is([aria-pressed="true"], .is-on) {
+    background: Highlight;
+    color: HighlightText;
+  }
+  :is(.modal-sheet, .popover, .toast, .row-menu, .picker-menu, .cx-popover, .cx-zones, .format-panel, .upload-menu, .upload-tray, .px-info, .px-jump, .px-nav, .px-scrub-tip, .toolbar-group) {
     border: 1px solid CanvasText;
   }
-  .sidebar { border: 1px solid CanvasText; }
+
+  /* Floating surfaces, the sidebar and toolbar capsules: shadows are dropped, so an edge. */
 
   /* What is chosen: the system's highlight, as a native list draws it. */
-  :is(.nav-item, .source-row, .sidebar-account, .note-row, .contact-row, .rx-tile, .rx-tag-chip,
-    .gsearch-row, .segment, .px-source, .crumb):is([aria-current="true"], [aria-selected="true"], [aria-pressed="true"], .is-at),
-  :is(.row-menu-item, .picker-option, [role="option"], [role="menuitem"], [role="menuitemradio"]):is(.is-active, .is-at, [aria-selected="true"]),
-  :is(.drive-row, .cx-day).is-selected,
-  :is(.icon-button, .tool):is([aria-pressed="true"], .is-on) {
+  :is(.row-menu-item, .picker-option, [role="option"], [role="menuitem"], [role="menuitemradio"]):is(.is-active, .is-at, [aria-selected="true"]), :is(.drive-row, .cx-day).is-selected, :is(.icon-button, .tool):is([aria-pressed="true"], .is-on) {
     background: Highlight;
     color: HighlightText;
   }
@@ -203,7 +195,7 @@
   /* Keyboard focus: one ring, in the highlight, wherever it lands — the box shadows several
      controls draw theirs with are dropped in this mode. */
   :focus-visible { outline: 2px solid Highlight !important; outline-offset: 2px; }
-  .cx-day-hit:focus-visible, .nav-item:focus-visible { outline-offset: -2px; }
+  .cx-day-hit:focus-visible { outline-offset: -2px; }
 
   /* Glyphs drawn in an app's or a calendar's colour take the text colour. Colours that are
      the content — a swatch to choose, a calendar's dot — keep theirs, with an edge. */
@@ -223,6 +215,6 @@
 
   /* Separators drawn as a background line. */
   hr { border-color: CanvasText; }
-  .scrim, .modal-veil, .sidebar-scrim { background: transparent; }
+  .scrim, .modal-veil { background: transparent; }
   ::-webkit-scrollbar-thumb { background: CanvasText padding-box; }
 }

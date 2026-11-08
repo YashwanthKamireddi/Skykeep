@@ -93,10 +93,16 @@ fn answer(app: &AppHandle, due: &DueAlarm, due_then: Option<Option<i64>>, action
             changed();
         }
         "default" => {
-            let guid = due.reminder_guid.clone();
-            crate::show_window_then(app, move |app| {
-                app.emit(OPEN_REMINDER, &guid).ok();
-            });
+            // Reminders' own window, open on that reminder in its list.
+            crate::apps::reveal(
+                app,
+                "reminders",
+                &serde_json::json!({
+                    "screen": "reminders",
+                    "id": due.reminder_guid,
+                    "within": due.list_guid,
+                }),
+            );
         }
         _ => {}
     }
@@ -132,7 +138,7 @@ pub fn tell(app: &AppHandle, title: &str, body: &str) {
             let app = app.clone();
             crate::notices::show(&notice, move |action| {
                 if action == "default" {
-                    crate::show_window(&app);
+                    crate::apps::open_skykeep(&app);
                 }
             });
         }
@@ -192,9 +198,6 @@ fn icon_path(app: &AppHandle) -> Option<&'static str> {
         })
         .as_deref()
 }
-
-/// Emitted to the window to open a reminder an alert was clicked for.
-pub const OPEN_REMINDER: &str = "quince://open-reminder";
 
 /// Tell the task to look again: the reminders or their alarms may have changed.
 pub fn changed() {
@@ -515,10 +518,17 @@ fn show_event(app: AppHandle, event: quince_core::calendar::Event, minutes: i64)
                 sound: chime(),
                 resident: false,
             };
+            // Calendar's own window, on the event's day, its calendar showing.
+            let shown = serde_json::json!({
+                "screen": "calendar",
+                "id": event.guid,
+                "within": event.calendar_guid,
+                "at": event.starts_at,
+            });
             let app = app.clone();
             crate::notices::show(&notice, move |action| {
                 if action == "default" {
-                    crate::show_window(&app);
+                    crate::apps::reveal(&app, "calendar", &shown);
                 }
             });
         }

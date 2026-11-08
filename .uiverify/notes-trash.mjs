@@ -1,3 +1,4 @@
+import { openScreen } from "./stub.mjs";
 // Recently Deleted behaves as it does on the phone: a deleted note can be recovered, and the
 // only final delete is the one asked about first.
 import { engine as chromium } from "./engine.mjs";
@@ -29,7 +30,7 @@ await ctx.addInitScript(() => {
 });
 const page = await ctx.newPage();
 await page.goto("http://localhost:4173", { waitUntil: "networkidle" });
-await page.locator(".nav-item", { hasText: "Notes" }).click();
+await openScreen(page, "Notes");
 await page.getByRole("button", { name: "Recently Deleted" }).click();
 await page.waitForTimeout(500);
 

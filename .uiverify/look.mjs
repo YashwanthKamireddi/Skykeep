@@ -1,3 +1,4 @@
+import { openScreen } from "./stub.mjs";
 // Screenshots of Reminders drawn from real account data, light and dark, for looking at.
 //
 //   cargo run -p quince-probe --example ui_fixture -- <end-of-today> > fixture.json
@@ -34,7 +35,7 @@ for (const scheme of ["dark", "light"]) {
   }, fx);
   const p = await ctx.newPage();
   await p.goto("http://localhost:4173", { waitUntil: "networkidle" });
-  await p.locator(".nav-item", { hasText: "Reminders" }).click();
+  await openScreen(p, "Reminders");
   await p.waitForTimeout(500);
   await p.screenshot({ path: `${out}/reminders-${scheme}.png` });
   await ctx.close();

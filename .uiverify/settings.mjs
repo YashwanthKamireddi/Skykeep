@@ -1,24 +1,25 @@
-// Settings: opened from the account at the foot of the sidebar; every switch is the
-// backend's and moves at once, going back with the reason if it could not be kept; the
-// appearance chosen applies at once and survives a restart; the sidebar's selection is
-// neutral, and folding it slides the content rather than laying it out frame by frame.
+// Settings: Skykeep's own window, opened from the account at the foot of an app's sidebar;
+// every switch is the backend's and moves at once, going back with the reason if it could not
+// be kept; the appearance chosen applies at once and survives a restart.
 import { engine } from "./engine.mjs";
-import { SERVICES, installStub } from "./stub.mjs";
+import { SERVICES, installStub, openSettings } from "./stub.mjs";
 const b = await engine.launch();
 const ctx = await b.newContext({ viewport: { width: 1180, height: 820 } });
 await ctx.addInitScript(installStub, { screen: "library", services: SERVICES, twoFactor: null, remindersFixture: true });
 const page = await ctx.newPage();
-await page.goto(process.env.URL ?? "http://localhost:4173", { waitUntil: "networkidle" });
+const BASE = process.env.URL ?? "http://localhost:4173";
+await page.goto(`${BASE}/?app=reminders`, { waitUntil: "networkidle" });
 await page.waitForTimeout(400);
 let failures = 0;
 const ok = (p, m) => { console.log(`${p ? "PASS" : "FAIL"} ${m}`); if (!p) failures++; };
 
-const card = page.locator(".sidebar-account");
-ok((await card.innerText()).includes("Asha") && !(await card.innerText()).includes("…"), "the sidebar names who is signed in, whole");
+const card = page.locator(".app-foot .sidebar-account");
+ok((await card.innerText()).includes("Asha") && !(await card.innerText()).includes("…"), "the app's sidebar names who is signed in, whole");
 await card.click();
-await page.waitForSelector(".settings");
-ok(await page.getByRole("heading", { name: "Settings" }).isVisible(), "the account opens Settings");
-ok((await card.getAttribute("aria-current")) === "true", "and is the current item while Settings is open");
+await page.waitForTimeout(150);
+ok((await page.evaluate(() => window.__windows ?? [])).some((w) => w.cmd === "settings_open"), "the account opens Settings, in Skykeep's own window");
+await openSettings(page);
+ok(await page.getByRole("heading", { name: "Skykeep", level: 1 }).isVisible(), "which is Skykeep: the account, sync and settings");
 
 const sw = page.getByRole("switch", { name: "Calendar alerts" });
 await page.waitForFunction(() => !document.querySelector('[role=switch]')?.disabled);
@@ -40,33 +41,8 @@ ok((await page.evaluate(() => document.documentElement.dataset.theme)) === "dark
 await page.getByRole("button", { name: "Automatic", exact: true }).click();
 ok((await page.evaluate(() => document.documentElement.dataset.theme)) === undefined, "Automatic follows the system again");
 
-// The selected app is a neutral highlight: three apps used to select in the same blue.
-await page.locator(".nav-item", { hasText: "Reminders" }).click();
-await page.waitForTimeout(200);
-const sel = await page.evaluate(() => {
-  const el = document.querySelector('.nav-item[aria-current="true"]');
-  return { color: getComputedStyle(el).color, text: getComputedStyle(document.body).color };
-});
-ok(sel.color === sel.text, `the current app is not drawn in an accent  [${sel.color}]`);
-
-// Folding: the content's padding is never animated; the content slides instead.
-const padTransition = await page.evaluate(() => {
-  const cs = getComputedStyle(document.querySelector(".content"));
-  return `${cs.transitionProperty} ${cs.transitionDuration}`;
-});
-ok(/^(all|none) 0s$/.test(padTransition) || !/padding/.test(padTransition) && !/all/.test(padTransition), `the content's layout is not animated  [${padTransition}]`);
-await page.evaluate(() => {
-  window.__slid = false;
-  const el = document.querySelector(".content");
-  const orig = el.animate.bind(el);
-  el.animate = (...a) => { window.__slid = true; return orig(...a); };
-});
-await page.getByRole("button", { name: "Fold Sidebar to Icons" }).click();
-await page.waitForTimeout(400);
-// Not slid either: a screen of text moved frame by frame shimmered in WebKitGTK.
-ok(!(await page.evaluate(() => window.__slid)), "folding moves the content once, without sliding a screen of text");
 // A diagnostic report is written for the person to read and send, and says where.
-await page.locator(".sidebar-account").click();
+await openSettings(page);
 await page.waitForSelector(".settings");
 await page.getByRole("button", { name: "Save Diagnostic Report" }).click();
 await page.waitForTimeout(150);
@@ -85,18 +61,19 @@ await ctx.addInitScript(() => {
     }
   }).observe(document, { childList: true, subtree: true });
 });
-await page.reload({ waitUntil: "networkidle" });
+await page.goto(`${BASE}/?app=reminders`, { waitUntil: "networkidle" });
 await page.waitForTimeout(300);
 const asked = await page.evaluate(() => window.__imgs);
 ok(asked.some((s) => s?.includes("me-card")), `the account shows the photo on the person's own card  [${asked.join(", ")}]`);
-ok((await page.locator(".sidebar-account .account-avatar").innerText()).trim() === "AR", "and its initials hold the place where the photo cannot be had");
+ok((await page.locator(".app-foot .sidebar-account .account-avatar").innerText()).trim() === "AR", "and its initials hold the place where the photo cannot be had");
 // An account that keeps its data from the web gets one plain answer, with Apple's switch.
 {
   const c2 = await b.newContext({ viewport: { width: 1180, height: 820 } });
   await c2.addInitScript(() => { window.__webAccess = false; });
   await c2.addInitScript(installStub, { screen: "library", services: SERVICES, twoFactor: null, remindersFixture: true });
   const p2 = await c2.newPage();
-  await p2.goto(process.env.URL ?? "http://localhost:4173", { waitUntil: "networkidle" });
+  // In an app's window, where every read would fail; Settings stay usable to sign out.
+  await p2.goto(`${BASE}/?app=reminders`, { waitUntil: "networkidle" });
   await p2.waitForTimeout(500);
   ok(await p2.getByText("Access iCloud Data on the Web").first().isVisible(), "web access off says how to turn it on, instead of failing screen by screen");
   await c2.close();

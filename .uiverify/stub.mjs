@@ -152,6 +152,9 @@ export function installStub({ screen, services, twoFactor, calendarFixture, note
     // One store, so a write to either is seen by both.
     demo.noteList = noteList; demo.reminderItems = reminderItems;
   }
+  // Tauri's event plugin keeps this beside the internals: an unlisten (React's development
+  // mode unmounts every effect once) calls it.
+  window.__TAURI_EVENT_PLUGIN_INTERNALS__ = { unregisterListener: () => {} };
   window.__TAURI_INTERNALS__ = {
     transformCallback: (cb) => cb,
     // As Tauri builds it on Linux (tauri/scripts/core.js): the whole path escaped.
@@ -925,7 +928,7 @@ export function installStub({ screen, services, twoFactor, calendarFixture, note
           return window.__table.map((r) => r.slice());
         }
         // `__noText`: a note the library holds no text for (not yet arrived, or unreadable).
-        case "note_body": return args?.guid === window.__noText ? null : (noteList.find((n) => n.guid === args?.guid) ?? {}).body ?? null;
+        case "note_body": return args?.guid === window.__noText ? null : window.__noteBodies?.[args?.guid] ?? (noteList.find((n) => n.guid === args?.guid) ?? {}).body ?? null;
         case "note_row": {
           const n = noteList.find((x) => x.guid === args?.guid);
           return n ? { ...n, body: null } : null;
@@ -1065,7 +1068,7 @@ export function installStub({ screen, services, twoFactor, calendarFixture, note
           return (window.__local = { ...l, photos: l.photos - (l.clearable - l.notes - 3_000), notes: 0, drive: l.drive - 3_000, total: l.total - l.clearable, clearable: 0 });
         }
         // Photos Cache: a cap set lets the longest unseen go in the background, reported as an event.
-        case "photos_cache_status": case "photos_cache_set": case "photos_cache_clear": {
+        case "photos_cache_status": case "photos_cache_set": {
           const GB = 1024 ** 3;
           const c = (window.__cache ??= { used: 1_900_000_000, cap: 2 * GB, limit: 2 * GB, thumbnails: 160_000_000,
             steps: [512 * 1024 ** 2, GB, 2 * GB, 5 * GB, 10 * GB, 20 * GB, 50 * GB] });
@@ -1073,11 +1076,6 @@ export function installStub({ screen, services, twoFactor, calendarFixture, note
             (window.__capSets ??= []).push(args.bytes);
             c.cap = c.limit = args.bytes;
             if (c.used > c.cap) setTimeout(() => { c.used = Math.floor(c.cap * 0.9); window.__emit?.("quince://photo-cache", { ...c }); }, 100);
-          }
-          if (cmd === "photos_cache_clear") {
-            if (window.__cacheClearFail) throw window.__cacheClearFail;
-            window.__cacheCleared = (window.__cacheCleared ?? 0) + 1;
-            c.used = 0;
           }
           return { ...c };
         }
@@ -1377,6 +1375,11 @@ export function installStub({ screen, services, twoFactor, calendarFixture, note
           return { ...window.__backup, hiddenLocked: !window.__hiddenOpen };
         }
         // Windows of their own (apps.rs): recorded, as the test can't see another window.
+        // Skykeep's window: what each app holds, counted from the library (launcher.rs).
+        case "launcher_summary":
+          return window.__launcher ?? { notes: 7, remindersToday: 4, eventsToday: 2,
+            nextEvent: { title: "Design review", startsAt: Math.floor(Date.now() / 1000) + 5400, allDay: false },
+            contacts: 124, photos: 15712 };
         case "app_open": case "app_reveal": case "settings_open":
           (window.__windows ??= []).push({ cmd, ...(args ?? {}) });
           return null;
@@ -1391,15 +1394,30 @@ export function installStub({ screen, services, twoFactor, calendarFixture, note
  * put away, so it is brought back first.
  */
 export async function openScreen(page, name) {
-  const toggle = page.getByRole("button", { name: "Show Sidebar" });
-  if (await toggle.isVisible()) {
-    await toggle.click();
-    await page.waitForTimeout(320);
-  }
-  await page.locator(".nav-item", { hasText: name }).click();
+  // Every app is a window of its own (docs/apps-as-windows.md): opened as its launcher opens
+  // it, by its address. Settings are Skykeep's own window, the address with no app.
+  const key = { Notes: "notes", Reminders: "reminders", Calendar: "calendar", Contacts: "contacts", Drive: "drivews", Photos: "photos", Settings: null }[name];
+  if (key === undefined) throw new Error(`openScreen: no app named ${name}`);
+  const url = new URL(page.url());
+  url.search = "";
+  if (key) url.searchParams.set("app", key);
+  const already = new URL(page.url()).searchParams.get("app") === key;
+  if (!already) await page.goto(url.toString(), { waitUntil: "networkidle" });
   // Each app's code arrives on its own; the screen is open once it is drawn.
-  const root = { Calendar: ".cx", Notes: ".notes", Reminders: ".rx", Contacts: ".contacts", "Drive": ".drive" }[name];
-  if (root) await page.locator(root).first().waitFor({ state: "attached", timeout: 10000 });
+  const root = { Calendar: ".cx", Notes: ".notes", Reminders: ".rx", Contacts: ".contacts", Drive: ".drive", Photos: ".px", Settings: ".settings" }[name];
+  // Playwright's own 30 s: the gate runs six browsers at once, and a window loading two
+  // thousand photos beside them took past 10 s there (alone it takes well under one).
+  if (root) await page.locator(root).first().waitFor({ state: "attached", timeout: 30000 });
+}
+
+/* Settings: Skykeep's own window, the address with no app (docs/apps-as-windows.md). */
+export async function openSettings(page) {
+  const url = new URL(page.url());
+  if (url.searchParams.get("app")) {
+    url.search = "";
+    await page.goto(url.toString(), { waitUntil: "networkidle" });
+  }
+  await page.locator(".settings").first().waitFor({ timeout: 10000 });
 }
 
 /* Answer every yes-or-no confirmation sheet (components/Confirm) by going ahead — a question

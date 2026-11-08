@@ -2,7 +2,7 @@
 // that app alone — spinning while it works. Ctrl+R and F5 do the same and never reload the
 // window. The window's title follows the screen. In Settings the footer is the whole account.
 import { engine } from "./engine.mjs";
-import { SERVICES, installStub } from "./stub.mjs";
+import { SERVICES, installStub, openSettings, openScreen } from "./stub.mjs";
 const b = await engine.launch();
 const ctx = await b.newContext({ viewport: { width: 1180, height: 820 } });
 await ctx.addInitScript(installStub, { screen: "library", services: SERVICES, twoFactor: null, remindersFixture: true });
@@ -34,7 +34,7 @@ reloaded = 0;
 let failures = 0;
 const ok = (p, m) => { console.log(`${p ? "PASS" : "FAIL"} ${m}`); if (!p) failures++; };
 
-await page.locator(".nav-item", { hasText: "Reminders" }).click();
+await openScreen(page, "Reminders");
 await page.waitForTimeout(150);
 // The freshness line is itself the control (no separate glyph): its tooltip says the whole
 // sentence, and "Click to update now" while it is not already updating.
@@ -56,7 +56,7 @@ ok(JSON.stringify(await page.evaluate(() => window.__some)) === '[["reminders"]]
 await page.waitForTimeout(700);
 ok((await said()) === "Reminders updated just now", `and settles  [${await said()}]`);
 
-await page.locator(".nav-item", { hasText: "Drive" }).click();
+await openScreen(page, "Drive");
 await page.waitForTimeout(150);
 ok((await page.evaluate(() => window.__titles.at(-1))) === "Drive", "the title follows to iCloud Drive");
 await page.keyboard.press("Control+r");
@@ -74,7 +74,7 @@ await status.click();
 await page.waitForTimeout(800);
 ok((await said()) === "Drive didn’t update: Apple didn’t answer." && (await status.getAttribute("class")).includes("is-trouble"), `a failure says why  [${await said()}]`);
 
-await page.locator(".sidebar-account").click();
+await openSettings(page);
 await page.waitForSelector(".settings");
 ok((await page.evaluate(() => window.__titles.at(-1))) === "Settings", "in Settings the window is titled Settings");
 ok(/^(Updated|Syncing|Some)/.test(await status.locator(".sidebar-sync-text").innerText()) && !/iCloud Drive|Reminders/.test(await said()), `and the footer is the whole account  [${await said()}]`);

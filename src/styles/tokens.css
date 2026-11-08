@@ -69,6 +69,9 @@
   /* A source list (an app's own column of folders, lists, albums, calendars): its inset, and
      the space above each section's heading after the first. */
   --source-pad: 2px 12px 12px;
+  /* Every app's own sidebar is this wide, as a Mac's are alike: room for Reminders' tiles
+     two across, and for the account's name and freshness at its foot. */
+  --source-w: 236px;
   --source-gap: 14px;
 
 
@@ -384,21 +387,19 @@ body {
   --glass: var(--glass-frost);
   --glass-blur: none;
 }
-
-/* A control gives under a press and springs back, as Apple's do — buttons, icons, pop-up
-   buttons, segments. Not a row of a list: Apple's rows take a highlight, they do not
-   shrink. Only the pressed thing moves; hovering changes nothing but colour. */
-:is(.quiet, .primary, .icon-button, .tool, .segment, .picker-button, .sidebar-toggle,
-  .compact-back, .toast-action, .search-clear):not(:disabled) {
+:is(.quiet, .primary, .icon-button, .tool, .segment, .picker-button, .compact-back, .toast-action, .search-clear):not(:disabled):active {
+  scale: var(--press-scale);
+  transition-duration: var(--press-in), 0ms, 0ms, 0ms, 0ms, 160ms;
+}
+:is(.quiet, .primary, .icon-button, .tool, .segment, .picker-button, .compact-back, .toast-action, .search-clear):not(:disabled) {
   /* `scale`, not `transform`: a control placed with a transform keeps it. */
   transition: scale var(--press-out) var(--motion-ease-out), background-color 120ms ease,
     background 120ms ease, border-color 120ms ease, color 120ms ease, box-shadow 160ms ease;
 }
-:is(.quiet, .primary, .icon-button, .tool, .segment, .picker-button, .sidebar-toggle,
-  .compact-back, .toast-action, .search-clear):not(:disabled):active {
-  scale: var(--press-scale);
-  transition-duration: var(--press-in), 0ms, 0ms, 0ms, 0ms, 160ms;
-}
+
+/* A control gives under a press and springs back, as Apple's do — buttons, icons, pop-up
+   buttons, segments. Not a row of a list: Apple's rows take a highlight, they do not
+   shrink. Only the pressed thing moves; hovering changes nothing but colour. */
 
 @media (prefers-reduced-motion: reduce) {
   :root { --motion-hover: 0ms; --motion-fade: 0ms; --motion-small: 0ms; --press-out: 0ms;

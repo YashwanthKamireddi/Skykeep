@@ -1,7 +1,7 @@
 // A window opened as one app (`?app=…`, from its launcher entry or the tray) is that app alone,
 // as a Mac's Notes is: no switcher of the six, the app's own list as the window's sidebar with
 // the account and sync status at its foot, Settings opened in the main window, and another app
-// asked for from here opened in its own window. The main window keeps the switcher.
+// asked for from here opened in its own window. Skykeep's own window is Settings alone.
 //
 //   BASE=http://localhost:4173 ENGINE=webkit node .uiverify/app-window.mjs
 import { engine, engineName } from "./engine.mjs";
@@ -18,7 +18,7 @@ const APPS = [
   ["calendar", ".cx-side"],
   ["contacts", ".contacts-lists"],
   ["photos", ".px-side"],
-  ["drivews", null],
+  ["drivews", ".dx-side"],
 ];
 for (const [app, side] of APPS) {
   const ctx = await b.newContext({ viewport: { width: 1200, height: 760 } });
@@ -38,6 +38,17 @@ for (const [app, side] of APPS) {
     const asked = await page.evaluate(() => window.__windows ?? []);
     ok(asked.some((w) => w.cmd === "settings_open"), `${app}: its account opens Settings in the main window`);
     ok((await page.locator(`main.content[data-screen="${app}"]`).count()) === 1, `${app}: and the window stays on ${app}`);
+  }
+  // Its sidebar moves with the arrows, as a Mac's does.
+  if (side) {
+    const rows = page.locator(`${side} .source-row`);
+    if ((await rows.count()) > 1) {
+      await rows.first().focus();
+      await page.evaluate(() => { window.__was = document.activeElement; });
+      await page.keyboard.press("ArrowDown");
+      const moved = await page.evaluate((sel) => document.activeElement !== window.__was && Boolean(document.activeElement?.closest(sel)), side);
+      ok(moved, `${app}: Down moves to the sidebar's next row`);
+    }
   }
   // Ctrl+, as a Mac app's Settings: the main window's, not this one's.
   await page.evaluate(() => { window.__windows = []; });
@@ -77,15 +88,31 @@ for (const [app, side] of APPS) {
   await ctx.close();
 }
 
-// The main window: the switcher of the six, and no app foot.
+// Skykeep's own window, signed in: Settings alone — no switcher of the six, no app's foot.
 {
   const ctx = await b.newContext({ viewport: { width: 1200, height: 760 } });
   await ctx.addInitScript(installStub, fixtures);
   const page = await ctx.newPage();
+  page.on("pageerror", (e) => ok(false, `settings window: page error: ${e.message}`));
   await page.goto(`${BASE}/`, { waitUntil: "networkidle" });
-  await page.locator("nav.sidebar").waitFor();
-  ok(await page.locator("nav.sidebar").isVisible(), "the main window keeps the switcher of the six");
+  await page.locator(".settings").first().waitFor({ timeout: 5000 });
+  ok((await page.locator("nav.sidebar").count()) === 0, "Skykeep's own window has no switcher of the six");
+  ok((await page.locator('main.content[data-screen="settings"]').count()) === 1, "it is Settings");
   ok((await page.locator(".app-foot").count()) === 0, "and no app's own foot");
+  // The apps on top: six tiles, each with what it holds; a click opens the app's own window,
+  // the arrows move between them.
+  const tiles = page.locator(".launch-tile");
+  ok((await tiles.count()) === 6, `the six apps are on top  (${await tiles.count()})`);
+  await page.locator(".launch-holds", { hasText: "7 notes" }).waitFor({ timeout: 3000 });
+  ok(true, "each says what it holds, counted from the library");
+  await tiles.first().focus();
+  await page.keyboard.press("ArrowRight");
+  ok((await page.evaluate(() => document.activeElement?.textContent ?? "")).includes("Reminders"), "the arrows move to the next app");
+  await page.evaluate(() => { window.__windows = []; });
+  await tiles.filter({ hasText: "Photos" }).click();
+  ok((await page.evaluate(() => window.__windows ?? [])).some((w) => w.cmd === "app_open" && w.key === "photos"), "a tile opens its app's own window");
+  const box = await page.locator(".settings").first().boundingBox();
+  ok(box && box.x >= 24, `Settings sit clear of the window's edge (${box && Math.round(box.x)}px)`);
   await ctx.close();
 }
 await b.close();

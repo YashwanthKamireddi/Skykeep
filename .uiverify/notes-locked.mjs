@@ -2,7 +2,7 @@
 // said plainly, then the note read-only with Lock Now — and the password kept nowhere.
 //   BASE=http://localhost:4173 ENGINE=webkit node .uiverify/notes-locked.mjs
 import { engine } from "./engine.mjs";
-import { SERVICES, installStub } from "./stub.mjs";
+import { SERVICES, installStub, openScreen } from "./stub.mjs";
 
 const BASE = process.env.BASE ?? "http://localhost:4173";
 const PASSWORD = "marigold-7";
@@ -15,7 +15,7 @@ const page = await ctx.newPage();
 const errors = [];
 page.on("pageerror", (e) => errors.push(e.message));
 await page.goto(BASE, { waitUntil: "networkidle" });
-await page.locator(".nav-item", { hasText: "Notes" }).click();
+await openScreen(page, "Notes");
 await page.waitForTimeout(500);
 
 let failures = 0;

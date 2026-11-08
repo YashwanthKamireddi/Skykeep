@@ -2,7 +2,7 @@
 // list, each person with what their cards share, one press to merge — nothing lost — and
 // Undo until iCloud has it.
 import { engine } from "./engine.mjs";
-import { SERVICES, installStub } from "./stub.mjs";
+import { SERVICES, installStub, openScreen } from "./stub.mjs";
 
 const b = await engine.launch();
 const ctx = await b.newContext({ viewport: { width: 1280, height: 820 } });
@@ -20,7 +20,7 @@ await ctx.addInitScript(() => {
 await ctx.addInitScript(installStub, { screen: "library", services: SERVICES, twoFactor: null, contactsFixture: true });
 const page = await ctx.newPage();
 await page.goto(process.env.URL ?? "http://localhost:4173", { waitUntil: "networkidle" });
-await page.locator(".nav-item", { hasText: "Contacts" }).click();
+await openScreen(page, "Contacts");
 await page.waitForTimeout(400);
 let failures = 0;
 const ok = (p, m) => { console.log(`${p ? "PASS" : "FAIL"} ${m}`); if (!p) failures++; };

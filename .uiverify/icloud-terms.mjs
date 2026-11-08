@@ -23,7 +23,8 @@ async function open(setup) {
   const heading = page.getByRole("heading", { name: "Agree to the new iCloud terms" });
   ok(await heading.isVisible(), "new terms waiting: the page says to agree to them");
   ok((await page.locator(".icloud-com-waiting").innerText()).includes("icloud.com"), "and where");
-  await page.locator(".nav-item", { hasText: "Calendar" }).click();
+  // Calendar's own window: the notice is in the calendar's place, so it never draws meanwhile.
+  await openScreen(page, "Calendar").catch(() => {});
   await page.waitForTimeout(200);
   ok(await heading.isVisible(), "Calendar too: every service waits on it");
   await page.getByRole("button", { name: "Try Again" }).click();

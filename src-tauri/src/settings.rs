@@ -195,8 +195,10 @@ pub async fn local_storage_clear(app: tauri::AppHandle) -> Result<LocalStorage, 
     };
     tauri::async_runtime::spawn_blocking(move || {
         let protected = crate::photo_cache::identities(&waiting);
-        clear(&dir, &|f| {
-            crate::photo_cache::remove_unless_in_use(f, &protected);
+        crate::photo_cache::clearing(&app, || {
+            clear(&dir, &|f| {
+                crate::photo_cache::remove_unless_in_use(f, &protected);
+            })
         })
     })
     .await

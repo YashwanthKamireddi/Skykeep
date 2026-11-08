@@ -1,8 +1,8 @@
-// Settings' storage on this computer: what each part takes, read from the backend; Clear lets go
+// Settings' storage on this computer: what the copy takes, read from the backend; Clear lets go
 // of the cached pictures only and the figures are read again; a desktop with no notification
 // service says so under the alert switches; a folder that cannot be opened says why on its row.
 import { engine } from "./engine.mjs";
-import { SERVICES, installStub } from "./stub.mjs";
+import { SERVICES, installStub, openSettings } from "./stub.mjs";
 const b = await engine.launch();
 let failures = 0;
 const ok = (p, m) => { console.log(`${p ? "PASS" : "FAIL"} ${m}`); if (!p) failures++; };
@@ -13,7 +13,7 @@ const open = async (init) => {
   const page = await ctx.newPage();
   page.on("pageerror", (e) => ok(false, `page error: ${e.message}`));
   await page.goto(process.env.URL ?? "http://localhost:4173", { waitUntil: "networkidle" });
-  await page.locator(".sidebar-account").click();
+  await openSettings(page);
   await page.waitForSelector(".settings");
   await page.waitForTimeout(300);
   return { ctx, page };
@@ -22,15 +22,14 @@ const open = async (init) => {
 {
   const { ctx, page } = await open();
   const text = await page.locator(".settings").innerText();
-  ok(/Storage on This Computer\s*4\.9 GB/.test(text), "the local copy's whole size is on its heading");
-  ok(/Photos\s*4\.5 GB/.test(text) && /Notes\s*435 MB/.test(text) && /Library\s*13 MB/.test(text), "and each part's size is on its row");
+  ok(/4\.9 GB kept on this computer/.test(text), "the local copy's whole size is on This Computer's card");
   ok(/Cached pictures[\s\S]*4\.2 GB/.test(text), "what can be cleared is said before clearing");
   const clear = page.getByRole("button", { name: "Clear", exact: true });
   await clear.click();
   await page.waitForTimeout(200);
   const after = await page.locator(".settings").innerText();
   ok((await page.evaluate(() => window.__cleared)) === 1, "Clear asks the backend once");
-  ok(/4\.2 GB cleared/.test(after) && /Storage on This Computer\s*772 MB/.test(after), "and the figures are the backend's answer after");
+  ok(/4\.2 GB cleared/.test(after) && /772 MB kept on this computer/.test(after), "and the figures are the backend's answer after");
   ok(await clear.isDisabled(), "nothing left to clear, Clear rests");
   ok(!(await page.getByText("no notification service").isVisible()), "a desktop that shows alerts is not warned");
   await ctx.close();

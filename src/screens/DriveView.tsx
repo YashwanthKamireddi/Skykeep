@@ -1,4 +1,5 @@
 import { memo, useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { AppFoot } from "../components/AppFoot";
 import { overlayOpen, useActiveRef, useScreenActive } from "../lib/screen";
 import { useModalFocus } from "../lib/focus";
 import { useRevision } from "../lib/sync";
@@ -32,7 +33,7 @@ import { listen } from "@tauri-apps/api/event";
 import { Picker } from "../components/Picker";
 import { RowMenu } from "../components/RowMenu";
 import { dateText, timeText } from "../lib/when";
-import { Clock } from "lucide-react";
+import { Clock, Cloud, Trash2 } from "lucide-react";
 import { useReveal } from "../lib/reveal";
 import { keepSame } from "../lib/same";
 import { carryLabel } from "../lib/dragPicture";
@@ -1720,8 +1721,32 @@ export function DriveView() {
     setPeeking(false);
   }, [here.id]);
 
-  if (inTrash) return <DriveTrash onClose={() => setInTrash(false)} />;
-  if (inRecents) return <DriveRecents onClose={() => setInRecents(false)} />;
+  /**
+   * Drive's own sidebar, as Finder's: iCloud Drive, Recents and Recently Deleted, the account
+   * and how fresh Drive is at its foot — as every app's window has (docs/apps-as-windows.md).
+   */
+  const frame = (pane: React.ReactNode) => (
+    <div className="dx">
+      <aside className="dx-side" aria-label="Drive">
+        <button className="source-row" aria-current={!inTrash && !inRecents} onClick={() => { setInTrash(false); setInRecents(false); }}>
+          <Cloud className="dx-glyph" size={16} strokeWidth={1.8} aria-hidden="true" />
+          <span className="source-name">iCloud Drive</span>
+        </button>
+        <button className="source-row" aria-current={inRecents} onClick={() => { setInTrash(false); setInRecents(true); }}>
+          <Clock className="dx-glyph" size={16} strokeWidth={1.8} aria-hidden="true" />
+          <span className="source-name">Recents</span>
+        </button>
+        <button className="source-row" aria-current={inTrash} onClick={() => { setInRecents(false); setInTrash(true); }}>
+          <Trash2 className="dx-glyph" size={16} strokeWidth={1.8} aria-hidden="true" />
+          <span className="source-name">Recently Deleted</span>
+        </button>
+        <AppFoot />
+      </aside>
+      <div className="dx-main">{pane}</div>
+    </div>
+  );
+  if (inTrash) return frame(<DriveTrash onClose={() => setInTrash(false)} />);
+  if (inRecents) return frame(<DriveRecents onClose={() => setInRecents(false)} />);
 
   /** A step of the path: the folder open is the title; one further up goes back to it, and takes
       a dragged item, as Finder's path bar does. */
@@ -1750,7 +1775,7 @@ export function DriveView() {
     </button>
   );
 
-  return (
+  return frame(
     <div
       className={`drive${dropping ? " is-dropping" : ""}`}
       // A click on nothing — between or below the rows — selects nothing, as in Finder.
@@ -1805,16 +1830,6 @@ export function DriveView() {
           {crumbButton(trail[trail.length - 1], trail.length - 1)}
         </PaneTitle>
         <div className="drive-tools">
-          <span className="toolbar-group">
-          <button className="tool has-label with-glyph" title="Recents" onClick={() => setInRecents(true)}>
-            <Clock size={15} strokeWidth={1.6} aria-hidden="true" />
-            Recents
-          </button>
-          <button className="tool has-label with-glyph" title="Recently Deleted" onClick={() => setInTrash(true)}>
-            <ActionGlyph name="delete" />
-            Recently Deleted
-          </button>
-          </span>
           <span className="toolbar-group">
           <Picker
             pullDown

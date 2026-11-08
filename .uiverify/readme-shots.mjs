@@ -12,7 +12,7 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { chromium } from "playwright";
-import { SERVICES, installStub, openScreen } from "./stub.mjs";
+import { SERVICES, installStub, openScreen, openSettings } from "./stub.mjs";
 import { installDemo, photoLibrary } from "./readme-fixture.mjs";
 import { drawPictures } from "./readme-pictures.mjs";
 
@@ -159,12 +159,12 @@ const SCENES = {
     await page.mouse.click(5, WIN.height - 5);
   },
   photos: async (page) => {
-    await page.locator(".nav-item", { hasText: "Photos" }).click();
+    await openScreen(page, "Photos");
     await page.waitForTimeout(1800);
     await settled(page, 3000);
   },
   settings: async (page) => {
-    await page.locator(".sidebar-account").click();
+    await openSettings(page);
     await page.waitForSelector(".settings");
     await page.waitForTimeout(800);
   },
@@ -175,7 +175,7 @@ const SCENES = {
         copied: 1486, total: 2140, running: true, problem: null, photosBytes: 5_120_000_000, photosBytesTotal: 7_340_000_000,
         driveFiles: 2930, driveFilesTotal: 4120, driveBytes: 2_870_000_000, driveBytesTotal: 4_100_000_000 };
     });
-    await page.locator(".sidebar-account").click();
+    await openSettings(page);
     await page.waitForSelector(".settings");
     await page.locator(".backup").first().scrollIntoViewIfNeeded();
     await page.locator(".backup").first().evaluate((el) => el.scrollIntoView({ block: "center" }));

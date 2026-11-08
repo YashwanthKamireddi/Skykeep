@@ -1,3 +1,4 @@
+import { openScreen } from "./stub.mjs";
 // Keyboard-only operability. axe cannot judge focus flow, and this is what a keyboard or
 // screen-reader user actually experiences.
 import { engine as chromium } from "./engine.mjs";
@@ -160,34 +161,10 @@ const focused = (page) =>
   await ctx.close();
 }
 
-// --- library: arrow keys, single tab stop ---
-{
-  const { ctx, page } = await open("library");
-  await page.waitForSelector(".sidebar .nav-item");
-
-  const stops = await page.evaluate(
-    () => document.querySelectorAll('.sidebar .nav-item[tabindex="0"]').length
-  );
-  check("sidebar is ONE tab stop", stops === 1, `${stops} tabbable`);
-
-  await page.focus('.nav-item[aria-current="true"]');
-  const before = await focused(page);
-  await page.keyboard.press("ArrowDown");
-  const after = await focused(page);
-  check("ArrowDown moves down the sidebar", before !== after, `${before} → ${after}`);
-
-  await page.keyboard.press("End");
-  const end = await focused(page);
-  await page.keyboard.press("Home");
-  const home = await focused(page);
-  check("Home/End jump to the ends", end !== home, `End=${end} Home=${home}`);
-  await ctx.close();
-}
-
 // --- calendar: the month is a grid, so one tab stop and arrows move within it ---
 {
   const { ctx, page } = await open("library");
-  await page.getByRole("button", { name: "Calendar" }).click();
+  await openScreen(page, "Calendar");
   await page.waitForSelector(".cal-grid");
 
   // Calendar opens on the month, which is the view the grid checks below belong to.
@@ -217,7 +194,7 @@ const focused = (page) =>
 // --- the pop-up button: one tab stop, arrows move, Escape leaves it alone ---
 {
   const { ctx, page } = await open("library");
-  await page.getByRole("button", { name: "Reminders", exact: true }).click();
+  await openScreen(page, "Reminders");
   await page.waitForSelector(".rx-rows li");
 
   // Open a reminder's details, where the pickers live.
@@ -291,7 +268,7 @@ const focused = (page) =>
 // --- Drive's Move dialog: Escape closes it, focus starts inside it ---
 {
   const { ctx, page } = await open("library");
-  await page.click('.nav-item:has-text("Drive")');
+  await openScreen(page, "Drive");
   await page.waitForSelector(".drive-row-hit");
   await page.hover(".drive-row.is-folder");
   await page.click('.drive-row.is-folder .drive-action[aria-label^="Actions for"]');

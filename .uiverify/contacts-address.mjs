@@ -4,7 +4,7 @@
 //
 //   URL=http://localhost:4204 SHOTS=/some/dir ENGINE=webkit node .uiverify/contacts-address.mjs
 import { engine, engineName } from "./engine.mjs";
-import { SERVICES, installStub } from "./stub.mjs";
+import { SERVICES, installStub, openScreen } from "./stub.mjs";
 
 const URL = process.env.URL ?? process.env.URL ?? "http://localhost:4173";
 const SHOTS = process.env.SHOTS ?? null;
@@ -18,7 +18,7 @@ for (const scheme of ["light", "dark"]) {
     calendarFixture: false, notesFixture: false, contactsFixture: true, driveFixture: false, remindersFixture: false });
   const page = await ctx.newPage();
   await page.goto(URL, { waitUntil: "networkidle" });
-  await page.locator(".nav-item", { hasText: "Contacts" }).click();
+  await openScreen(page, "Contacts");
   await page.locator(".contact-row", { hasText: "Zoya" }).click();
   const card = page.locator(".contact-detail");
   await card.locator(".contact-postal").first().waitFor();

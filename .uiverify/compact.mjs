@@ -25,78 +25,62 @@ const visible = (selector) => page.evaluate((sel) => {
   const cs = getComputedStyle(el);
   return r.width > 0 && r.height > 0 && cs.visibility !== "hidden" && r.right > 0 && r.left < window.innerWidth;
 }, selector);
-const toggle = page.getByRole("button", { name: "Show Sidebar" });
-
-// The shell.
-const content = await page.evaluate(() => document.querySelector("main.content").getBoundingClientRect().width);
-ok(!(await visible(".sidebar")) && content > 440, `the content has the window  [${Math.round(content)}px of 480]`,
-  `the sidebar still takes room: content is ${Math.round(content)}px wide`);
-ok((await toggle.count()) === 1 && (await toggle.isVisible()), "a button brings the sidebar back", "there is no way to the sidebar");
-
-/** Open a screen the way a person would in a narrow window. */
+/** Open an app in its own window, as its launcher does (docs/apps-as-windows.md). */
 async function go(name) {
-  await toggle.click();
-  await page.waitForTimeout(320);
-  await page.locator(".nav-item", { hasText: name }).click();
+  await openScreen(page, name);
   await page.waitForTimeout(400);
 }
-if ((await toggle.count()) === 1) {
-  await toggle.click();
-  await page.waitForTimeout(320);
-  ok(await visible(".sidebar"), "and it slides over the content", "the sidebar did not open");
-  await page.locator(".nav-item", { hasText: "Notes" }).click();
-  await page.waitForTimeout(400);
-  ok(!(await visible(".sidebar")), "picking a screen puts it away", "the sidebar stayed over the content");
 
-  // Notes: the list, then the note — titled — then back.
-  ok((await visible(".notes-list")) && !(await visible(".note-body")), "Notes shows its list alone",
-    "Notes shows list and note squeezed side by side");
-  await page.locator(".note-row", { hasText: "Curtains" }).click();
-  await page.waitForTimeout(300);
-  const title = await page.evaluate(() => {
-    // The note's first line, set as its title.
-    const t = document.querySelector(".note-rich .nf-p");
-    return t ? { value: t.textContent, height: t.getBoundingClientRect().height } : null;
-  });
-  ok(!(await visible(".notes-list")) && (await visible(".note-body")), "a note opens in its place",
-    "the note did not take the list's place");
-  ok(title?.value === "Curtains" && title.height > 20, `with its title showing  [${title?.value}, ${Math.round(title?.height ?? 0)}px]`,
-    `its title is not shown: ${JSON.stringify(title)}`);
-  await page.locator(".note-body .compact-back").click();
-  await page.waitForTimeout(300);
-  ok(await visible(".notes-list"), "and back returns to the list", "back did not return to the list");
+// Each app's own window, narrow: one column at a time, its own sidebar folded away.
+await go("Notes");
+// Notes: the list, then the note — titled — then back.
+ok((await visible(".notes-list")) && !(await visible(".note-body")), "Notes shows its list alone",
+  "Notes shows list and note squeezed side by side");
+await page.locator(".note-row", { hasText: "Curtains" }).click();
+await page.waitForTimeout(300);
+const title = await page.evaluate(() => {
+  // The note's first line, set as its title.
+  const t = document.querySelector(".note-rich .nf-p");
+  return t ? { value: t.textContent, height: t.getBoundingClientRect().height } : null;
+});
+ok(!(await visible(".notes-list")) && (await visible(".note-body")), "a note opens in its place",
+  "the note did not take the list's place");
+ok(title?.value === "Curtains" && title.height > 20, `with its title showing  [${title?.value}, ${Math.round(title?.height ?? 0)}px]`,
+  `its title is not shown: ${JSON.stringify(title)}`);
+await page.locator(".note-body .compact-back").click();
+await page.waitForTimeout(300);
+ok(await visible(".notes-list"), "and back returns to the list", "back did not return to the list");
 
-  // Reminders.
-  await go("Reminders");
-  ok((await visible(".rx-side")) && !(await visible(".rx-main")), "Reminders shows its lists alone",
-    "Reminders shows lists and reminders side by side");
-  await page.locator(".rx-tile").first().click();
-  await page.waitForTimeout(300);
-  ok(!(await visible(".rx-side")) && (await visible(".rx-main")), "a list opens in their place", "the list did not open in place");
-  await page.locator(".rx-main .compact-back").click();
-  await page.waitForTimeout(300);
-  ok(await visible(".rx-side"), "and back returns to the lists", "back did not return to the lists");
+// Reminders.
+await go("Reminders");
+ok((await visible(".rx-side")) && !(await visible(".rx-main")), "Reminders shows its lists alone",
+  "Reminders shows lists and reminders side by side");
+await page.locator(".rx-tile").first().click();
+await page.waitForTimeout(300);
+ok(!(await visible(".rx-side")) && (await visible(".rx-main")), "a list opens in their place", "the list did not open in place");
+await page.locator(".rx-main .compact-back").click();
+await page.waitForTimeout(300);
+ok(await visible(".rx-side"), "and back returns to the lists", "back did not return to the lists");
 
-  // Contacts.
-  await go("Contacts");
-  ok((await visible(".contacts-list")) && !(await visible(".contact-detail")), "Contacts shows its list alone",
-    "Contacts shows list and card side by side");
-  await page.locator(".contact-row").first().click();
-  await page.waitForTimeout(300);
-  ok(!(await visible(".contacts-list")) && (await visible(".contact-detail")), "a person opens in its place",
-    "the card did not open in place");
+// Contacts.
+await go("Contacts");
+ok((await visible(".contacts-list")) && !(await visible(".contact-detail")), "Contacts shows its list alone",
+  "Contacts shows list and card side by side");
+await page.locator(".contact-row").first().click();
+await page.waitForTimeout(300);
+ok(!(await visible(".contacts-list")) && (await visible(".contact-detail")), "a person opens in its place",
+  "the card did not open in place");
 
-  // A month too narrow for titles draws dots, not "N more" spilling over the next day.
-  await go("Calendar");
-  await page.getByRole("button", { name: "Month", exact: true }).click();
-  await page.waitForTimeout(400);
-  const month = await page.evaluate(() => ({
-    dots: document.querySelectorAll(".cx-items.is-dots .cx-item").length,
-    more: [...document.querySelectorAll(".cx-more")].filter((m) => m.getBoundingClientRect().height > 0).length,
-  }));
-  ok(month.dots > 0 && month.more === 0, `a narrow month shows its days' items as dots  [${month.dots}]`,
-    `a narrow month: ${JSON.stringify(month)}`);
-}
+// A month too narrow for titles draws dots, not "N more" spilling over the next day.
+await go("Calendar");
+await page.getByRole("button", { name: "Month", exact: true }).click();
+await page.waitForTimeout(400);
+const month = await page.evaluate(() => ({
+  dots: document.querySelectorAll(".cx-items.is-dots .cx-item").length,
+  more: [...document.querySelectorAll(".cx-more")].filter((m) => m.getBoundingClientRect().height > 0).length,
+}));
+ok(month.dots > 0 && month.more === 0, `a narrow month shows its days' items as dots  [${month.dots}]`,
+  `a narrow month: ${JSON.stringify(month)}`);
 
 // A small laptop's window: 800 wide, where beside the sidebar a contact's card had 250px and
 // wrapped a phone number over four lines. The sidebar steps aside from 900 down.

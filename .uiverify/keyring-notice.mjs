@@ -2,7 +2,7 @@
 // all the same, and said once, calmly — a quiet line under the account in the sidebar, the
 // whole sentence with what fixes it in Settings. With a keyring, nothing is said.
 import { engine } from "./engine.mjs";
-import { SERVICES, installStub } from "./stub.mjs";
+import { SERVICES, installStub, openSettings } from "./stub.mjs";
 const BASE = process.env.BASE ?? process.env.URL ?? "http://localhost:4173";
 const b = await engine.launch();
 let failures = 0;
@@ -19,20 +19,21 @@ async function open(notKept) {
     };
   }, notKept);
   const page = await ctx.newPage();
-  await page.goto(BASE, { waitUntil: "networkidle" });
+  // An app's own window: its account card says it, at the foot of the app's sidebar.
+  await page.goto(`${BASE}/?app=reminders`, { waitUntil: "networkidle" });
   await page.waitForTimeout(400);
   return { ctx, page };
 }
 
 {
   const { ctx, page } = await open(true);
-  const line = page.locator(".sidebar-not-kept");
+  const line = page.locator(".app-foot .account-status");
   ok(await line.isVisible(), "the sidebar says the sign-in is not saved");
   ok((await line.innerText()).trim() === "Sign-in not saved", `in a few words  [${await line.innerText()}]`);
-  ok(/keyring/.test((await line.getAttribute("title")) ?? ""), "and the whole sentence is under the pointer");
+  ok(/keyring/.test((await page.locator(".app-foot .sidebar-account").getAttribute("title")) ?? ""), "and the whole sentence is under the pointer");
   const fits = await line.evaluate((el) => el.scrollWidth <= el.clientWidth);
   ok(fits, "its words fit the sidebar");
-  await page.locator(".sidebar-account").click();
+  await openSettings(page);
   await page.waitForSelector(".settings");
   const note = page.locator(".settings-account-note");
   const said = (await note.innerText()).trim();
@@ -42,8 +43,8 @@ async function open(notKept) {
 }
 {
   const { ctx, page } = await open(false);
-  ok(!(await page.locator(".sidebar-not-kept").count()), "with a keyring, the sidebar says nothing");
-  await page.locator(".sidebar-account").click();
+  ok(!/not saved/.test((await page.locator(".app-foot .account-status").innerText().catch(() => "")) ?? ""), "with a keyring, the sidebar says nothing");
+  await openSettings(page);
   await page.waitForSelector(".settings");
   ok(!(await page.locator(".settings-account-note").count()), "nor does Settings");
   await ctx.close();

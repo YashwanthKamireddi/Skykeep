@@ -5,7 +5,7 @@
 //
 //   BASE=http://localhost:4320 ENGINE=webkit node .uiverify/app-keys.mjs
 import { engine, engineName } from "./engine.mjs";
-import { SERVICES, installStub, openScreen } from "./stub.mjs";
+import { SERVICES, installStub, openScreen, openSettings } from "./stub.mjs";
 const BASE = process.env.BASE ?? "http://localhost:4173";
 const b = await engine.launch();
 let failures = 0;
@@ -41,9 +41,13 @@ for (const scheme of ["light", "dark"]) {
   ok((await sheet.count()) === 0, `${scheme}: Done closes it`);
 
   // ── Ctrl+, : Settings ──
+  // From an app's own window: Skykeep's window, on Settings (apps.rs settings_open).
+  await page.evaluate(() => { window.__windows = []; });
   await page.keyboard.press("Control+,");
+  await page.waitForTimeout(200);
+  ok((await page.evaluate(() => window.__windows ?? [])).some((w) => w.cmd === "settings_open"), `${scheme}: Ctrl+, opens Settings`);
+  await openSettings(page);
   await page.locator(".settings-title").waitFor();
-  ok((await page.locator('.sidebar-account[aria-current="true"]').count()) === 1, `${scheme}: Ctrl+, opens Settings`);
 
   // ── What Skykeep talks to, from the network lock ──
   const reach = page.getByRole("region", { name: "What Skykeep Talks To" }).or(page.locator(".settings-reach"));
@@ -64,7 +68,7 @@ for (const scheme of ["light", "dark"]) {
   await page.waitForTimeout(300);
   const firstHead = await page.evaluate(() => [document.querySelector(".cx-weekdays span")?.textContent, document.querySelector(".cx-day-hit")?.getAttribute("aria-label")]);
   ok(firstHead[0] === "Mon" && /^Monday/.test(firstHead[1] ?? ""), `${scheme}: Month starts its rows on Monday, at once  ${JSON.stringify(firstHead)}`);
-  await page.keyboard.press("Control+,");
+  await openSettings(page);
   await page.getByRole("button", { name: /First Day of Week/ }).click();
   await page.getByRole("option", { name: /^Automatic/ }).click();
   ok(await page.evaluate(() => localStorage.getItem("quince.weekStart")) === null, `${scheme}: Automatic goes back to the locale's`);

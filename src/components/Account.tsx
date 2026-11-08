@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from "react";
+import { RotateCw } from "lucide-react";
 import { Face } from "./Face";
 import { api, contactPhotoSrc, type AccountInfo } from "../lib/ipc";
 
@@ -123,30 +124,34 @@ export function AccountCard({ current, onOpen, app }: { current: boolean; onOpen
       setSaid(full ?? status);
     }
   }, [working, failed]); // eslint-disable-line react-hooks/exhaustive-deps
+  // One card, as a Mac draws the account at the foot of a sidebar: the picture, the name, and
+  // under it how fresh this app is. The card opens Settings; the round button beside it
+  // updates now. Updating, a thin ring turns around the picture (a transform only, drawn by
+  // the compositor); in trouble, the line says what went wrong in red and a badge sits on the
+  // picture.
+  const state = failed ? "trouble" : working ? "working" : idle ? "idle" : "clean";
   return (
-    <div className="sidebar-foot-stack">
+    <div className={`account-card is-${state}`}>
       <span className="visually-hidden" role="status">{said}</span>
+      <button className="sidebar-account" aria-current={current} onClick={onOpen} title={notKept ? NOT_KEPT : `${full ?? status} · Skykeep`}>
+        <span className="account-ring" aria-hidden="true">
+          <AccountAvatar account={account} />
+        </span>
+        <span className="account-lines">
+          <span className="sidebar-account-name">{name}</span>
+          <span className="account-status">{notKept ? "Sign-in not saved" : status}</span>
+        </span>
+      </button>
       <button
-        className={`sidebar-sync${failed ? " is-trouble" : ""}${working ? " is-working" : ""}`}
+        className="account-update"
         onClick={refresh}
         disabled={working}
         aria-busy={working}
-        title={working ? full ?? status : `${full ?? status}. Click to update now`}
-        aria-label={working ? full ?? status : `${full ?? status}. Update now`}
+        title={working ? full ?? status : "Update Now"}
+        aria-label={working ? full ?? status : `Update now. ${full ?? status}`}
       >
-        <span className={`sync-dot ${failed ? "trouble" : working ? "working" : idle ? "idle" : "clean"}`} aria-hidden="true" />
-        <span className="sidebar-sync-text" aria-hidden="true">{status}</span>
-        <span className="sidebar-sync-now" aria-hidden="true">Update Now</span>
+        <RotateCw size={14} strokeWidth={2.2} aria-hidden="true" />
       </button>
-      <button className="sidebar-account" aria-current={current} onClick={onOpen} title="Settings">
-        <AccountAvatar account={account} />
-        <span className="sidebar-account-name">{name}</span>
-      </button>
-      {notKept && (
-        <p className="sidebar-not-kept" title={NOT_KEPT}>
-          Sign-in not saved
-        </p>
-      )}
     </div>
   );
 }

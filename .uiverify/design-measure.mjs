@@ -2,7 +2,7 @@
 // pane titles, column tops, source-list headings, row heights, control heights.
 // node .uiverify/design-measure.mjs [scheme]   (BASE= the preview server)
 import { engine } from "./engine.mjs";
-import { SERVICES, installStub, openScreen } from "./stub.mjs";
+import { SERVICES, installStub, openScreen, openSettings } from "./stub.mjs";
 const [scheme = "light"] = process.argv.slice(2);
 const b = await engine.launch();
 const ctx = await b.newContext({ viewport: { width: 1400, height: 850 }, colorScheme: scheme });
@@ -12,7 +12,7 @@ const p = await ctx.newPage();
 await p.goto(process.env.BASE ?? "http://localhost:4173", { waitUntil: "networkidle" });
 const out = {};
 for (const s of ["Reminders", "Notes", "Drive", "Calendar", "Contacts", "Photos", "Settings"]) {
-  if (s === "Settings") await p.locator(".sidebar-account").click();
+  if (s === "Settings") await openSettings(p);
   else await openScreen(p, s);
   await p.waitForTimeout(400);
   out[s] = await p.evaluate(() => {

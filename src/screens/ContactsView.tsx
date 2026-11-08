@@ -1040,7 +1040,6 @@ export function ContactsView() {
     // A contact being written is always what shows; it has its own Cancel.
     <div className={`contacts${detail || draft ? " is-detail" : ""}`}>
       <aside className="contacts-lists" aria-label="Contact lists" ref={listsColumn}>
-        <p className="side-heading">iCloud</p>
         <ListRow
           name="All Contacts"
           count={contacts.length}

@@ -6,7 +6,7 @@
 //   - an empty contact list says so in the middle of its column; "Not synced yet" has a grey dot
 // BASE=http://localhost:4201 node .uiverify/design-language.mjs
 import { engine } from "./engine.mjs";
-import { SERVICES, installStub, openScreen } from "./stub.mjs";
+import { SERVICES, installStub, openScreen, openSettings } from "./stub.mjs";
 
 const BASE = process.env.BASE ?? "http://localhost:4173";
 let failures = 0;
@@ -22,7 +22,7 @@ async function open(opts = {}, scheme = "light") {
 }
 const fixtures = { calendarFixture: true, notesFixture: true, contactsFixture: true, driveFixture: true, remindersFixture: true };
 const go = async (page, s) => {
-  if (s === "Settings") await page.locator(".sidebar-account").click();
+  if (s === "Settings") await openSettings(page);
   else await openScreen(page, s);
   await page.waitForTimeout(400);
 };
@@ -68,13 +68,12 @@ const resolve = (page, value) => page.evaluate((v) => {
   if (cal.heading !== null) headings.Calendar = cal.heading;
   if (cal.rule !== null) rules.Calendar = cal.rule;
   ok(new Set(Object.values(headings)).size === 1, `every source list's first heading starts at one inset  ${JSON.stringify(headings)}`);
-  ok(cal.rule === Object.values(tops)[0], `Calendar's column starts there as well  [${cal.rule}]`);
+  // Calendar's own sidebar is a card now (no hairline): app-window.mjs holds it 8px from the top.
 
   // ---- one selection ----------------------------------------------------------------------
   const selected = await resolve(page, "var(--fill-selected)");
   const chosen = {};
   await go(page, "Notes");
-  chosen["the app sidebar"] = await page.locator(".nav-item[aria-current='true']").evaluate((el) => getComputedStyle(el).backgroundColor);
   chosen["a source row"] = await page.locator(".source-row[aria-current='true']").first().evaluate((el) => getComputedStyle(el).backgroundColor);
   chosen["a note"] = await page.locator(".note-row[aria-selected='true']").first().evaluate((el) => getComputedStyle(el).backgroundColor);
   await go(page, "Contacts");
@@ -89,7 +88,7 @@ const resolve = (page, value) => page.evaluate((v) => {
   await page.evaluate(() => document.documentElement.setAttribute("data-contrast", "more"));
   const firm = await resolve(page, "var(--fill-selected)");
   const contact = await page.locator(".contact-row[aria-selected='true']").first().evaluate((el) => getComputedStyle(el).backgroundColor);
-  const nav = await page.locator(".nav-item[aria-current='true']").evaluate((el) => getComputedStyle(el).backgroundColor);
+  const nav = await page.locator(".source-row[aria-current='true']").first().evaluate((el) => getComputedStyle(el).backgroundColor);
   ok(firm !== selected && contact === firm && nav === firm, `under Increase Contrast the selection firms up in the lists too  [${selected} → ${firm}; contact ${contact}, sidebar ${nav}]`);
   await page.evaluate(() => document.documentElement.removeAttribute("data-contrast"));
 
@@ -150,14 +149,14 @@ const resolve = (page, value) => page.evaluate((v) => {
     return { share: ((l.top + l.bottom) / 2 - c.top) / c.height };
   });
   ok(placed !== null && placed.share > 0.25 && placed.share < 0.65, `an empty contact list says so in the middle of its column, as Notes does  ${JSON.stringify(placed)}`);
-  await go(page, "Drive");
-  const dot = await page.evaluate(() => {
-    const text = document.querySelector(".sidebar-sync-text")?.textContent;
-    const d = document.querySelector(".sidebar-sync .sync-dot");
-    return { text, cls: d?.className, colour: d && getComputedStyle(d).backgroundColor };
+  await go(page, "Photos");
+  // Nothing synced yet: the account card says so plainly, in its quiet state, never the
+  // all-clear (no ring turning, no trouble badge).
+  const card = await page.evaluate(() => {
+    const c = document.querySelector(".app-foot .account-card");
+    return { text: c?.querySelector(".account-status")?.textContent, cls: c?.className };
   });
-  const gray = await resolve(page, "var(--sys-gray)");
-  ok(dot.text === "Not synced yet" && /\bidle\b/.test(dot.cls) && dot.colour === gray, `"Not synced yet" sits by a grey dot, not the all-clear green  ${JSON.stringify(dot)}`);
+  ok(card.text === "Not synced yet" && /\bis-idle\b/.test(card.cls ?? ""), `"Not synced yet" sits on the account card in its quiet state  ${JSON.stringify(card)}`);
   await page.context().close();
 }
 

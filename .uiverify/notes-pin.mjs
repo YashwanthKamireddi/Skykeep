@@ -1,6 +1,6 @@
 // Pinning a note, as on the phone: it moves to Pinned at the top of the list and back again.
 import { engine } from "./engine.mjs";
-import { SERVICES, installStub } from "./stub.mjs";
+import { SERVICES, installStub, openScreen } from "./stub.mjs";
 
 const b = await engine.launch();
 const ctx = await b.newContext({ viewport: { width: 1280, height: 820 } });
@@ -8,7 +8,7 @@ await ctx.addInitScript(installStub, { screen: "library", services: SERVICES, tw
   calendarFixture: false, notesFixture: true, contactsFixture: false, driveFixture: false, remindersFixture: false });
 const page = await ctx.newPage();
 await page.goto(process.env.BASE ?? process.env.URL ?? "http://localhost:4173", { waitUntil: "networkidle" });
-await page.locator(".nav-item", { hasText: "Notes" }).click();
+await openScreen(page, "Notes");
 await page.waitForTimeout(400);
 
 let failures = 0;

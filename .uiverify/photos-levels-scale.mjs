@@ -119,11 +119,18 @@ ok(scroll.worst < BOUND, `Months flings end to end without a held frame (${scrol
 
 // A month nineteen years down (a year above the last, which cannot scroll to the top): All
 // Photos lands exactly on it.
-const oldest = page.locator(".px-period").nth(-13);
-const label = await oldest.locator("strong").textContent();
 const t = Date.now();
-// Clicked where it is (a pointer click at a point lands on whichever tile a scroll brought there).
-await oldest.evaluate((el) => el.click());
+// Read and clicked in one step, on the one element: the list is windowed, and a locator read
+// twice re-resolves `nth(-13)` — on a busy machine the tiles still settling after the fling made
+// the label one month's and the click another's. Clicked where it is (a pointer click at a point
+// lands on whichever tile a scroll brought there).
+const label = await page.evaluate(() => {
+  const tiles = document.querySelectorAll(".px-period");
+  const el = tiles[tiles.length - 13];
+  const text = el.querySelector("strong").textContent;
+  el.click();
+  return text;
+});
 await page.waitForFunction(() => document.querySelector('.px-levels [aria-pressed="true"]')?.textContent === "All Photos");
 const landMs = Date.now() - t;
 await page.waitForTimeout(300);

@@ -159,8 +159,6 @@ export type UpdateStatus = {
 export const SYNCED = "quince://synced";
 /** An alert was clicked: open Reminders, where that reminder is. */
 export const OPEN_REMINDER = "quince://open-reminder";
-/** The main window is asked to show Settings (apps.rs `settings_open`). */
-export const OPEN_SETTINGS = "quince://open-settings";
 /** A lapsed session signed itself back in only as far as Apple's code. */
 export const NEEDS_CODE = "quince://needs-code";
 /** Apple signed the session out and wants the password again. */
@@ -1201,7 +1199,6 @@ export const photoCacheApi = {
   status: () => invoke<PhotoCache>("photos_cache_status"),
   /** Answers at once; the trim a lower cap starts reports through PHOTO_CACHE. */
   set: (bytes: number) => invoke<PhotoCache>("photos_cache_set", { bytes }),
-  clear: () => invoke<PhotoCache>("photos_cache_clear"),
 };
 
 /* ── Intake: files opened with Skykeep, and quick capture (src-tauri/src/intake.rs) ── */

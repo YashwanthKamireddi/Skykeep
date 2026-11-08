@@ -27,7 +27,7 @@ const logCalls = () => {
         const pane = document.querySelector(".content .screen-slot:not([hidden])");
         window.__readyAt = {
           needsYou: args?.needsYou,
-          rows: document.querySelectorAll(".sidebar .nav-item").length,
+          rows: document.querySelectorAll(".source-row").length,
           drawn: Boolean(pane && pane.querySelector(".notes, .rx, .cx, .contacts, .drive, .px-scroll")),
         };
         return null;
@@ -41,19 +41,18 @@ const logCalls = () => {
 
 {
   const ctx = await b.newContext({ viewport: { width: 1280, height: 800 } });
-  await ctx.addInitScript(() => { try { localStorage.setItem("quince.library.screen", "notes"); } catch {} });
   await ctx.addInitScript(installStub, { screen: "library", services: SERVICES, twoFactor: null, notesFixture: true });
   await ctx.addInitScript(logCalls);
   const page = await ctx.newPage();
   page.on("pageerror", (e) => { console.log(`FAIL page error: ${e.message}`); process.exitCode = 1; });
-  await page.goto(BASE, { waitUntil: "networkidle" });
+  await page.goto(`${BASE}/?app=notes`, { waitUntil: "networkidle" });
   await page.waitForTimeout(500);
   const at = await page.evaluate(() => window.__readyAt);
   ok(at && at.needsYou === false && at.rows > 0 && at.drawn,
-    `the window is shown once the sidebar and the app in front are drawn  ${JSON.stringify(at)}`);
+    `the window is shown once its app is drawn, its own sidebar with it  ${JSON.stringify(at)}`);
   ok((await page.evaluate(() => window.__calls.filter((c) => c === "window_ready").length)) === 1, "and said once");
 
-  // Notes behind Contacts: a pass that changed notes is not read until Notes is back in front.
+  // Contacts' own window holds no Notes: a pass that changed notes reads nothing there.
   await openScreen(page, "Contacts");
   await page.waitForTimeout(300);
   await page.evaluate(() => { window.__calls = []; });
@@ -64,11 +63,7 @@ const logCalls = () => {
   }
   await page.waitForTimeout(200);
   const hidden = await page.evaluate(() => window.__calls.filter((c) => c === "notes_in").length);
-  ok(hidden === 0, `three passes that changed notes, read by nothing while Notes is out of sight  (${hidden} reads)`);
-  await openScreen(page, "Notes");
-  await page.waitForTimeout(300);
-  const shown = await page.evaluate(() => window.__calls.filter((c) => c === "notes_in").length);
-  ok(shown === 1, `read once on coming back  (${shown} reads)`);
+  ok(hidden === 0, `three passes that changed notes, read by nothing in Contacts' window  (${hidden} reads)`);
 
   // Signed out by Apple: one notice over the foot, the window not moved.
   const top = await page.locator(".library").evaluate((e) => e.getBoundingClientRect().top);
@@ -77,7 +72,7 @@ const logCalls = () => {
   const notice = page.locator(".toast-host .toast", { hasText: "Apple signed you out" });
   ok((await notice.count()) === 1, "Apple signing the session out is said in a notice");
   ok((await page.locator(".library").evaluate((e) => e.getBoundingClientRect().top)) === top, "and the window is not pushed down by it");
-  const foot = await page.locator(".sidebar-foot").boundingBox();
+  const foot = await page.locator(".app-foot").boundingBox();
   ok(foot && foot.y + foot.height <= 800, `the sidebar's foot is still in the window  ${JSON.stringify(foot)}`);
   await notice.getByRole("button", { name: "Sign In" }).click();
   await page.waitForTimeout(300);
@@ -88,21 +83,12 @@ const logCalls = () => {
 }
 
 {
-  // A narrow window: the sidebar there at once, and gone at once.
+  // A narrow app window.
   const ctx = await b.newContext({ viewport: { width: 760, height: 700 } });
   await ctx.addInitScript(installStub, { screen: "library", services: SERVICES, twoFactor: null });
   const page = await ctx.newPage();
-  await page.goto(BASE, { waitUntil: "networkidle" });
+  await page.goto(`${BASE}/?app=notes`, { waitUntil: "networkidle" });
   await page.waitForTimeout(400);
-  await page.getByRole("button", { name: "Show Sidebar" }).click();
-  const now = await page.locator(".sidebar").evaluate((e) => {
-    const cs = getComputedStyle(e);
-    const r = e.getBoundingClientRect();
-    return { left: r.left, visible: cs.visibility, moves: cs.transitionDuration.split(",").some((d) => parseFloat(d) > 0) && /transform|all/.test(cs.transitionProperty) };
-  });
-  ok(now.visible === "visible" && now.left >= 0 && !now.moves, `the sidebar is in place the moment it is asked for, with no slide  ${JSON.stringify(now)}`);
-  await page.keyboard.press("Escape");
-  ok((await page.locator(".sidebar").evaluate((e) => getComputedStyle(e).visibility)) === "hidden", "and gone at once");
 
   // A sheet still fades in, drawn by the page.
   await page.keyboard.press("Control+/");

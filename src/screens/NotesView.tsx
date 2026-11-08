@@ -1419,6 +1419,9 @@ export function NotesView() {
         onPointerDown={(e) => {
           const box = notesRef.current?.getBoundingClientRect();
           if (!box) return;
+          // A drag here resizes, and only that: left to the browser it also began a text
+          // selection, swept over every label it crossed.
+          e.preventDefault();
           e.currentTarget.setPointerCapture(e.pointerId);
           const move = (m: PointerEvent) => setFoldersWidth(clampFolders(m.clientX - box.left));
           const up = () => {
@@ -1443,7 +1446,6 @@ export function NotesView() {
         }}
       />
       <aside className="notes-folders" aria-label="Note folders" ref={foldersRef}>
-        <p className="side-heading">iCloud</p>
         <button className="source-row notes-folder" aria-current={folder === ALL} onClick={() => setFolder(ALL)}>
           <FolderOpen className="notes-folder-glyph" size={16} strokeWidth={2} aria-hidden="true" />
           <span className="source-name notes-folder-name">All iCloud</span>

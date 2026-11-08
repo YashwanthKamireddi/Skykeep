@@ -3,7 +3,7 @@
 // it, cancellable, its failures named, and Show in Folder once it is there. A single file
 // still downloads the way it always has.
 import { engine } from "./engine.mjs";
-import { SERVICES, installStub } from "./stub.mjs";
+import { SERVICES, installStub, openScreen } from "./stub.mjs";
 
 const b = await engine.launch();
 const ctx = await b.newContext({ viewport: { width: 1280, height: 800 } });
@@ -12,7 +12,7 @@ const page = await ctx.newPage();
 const errors = [];
 page.on("pageerror", (e) => errors.push(String(e)));
 await page.goto(process.env.BASE ?? process.env.URL ?? "http://localhost:4173", { waitUntil: "networkidle" });
-await page.locator(".nav-item", { hasText: "Drive" }).click();
+await openScreen(page, "Drive");
 await page.waitForSelector(".drive-row-hit");
 await page.waitForTimeout(300);
 
@@ -49,7 +49,7 @@ await end(await lastBatch(), { saved: [] });
 await settle();
 // What follows starts as it always has: a fresh window, counting its own downloads.
 await page.reload({ waitUntil: "networkidle" });
-await page.locator(".nav-item", { hasText: "Drive" }).click();
+await openScreen(page, "Drive");
 await page.waitForSelector(".drive-row-hit");
 await page.waitForTimeout(300);
 await page.evaluate(() => { window.__singleDownloads = []; window.__downloadItems = []; });
@@ -208,7 +208,7 @@ await later.addInitScript(() => {
 const next = await later.newPage();
 next.on("pageerror", (e) => errors.push(String(e)));
 await next.goto(process.env.BASE ?? process.env.URL ?? "http://localhost:4173", { waitUntil: "networkidle" });
-await next.locator(".nav-item", { hasText: "Drive" }).click();
+await openScreen(next, "Drive");
 await next.waitForTimeout(500);
 const offered = next.locator(".download-tray");
 ok((await offered.count()) === 1 && /Archive/.test(await offered.innerText()) && /Paused/.test(await offered.innerText()),

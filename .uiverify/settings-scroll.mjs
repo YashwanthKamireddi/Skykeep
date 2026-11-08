@@ -2,7 +2,7 @@
 // and each one's layout ("the content does not scroll; the screen scrolls inside") was keyed on
 // it merely being there: once any app had been opened, Settings could not scroll at all.
 import { engine } from "./engine.mjs";
-import { SERVICES, installStub, openScreen } from "./stub.mjs";
+import { SERVICES, installStub, openScreen, openSettings } from "./stub.mjs";
 const b = await engine.launch();
 const ctx = await b.newContext({ viewport: { width: 1200, height: 600 } });
 await ctx.addInitScript(installStub, { screen: "library", services: SERVICES, twoFactor: null, notesFixture: true });
@@ -11,7 +11,7 @@ page.on("pageerror", (e) => { console.log(`FAIL page error: ${e.message}`); proc
 await page.goto("http://localhost:4173", { waitUntil: "networkidle" });
 let failures = 0;
 const ok = (p, m) => { console.log(`${p ? "PASS" : "FAIL"} ${m}`); if (!p) failures++; };
-const settings = () => page.locator(".sidebar-account").click();
+const settings = () => openSettings(page);
 // Scrolled by the wheel, as a person scrolls: the page moves.
 const scrolls = async () => {
   const box = await page.locator(".settings").boundingBox();

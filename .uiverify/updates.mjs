@@ -7,7 +7,7 @@
 //
 //   BASE=http://localhost:4173 node .uiverify/updates.mjs
 import { engine, engineName } from "./engine.mjs";
-import { SERVICES, installStub } from "./stub.mjs";
+import { SERVICES, installStub, openSettings, openScreen } from "./stub.mjs";
 const BASE = process.env.BASE ?? process.env.URL ?? "http://localhost:4173";
 const b = await engine.launch();
 let failures = 0;
@@ -75,7 +75,7 @@ const notice = (page) => page.locator(".update-notice");
 {
   const { ctx, page } = await open({ version: "0.2.0" });
   await notice(page).waitFor();
-  await page.locator(".nav-item", { hasText: "Notes" }).click();
+  await openScreen(page, "Notes");
   await page.locator(".notes").first().waitFor({ state: "attached" });
   await page.waitForTimeout(300);
   const field = page.locator("input, textarea, [contenteditable='true']").first();
@@ -107,7 +107,7 @@ const notice = (page) => page.locator(".update-notice");
 for (const scheme of ["light", "dark"]) {
   const { ctx, page } = await open({}, { scheme });
   ok((await notice(page).count()) === 0, `${scheme}: up to date, no notice`);
-  await page.locator(".sidebar-account").click();
+  await openSettings(page);
   await page.locator(".settings").waitFor();
   const group = page.getByRole("region", { name: "Software Update" });
   await group.waitFor();
@@ -144,7 +144,7 @@ for (const scheme of ["light", "dark"]) {
 // ── A copy a package manager installed: never offered a self-update ──
 {
   const { ctx, page } = await open({ install: "packageManager" });
-  await page.locator(".sidebar-account").click();
+  await openSettings(page);
   const group = page.getByRole("region", { name: "Software Update" });
   await group.waitFor();
   const text = await group.innerText();

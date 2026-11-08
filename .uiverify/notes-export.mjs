@@ -2,7 +2,7 @@
 // file's name, and what is written is the note as it is on screen — typing not yet sent
 // included — with its formatting. Cancelling the dialog writes nothing.
 import { engine } from "./engine.mjs";
-import { SERVICES, installStub } from "./stub.mjs";
+import { SERVICES, installStub, openScreen } from "./stub.mjs";
 const b = await engine.launch();
 let failures = 0;
 const ok = (p, m) => { console.log(`${p ? "PASS" : "FAIL"} ${m}`); if (!p) failures++; };
@@ -12,7 +12,7 @@ for (const scheme of ["light", "dark"]) {
   const page = await ctx.newPage();
   page.on("pageerror", (e) => { console.log(`FAIL page error: ${e.message}`); process.exitCode = 1; });
   await page.goto("http://localhost:4173", { waitUntil: "networkidle" });
-  await page.locator(".nav-item", { hasText: "Notes" }).click();
+  await openScreen(page, "Notes");
   await page.waitForTimeout(400);
   await page.locator(".note-row", { hasText: "Curtains" }).click();
   await page.waitForTimeout(400);

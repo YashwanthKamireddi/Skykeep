@@ -21,6 +21,7 @@
 //! every pass lays the waiting changes over what it read (see [`replay`]).
 
 use crate::{cloudkit_context, Auth, Data};
+use futures_util::FutureExt;
 use quince_core::calendar::Event;
 use quince_core::contacts::{Card, Contact, ContactDetails, PostalAddress};
 use quince_core::outbox::Pending;
@@ -1345,7 +1346,20 @@ where
             }
         };
         let (id, tries, record) = (p.id, p.tries, p.record.clone());
-        match send(p).await {
+        // A panic while sending one change is that change refused, said with the rest — never
+        // the whole queue stopped behind it, retried for ever, its edit laid back over the
+        // screen each time (an empty note's formatting once did this).
+        let sent = match std::panic::AssertUnwindSafe(send(p)).catch_unwind().await {
+            Ok(sent) => sent,
+            Err(_) => {
+                quiet!("outbox: sending a {service} change panicked; held as refused");
+                Err(Error::Refused(
+                    "Skykeep hit a problem sending this change, so nothing was changed in iCloud. Your text is safe here."
+                        .into(),
+                ))
+            }
+        };
+        match sent {
             Ok(()) => {
                 let _ = library.lock().await.outbox_done(id);
                 report.sent = true;

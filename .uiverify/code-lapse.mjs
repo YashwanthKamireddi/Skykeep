@@ -31,7 +31,7 @@ const requests = (page) => page.evaluate(() => window.__codeRequests ?? 0);
 // At launch.
 {
   const { ctx, page } = await open("code");
-  ok(await page.locator(".sidebar").isVisible(), "the library opens on what it holds");
+  ok(await page.locator(".library").isVisible(), "the library opens on what it holds");
   ok(!(await page.locator(".code").count()), "not the code screen by itself");
   ok((await page.locator("body").innerText()).includes(LINE), "one calm line says to sign in again");
   ok((await requests(page)) === 0, "and no code is asked for");
@@ -48,7 +48,7 @@ const requests = (page) => page.evaluate(() => window.__codeRequests ?? 0);
   const { ctx, page } = await open("library");
   await page.evaluate(() => window.__emit?.("quince://needs-code", null));
   await page.waitForTimeout(300);
-  ok(await page.locator(".sidebar").isVisible(), "a lapse while open keeps the library in front");
+  ok(await page.locator(".library").isVisible(), "a lapse while open keeps the library in front");
   ok((await page.locator("body").innerText()).includes(LINE), "with the same line");
   ok((await requests(page)) === 0, "and nothing sent to the phone");
   await ctx.close();

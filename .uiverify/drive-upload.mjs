@@ -1,3 +1,4 @@
+import { openScreen } from "./stub.mjs";
 // Uploading from Drive: each file named, with its own progress, and a verdict per file.
 //
 // "Uploading…" on the button said nothing about which of forty photos had gone. The tray must
@@ -55,7 +56,7 @@ await ctx.addInitScript(() => {
 
 const page = await ctx.newPage();
 await page.goto("http://localhost:4173", { waitUntil: "networkidle" });
-await page.locator(".nav-item", { hasText: "Drive" }).click();
+await openScreen(page, "Drive");
 await page.waitForSelector(".drive-rows", { state: "attached" });
 await page.waitForTimeout(300);
 
@@ -135,7 +136,7 @@ ok(JSON.stringify(calls[1]) === JSON.stringify(["/home/me/Holiday"]),
   }, VAULT);
   const app = await appCtx.newPage();
   await app.goto("http://localhost:4173", { waitUntil: "networkidle" });
-  await app.locator(".nav-item", { hasText: "Drive" }).click();
+  await openScreen(app, "Drive");
   await app.locator(".drive-row-hit", { hasText: "Obsidian" }).dblclick();
   await app.waitForTimeout(400);
   const button = app.getByRole("button", { name: "Upload", exact: true });

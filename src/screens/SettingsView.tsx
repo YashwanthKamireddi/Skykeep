@@ -3,7 +3,7 @@ import { onWindows } from "../lib/platform";
 import { ConfirmSheet } from "../components/Confirm";
 import { toast, toastSaved, useErrorToast } from "../components/Toast";
 import { Progress } from "../components/Spinner";
-import { useEffect, useRef, useState, useSyncExternalStore } from "react";
+import { useEffect, useState, useSyncExternalStore } from "react";
 import { getVersion } from "@tauri-apps/api/app";
 import { listen } from "@tauri-apps/api/event";
 import { pickOpen } from "../lib/pick";
@@ -31,18 +31,10 @@ import { freshness, useSync } from "../lib/sync";
 import { useUpdateStatus } from "../lib/updates";
 import { setTheme, storedTheme, type Theme } from "../lib/theme";
 import { AppIcon } from "../components/AppIcon";
+import { Launcher } from "../components/Launcher";
 import { AccountAvatar, NOT_KEPT, useNotKept } from "../components/Account";
 import { Picker } from "../components/Picker";
 import { localeFirstDay, setWeekStart, weekStartChoice, type WeekStartChoice } from "./calendar/model";
-
-/** The app each service's freshness belongs to, for its icon. */
-const ICON: Record<string, string> = {
-  calendar: "calendar",
-  reminders: "reminders",
-  notes: "notes",
-  contacts: "contacts",
-  drive: "drivews",
-};
 
 /** The Drive folder's line when it is up: up to date, uploading, or why something is waiting. */
 function folderState(f: DriveFolder): string {
@@ -59,28 +51,6 @@ function size(bytes: number): string {
   if (gb >= 1) return `${gb >= 10 ? gb.toFixed(0) : gb.toFixed(1)} GB`;
   if (bytes < 1024 ** 2) return bytes < 1024 ? "Zero KB" : `${Math.round(bytes / 1024)} KB`;
   return `${Math.round(bytes / 1024 ** 2)} MB`;
-}
-
-/** A row's mark where no app's icon fits: a plain tile, the same size as the apps' icons. */
-function Glyph({ kind }: { kind: "library" | "other" }) {
-  return (
-    <span className="settings-glyph" aria-hidden="true">
-      <svg viewBox="0 0 16 16" width="14" height="14" fill="none" stroke="currentColor" strokeWidth="1.4">
-        {kind === "library" ? (
-          <>
-            <ellipse cx="8" cy="4" rx="5" ry="2" />
-            <path d="M3 4v8c0 1.1 2.2 2 5 2s5-.9 5-2V4M3 8c0 1.1 2.2 2 5 2s5-.9 5-2" />
-          </>
-        ) : (
-          <g fill="currentColor" stroke="none">
-            <circle cx="3.5" cy="8" r="1.4" />
-            <circle cx="8" cy="8" r="1.4" />
-            <circle cx="12.5" cy="8" r="1.4" />
-          </g>
-        )}
-      </svg>
-    </span>
-  );
 }
 
 /**
@@ -445,140 +415,35 @@ function ExportRow({ onError }: { onError: (m: string) => void }) {
 /** A cap as Settings says it: "512 MB", "2 GB". */
 const capWords = (bytes: number) => (bytes < 1024 ** 3 ? `${Math.round(bytes / 1024 ** 2)} MB` : `${Math.round(bytes / 1024 ** 3)} GB`);
 
-/**
- * Photos' originals and previews on this computer, as a Mac's Optimize Storage keeps them: what
- * they take against the cap, the cap as a ruler of sizes, and Clear Cache. The cap moves at once
- * and is sent when the hand stops; a lower one lets the longest unseen go in the background, and
- * the figure follows when that is done (PHOTO_CACHE).
- */
-function PhotoCacheGroup({ onError }: { onError: (m: string) => void }) {
+/** How much room photos opened here may keep on this computer: one choice, the backend's
+ *  steps, sent as it is picked. */
+function PhotoCacheCap({ onError }: { onError: (m: string) => void }) {
   const [cache, setCache] = useState<PhotoCache | null>(null);
-  /** The step the ruler shows while it is being moved, before the backend has it. */
-  const [moving, setMoving] = useState<number | null>(null);
-  const [clearing, setClearing] = useState(false);
-  const [freed, setFreed] = useState<number | null>(null);
-  const send = useRef<number | undefined>(undefined);
   useEffect(() => {
     photoCacheApi.status().then(setCache, () => {});
     const stop = listen<PhotoCache>(PHOTO_CACHE, (e) => setCache(e.payload));
-    return () => {
-      window.clearTimeout(send.current);
-      void stop.then((un) => un()).catch(() => {});
-    };
+    return () => void stop.then((un) => un()).catch(() => {});
   }, []);
   if (!cache) return null;
-  const steps = cache.steps;
-  const at = moving ?? Math.max(0, steps.indexOf(cache.cap));
-  const cap = steps[at] ?? cache.cap;
-  const choose = (i: number) => {
-    setMoving(i);
-    setFreed(null);
-    window.clearTimeout(send.current);
-    send.current = window.setTimeout(() => {
-      photoCacheApi.set(steps[i]).then(
-        (now) => {
-          setCache(now);
-          setMoving(null);
-        },
-        (e) => {
-          setMoving(null);
-          onError(messageOf(e));
-        },
-      );
-    }, 350);
-  };
-  const clear = () => {
-    const before = cache.used;
-    setClearing(true);
-    photoCacheApi
-      .clear()
-      .then(
-        (now) => {
-          setCache(now);
-          setFreed(Math.max(0, before - now.used));
-        },
-        (e) => onError(messageOf(e)),
-      )
-      .finally(() => setClearing(false));
-  };
-  const share = cap > 0 ? Math.min(1, cache.used / cap) : 0;
-  const limited = moving === null && cache.limit < cache.cap;
   return (
-    <>
-      <h2 className="settings-heading settings-heading-line">
-        <span>Photos Cache</span>
-        <span className="settings-heading-value">
-          {size(cache.used)} of {capWords(cap)}
+    <div className="settings-row">
+      <span className="settings-label settings-stack">
+        Keep photos up to
+        <span className="settings-hint">
+          {cache.limit < cache.cap
+            ? `Using up to ${size(cache.limit)} for now, to leave room on this disk.`
+            : `${size(cache.used)} of recently viewed photos, ready offline`}
         </span>
-      </h2>
-      <section className="settings-group" aria-label="Photos Cache">
-        <div className="settings-row is-stacked">
-          <div
-            className="storage-bar"
-            role="meter"
-            aria-label="Photos cache used"
-            aria-valuemin={0}
-            aria-valuemax={100}
-            aria-valuenow={Math.round(share * 100)}
-            aria-valuetext={`${size(cache.used)} of ${capWords(cap)}`}
-          >
-            <span style={{ width: `${share * 100}%` }} />
-          </div>
-          <span className="settings-hint settings-hint-wrap">
-            {limited
-              ? `Using up to ${size(cache.limit)} for now, to leave room on this disk. `
-              : "Recently viewed photos stay ready, even offline. "}
-            Thumbnails always stay.
-          </span>
-        </div>
-        <div className="settings-row is-stacked">
-          <div className="settings-row-line">
-            <label className="settings-label" htmlFor="photo-cache-cap">
-              Keep up to
-            </label>
-            <span className="settings-value">{capWords(cap)}</span>
-          </div>
-          <div className="cap-ruler" style={{ "--stops": steps.length } as React.CSSProperties}>
-            <input
-              id="photo-cache-cap"
-              type="range"
-              min={0}
-              max={steps.length - 1}
-              step={1}
-              value={at}
-              aria-valuetext={capWords(cap)}
-              onChange={(e) => choose(Number(e.currentTarget.value))}
-            />
-            <div className="cap-ruler-stops" aria-hidden="true">
-              {steps.map((s, i) => (
-                <button
-                  key={s}
-                  tabIndex={-1}
-                  className={i === at ? "is-here" : undefined}
-                  style={{ left: `${(i / (steps.length - 1)) * 100}%` }}
-                  onClick={() => choose(i)}
-                >
-                  {capWords(s)}
-                </button>
-              ))}
-            </div>
-          </div>
-        </div>
-        <div className="settings-row">
-          <span className="settings-label settings-stack">
-            Clear Cache
-            <span className="settings-hint" aria-live="polite">
-              {freed !== null
-                ? `Cleared ${size(freed)}. Photos download again as you open them.`
-                : "Photos download again from iCloud as you open them."}
-            </span>
-          </span>
-          <button className="quiet" onClick={clear} disabled={clearing || cache.used < 1024 ** 2}>
-            {clearing ? "Clearing" : "Clear Cache"}
-          </button>
-        </div>
-      </section>
-    </>
+      </span>
+      <Picker
+        label="Keep photos up to"
+        value={String(cache.cap)}
+        options={cache.steps.map((b) => ({ value: String(b), label: capWords(b) }))}
+        onChange={(v) =>
+          photoCacheApi.set(Number(v)).then(setCache, (e) => onError(messageOf(e)))
+        }
+      />
+    </div>
   );
 }
 
@@ -620,8 +485,12 @@ export function SettingsView({ onSignOut }: { onSignOut: (keep: boolean) => Prom
   const folderOn = folder?.on ?? false;
   useEffect(() => {
     if (!folderOn) return undefined;
+    // Kept only when it changed: a new object every two seconds re-rendered all of Settings,
+    // and a re-render landing mid-scroll was a dropped frame — the stutter while scrolling.
     const t = window.setInterval(() => {
-      api.driveFolderStatus().then(setFolder, () => {});
+      api
+        .driveFolderStatus()
+        .then((next) => setFolder((was) => (JSON.stringify(was) === JSON.stringify(next) ? was : next)), () => {});
     }, 2000);
     return () => window.clearInterval(t);
   }, [folderOn]);
@@ -672,303 +541,251 @@ export function SettingsView({ onSignOut }: { onSignOut: (keep: boolean) => Prom
   };
 
   const used = storage && storage.totalBytes > 0 ? Math.min(1, storage.usedBytes / storage.totalBytes) : 0;
-  const services = (report?.services ?? []).filter((s) => s.outcome !== "unavailable");
   const showDrive = folder?.available !== false;
   const showPhotos = photosFolder?.available !== false;
   const MB = 1024 ** 2;
 
   return (
-    <div className="settings">
-      <h1 className="settings-title">Settings</h1>
-      {/* Held at the top of the window as it scrolls: a reason is never left out of sight. */}
-
-      <section className="settings-group settings-account" aria-label="Account">
-        <AccountAvatar account={account} large />
-        <div className="settings-account-text">
-          <strong>{account?.name ?? "Your Apple Account"}</strong>
-          <span>{account?.email ?? ""}</span>
-          {notKept && <span className="settings-account-note">{NOT_KEPT}</span>}
-        </div>
-        <button
-          className="quiet"
-          onClick={() =>
-            api.unsent().then(setSigningOut, () => setSigningOut({ changes: 0, files: 0, photos: 0 }))
-          }
-        >
-          Sign Out
-        </button>
-      </section>
-      {signingOut && (
-        <SignOutSheet
-          unsent={signingOut}
-          onCancel={() => setSigningOut(null)}
-          onChoose={(keep) => {
-            setSigningOut(null);
-            onSignOut(keep).catch((e) => setError(messageOf(e)));
-          }}
-        />
-      )}
-
-      <h2 className="settings-heading">iCloud</h2>
-      <section className="settings-group">
-        <div className="settings-row is-stacked">
-          <div className="settings-row-line">
-            <span>{storage ? `${size(storage.usedBytes)} of ${size(storage.totalBytes)} used` : "Reading storage…"}</span>
-            {storage && (
-              <span className="settings-value">{size(Math.max(0, storage.totalBytes - storage.usedBytes))} available</span>
-            )}
-          </div>
-          <div
-            className="storage-bar"
-            role="meter"
-            aria-label="iCloud storage used"
-            aria-valuemin={0}
-            aria-valuemax={100}
-            aria-valuenow={Math.round(used * 100)}
-          >
-            <span style={{ width: `${used * 100}%` }} />
-          </div>
-        </div>
-      </section>
-
-      <h2 className="settings-heading">Sync</h2>
-      <section className="settings-group">
-        {services.map((s) => (
-          <div className="settings-row" key={s.service}>
-            <AppIcon app={ICON[s.service] ?? s.service} />
-            <span className="settings-label">{s.label}</span>
-            <span className={`settings-value${s.outcome === "failed" ? " is-trouble" : ""}`}>
-              {s.outcome === "failed"
-                ? (s.detail ?? "Didn't update")
-                : s.outcome === "paused"
-                  ? `${freshness(s.lastSyncedAt ?? null)}. Syncs when you approve`
-                : s.outcome === "preparing"
-                  ? "Apple is still preparing it"
-                : syncing && !s.lastSyncedAt
-                  ? "Downloading…"
-                  : freshness(s.lastSyncedAt ?? null)}
-            </span>
-          </div>
-        ))}
-        <div className="settings-row">
-          <span className="settings-label settings-hint">Changes from your other devices arrive within seconds.</span>
-          <button className="quiet" onClick={() => void refresh(true)} disabled={syncing}>
-            {syncing ? "Syncing…" : "Sync Now"}
-          </button>
-        </div>
-      </section>
-
-      {(showDrive || showPhotos) && (
-        <>
-          <h2 className="settings-heading">Folders</h2>
-          <section className="settings-group">
-            {showDrive && (
-              <FolderRow
-                app="drivews"
-                label="Drive folder"
-                off={onWindows ? "Your iCloud Drive in File Explorer and every other app" : "Your iCloud Drive in Files and every other app"}
-                folder={folder}
-                busy={folderBusy}
-                line={folderState}
-                onOpen={api.driveFolderOpen}
-                onSet={(on) => folder && setFolderOn(folder, on, setFolder, setFolderBusy, api.driveFolderSet)}
-              />
-            )}
-            {showPhotos && (
-              <FolderRow
-                app="photos"
-                label="Photos folder"
-                off="Your photos by date and album, for every other app"
-                folder={photosFolder}
-                busy={photosBusy}
-                line={(f) => f.path}
-                onOpen={api.photosFolderOpen}
-                onSet={(on) =>
-                  photosFolder && setFolderOn(photosFolder, on, setPhotosFolder, setPhotosBusy, api.photosFolderSet)
-                }
-              />
-            )}
-          </section>
-        </>
-      )}
-
-      <h2 className="settings-heading settings-heading-line">
-        <span>Storage on This Computer</span>
-        {local && <span className="settings-heading-value">{size(local.total)}</span>}
-      </h2>
-      <section className="settings-group" aria-busy={!local}>
-        {(
-          [
-            ["photos", "Photos", local?.photos],
-            ["notes", "Notes", local?.notes],
-            ["drivews", "Drive", local?.drive],
-            ["library", "Library", local?.library],
-            ["other", "Other", local?.other],
-          ] as const
-        )
-          .filter(([key, , bytes]) => key !== "other" || (bytes ?? 0) >= MB)
-          .map(([key, label, bytes]) => (
-            <div className="settings-row" key={key}>
-              {key === "library" || key === "other" ? <Glyph kind={key} /> : <AppIcon app={key} />}
-              <span className="settings-label">{label}</span>
-              <span className="settings-value">{bytes == null ? "…" : size(bytes)}</span>
+    <div className="settings dash">
+      <h1 className="settings-title">Skykeep</h1>
+      <Launcher
+        services={report?.services ?? []}
+        syncing={syncing}
+        onSync={() => void refresh(true)}
+        driveFree={storage ? size(Math.max(0, storage.totalBytes - storage.usedBytes)) : null}
+      />
+      {/* Under the apps, cards in balanced rows: what matters at a glance, the long lists behind
+          each card's Details. Three across, then two, in a wide window; one under another in a
+          narrow one. */}
+      <div className="dash-row dash-three">
+        <section className="dash-card" aria-labelledby="card-account">
+          <h2 id="card-account" className="dash-title">Account</h2>
+          <div className="dash-account">
+            <AccountAvatar account={account} large />
+            <div className="settings-account-text">
+              <strong>{account?.name ?? "Your Apple Account"}</strong>
+              <span>{account?.email ?? ""}</span>
+              {notKept && <span className="settings-account-note">{NOT_KEPT}</span>}
             </div>
-          ))}
-        <div className="settings-row">
-          <span className="settings-label settings-stack">
-            Cached pictures
-            <span className="settings-hint" aria-live="polite">
-              {freed != null ? `${size(freed)} cleared. They download again when needed.` : "They download again when needed."}
+          </div>
+          <div className="settings-row is-stacked">
+            <div className="settings-row-line">
+              <span>{storage ? `${size(storage.usedBytes)} of ${size(storage.totalBytes)} used` : "Reading storage…"}</span>
+              {storage && (
+                <span className="settings-value">{size(Math.max(0, storage.totalBytes - storage.usedBytes))} available</span>
+              )}
+            </div>
+            <div
+              className="storage-bar"
+              role="meter"
+              aria-label="iCloud storage used"
+              aria-valuemin={0}
+              aria-valuemax={100}
+              aria-valuenow={Math.round(used * 100)}
+            >
+              <span style={{ width: `${used * 100}%` }} />
+            </div>
+          </div>
+          <div className="dash-actions">
+            <button
+              className="quiet"
+              onClick={() =>
+                api.unsent().then(setSigningOut, () => setSigningOut({ changes: 0, files: 0, photos: 0 }))
+              }
+            >
+              Sign Out
+            </button>
+          </div>
+        </section>
+        <section className="dash-card" aria-labelledby="card-backup">
+          <h2 id="card-backup" className="dash-title">Backup</h2>
+          <BackupRow onError={setError} />
+          <ExportRow onError={setError} />
+        </section>
+        <section className="dash-card" aria-labelledby="card-computer">
+          <h2 id="card-computer" className="dash-title">This Computer</h2>
+          {(showDrive || showPhotos) && (
+            <>
+              {showDrive && (
+                <FolderRow
+                  app="drivews"
+                  label="Drive folder"
+                  off={onWindows ? "Your iCloud Drive in File Explorer and every other app" : "Your iCloud Drive in Files and every other app"}
+                  folder={folder}
+                  busy={folderBusy}
+                  line={folderState}
+                  onOpen={api.driveFolderOpen}
+                  onSet={(on) => folder && setFolderOn(folder, on, setFolder, setFolderBusy, api.driveFolderSet)}
+                />
+              )}
+              {showPhotos && (
+                <FolderRow
+                  app="photos"
+                  label="Photos folder"
+                  off="Your photos by date and album, for every other app"
+                  folder={photosFolder}
+                  busy={photosBusy}
+                  line={(f) => f.path}
+                  onOpen={api.photosFolderOpen}
+                  onSet={(on) =>
+                    photosFolder && setFolderOn(photosFolder, on, setPhotosFolder, setPhotosBusy, api.photosFolderSet)
+                  }
+                />
+              )}
+            </>
+          )}
+          <div className="settings-row">
+            <span className="settings-label settings-stack">
+              Cached pictures
+              <span className="settings-hint" aria-live="polite">
+                {freed != null ? `${size(freed)} cleared. They download again when needed.` : "They download again when needed."}
+              </span>
             </span>
-          </span>
-          {local && local.clearable >= MB && <span className="settings-value">{size(local.clearable)}</span>}
-          <button className="quiet" onClick={clearPictures} disabled={!local || clearing || local.clearable < MB}>
-            {clearing ? "Clearing…" : "Clear"}
-          </button>
-        </div>
-      </section>
-
-      <PhotoCacheGroup onError={setError} />
-
-      <h2 className="settings-heading">Backup and Export</h2>
-      <section className="settings-group">
-        <BackupRow onError={setError} />
-        <ExportRow onError={setError} />
-      </section>
-
-      <h2 className="settings-heading">General</h2>
-      <section className="settings-group">
-        <div className="settings-row">
-          <span className="settings-label">Appearance</span>
-          <div className="segmented" role="group" aria-label="Appearance">
-            {(["auto", "light", "dark"] as const).map((t) => (
+            {local && local.clearable >= MB && <span className="settings-value">{size(local.clearable)}</span>}
+            <button className="quiet" onClick={clearPictures} disabled={!local || clearing || local.clearable < MB}>
+              {clearing ? "Clearing…" : "Clear"}
+            </button>
+          </div>
+          <PhotoCacheCap onError={setError} />
+          <div className="dash-actions">
+            <span className="settings-hint">{local ? `${size(local.total)} kept on this computer` : "\u00a0"}</span>
+          </div>
+        </section>
+      </div>
+      <div className="dash-row dash-two">
+        <section className="dash-card" aria-labelledby="card-general">
+          <h2 id="card-general" className="dash-title">General</h2>
+          <div className="settings-row">
+            <span className="settings-label">Appearance</span>
+            <div className="segmented" role="group" aria-label="Appearance">
+              {(["auto", "light", "dark"] as const).map((t) => (
+                <button
+                  key={t}
+                  className="segment"
+                  aria-pressed={theme === t}
+                  onClick={() => {
+                    chooseTheme(t);
+                    setTheme(t);
+                  }}
+                >
+                  {t === "auto" ? "Automatic" : t === "light" ? "Light" : "Dark"}
+                </button>
+              ))}
+            </div>
+          </div>
+          <WeekStartRow />
+          <MoveCheckedRow />
+          {login?.available === false ? (
+            <div className="settings-row">
+              <span className="settings-label settings-stack">
+                Open at Login
+                <span className="settings-hint">
+                  Add Skykeep to your desktop’s startup apps, so alerts ring and changes sync from the moment you log in
+                </span>
+              </span>
+            </div>
+          ) : (
+            <div className="settings-row">
+              <span className="settings-label settings-stack">
+                Open at Login
+                <span className="settings-hint">
+                  {login?.elsewhere
+                    ? login.elsewhere
+                    : login?.on && !login.honoured
+                      ? "This desktop doesn't open apps at login by itself. Add this to its startup:"
+                      : "Starts in the background, so alerts ring and changes sync"}
+                </span>
+                {login?.on && !login.honoured && <code className="settings-command">{login.command}</code>}
+              </span>
               <button
-                key={t}
-                className="segment"
-                aria-pressed={theme === t}
+                className="switch"
+                role="switch"
+                aria-checked={login?.on ?? false}
+                aria-label="Open at Login"
+                disabled={!login || loginBusy || Boolean(login.elsewhere)}
                 onClick={() => {
-                  chooseTheme(t);
-                  setTheme(t);
+                  if (!login) return;
+                  const was = login;
+                  setLogin({ ...login, on: !login.on });
+                  setLoginBusy(true);
+                  api
+                    .loginItemSet(!was.on)
+                    .then(setLogin, (e) => {
+                      setLogin(was);
+                      setError(messageOf(e));
+                    })
+                    .finally(() => setLoginBusy(false));
                 }}
               >
-                {t === "auto" ? "Automatic" : t === "light" ? "Light" : "Dark"}
+                <span className="switch-knob" />
               </button>
-            ))}
-          </div>
-        </div>
-        <WeekStartRow />
-        <MoveCheckedRow />
-        {login?.available === false ? (
-          <div className="settings-row">
-            <span className="settings-label settings-stack">
-              Open at Login
-              <span className="settings-hint">
-                Add Skykeep to your desktop’s startup apps, so alerts ring and changes sync from the moment you log in
+            </div>
+          )}
+        </section>
+        <section className="dash-card" aria-labelledby="card-notifications">
+          <h2 id="card-notifications" className="dash-title">Notifications</h2>
+          {(
+            [
+              ["reminderAlerts", "Reminder alerts", "reminders"],
+              ["eventAlerts", "Calendar alerts", "calendar"],
+            ] as const
+          ).map(([key, label, icon]) => (
+            <div className="settings-row" key={key}>
+              <AppIcon app={icon} />
+              <span className="settings-label">{label}</span>
+              <button
+                className="switch"
+                role="switch"
+                aria-checked={alerts?.[key] ?? false}
+                aria-label={label}
+                disabled={!alerts}
+                onClick={() => toggle(key)}
+              >
+                <span className="switch-knob" />
+              </button>
+            </div>
+          ))}
+          {/* Asked of the desktop itself: without a notification service every alert is dropped. */}
+          {alertsShown === false && (
+            <div className="settings-row">
+              <span className="settings-label settings-hint is-trouble">
+                Alerts can't appear: this desktop has no notification service running.
               </span>
-            </span>
-          </div>
-        ) : (
-          <div className="settings-row">
-            <span className="settings-label settings-stack">
-              Open at Login
-              <span className="settings-hint">
-                {login?.elsewhere
-                  ? login.elsewhere
-                  : login?.on && !login.honoured
-                    ? "This desktop doesn't open apps at login by itself. Add this to its startup:"
-                    : "Starts in the background, so alerts ring and changes sync"}
-              </span>
-              {login?.on && !login.honoured && <code className="settings-command">{login.command}</code>}
-            </span>
+            </div>
+          )}
+          <UpdatesGroup />
+        </section>
+      </div>
+      {/* What Skykeep talks to, in plain sight: a statement of trust is not hidden behind a link. */}
+      <div className="dash-reach">
+        <ReachGroup />
+        <NetworkNote />
+      </div>
+      <footer className="dash-foot">
+        <span>Skykeep {version ?? ""}</span>
             <button
-              className="switch"
-              role="switch"
-              aria-checked={login?.on ?? false}
-              aria-label="Open at Login"
-              disabled={!login || loginBusy || Boolean(login.elsewhere)}
-              onClick={() => {
-                if (!login) return;
-                const was = login;
-                setLogin({ ...login, on: !login.on });
-                setLoginBusy(true);
-                api
-                  .loginItemSet(!was.on)
-                  .then(setLogin, (e) => {
-                    setLogin(was);
-                    setError(messageOf(e));
-                  })
-                  .finally(() => setLoginBusy(false));
-              }}
+              className="quiet"
+              aria-label="Save Diagnostic Report"
+              onClick={() =>
+                api.diagnosticsSave().then(
+                  (path) => void toastSaved(path),
+                  (e) => setError(messageOf(e)),
+                )
+              }
             >
-              <span className="switch-knob" />
+              Save Diagnostic Report
             </button>
-          </div>
+      </footer>
+        {signingOut && (
+          <SignOutSheet
+            unsent={signingOut}
+            onCancel={() => setSigningOut(null)}
+            onChoose={(keep) => {
+              setSigningOut(null);
+              onSignOut(keep).catch((e) => setError(messageOf(e)));
+            }}
+          />
         )}
-      </section>
-
-      <h2 className="settings-heading">Notifications</h2>
-      <section className="settings-group">
-        {(
-          [
-            ["reminderAlerts", "Reminder alerts", "reminders"],
-            ["eventAlerts", "Calendar alerts", "calendar"],
-          ] as const
-        ).map(([key, label, icon]) => (
-          <div className="settings-row" key={key}>
-            <AppIcon app={icon} />
-            <span className="settings-label">{label}</span>
-            <button
-              className="switch"
-              role="switch"
-              aria-checked={alerts?.[key] ?? false}
-              aria-label={label}
-              disabled={!alerts}
-              onClick={() => toggle(key)}
-            >
-              <span className="switch-knob" />
-            </button>
-          </div>
-        ))}
-        {/* Asked of the desktop itself: without a notification service every alert is dropped. */}
-        {alertsShown === false && (
-          <div className="settings-row">
-            <span className="settings-label settings-hint is-trouble">
-              Alerts can't appear: this desktop has no notification service running.
-            </span>
-          </div>
-        )}
-      </section>
-
-      <UpdatesGroup />
-
-      <ReachGroup />
-
-      <h2 className="settings-heading">About</h2>
-      <section className="settings-group">
-        <div className="settings-row">
-          <span className="settings-label">Version</span>
-          <span className="settings-value">{version ?? "—"}</span>
-        </div>
-        <div className="settings-row">
-          <span className="settings-label settings-stack">
-            Diagnostic Report
-            <span className="settings-hint settings-hint-wrap">Versions and sync states only. Nothing is sent.</span>
-          </span>
-          <button
-            className="quiet"
-            aria-label="Save Diagnostic Report"
-            onClick={() =>
-              api.diagnosticsSave().then(
-                (path) => void toastSaved(path),
-                (e) => setError(messageOf(e)),
-              )
-            }
-          >
-            Save
-          </button>
-        </div>
-      </section>
-      <NetworkNote />
     </div>
   );
 }

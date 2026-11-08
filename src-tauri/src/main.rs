@@ -24,10 +24,12 @@ mod data_access;
 mod diagnostics;
 mod drive_watch;
 mod export;
+mod fetching;
 mod folder_download;
 mod grants;
 mod hello;
 mod intake;
+mod launcher;
 mod library_lock;
 mod links;
 mod login;
@@ -2069,6 +2071,9 @@ async fn auth_sign_out(keep: bool, app: tauri::AppHandle, auth: State<'_, Auth>)
         let _ = tauri::async_runtime::spawn_blocking(move || mount::forget_thumbnails(&app)).await;
         removed?;
     }
+    // Every app's window goes with the account: the one sign-in is Skykeep's own window's,
+    // where Settings were.
+    apps::close_all(&app);
     Ok(())
 }
 
@@ -6135,6 +6140,35 @@ fn return_freed_memory() {
 #[cfg(not(all(target_os = "linux", target_env = "gnu")))]
 fn return_freed_memory() {}
 
+/// Room for every file and connection a busy moment needs. A desktop session starts a program
+/// with a soft limit of 1024 open files (systemd's default, kept for programs that still use
+/// select()); the hard limit is far higher and the process may raise its own soft limit to it,
+/// as browsers do. Skykeep never uses select(): GLib, WebKit and tokio wait with poll and
+/// epoll. Out of descriptors, GTK3 on Wayland could not make a frame's shared-memory buffer
+/// and crashed on the NULL it got back (issue #17; crate::fetching bounds the cause).
+#[cfg(unix)]
+fn enough_open_files() {
+    // SAFETY: reads and sets this process's own limit; called before any other thread.
+    unsafe {
+        let mut limit = libc::rlimit {
+            rlim_cur: 0,
+            rlim_max: 0,
+        };
+        if libc::getrlimit(libc::RLIMIT_NOFILE, &mut limit) != 0 {
+            return;
+        }
+        // Up to the hard limit, and no further than a generous ceiling.
+        let wanted = limit.rlim_max.min(1 << 16);
+        if limit.rlim_cur < wanted {
+            limit.rlim_cur = wanted;
+            libc::setrlimit(libc::RLIMIT_NOFILE, &limit);
+        }
+    }
+}
+
+#[cfg(not(unix))]
+fn enough_open_files() {}
+
 /// How WebKitGTK hands its frames to the window. Three ways, measured on his Iris Xe at his
 /// 1920×1080 (grid scroll / zoomed pan):
 ///
@@ -6412,33 +6446,6 @@ fn show_window(app: &tauri::AppHandle) -> bool {
     true
 }
 
-/// `then`, once the whole-library window can hear it: at once if it was open, or once a window
-/// just made has drawn (its page is up, and listening, by then) — never sent to a page still
-/// loading, which would drop it.
-pub(crate) fn show_window_then(
-    app: &tauri::AppHandle,
-    then: impl FnOnce(&tauri::AppHandle) + Send + 'static,
-) {
-    if !show_window(app) {
-        then(app);
-        return;
-    }
-    let app = app.clone();
-    tauri::async_runtime::spawn(async move {
-        let until = std::time::Instant::now() + Duration::from_secs(5);
-        while std::time::Instant::now() < until {
-            if app
-                .get_webview_window("main")
-                .is_some_and(|w| w.is_visible().unwrap_or(false))
-            {
-                break;
-            }
-            tokio::time::sleep(Duration::from_millis(50)).await;
-        }
-        then(&app);
-    });
-}
-
 /// The web views' memory cache, sized for an app rather than a browser. WebKitGTK's default
 /// (the "web browser" model) keeps up to half a gigabyte of decoded pictures on a 16 GB
 /// machine, for pages a browser expects to be revisited. Here every picture is this app's own,
@@ -6586,7 +6593,7 @@ fn status_notifier_host() -> Option<bool> {
 /// `tray_reachable` says so, and closing the window quits.
 #[cfg(target_os = "linux")]
 mod linux_tray {
-    use super::{intake, show_window, shutdown};
+    use super::shutdown;
     use ksni::TrayMethods;
     use std::sync::atomic::{AtomicBool, Ordering};
 
@@ -6630,30 +6637,41 @@ mod linux_tray {
         // The left click.
         fn activate(&mut self, _x: i32, _y: i32) {
             self.on_main(|app| {
-                show_window(app);
+                crate::apps::open_skykeep(app);
             });
         }
         fn menu(&self) -> Vec<ksni::MenuItem<Self>> {
             use ksni::menu::StandardItem;
             use ksni::MenuItem;
-            let item = |label: &str, then: fn(&tauri::AppHandle)| -> MenuItem<Self> {
+            // Every line with its icon, so the column reads as one list: each app's own, the
+            // one its launcher shows (installed under the app's ID with every package:
+            // packaging/icons/apps), then Skykeep's own window (the account, sync, Backup and
+            // settings) with its logo, then Quit with none, as a Mac's menus give it none. A
+            // click on the icon opens Skykeep too. No quick captures: each app's own window
+            // makes a new note or reminder.
+            let item = |label: &str, icon: &str, then: fn(&tauri::AppHandle)| -> MenuItem<Self> {
                 StandardItem {
                     label: label.into(),
+                    icon_name: icon.into(),
                     activate: Box::new(move |tray: &mut Self| tray.on_main(then)),
                     ..Default::default()
                 }
                 .into()
             };
-            // The same four lines as Tauri's tray on Windows and macOS (build_tray).
+            const ID: &str = "io.github.yashwanthkamireddi.Skykeep";
+            let app_item = |label: &str, then: fn(&tauri::AppHandle)| -> MenuItem<Self> {
+                item(label, &format!("{ID}.{label}"), then)
+            };
             vec![
-                item("Open Skykeep", |app| {
-                    show_window(app);
-                }),
+                app_item("Notes", |app| crate::apps::open(app, "notes")),
+                app_item("Reminders", |app| crate::apps::open(app, "reminders")),
+                app_item("Calendar", |app| crate::apps::open(app, "calendar")),
+                app_item("Contacts", |app| crate::apps::open(app, "contacts")),
+                app_item("Drive", |app| crate::apps::open(app, "drivews")),
+                app_item("Photos", |app| crate::apps::open(app, "photos")),
                 MenuItem::Separator,
-                item("New Reminder", |app| intake::capture(app, "reminder")),
-                item("New Note", |app| intake::capture(app, "note")),
-                MenuItem::Separator,
-                item("Quit Skykeep", |app| shutdown(app, 0)),
+                item("Skykeep…", ID, crate::apps::open_skykeep),
+                item("Quit Skykeep", "", |app| shutdown(app, 0)),
             ]
         }
         // A panel restarting, or not there yet: the icon comes back when it does. Either way
@@ -6745,16 +6763,30 @@ fn build_tray(app: &tauri::App) -> tauri::Result<()> {
     // Four plain lines, nothing nested: the window, the two quick notes a person reaches for
     // from anywhere, and Quit. A submenu was slow to draw in the panel and one more step;
     // each app has its own launcher and is a click away in the window.
-    let open = MenuItem::with_id(app, "open", "Open Skykeep", true, None::<&str>)?;
-    let new_reminder = MenuItem::with_id(app, "new:reminder", "New Reminder", true, None::<&str>)?;
-    let new_note = MenuItem::with_id(app, "new:note", "New Note", true, None::<&str>)?;
-    let line = PredefinedMenuItem::separator(app)?;
-    let line2 = PredefinedMenuItem::separator(app)?;
+    // As the Linux tray lists them (ksni's menu): each app with its icon, then Skykeep's own
+    // window with its logo, and Quit. A click on the icon opens Skykeep too.
+    use tauri::menu::IconMenuItem;
+    let icon = |id: &str, label: &str, key: Option<&str>| {
+        let image = key
+            .and_then(apps::icon_of)
+            .or_else(|| app.default_window_icon().cloned());
+        IconMenuItem::with_id(app, id, label, true, image, None::<&str>)
+    };
+    let apps_items = apps::APPS
+        .iter()
+        .map(|(key, name)| icon(&format!("app:{key}"), name, Some(key)))
+        .collect::<tauri::Result<Vec<_>>>()?;
+    let settings = icon("skykeep", "Skykeep…", None)?;
     let quit = MenuItem::with_id(app, "quit", "Quit Skykeep", true, None::<&str>)?;
-    let menu = Menu::with_items(
-        app,
-        &[&open, &line, &new_reminder, &new_note, &line2, &quit],
-    )?;
+    let line = PredefinedMenuItem::separator(app)?;
+    let mut items: Vec<&dyn tauri::menu::IsMenuItem<_>> = Vec::new();
+    items.extend(
+        apps_items
+            .iter()
+            .map(|i| i as &dyn tauri::menu::IsMenuItem<_>),
+    );
+    items.extend([&line as &dyn tauri::menu::IsMenuItem<_>, &settings, &quit]);
+    let menu = Menu::with_items(app, &items)?;
     let mut tray = TrayIconBuilder::with_id("quince")
         .tooltip("Skykeep")
         .menu(&menu)
@@ -6762,12 +6794,9 @@ fn build_tray(app: &tauri::App) -> tauri::Result<()> {
         // the menu is the right click's. A Mac menu-bar extra opens its menu on any click.
         .show_menu_on_left_click(cfg!(target_os = "macos"))
         .on_menu_event(|app, event| match event.id.as_ref() {
-            "open" => {
-                show_window(app);
-            }
+            "skykeep" => apps::open_skykeep(app),
+            id if id.starts_with("app:") => apps::open(app, &id["app:".len()..]),
             "quit" => shutdown(app, 0),
-            "new:reminder" => intake::capture(app, "reminder"),
-            "new:note" => intake::capture(app, "note"),
             _ => {}
         })
         .on_tray_icon_event(|tray, event| {
@@ -6778,7 +6807,7 @@ fn build_tray(app: &tauri::App) -> tauri::Result<()> {
             } = event
             {
                 if !cfg!(target_os = "macos") {
-                    show_window(tray.app_handle());
+                    apps::open_skykeep(tray.app_handle());
                 }
             }
         });
@@ -6801,6 +6830,7 @@ fn build_tray(app: &tauri::App) -> tauri::Result<()> {
 fn main() {
     // First, before any thread: how freed memory goes back to the system (#11).
     return_freed_memory();
+    enough_open_files();
     // The uninstaller's last word (packaging/windows/installer-hooks.nsh): iCloud Drive no
     // longer a cloud folder in File Explorer. Nothing else is started.
     #[cfg(windows)]
@@ -6861,7 +6891,7 @@ fn main() {
             match apps::asked(&args) {
                 Some(key) => apps::open(app, key),
                 None => {
-                    show_window(app);
+                    apps::open_skykeep(app);
                 }
             }
         }))
@@ -7339,6 +7369,7 @@ fn main() {
             search_everything,
             apps::app_open,
             apps::settings_open,
+            launcher::launcher_summary,
             apps::app_reveal,
             intake::intake_pending,
             backup::backup_status,
@@ -7434,7 +7465,6 @@ fn main() {
             photos::photos_get,
             photo_cache::photos_cache_status,
             photo_cache::photos_cache_set,
-            photo_cache::photos_cache_clear,
             video::video_base,
             video::video_support,
             window_tint,

@@ -589,6 +589,9 @@ async fn heic_full(app: &AppHandle, id: &str, path: &std::path::Path) -> Result<
     Ok(path.to_path_buf())
 }
 
+/// Every picture and video downloaded from Apple for the screens (crate::fetching).
+static DOWNLOADS: crate::fetching::Gate = crate::fetching::Gate::new(crate::fetching::AT_ONCE);
+
 /// A picture (or video) fetched from Apple once and kept: see `cached`.
 async fn from_apple(
     app: &AppHandle,
@@ -599,6 +602,11 @@ async fn from_apple(
     if tokio::fs::metadata(&path).await.is_ok() {
         return Ok(path);
     }
+    // A few downloads at once, each file once (crate::fetching): a first look at a large
+    // library asked for hundreds together and ran the process out of file descriptors.
+    let Some(turn) = DOWNLOADS.turn(&path).await else {
+        return Ok(path);
+    };
     // Beside a sync pass on a reader: a picture asked for never waits behind a pass's store,
     // which holds the writer for seconds on a large library.
     let (photo, shared) = any_photo(app, id)
@@ -626,6 +634,8 @@ async fn from_apple(
     // Held for whoever asked, and the cache checked against its cap soon after (a thumbnail is
     // held only to the disk's room: photo_cache::GRID_FLOOR).
     crate::photo_cache::hold(&path);
+    // The download is done: its turn goes to the next before any decoding below.
+    drop(turn);
     if size == Size::Thumb {
         crate::photo_cache::grid_grew(app);
     } else {

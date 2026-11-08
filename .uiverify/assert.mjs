@@ -1,3 +1,4 @@
+import { openScreen } from "./stub.mjs";
 // Deterministic checks on the library nav — cheaper and more reliable than eyeballing a screenshot.
 import { engine as chromium } from "./engine.mjs";
 const b = await chromium.launch();
@@ -87,21 +88,15 @@ const p = await ctx.newPage();
 const errs = [];
 p.on("pageerror", (e) => errs.push(String(e)));
 await p.goto("http://localhost:4173", { waitUntil: "networkidle" });
-await p.waitForSelector(".sidebar .nav-item");
+await p.waitForSelector("main.content[data-screen]");
 
-// The sidebar holds what works, most used first. Apple's thirty-odd services — "CloudKit
-// data", "Push", "Account gateway" — and screens that only said they were not built (Photos,
-// Mail, Find My, Shared albums) were all listed; none of them is anything to use here.
-const names = (await p.locator(".sidebar .nav-item .nav-name").allInnerTexts()).map((t) => t.trim());
-const selected = (await p.textContent('.nav-item[aria-current="true"] .nav-name'))?.trim();
-console.log("nav items      :", JSON.stringify(names));
+// Skykeep's own window is Skykeep: the account and settings, never one of the apps
+// (docs/apps-as-windows.md). The apps open in windows of their own.
+const front = await p.getAttribute("main.content", "data-screen");
 console.log("page errors    :", errs.length ? errs : "none");
-const collapsed =
-  JSON.stringify(names) ===
-  JSON.stringify(["Reminders", "Notes", "Drive", "Photos", "Calendar", "Contacts"]);
-const selectsBuilt = selected === "Reminders";
-console.log(collapsed ? "PASS the sidebar holds only what works, most used first" : `FAIL the sidebar holds ${JSON.stringify(names)}`);
-console.log(selectsBuilt ? "PASS opens on the first screen" : `FAIL opened on ${selected}`);
+const opensOnSkykeep = front === "settings" && (await p.locator("nav.sidebar").count()) === 0;
+console.log(front === "settings" ? "PASS Skykeep's window opens on Skykeep" : `FAIL it opened on ${front}`);
+console.log((await p.locator("nav.sidebar").count()) === 0 ? "PASS with no switcher of the apps" : "FAIL a switcher of the apps is there");
 
 // ── Calendar's four scopes each render their own view ─────────────────────────────────
 // A scope that only changed a label would pass a screenshot; this checks it changed the view.
@@ -109,7 +104,7 @@ let failures = 0;
 {
   const page = await ctx.newPage();
   await page.goto("http://localhost:4173", { waitUntil: "networkidle" });
-  await page.getByRole("button", { name: "Calendar" }).click();
+  await openScreen(page, "Calendar");
   await page.waitForSelector(".cal-grid");
 
   const scopes = [
@@ -168,7 +163,7 @@ let failures = 0;
     ["Reminders", ".rx-list-name, .rx-tile-name"],
     ["Notes", ".notes-folders .note-folder, .notes-folders button"],
   ]) {
-    await page.getByRole("button", { name: screen, exact: true }).click();
+    await openScreen(page, screen);
     await page.waitForTimeout(400);
     const cut = await clipped(selector);
     console.log(
@@ -180,7 +175,7 @@ let failures = 0;
   }
 
   // A list that occupies a sliver of a wide pane reads as broken, whatever it says.
-  await page.getByRole("button", { name: "Reminders", exact: true }).click();
+  await openScreen(page, "Reminders");
   await page.waitForTimeout(400);
   const fill = await page.evaluate(() => {
     const pane = document.querySelector(".rx-main");
@@ -309,7 +304,7 @@ let failures = 0;
       },
     };
   });
-  await page.goto("http://localhost:4173", { waitUntil: "networkidle" });
+  await page.goto("http://localhost:4173/?app=reminders", { waitUntil: "networkidle" });
   await page.waitForSelector(".rx-tile");
   const m = await page.evaluate(() => {
     const side = document.querySelector(".rx-side").getBoundingClientRect();
@@ -340,7 +335,7 @@ let failures = 0;
 {
   const page = await ctx.newPage();
   await page.goto("http://localhost:4173", { waitUntil: "networkidle" });
-  await page.locator(".nav-item", { hasText: "Drive" }).click();
+  await openScreen(page, "Drive");
   await page.waitForSelector(".drive-rows");
   await page.getByRole("button", { name: "New Folder" }).click();
   await page.keyboard.type("downloads");
@@ -365,7 +360,7 @@ let failures = 0;
 {
   const page = await ctx.newPage();
   await page.goto("http://localhost:4173", { waitUntil: "networkidle" });
-  await page.locator(".nav-item", { hasText: "Drive" }).click();
+  await openScreen(page, "Drive");
   await page.waitForSelector(".drive-row-hit");
 
   const folderRow = page.locator(".drive-row.is-folder .drive-row-hit").first();
@@ -399,7 +394,7 @@ let failures = 0;
   const page = await ctx.newPage();
   await page.setViewportSize({ width: 1920, height: 1080 });
   await page.goto("http://localhost:4173", { waitUntil: "networkidle" });
-  await page.getByRole("button", { name: "Reminders", exact: true }).click();
+  await openScreen(page, "Reminders");
   await page.waitForTimeout(400);
 
   const atRest = await page.evaluate(() => {
@@ -443,7 +438,7 @@ let failures = 0;
 {
   const page = await ctx.newPage();
   await page.goto("http://localhost:4173", { waitUntil: "networkidle" });
-  await page.getByRole("button", { name: "Calendar", exact: true }).click();
+  await openScreen(page, "Calendar");
   await page.waitForTimeout(300);
   // The + button opens Quick Event, as Calendar's does; Ctrl+N opens the whole new event.
   await page.keyboard.press("Control+n");
@@ -494,7 +489,7 @@ let failures = 0;
     };
   });
   await page.goto("http://localhost:4173", { waitUntil: "networkidle" });
-  await page.locator(".nav-item", { hasText: "Notes" }).click();
+  await openScreen(page, "Notes");
   await page.waitForTimeout(300);
   await page.fill('input[aria-label="Search notes"]', "curt");
   await page.waitForTimeout(300);
@@ -538,7 +533,7 @@ let failures = 0;
     };
   });
   await page.goto("http://localhost:4173", { waitUntil: "networkidle" });
-  await page.getByRole("button", { name: "Reminders", exact: true }).click();
+  await openScreen(page, "Reminders");
   await page.waitForTimeout(300);
   await page.fill('input[aria-label="Search reminders"]', "plant");
   await page.waitForTimeout(300);
@@ -582,7 +577,7 @@ let failures = 0;
     };
   });
   await page.goto("http://localhost:4173", { waitUntil: "networkidle" });
-  await page.getByRole("button", { name: "Reminders", exact: true }).click();
+  await openScreen(page, "Reminders");
   await page.waitForTimeout(300);
   await page.locator(".rx-list", { hasText: "Life Goals" }).click();
   await page.waitForTimeout(400);
@@ -794,7 +789,7 @@ let failures = 0;
     ["Contacts", ".empty-state, .contact-empty"],
     ["Drive", ".drive-rows"],
   ]) {
-    await page.getByRole("button", { name: screen, exact: true }).click();
+    await openScreen(page, screen);
     await page.waitForTimeout(350);
     const there = await page.locator(expect).count();
     console.log(
@@ -806,7 +801,7 @@ let failures = 0;
   }
 
   // Nothing may offer a write it has nowhere to put.
-  await page.getByRole("button", { name: "Calendar", exact: true }).click();
+  await openScreen(page, "Calendar");
   await page.waitForTimeout(300);
   const newEvent = page.getByRole("button", { name: "New event" });
   const offered = (await newEvent.count()) > 0 && (await newEvent.isEnabled());
@@ -828,4 +823,4 @@ let failures = 0;
 }
 
 await b.close();
-process.exitCode = collapsed && selectsBuilt && failures === 0 ? 0 : 1;
+process.exitCode = opensOnSkykeep && failures === 0 ? 0 : 1;

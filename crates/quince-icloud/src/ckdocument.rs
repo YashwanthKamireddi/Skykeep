@@ -184,6 +184,36 @@ mod bare_wrapper_tests {
         out
     }
 
+    /// Formatting carried from a note with none (emptied, then typed into) is plain text over
+    /// the new text — never a panic, which left the note's save stuck and its edit replayed
+    /// over the editor at every retry.
+    #[test]
+    fn carrying_no_formatting_is_plain_text_never_a_panic() {
+        let carried = carry_runs("", &[], "Fresh start");
+        assert_eq!(carried.len(), 1);
+        assert_eq!(carried[0].length, 11);
+        assert_eq!(
+            carried[0],
+            Run {
+                length: 11,
+                ..Run::default()
+            }
+        );
+        assert!(carry_runs("", &[], "").is_empty());
+        assert_eq!(carry_runs("ab", &[], "abc")[0].length, 3);
+    }
+
+    /// A stray control character in a note (a DEL pasted in with other text) is the text as
+    /// stored; the soundness check reads it so. It read it with the display reader, which
+    /// declines such text, and refused every save of the note as "an attachment referenced
+    /// twice".
+    #[test]
+    fn a_control_character_never_makes_a_sound_edit_unsound() {
+        let original = text_to_base64("Plans\nmove more");
+        let edited = text_to_base64("Plans\nmove\u{7f} more");
+        assert!(attachments_sound_in_base64(&original, &edited));
+    }
+
     #[test]
     fn a_title_in_a_bare_version_or_string_reads() {
         let string = len(2, "Pick up the cake".as_bytes());
@@ -1218,7 +1248,13 @@ pub fn attachments_sound_in_base64(original: &str, edited: &str) -> bool {
     let (Ok(old), Ok(new)) = (B64.decode(original.trim()), B64.decode(edited.trim())) else {
         return false;
     };
-    let Some(text) = text_from_bytes(&new) else {
+    // The text exactly as stored, as the save that built `edited` read it — never the display
+    // reader, which declines text holding a control character: a stray DEL pasted into a note
+    // made every save of it fail this check, reported as an attachment referenced twice.
+    let Some(text) = inflate(&new)
+        .and_then(|plain| field_at(&plain, TEXT_PATH).map(<[u8]>::to_vec))
+        .and_then(|t| String::from_utf8(t).ok())
+    else {
         return false;
     };
     let units: Vec<u16> = text.encode_utf16().collect();
@@ -1592,6 +1628,20 @@ pub fn keep_their_formatting(
 /// of what is just before it.
 #[must_use]
 pub fn carry_runs(from: &str, runs: &[Run], to: &str) -> Vec<Run> {
+    // No formatting to carry (a note emptied, say): `to` is plain text, one run over it. Laid
+    // index by index, an empty `runs` panicked the save that asked, and the note it was for
+    // stayed "Waiting to sync", its edit put back over the editor at every retry.
+    if runs.is_empty() {
+        let length = to.encode_utf16().count() as u64;
+        return if length == 0 {
+            Vec::new()
+        } else {
+            vec![Run {
+                length,
+                ..Run::default()
+            }]
+        };
+    }
     let (at, removed, inserted) = utf16_change(from, to);
     let mut each: Vec<usize> = Vec::new();
     for (i, r) in runs.iter().enumerate() {
@@ -1619,7 +1669,7 @@ pub fn carry_runs(from: &str, runs: &[Run], to: &str) -> Vec<Run> {
                 if *last
                     == Run {
                         length: last.length,
-                        ..runs[i].clone()
+                        ..runs.get(i).cloned().unwrap_or_default()
                     } =>
             {
                 last.length += 1

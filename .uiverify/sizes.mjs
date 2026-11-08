@@ -80,7 +80,7 @@ for (const size of SIZES) {
   });
   const page = await ctx.newPage();
   await page.goto("http://localhost:4173", { waitUntil: "networkidle" });
-  await page.waitForSelector(".sidebar .nav-item", { state: "attached" });
+  await page.waitForSelector("main.content[data-screen]", { state: "attached" });
   for (const screen of SCREENS) {
     await openScreen(page, screen);
     await page.waitForTimeout(350);

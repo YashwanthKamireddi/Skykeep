@@ -1,3 +1,4 @@
+import { openScreen } from "./stub.mjs";
 // A folder upload shows what it is doing from the first moment — the folder being made, then
 // each file as it is found — and every file still waiting or going up can be cancelled, one
 // at a time or all at once, ending as "cancelled" rather than vanishing or failing.
@@ -67,7 +68,7 @@ await ctx.addInitScript(() => {
 
 const page = await ctx.newPage();
 await page.goto("http://localhost:4173", { waitUntil: "networkidle" });
-await page.locator(".nav-item", { hasText: "Drive" }).click();
+await openScreen(page, "Drive");
 await page.waitForSelector(".drive-rows", { state: "attached" });
 await page.waitForTimeout(300);
 let failures = 0;
