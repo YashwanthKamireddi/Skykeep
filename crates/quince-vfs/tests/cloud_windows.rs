@@ -447,6 +447,24 @@ fn explorer_shows_icloud_photos() {
     .expect("the photos folder registers and connects");
     println!("registered {} (shell: {})", id, folder.shell);
 
+    // Who may write the folder's own SyncRootManager key, where a thumbnail provider is named:
+    // printed, the fact the thumbnail provider's registration is built on.
+    let acl = Command::new("powershell")
+        .args([
+            "-NoProfile",
+            "-Command",
+            &format!(
+                r"$k = 'HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\Explorer\SyncRootManager\{id}'; (Get-Acl $k).Access | Format-Table IdentityReference,RegistryRights,AccessControlType,IsInherited -AutoSize | Out-String -Width 220; 'HKCU twin: ' + (Test-Path 'HKCU:\Software\Microsoft\Windows\CurrentVersion\Explorer\SyncRootManager')"
+            ),
+        ])
+        .output()
+        .unwrap();
+    println!(
+        "sync root key access:\n{}{}",
+        String::from_utf8_lossy(&acl.stdout),
+        String::from_utf8_lossy(&acl.stderr)
+    );
+
     let lib = place.join("Library");
     assert_eq!(dir(&place), ["Library"]);
     assert_eq!(dir(&lib), ["IMG_0001.JPG", "IMG_0002.JPG", "IMG_0003.JPG"]);
