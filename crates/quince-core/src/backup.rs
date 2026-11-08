@@ -31,11 +31,14 @@ pub struct Copied {
     pub version: Option<String>,
 }
 
-/// How far a backup is: photos copied of all there are to copy.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Serialize)]
+/// How far a backup is: photos copied of all there are to copy, and their bytes (a Live Photo's
+/// video counted with its still).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, serde::Serialize)]
 pub struct Progress {
     pub copied: i64,
     pub total: i64,
+    pub copied_bytes: i64,
+    pub total_bytes: i64,
 }
 
 fn wanted(hidden: bool) -> &'static str {
@@ -149,18 +152,35 @@ impl Library {
 
     /// Photos copied of all there are to copy.
     pub fn backup_progress(&self, hidden: bool) -> Result<Progress> {
-        let (copied, total) = self.conn.query_row(
+        let (copied, total, total_bytes) = self.conn.query_row(
             &format!(
-                "SELECT COUNT(b.item), COUNT(*) FROM photos
+                "SELECT COUNT(b.item), COUNT(*),
+                        COALESCE(SUM(COALESCE(photos.size, 0) + COALESCE(photos.live_size, 0)), 0)
+                 FROM photos
                  LEFT JOIN backup_files b ON b.source = '{PHOTOS}' AND b.item = photos.id
                                          AND b.part = '{ORIGINAL}'
                  WHERE {}",
                 wanted(hidden)
             ),
             [],
-            |r| Ok((r.get(0)?, r.get(1)?)),
+            |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?)),
         )?;
-        Ok(Progress { copied, total })
+        let copied_bytes = self.conn.query_row(
+            &format!(
+                "SELECT COALESCE(SUM(b.size), 0) FROM backup_files b
+                 JOIN photos ON photos.id = b.item
+                 WHERE b.source = '{PHOTOS}' AND {}",
+                wanted(hidden)
+            ),
+            [],
+            |r| r.get(0),
+        )?;
+        Ok(Progress {
+            copied,
+            total,
+            copied_bytes,
+            total_bytes,
+        })
     }
 }
 
@@ -207,7 +227,9 @@ mod tests {
             lib.backup_progress(false).unwrap(),
             Progress {
                 copied: 0,
-                total: 2
+                total: 2,
+                copied_bytes: 0,
+                total_bytes: 2_000_000
             }
         );
 
@@ -220,7 +242,10 @@ mod tests {
             lib.backup_progress(false).unwrap(),
             Progress {
                 copied: 1,
-                total: 2
+                total: 2,
+                // Every file in the folder counts: `new`'s still and video, and `old`'s video.
+                copied_bytes: 30,
+                total_bytes: 2_000_000
             }
         );
         assert!(lib

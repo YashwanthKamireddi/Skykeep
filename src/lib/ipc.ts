@@ -1449,6 +1449,13 @@ export type BackupStatus = {
   drive: boolean;
   driveRunning: boolean;
   driveNote: string | null;
+  /** Photos' bytes in the backup and of all there are; iCloud Drive's files and bytes. */
+  photosBytes: number;
+  photosBytesTotal: number;
+  driveFiles: number;
+  driveFilesTotal: number;
+  driveBytes: number;
+  driveBytesTotal: number;
 };
 
 export const backupApi = {
@@ -1456,6 +1463,8 @@ export const backupApi = {
   /** On into `folder` (from the folder dialog), or off with `null`; the Hidden album, iCloud Drive. */
   set: (folder: string | null, hidden: boolean, drive: boolean) =>
     invoke<BackupStatus>("backup_set", { folder, hidden, drive }),
+  /** The backup folder, in the file manager. */
+  reveal: () => invoke<void>("backup_reveal"),
 };
 
 export const exportApi = {

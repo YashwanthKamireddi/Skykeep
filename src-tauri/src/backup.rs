@@ -65,6 +65,27 @@ static DRIVE_RUNNING: AtomicBool = AtomicBool::new(false);
 static DRIVE_NOTE: Mutex<Option<String>> = Mutex::new(None);
 /// The pass under way, stopped when backup is turned off.
 static DRIVE_STOP: Mutex<Option<crate::folder_download::Stop>> = Mutex::new(None);
+/// iCloud Drive's pass as it goes: files and bytes in the backup of all there are.
+static DRIVE_NOW: Mutex<DriveCount> = Mutex::new(DriveCount::ZERO);
+/// The last finished pass's count, kept across launches ("files,bytes").
+const DRIVE_LAST_KEY: &str = "backup.drive.last";
+
+#[derive(Clone, Copy, Default)]
+struct DriveCount {
+    files: u64,
+    bytes: u64,
+    files_total: u64,
+    bytes_total: u64,
+}
+
+impl DriveCount {
+    const ZERO: DriveCount = DriveCount {
+        files: 0,
+        bytes: 0,
+        files_total: 0,
+        bytes_total: 0,
+    };
+}
 
 #[derive(Clone, serde::Serialize)]
 #[serde(rename_all = "camelCase")]
@@ -83,6 +104,15 @@ pub struct Status {
     drive_running: bool,
     /// What iCloud Drive's last pass couldn't copy, said in words.
     drive_note: Option<String>,
+    /// Photos' bytes in the backup, and of all there are.
+    photos_bytes: i64,
+    photos_bytes_total: i64,
+    /// iCloud Drive: files and bytes in the backup, of all there are (as it goes, or as the
+    /// last pass finished).
+    drive_files: u64,
+    drive_files_total: u64,
+    drive_bytes: u64,
+    drive_bytes_total: u64,
 }
 
 struct Settings {
@@ -115,13 +145,34 @@ async fn status(app: &AppHandle) -> Status {
         hidden,
         drive,
     } = settings(app).await;
-    let Progress { copied, total } = {
+    let Progress {
+        copied,
+        total,
+        copied_bytes,
+        total_bytes,
+    } = {
         let data = app.state::<Data>();
         let library = data.0.lock().await;
-        library.backup_progress(hidden).unwrap_or(Progress {
-            copied: 0,
-            total: 0,
-        })
+        library.backup_progress(hidden).unwrap_or_default()
+    };
+    let drive_count = if DRIVE_RUNNING.load(Ordering::SeqCst) {
+        DRIVE_NOW.lock().map(|c| *c).unwrap_or_default()
+    } else {
+        let data = app.state::<Data>();
+        let library = data.0.lock().await;
+        let last = library
+            .state(DRIVE_LAST_KEY)
+            .ok()
+            .flatten()
+            .unwrap_or_default();
+        let mut parts = last.split(',').map(|p| p.parse::<u64>().unwrap_or(0));
+        let (files, bytes) = (parts.next().unwrap_or(0), parts.next().unwrap_or(0));
+        DriveCount {
+            files,
+            bytes,
+            files_total: files,
+            bytes_total: bytes,
+        }
     };
     Status {
         folder: folder.map(|f| f.display().to_string()),
@@ -134,7 +185,25 @@ async fn status(app: &AppHandle) -> Status {
         drive,
         drive_running: DRIVE_RUNNING.load(Ordering::SeqCst),
         drive_note: DRIVE_NOTE.lock().ok().and_then(|n| n.clone()),
+        photos_bytes: copied_bytes,
+        photos_bytes_total: total_bytes,
+        drive_files: drive_count.files,
+        drive_files_total: drive_count.files_total,
+        drive_bytes: drive_count.bytes,
+        drive_bytes_total: drive_count.bytes_total,
     }
+}
+
+/// The backup folder, shown in the file manager.
+#[tauri::command]
+pub async fn backup_reveal(app: AppHandle) -> Result<(), String> {
+    use tauri_plugin_opener::OpenerExt;
+    let folder = settings(&app).await.folder.filter(|f| f.is_dir()).ok_or(
+        "The backup folder isn\u{2019}t there. Connect its drive, or choose another folder.",
+    )?;
+    app.opener()
+        .reveal_item_in_dir(&folder)
+        .map_err(|e| e.to_string())
 }
 
 #[tauri::command]
@@ -307,8 +376,38 @@ async fn drive_pass(app: &AppHandle, folder: &Path) -> Result<(), String> {
     if let Ok(mut s) = DRIVE_STOP.lock() {
         *s = Some(stop.clone());
     }
+    if let Ok(mut c) = DRIVE_NOW.lock() {
+        *c = DriveCount::default();
+    }
     DRIVE_RUNNING.store(true, Ordering::SeqCst);
     app.emit(PROGRESS, status(app).await).ok();
+    // The window told how it goes about once a second, never a message per file.
+    let ticker = {
+        let app = app.clone();
+        tauri::async_runtime::spawn(async move {
+            while DRIVE_RUNNING.load(Ordering::SeqCst) {
+                tokio::time::sleep(Duration::from_secs(1)).await;
+                app.emit(PROGRESS, status(&app).await).ok();
+            }
+        })
+    };
+    // The engine's own reports, counted: the tree's size once known, each file as it is whole
+    // in the backup (one already there and unchanged included).
+    let counting: fd::Emit = std::sync::Arc::new(|e: fd::DownloadEvent| {
+        if let Ok(mut c) = DRIVE_NOW.lock() {
+            match e.state {
+                "found" | "planned" => {
+                    c.files_total = e.sent;
+                    c.bytes_total = e.total;
+                }
+                "done" if !e.folder => {
+                    c.files += 1;
+                    c.bytes += e.total;
+                }
+                _ => {}
+            }
+        }
+    });
     let request = fd::Request {
         batch: "backup",
         title: "iCloud Drive",
@@ -320,14 +419,22 @@ async fn drive_pass(app: &AppHandle, folder: &Path) -> Result<(), String> {
             earlier: &earlier,
         }),
     };
-    let report = fd::run(&drive, request, std::sync::Arc::new(|_| {}), &stop).await;
+    let report = fd::run(&drive, request, counting, &stop).await;
     DRIVE_RUNNING.store(false, Ordering::SeqCst);
+    ticker.abort();
     if let Ok(mut s) = DRIVE_STOP.lock() {
         *s = None;
     }
     let report = report?;
     if let Some(problem) = report.problem {
         return Err(problem);
+    }
+    // Kept for the next launch: what the backup holds of iCloud Drive.
+    let done = DRIVE_NOW.lock().map(|c| *c).unwrap_or_default();
+    {
+        let data = app.state::<Data>();
+        let mut library = data.0.lock().await;
+        let _ = library.set_state(DRIVE_LAST_KEY, &format!("{},{}", done.files, done.bytes));
     }
     let missed = report.failed.len() + report.more_failed;
     if let Ok(mut n) = DRIVE_NOTE.lock() {

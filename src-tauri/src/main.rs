@@ -7341,6 +7341,7 @@ fn main() {
             intake::intake_pending,
             backup::backup_status,
             backup::backup_set,
+            backup::backup_reveal,
             intake::intake_capture_close,
             intake::intake_open_main,
             login::login_item_status,

@@ -288,7 +288,7 @@ function BackupRow({ onError }: { onError: (m: string) => void }) {
   const set = (folder: string | null, hidden: boolean, drive = state?.drive ?? true) =>
     backupApi.set(folder, hidden, drive).then(setState, (e) => onError(messageOf(e)));
   const choose = async () => {
-    const picked = await pickOpen({ directory: true, title: "Choose where to back up your photos" }).catch((e) => {
+    const picked = await pickOpen({ directory: true, title: "Choose where to back up iCloud" }).catch((e) => {
       onError(messageOf(e));
       return null;
     });
@@ -300,55 +300,71 @@ function BackupRow({ onError }: { onError: (m: string) => void }) {
     else void set(state.folder, !state.hidden);
   };
   const on = Boolean(state?.folder);
-  const counted = state && state.total > 0 ? `${state.copied.toLocaleString()} of ${state.total.toLocaleString()}` : "";
-  const photosDone = state ? state.copied >= state.total : false;
-  const hint = !state
+  const photosCopying = Boolean(state && state.running && state.copied < state.total);
+  const photosLine = !state
     ? ""
-    : state.problem
-      ? state.problem
-      : !on
-        ? "Every photo, video and iCloud Drive file as the original, kept up to date in a folder you choose"
-        : state.running && !photosDone
-          ? `Copying photos · ${counted}`
-          : state.driveRunning
-            ? "Copying iCloud Drive"
-            : state.driveNote
-              ? state.driveNote
-              : `${state.total.toLocaleString()} photos${state.drive ? " and iCloud Drive" : ""} backed up in ${folderName(state.folder!)}`;
+    : photosCopying
+      ? `${state.copied.toLocaleString()} of ${state.total.toLocaleString()} · ${size(state.photosBytes)} of ${size(state.photosBytesTotal)}`
+      : `${state.total.toLocaleString()} ${state.total === 1 ? "photo" : "photos"} · ${size(state.photosBytesTotal)}`;
+  const driveLine = !state
+    ? ""
+    : !state.drive
+      ? "Not in the backup"
+      : state.driveRunning
+        ? state.driveFilesTotal > 0
+          ? `${state.driveFiles.toLocaleString()} of ${state.driveFilesTotal.toLocaleString()} files · ${size(state.driveBytes)} of ${size(state.driveBytesTotal)}`
+          : "Reading iCloud Drive"
+        : state.driveFiles > 0
+          ? `${state.driveFiles.toLocaleString()} files · ${size(state.driveBytes)}`
+          : "Every file, with earlier versions of changed files kept";
   return (
-    <div className="settings-row is-stacked" aria-label="Backup" role="group">
+    <div className="settings-row is-stacked backup" aria-label="Backup" role="group">
       <div className="settings-row-line" style={{ alignItems: "center" }}>
         <span className="settings-label settings-stack">
           Back Up iCloud
-          <span
-            className={`settings-hint${state?.problem ? " is-trouble" : ""}`}
-            aria-live="polite"
-            title={state?.folder ?? undefined}
-          >
-            {hint}
+          <span className={`settings-hint${state?.problem ? " is-trouble" : ""}`} aria-live="polite" title={state?.folder ?? undefined}>
+            {!state ? "" : state.problem ? state.problem : on ? (
+              <>
+                In {folderName(state.folder!)} ·{" "}
+                <button className="link" onClick={() => void backupApi.reveal().catch((e) => onError(messageOf(e)))}>
+                  Show in Folder
+                </button>
+              </>
+            ) : (
+              "Originals, kept up to date in a folder or drive you choose"
+            )}
           </span>
         </span>
         <button className="quiet" onClick={() => void choose()} disabled={!state}>
           {on ? "Change Folder" : "Choose Folder"}
         </button>
         {on && (
-          <button
-            className="switch"
-            role="switch"
-            aria-checked
-            aria-label="Back Up iCloud"
-            onClick={() => void set(null, state?.hidden ?? false)}
-          >
+          <button className="switch" role="switch" aria-checked aria-label="Back Up iCloud" onClick={() => void set(null, state?.hidden ?? false)}>
             <span className="switch-knob" />
           </button>
         )}
       </div>
-      {on && state?.running && !photosDone && state.total > 0 && (
-        <Progress value={state.copied / state.total} label="Backup progress" />
-      )}
-      <div className="settings-row-line" style={{ alignItems: "center" }}>
+      <div className="backup-source" aria-label="Photos in the backup" role="group">
+        <AppIcon app="photos" />
         <span className="settings-label settings-stack">
-          <span className="settings-hint">Include iCloud Drive · earlier versions of changed files kept</span>
+          Photos
+          <span className="settings-hint" aria-live="polite">{photosLine}</span>
+        </span>
+      </div>
+      {on && photosCopying && state && state.total > 0 && <Progress value={state.copied / state.total} label="Photos backup progress" />}
+      <div className="settings-row-line backup-option" style={{ alignItems: "center" }}>
+        <span className="settings-hint">Include the Hidden album</span>
+        <button className="switch" role="switch" aria-checked={state?.hidden ?? false} aria-label="Include the Hidden album" disabled={!state} onClick={hidden}>
+          <span className="switch-knob" />
+        </button>
+      </div>
+      <div className="backup-source" aria-label="iCloud Drive in the backup" role="group">
+        <AppIcon app="drivews" />
+        <span className="settings-label settings-stack">
+          iCloud Drive
+          <span className={`settings-hint${state?.driveNote ? " is-trouble" : ""}`} aria-live="polite">
+            {state?.driveNote ?? driveLine}
+          </span>
         </span>
         <button
           className="switch"
@@ -361,23 +377,9 @@ function BackupRow({ onError }: { onError: (m: string) => void }) {
           <span className="switch-knob" />
         </button>
       </div>
-      <div className="settings-row-line" style={{ alignItems: "center" }}>
-        <span className="settings-label settings-stack">
-          <span className="settings-hint">
-            {state && !state.hidden && state.hiddenLocked ? "Include the Hidden album · asks to unlock it first" : "Include the Hidden album"}
-          </span>
-        </span>
-        <button
-          className="switch"
-          role="switch"
-          aria-checked={state?.hidden ?? false}
-          aria-label="Include the Hidden album"
-          disabled={!state}
-          onClick={hidden}
-        >
-          <span className="switch-knob" />
-        </button>
-      </div>
+      {on && state?.driveRunning && state.driveFilesTotal > 0 && (
+        <Progress value={state.driveFiles / state.driveFilesTotal} label="iCloud Drive backup progress" />
+      )}
       {unlocking && (
         <UnlockSheet
           onCancel={() => setUnlocking(false)}

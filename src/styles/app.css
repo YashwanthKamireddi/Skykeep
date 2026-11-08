@@ -1710,6 +1710,13 @@
 .settings-row + .settings-row { border-top: var(--hairline) solid color-mix(in srgb, var(--text) 7%, transparent); }
 .settings-row.is-stacked { flex-direction: column; align-items: stretch; gap: 8px; padding: 12px 14px; }
 .settings-row-line { display: flex; justify-content: space-between; gap: 10px; }
+/* Back Up iCloud: each source on a line of its own, its app's mark, numbers and switch; the
+   options under a source indented to its label, so what belongs to what reads at a glance. */
+.backup .backup-source { display: flex; align-items: center; gap: 10px; padding-top: 8px;
+  border-top: var(--hairline) solid color-mix(in srgb, var(--text) 7%, transparent); }
+.backup .backup-source .settings-label { flex: 1; }
+.backup .backup-option { padding-left: 32px; align-items: center; }
+.backup .progress { margin-left: 32px; }
 .settings-label { flex: 1; min-width: 0; }
 .settings-hint { color: var(--text-2); font-size: var(--t-11); line-height: 1.4; }
 .settings-value { color: var(--text-2); font-variant-numeric: tabular-nums; text-align: right; }
