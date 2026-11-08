@@ -72,46 +72,55 @@ try {
   [xml]$manifest | Out-Null
   Set-Content (Join-Path $stage "AppxManifest.xml") $manifest -Encoding utf8NoBOM
 
-  # 3. The images: the icon centred on a transparent canvas, at `share` of its shorter side.
+  # 3. The images: each icon centred on a transparent canvas, at `share` of its shorter side.
   Add-Type -AssemblyName System.Drawing
-  $source = [System.Drawing.Image]::FromFile($icon)
   $assets = Join-Path $stage "Assets"
-  New-Item -ItemType Directory $assets | Out-Null
-  function Draw([string]$file, [int]$w, [int]$h, [double]$share) {
-    $bmp = New-Object System.Drawing.Bitmap $w, $h, ([System.Drawing.Imaging.PixelFormat]::Format32bppArgb)
-    $g = [System.Drawing.Graphics]::FromImage($bmp)
-    $g.InterpolationMode = [System.Drawing.Drawing2D.InterpolationMode]::HighQualityBicubic
-    $g.SmoothingMode = [System.Drawing.Drawing2D.SmoothingMode]::HighQuality
-    $g.PixelOffsetMode = [System.Drawing.Drawing2D.PixelOffsetMode]::HighQuality
-    $g.Clear([System.Drawing.Color]::Transparent)
-    $side = [math]::Round([math]::Min($w, $h) * $share)
-    $g.DrawImage($source, [int](($w - $side) / 2), [int](($h - $side) / 2), [int]$side, [int]$side)
-    $g.Dispose()
-    $bmp.Save((Join-Path $assets $file), [System.Drawing.Imaging.ImageFormat]::Png)
-    $bmp.Dispose()
-  }
-  $scales = 100, 125, 150, 200, 400
-  # name, width, height at scale 100, and the icon's share of the shorter side.
-  $tiles = @(
-    @("Square44x44Logo", 44, 44, 1.0),
-    @("Square71x71Logo", 71, 71, 0.75),
-    @("Square150x150Logo", 150, 150, 0.66),
-    @("Wide310x150Logo", 310, 150, 0.66),
-    @("Square310x310Logo", 310, 310, 0.6),
-    @("StoreLogo", 50, 50, 1.0)
-  )
-  foreach ($t in $tiles) {
-    foreach ($s in $scales) {
-      Draw "$($t[0]).scale-$s.png" ([math]::Round($t[1] * $s / 100)) ([math]::Round($t[2] * $s / 100)) $t[3]
+  # Every image of one icon into `dir`: Skykeep's own into Assets, and each app's own into
+  # Assets\<App>, named in the manifest by that app's entry.
+  function Images([string]$from, [string]$dir) {
+    New-Item -ItemType Directory $dir -Force | Out-Null
+    $source = [System.Drawing.Image]::FromFile($from)
+    function Draw([string]$file, [int]$w, [int]$h, [double]$share) {
+      $bmp = New-Object System.Drawing.Bitmap $w, $h, ([System.Drawing.Imaging.PixelFormat]::Format32bppArgb)
+      $g = [System.Drawing.Graphics]::FromImage($bmp)
+      $g.InterpolationMode = [System.Drawing.Drawing2D.InterpolationMode]::HighQualityBicubic
+      $g.SmoothingMode = [System.Drawing.Drawing2D.SmoothingMode]::HighQuality
+      $g.PixelOffsetMode = [System.Drawing.Drawing2D.PixelOffsetMode]::HighQuality
+      $g.Clear([System.Drawing.Color]::Transparent)
+      $side = [math]::Round([math]::Min($w, $h) * $share)
+      $g.DrawImage($source, [int](($w - $side) / 2), [int](($h - $side) / 2), [int]$side, [int]$side)
+      $g.Dispose()
+      $bmp.Save((Join-Path $dir $file), [System.Drawing.Imaging.ImageFormat]::Png)
+      $bmp.Dispose()
     }
-  }
-  # The taskbar's, the Start menu list's and Explorer's: each pixel size, on no plate.
-  foreach ($size in 16, 20, 24, 30, 32, 36, 40, 48, 60, 64, 72, 80, 96, 256) {
-    foreach ($form in "", "_altform-unplated", "_altform-lightunplated") {
-      Draw "Square44x44Logo.targetsize-$size$form.png" $size $size 1.0
+    $scales = 100, 125, 150, 200, 400
+    # name, width, height at scale 100, and the icon's share of the shorter side.
+    $tiles = @(
+      @("Square44x44Logo", 44, 44, 1.0),
+      @("Square71x71Logo", 71, 71, 0.75),
+      @("Square150x150Logo", 150, 150, 0.66),
+      @("Wide310x150Logo", 310, 150, 0.66),
+      @("Square310x310Logo", 310, 310, 0.6),
+      @("StoreLogo", 50, 50, 1.0)
+    )
+    foreach ($t in $tiles) {
+      foreach ($s in $scales) {
+        Draw "$($t[0]).scale-$s.png" ([math]::Round($t[1] * $s / 100)) ([math]::Round($t[2] * $s / 100)) $t[3]
+      }
     }
+    # The taskbar's, the Start menu list's and Explorer's: each pixel size, on no plate.
+    foreach ($size in 16, 20, 24, 30, 32, 36, 40, 48, 60, 64, 72, 80, 96, 256) {
+      foreach ($form in "", "_altform-unplated", "_altform-lightunplated") {
+        Draw "Square44x44Logo.targetsize-$size$form.png" $size $size 1.0
+      }
+    }
+    $source.Dispose()
   }
-  $source.Dispose()
+  Images $icon $assets
+  foreach ($app in "Notes", "Reminders", "Calendar", "Contacts", "Drive", "Photos") {
+    $from = Join-Path $here "..\..\icons\apps\$($app.ToLower())-1024.png" | Resolve-Path
+    Images $from (Join-Path $assets $app)
+  }
   "images: $((Get-ChildItem $assets).Count) files"
 
   $pri = Join-Path ([System.IO.Path]::GetTempPath()) "skykeep-priconfig-$([guid]::NewGuid()).xml"

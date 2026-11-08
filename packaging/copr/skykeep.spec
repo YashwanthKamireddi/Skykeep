@@ -94,6 +94,11 @@ install -Dm644 %{appid}.desktop %{buildroot}%{_datadir}/applications/%{appid}.de
 for entry in packaging/apps/*.desktop; do
   install -Dm644 "$entry" %{buildroot}%{_datadir}/applications/$(basename "$entry")
 done
+# Each app's own icon (packaging/icons/apps), named for its launcher.
+for app in Notes Reminders Calendar Contacts Drive Photos; do
+  install -Dm644 packaging/icons/apps/${app,,}.svg \
+    %{buildroot}%{_datadir}/icons/hicolor/scalable/apps/%{appid}.$app.svg
+done
 
 for size in 16x16:16x16 24x24:24x24 32x32:32x32 48x48:48x48 64x64:64x64 128x128:128x128 \
             256x256:128x128@2x 512x512:icon; do
@@ -127,6 +132,7 @@ appstream-util validate-relax --nonet %{buildroot}%{_metainfodir}/%{appid}.metai
 %{_bindir}/skykeep
 %{_datadir}/applications/%{appid}*.desktop
 %{_datadir}/icons/hicolor/*/apps/%{appid}.png
+%{_datadir}/icons/hicolor/scalable/apps/%{appid}.*.svg
 %{_metainfodir}/%{appid}.metainfo.xml
 %{_datadir}/gnome-shell/search-providers/%{appid}.search-provider.ini
 %{_datadir}/dbus-1/services/%{appid}.SearchProvider.service

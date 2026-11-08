@@ -12,30 +12,37 @@
 -->
 <Wix xmlns="http://schemas.microsoft.com/wix/2006/wi">
   <Fragment>
+    <!-- Each app's own icon on its shortcut (packaging/icons/apps), found beside this file. -->
+    <Icon Id="SkykeepNotesIcon" SourceFile="$(sys.SOURCEFILEDIR)..\icons\apps\notes.ico" />
+    <Icon Id="SkykeepRemindersIcon" SourceFile="$(sys.SOURCEFILEDIR)..\icons\apps\reminders.ico" />
+    <Icon Id="SkykeepCalendarIcon" SourceFile="$(sys.SOURCEFILEDIR)..\icons\apps\calendar.ico" />
+    <Icon Id="SkykeepContactsIcon" SourceFile="$(sys.SOURCEFILEDIR)..\icons\apps\contacts.ico" />
+    <Icon Id="SkykeepDriveIcon" SourceFile="$(sys.SOURCEFILEDIR)..\icons\apps\drive.ico" />
+    <Icon Id="SkykeepPhotosIcon" SourceFile="$(sys.SOURCEFILEDIR)..\icons\apps\photos.ico" />
     <DirectoryRef Id="ApplicationProgramsFolder">
       <Component Id="SkykeepAppShortcuts" Guid="*">
         <Shortcut Id="SkykeepNotesShortcut" Name="Skykeep Notes" Description="Notes from iCloud, on this computer"
-                  Target="[!Path]" Arguments="--app notes" Icon="ProductIcon" WorkingDirectory="INSTALLDIR">
+                  Target="[!Path]" Arguments="--app notes" Icon="SkykeepNotesIcon" WorkingDirectory="INSTALLDIR">
           <ShortcutProperty Key="System.AppUserModel.ID" Value="io.github.yashwanthkamireddi.Skykeep.Notes"/>
         </Shortcut>
         <Shortcut Id="SkykeepRemindersShortcut" Name="Skykeep Reminders" Description="Reminders from iCloud, on this computer"
-                  Target="[!Path]" Arguments="--app reminders" Icon="ProductIcon" WorkingDirectory="INSTALLDIR">
+                  Target="[!Path]" Arguments="--app reminders" Icon="SkykeepRemindersIcon" WorkingDirectory="INSTALLDIR">
           <ShortcutProperty Key="System.AppUserModel.ID" Value="io.github.yashwanthkamireddi.Skykeep.Reminders"/>
         </Shortcut>
         <Shortcut Id="SkykeepCalendarShortcut" Name="Skykeep Calendar" Description="Your iCloud calendars, on this computer"
-                  Target="[!Path]" Arguments="--app calendar" Icon="ProductIcon" WorkingDirectory="INSTALLDIR">
+                  Target="[!Path]" Arguments="--app calendar" Icon="SkykeepCalendarIcon" WorkingDirectory="INSTALLDIR">
           <ShortcutProperty Key="System.AppUserModel.ID" Value="io.github.yashwanthkamireddi.Skykeep.Calendar"/>
         </Shortcut>
         <Shortcut Id="SkykeepContactsShortcut" Name="Skykeep Contacts" Description="Your iCloud contacts, on this computer"
-                  Target="[!Path]" Arguments="--app contacts" Icon="ProductIcon" WorkingDirectory="INSTALLDIR">
+                  Target="[!Path]" Arguments="--app contacts" Icon="SkykeepContactsIcon" WorkingDirectory="INSTALLDIR">
           <ShortcutProperty Key="System.AppUserModel.ID" Value="io.github.yashwanthkamireddi.Skykeep.Contacts"/>
         </Shortcut>
         <Shortcut Id="SkykeepDriveShortcut" Name="Skykeep Drive" Description="iCloud Drive, on this computer"
-                  Target="[!Path]" Arguments="--app drive" Icon="ProductIcon" WorkingDirectory="INSTALLDIR">
+                  Target="[!Path]" Arguments="--app drive" Icon="SkykeepDriveIcon" WorkingDirectory="INSTALLDIR">
           <ShortcutProperty Key="System.AppUserModel.ID" Value="io.github.yashwanthkamireddi.Skykeep.Drive"/>
         </Shortcut>
         <Shortcut Id="SkykeepPhotosShortcut" Name="Skykeep Photos" Description="iCloud Photos, on this computer"
-                  Target="[!Path]" Arguments="--app photos" Icon="ProductIcon" WorkingDirectory="INSTALLDIR">
+                  Target="[!Path]" Arguments="--app photos" Icon="SkykeepPhotosIcon" WorkingDirectory="INSTALLDIR">
           <ShortcutProperty Key="System.AppUserModel.ID" Value="io.github.yashwanthkamireddi.Skykeep.Photos"/>
         </Shortcut>
         <RegistryValue Root="HKCU" Key="Software\Yashwanth Kamireddi\Skykeep" Name="App Shortcuts" Type="integer" Value="1" KeyPath="yes"/>

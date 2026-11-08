@@ -123,43 +123,43 @@
 
     <Application Id="io.github.yashwanthkamireddi.Skykeep.Notes" Executable="skykeep.exe" EntryPoint="Windows.FullTrustApplication" uap10:Parameters="--app notes">
       <uap:VisualElements DisplayName="Skykeep Notes" Description="Notes from iCloud, on this computer" BackgroundColor="transparent"
-        Square150x150Logo="Assets\Square150x150Logo.png" Square44x44Logo="Assets\Square44x44Logo.png">
-        <uap:DefaultTile Wide310x150Logo="Assets\Wide310x150Logo.png" Square71x71Logo="Assets\Square71x71Logo.png" Square310x310Logo="Assets\Square310x310Logo.png" />
+        Square150x150Logo="Assets\Notes\Square150x150Logo.png" Square44x44Logo="Assets\Notes\Square44x44Logo.png">
+        <uap:DefaultTile Wide310x150Logo="Assets\Notes\Wide310x150Logo.png" Square71x71Logo="Assets\Notes\Square71x71Logo.png" Square310x310Logo="Assets\Notes\Square310x310Logo.png" />
       </uap:VisualElements>
     </Application>
 
     <Application Id="io.github.yashwanthkamireddi.Skykeep.Reminders" Executable="skykeep.exe" EntryPoint="Windows.FullTrustApplication" uap10:Parameters="--app reminders">
       <uap:VisualElements DisplayName="Skykeep Reminders" Description="Reminders from iCloud, on this computer" BackgroundColor="transparent"
-        Square150x150Logo="Assets\Square150x150Logo.png" Square44x44Logo="Assets\Square44x44Logo.png">
-        <uap:DefaultTile Wide310x150Logo="Assets\Wide310x150Logo.png" Square71x71Logo="Assets\Square71x71Logo.png" Square310x310Logo="Assets\Square310x310Logo.png" />
+        Square150x150Logo="Assets\Reminders\Square150x150Logo.png" Square44x44Logo="Assets\Reminders\Square44x44Logo.png">
+        <uap:DefaultTile Wide310x150Logo="Assets\Reminders\Wide310x150Logo.png" Square71x71Logo="Assets\Reminders\Square71x71Logo.png" Square310x310Logo="Assets\Reminders\Square310x310Logo.png" />
       </uap:VisualElements>
     </Application>
 
     <Application Id="io.github.yashwanthkamireddi.Skykeep.Calendar" Executable="skykeep.exe" EntryPoint="Windows.FullTrustApplication" uap10:Parameters="--app calendar">
       <uap:VisualElements DisplayName="Skykeep Calendar" Description="Your iCloud calendars, on this computer" BackgroundColor="transparent"
-        Square150x150Logo="Assets\Square150x150Logo.png" Square44x44Logo="Assets\Square44x44Logo.png">
-        <uap:DefaultTile Wide310x150Logo="Assets\Wide310x150Logo.png" Square71x71Logo="Assets\Square71x71Logo.png" Square310x310Logo="Assets\Square310x310Logo.png" />
+        Square150x150Logo="Assets\Calendar\Square150x150Logo.png" Square44x44Logo="Assets\Calendar\Square44x44Logo.png">
+        <uap:DefaultTile Wide310x150Logo="Assets\Calendar\Wide310x150Logo.png" Square71x71Logo="Assets\Calendar\Square71x71Logo.png" Square310x310Logo="Assets\Calendar\Square310x310Logo.png" />
       </uap:VisualElements>
     </Application>
 
     <Application Id="io.github.yashwanthkamireddi.Skykeep.Contacts" Executable="skykeep.exe" EntryPoint="Windows.FullTrustApplication" uap10:Parameters="--app contacts">
       <uap:VisualElements DisplayName="Skykeep Contacts" Description="Your iCloud contacts, on this computer" BackgroundColor="transparent"
-        Square150x150Logo="Assets\Square150x150Logo.png" Square44x44Logo="Assets\Square44x44Logo.png">
-        <uap:DefaultTile Wide310x150Logo="Assets\Wide310x150Logo.png" Square71x71Logo="Assets\Square71x71Logo.png" Square310x310Logo="Assets\Square310x310Logo.png" />
+        Square150x150Logo="Assets\Contacts\Square150x150Logo.png" Square44x44Logo="Assets\Contacts\Square44x44Logo.png">
+        <uap:DefaultTile Wide310x150Logo="Assets\Contacts\Wide310x150Logo.png" Square71x71Logo="Assets\Contacts\Square71x71Logo.png" Square310x310Logo="Assets\Contacts\Square310x310Logo.png" />
       </uap:VisualElements>
     </Application>
 
     <Application Id="io.github.yashwanthkamireddi.Skykeep.Drive" Executable="skykeep.exe" EntryPoint="Windows.FullTrustApplication" uap10:Parameters="--app drive">
       <uap:VisualElements DisplayName="Skykeep Drive" Description="iCloud Drive, on this computer" BackgroundColor="transparent"
-        Square150x150Logo="Assets\Square150x150Logo.png" Square44x44Logo="Assets\Square44x44Logo.png">
-        <uap:DefaultTile Wide310x150Logo="Assets\Wide310x150Logo.png" Square71x71Logo="Assets\Square71x71Logo.png" Square310x310Logo="Assets\Square310x310Logo.png" />
+        Square150x150Logo="Assets\Drive\Square150x150Logo.png" Square44x44Logo="Assets\Drive\Square44x44Logo.png">
+        <uap:DefaultTile Wide310x150Logo="Assets\Drive\Wide310x150Logo.png" Square71x71Logo="Assets\Drive\Square71x71Logo.png" Square310x310Logo="Assets\Drive\Square310x310Logo.png" />
       </uap:VisualElements>
     </Application>
 
     <Application Id="io.github.yashwanthkamireddi.Skykeep.Photos" Executable="skykeep.exe" EntryPoint="Windows.FullTrustApplication" uap10:Parameters="--app photos">
       <uap:VisualElements DisplayName="Skykeep Photos" Description="iCloud Photos, on this computer" BackgroundColor="transparent"
-        Square150x150Logo="Assets\Square150x150Logo.png" Square44x44Logo="Assets\Square44x44Logo.png">
-        <uap:DefaultTile Wide310x150Logo="Assets\Wide310x150Logo.png" Square71x71Logo="Assets\Square71x71Logo.png" Square310x310Logo="Assets\Square310x310Logo.png" />
+        Square150x150Logo="Assets\Photos\Square150x150Logo.png" Square44x44Logo="Assets\Photos\Square44x44Logo.png">
+        <uap:DefaultTile Wide310x150Logo="Assets\Photos\Wide310x150Logo.png" Square71x71Logo="Assets\Photos\Square71x71Logo.png" Square310x310Logo="Assets\Photos\Square310x310Logo.png" />
       </uap:VisualElements>
     </Application>
   </Applications>

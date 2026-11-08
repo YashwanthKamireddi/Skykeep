@@ -97,7 +97,7 @@ modules:
       - desktop-file-validate ${FLATPAK_ID}.desktop
       - install -Dm644 ${FLATPAK_ID}.desktop ${FLATPAK_DEST}/share/applications/${FLATPAK_ID}.desktop
 
-      # The six per-app entries, already named under this app ID (Flatpak exports only desktop
+      # The six per-app entries and Send to iPhone, already named under this app ID (Flatpak exports only desktop
       # files whose names start with it). Exec stays `skykeep --app …`; flatpak rewrites it to
       # `flatpak run --command=skykeep io.github.yashwanthkamireddi.Skykeep --app …` when it
       # exports the file.
@@ -106,7 +106,12 @@ modules:
           desktop-file-validate "$entry"
           install -Dm644 "$entry" "${FLATPAK_DEST}/share/applications/${entry##*/}"
         done
-        test "$(ls ${FLATPAK_DEST}/share/applications/${FLATPAK_ID}*.desktop | wc -l)" -eq 7
+        test "$(ls ${FLATPAK_DEST}/share/applications/${FLATPAK_ID}*.desktop | wc -l)" -eq 8
+        # Each app's own icon, named under this app ID so Flatpak exports it with its launcher.
+        for app in Notes Reminders Calendar Contacts Drive Photos; do
+          install -Dm644 packaging/icons/apps/${app,,}.svg \
+            "${FLATPAK_DEST}/share/icons/hicolor/scalable/apps/${FLATPAK_ID}.$app.svg"
+        done
 
       - install -Dm644 ${FLATPAK_ID}.metainfo.xml ${FLATPAK_DEST}/share/metainfo/${FLATPAK_ID}.metainfo.xml
 

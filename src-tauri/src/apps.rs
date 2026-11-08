@@ -188,6 +188,22 @@ pub fn open(app: &AppHandle, key: &str) {
     make(app, key, "");
 }
 
+/// Each app's own icon (packaging/icons/apps, made by its make.py), for its window: the
+/// taskbar button and Alt-Tab on Windows and X11. Wayland docks take the launcher's, which
+/// names the same icon.
+fn icon_of(key: &str) -> Option<tauri::image::Image<'static>> {
+    let bytes: &'static [u8] = match key {
+        "notes" => include_bytes!("../../packaging/icons/apps/notes-256.png"),
+        "reminders" => include_bytes!("../../packaging/icons/apps/reminders-256.png"),
+        "calendar" => include_bytes!("../../packaging/icons/apps/calendar-256.png"),
+        "contacts" => include_bytes!("../../packaging/icons/apps/contacts-256.png"),
+        "drivews" => include_bytes!("../../packaging/icons/apps/drive-256.png"),
+        "photos" => include_bytes!("../../packaging/icons/apps/photos-256.png"),
+        _ => return None,
+    };
+    tauri::image::Image::from_bytes(bytes).ok()
+}
+
 /// The app's window made, hidden until drawn; `asking` is added to its address.
 fn make(app: &AppHandle, key: &str, asking: &str) {
     let Some((key, name)) = APPS.iter().find(|(k, _)| *k == key).copied() else {
@@ -213,6 +229,10 @@ fn make(app: &AppHandle, key: &str, asking: &str) {
             return;
         }
     };
+    // Its own icon, set on the window made: an icon that could not be set never costs the window.
+    if let Some(icon) = icon_of(key) {
+        let _ = window.set_icon(icon);
+    }
     if crate::tiling_compositor() {
         window.set_decorations(false).ok();
     }
@@ -339,6 +359,14 @@ pub fn app_open(key: String, app: AppHandle) {
 
 #[cfg(test)]
 mod tests {
+
+    #[test]
+    fn every_app_has_its_own_icon() {
+        for (key, _) in super::APPS {
+            let icon = super::icon_of(key).unwrap_or_else(|| panic!("{key} has no icon"));
+            assert_eq!((icon.width(), icon.height()), (256, 256), "{key}");
+        }
+    }
     use super::*;
 
     fn args(a: &[&str]) -> Vec<String> {

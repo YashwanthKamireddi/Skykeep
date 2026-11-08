@@ -104,5 +104,10 @@ parts:
       craftctl default
       # Each launcher's icon, from inside the snap.
       for f in usr/share/applications/*.desktop; do
-        sed -i -E 's|^Icon=.*|Icon=${SNAP}/usr/share/icons/hicolor/512x512/apps/skykeep.png|' "$f"
+        icon=$(sed -n 's/^Icon=//p' "$f")
+        if [ -f "usr/share/icons/hicolor/scalable/apps/$icon.svg" ]; then
+          sed -i -E "s|^Icon=.*|Icon=\${SNAP}/usr/share/icons/hicolor/scalable/apps/$icon.svg|" "$f"
+        else
+          sed -i -E 's|^Icon=.*|Icon=${SNAP}/usr/share/icons/hicolor/512x512/apps/skykeep.png|' "$f"
+        fi
       done

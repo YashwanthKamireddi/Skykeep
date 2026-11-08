@@ -49,10 +49,18 @@
   !endif
 !macroend
 
-; One app's shortcut, in $R9: "Skykeep Notes", `skykeep --app notes`, Skykeep's icon, its own ID.
+; One app's shortcut, in $R9: "Skykeep Notes", `skykeep --app notes`, its own icon (installed in
+; icons\ beside the program: packaging/windows/bundle-windows.json), its own ID.
 !macro SKYKEEP_APP_SHORTCUT name arg comment
-  CreateShortcut "$R9\${PRODUCTNAME} ${name}.lnk" "$INSTDIR\${MAINBINARYNAME}.exe" "--app ${arg}" "$INSTDIR\${MAINBINARYNAME}.exe" 0 SW_SHOWNORMAL "" "${comment}"
+  CreateShortcut "$R9\${PRODUCTNAME} ${name}.lnk" "$INSTDIR\${MAINBINARYNAME}.exe" "--app ${arg}" "$INSTDIR\icons\${arg}.ico" 0 SW_SHOWNORMAL "" "${comment}"
   !insertmacro SKYKEEP_LNK_APP_ID "$R9\${PRODUCTNAME} ${name}.lnk" "${BUNDLEID}.${name}"
+!macroend
+
+; One app's shortcut made again, only if it is there (an update): never one the person removed.
+!macro SKYKEEP_APP_SHORTCUT_AGAIN name arg comment
+  ${If} ${FileExists} "$R9\${PRODUCTNAME} ${name}.lnk"
+    !insertmacro SKYKEEP_APP_SHORTCUT "${name}" "${arg}" "${comment}"
+  ${EndIf}
 !macroend
 
 ; One app's shortcut gone — unpinned first, and only if it is Skykeep's — with its jump list.
@@ -91,6 +99,16 @@
       !insertmacro SKYKEEP_APP_SHORTCUT "Drive" "drive" "iCloud Drive, on this computer"
       !insertmacro SKYKEEP_APP_SHORTCUT "Photos" "photos" "iCloud Photos, on this computer"
     ${EndIf}
+  ${Else}
+    ; An update keeps the shortcuts as the person left them, made again only where they are, so
+    ; each carries its app's own icon (0.1.15 brought them; before, every one showed Skykeep's).
+    !insertmacro SKYKEEP_MENU
+    !insertmacro SKYKEEP_APP_SHORTCUT_AGAIN "Notes" "notes" "Notes from iCloud, on this computer"
+    !insertmacro SKYKEEP_APP_SHORTCUT_AGAIN "Reminders" "reminders" "Reminders from iCloud, on this computer"
+    !insertmacro SKYKEEP_APP_SHORTCUT_AGAIN "Calendar" "calendar" "Your iCloud calendars, on this computer"
+    !insertmacro SKYKEEP_APP_SHORTCUT_AGAIN "Contacts" "contacts" "Your iCloud contacts, on this computer"
+    !insertmacro SKYKEEP_APP_SHORTCUT_AGAIN "Drive" "drive" "iCloud Drive, on this computer"
+    !insertmacro SKYKEEP_APP_SHORTCUT_AGAIN "Photos" "photos" "iCloud Photos, on this computer"
   ${EndIf}
 !macroend
 

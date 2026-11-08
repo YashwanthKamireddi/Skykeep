@@ -104,6 +104,11 @@ package() {
   for entry in packaging/apps/*.desktop; do
     install -Dm644 "$entry" "$pkgdir/usr/share/applications/$(basename "$entry")"
   done
+  # Each app's own icon (packaging/icons/apps), named for its launcher.
+  for app in notes reminders calendar contacts drive photos; do
+    install -Dm644 "packaging/icons/apps/$app.svg" \
+      "$pkgdir/usr/share/icons/hicolor/scalable/apps/io.github.yashwanthkamireddi.Skykeep.${app^}.svg"
+  done
   # In the desktop's own search: GNOME Shell's provider, KRunner's D-Bus plugin, and the bus
   # entry that starts Skykeep hidden when either searches and it is not running.
   # The provider names the .deb's launcher (Skykeep.desktop); here it is the app ID's.

@@ -1,0 +1,13 @@
+{
+  "bundle": {
+    "resources": {
+      "../target/release/quince_thumbs.dll": "quince_thumbs.dll",
+      "../packaging/icons/apps/notes.ico": "icons/notes.ico",
+      "../packaging/icons/apps/reminders.ico": "icons/reminders.ico",
+      "../packaging/icons/apps/calendar.ico": "icons/calendar.ico",
+      "../packaging/icons/apps/contacts.ico": "icons/contacts.ico",
+      "../packaging/icons/apps/drive.ico": "icons/drive.ico",
+      "../packaging/icons/apps/photos.ico": "icons/photos.ico"
+    }
+  }
+}

@@ -128,7 +128,7 @@ jobs:
           TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ inputs.updater && secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD || '' }}
         run: |
           # The thumbnail provider first: the installers take it from target/release, beside
-          # skykeep.exe (packaging/windows/bundle-thumbnails.json; given here, not in
+          # skykeep.exe (packaging/windows/bundle-windows.json; given here, not in
           # tauri.conf.json, so a plain build on Windows never needs the DLL made first).
           cargo build --release -p quince-thumbs --locked
           if [ -n "$UPDATER" ]; then
@@ -136,10 +136,10 @@ jobs:
               echo "::error::a release needs the TAURI_SIGNING_PRIVATE_KEY secret to sign its updates"
               exit 1
             fi
-            npx tauri build --config packaging/windows/bundle-thumbnails.json --config '{"bundle":{"createUpdaterArtifacts":true}}'
+            npx tauri build --config packaging/windows/bundle-windows.json --config '{"bundle":{"createUpdaterArtifacts":true}}'
             ls target/release/bundle/nsis/*-setup.exe.sig target/release/bundle/msi/*.msi.sig
           else
-            npx tauri build --config packaging/windows/bundle-thumbnails.json
+            npx tauri build --config packaging/windows/bundle-windows.json
           fi
           # The provider is in the installers: a missing DLL is a broken feature, not a quiet one.
           ls target/release/quince_thumbs.dll

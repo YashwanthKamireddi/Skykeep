@@ -151,6 +151,24 @@ fn write_jump_list(app_id: &str, exe: &str, tasks: &[Task]) -> windows::core::Re
     }
 }
 
+/// The icon of the app a task opens (`--app notes`, `--new note`): that app's own, installed in
+/// icons\ beside the program; Skykeep's where there is none (an MSIX package, a build run in
+/// place).
+fn icon_for(exe: &str, args: &str) -> String {
+    let app = match args.split_whitespace().last() {
+        Some("note") => "notes",
+        Some("reminder") => "reminders",
+        Some("event") => "calendar",
+        Some(other) => other,
+        None => "",
+    };
+    std::path::Path::new(exe)
+        .parent()
+        .map(|dir| dir.join("icons").join(format!("{app}.ico")))
+        .filter(|ico| ico.exists())
+        .map_or_else(|| exe.to_string(), |ico| ico.display().to_string())
+}
+
 /// A shell link that runs this program with a task's arguments, under the task's title.
 fn link(exe: &str, task: &Task) -> windows::core::Result<IShellLinkW> {
     // SAFETY: as in write_jump_list; each string lives across the call that copies it.
@@ -161,7 +179,7 @@ fn link(exe: &str, task: &Task) -> windows::core::Result<IShellLinkW> {
             Task::Run(title, args) => {
                 link.SetPath(&HSTRING::from(exe))?;
                 link.SetArguments(&HSTRING::from(args.as_str()))?;
-                link.SetIconLocation(&HSTRING::from(exe), 0)?;
+                link.SetIconLocation(&HSTRING::from(icon_for(exe, args)), 0)?;
                 props.SetValue(&PKEY_Title, &text(title))?;
             }
             Task::Separator => {
