@@ -584,6 +584,43 @@ public static class Thumb {{
                 .any(|(_, p)| p.ends_with("IMG_0001.JPG")),
             "the provider asked Skykeep over the pipe"
         );
+        // Send to iPhone, the command Windows 11's menu shows from the MSIX package: the same
+        // DLL, its title, state and icon answered at once.
+        let menu = format!(
+            r"HKCU\Software\Classes\CLSID\{{{:?}}}",
+            quince_thumbs::SEND_TO_IPHONE_CLSID
+        );
+        assert!(Command::new("reg")
+            .args([
+                "add",
+                &format!(r"{menu}\InprocServer32"),
+                "/ve",
+                "/d",
+                &dll.display().to_string(),
+                "/f"
+            ])
+            .status()
+            .unwrap()
+            .success());
+        // SAFETY: COM on this thread, as above; each string freed once read.
+        unsafe {
+            use windows::Win32::System::Com::*;
+            use windows::Win32::UI::Shell::*;
+            let command: IExplorerCommand = CoCreateInstance(
+                &quince_thumbs::SEND_TO_IPHONE_CLSID,
+                None,
+                CLSCTX_INPROC_SERVER,
+            )
+            .unwrap();
+            let title = command.GetTitle(None).unwrap();
+            assert_eq!(title.to_string().unwrap(), "Send to iPhone");
+            CoTaskMemFree(Some(title.0 as *const _));
+            let icon = command.GetIcon(None).unwrap();
+            assert!(icon.to_string().unwrap().ends_with(r"\skykeep.exe,0"));
+            CoTaskMemFree(Some(icon.0 as *const _));
+            assert_eq!(command.GetState(None, false).unwrap(), ECS_ENABLED.0 as u32);
+        }
+        let _ = Command::new("reg").args(["delete", &menu, "/f"]).status();
         // The provider's own trace, on for this ask only: where the shell's way stops, if it does.
         let trace = PathBuf::from(std::env::var("USERPROFILE").unwrap())
             .join(r"AppData\LocalLow\Skykeep thumbnails trace");

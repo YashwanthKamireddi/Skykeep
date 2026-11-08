@@ -46,7 +46,7 @@ fn trace(line: &str) {
 }
 
 /// Objects alive, for `DllCanUnloadNow`.
-static LIVE: AtomicUsize = AtomicUsize::new(0);
+pub(crate) static LIVE: AtomicUsize = AtomicUsize::new(0);
 
 #[implement(IThumbnailProvider, IInitializeWithItem)]
 struct Provider {
@@ -119,7 +119,7 @@ impl IThumbnailProvider_Impl for Provider_Impl {
 }
 
 /// Never a panic across into Explorer: one becomes a failed call, and Explorer draws its icon.
-fn caught(f: impl FnOnce() -> windows_core::Result<()>) -> windows_core::Result<()> {
+pub(crate) fn caught(f: impl FnOnce() -> windows_core::Result<()>) -> windows_core::Result<()> {
     std::panic::catch_unwind(std::panic::AssertUnwindSafe(f))
         .unwrap_or_else(|_| Err(E_UNEXPECTED.into()))
 }
@@ -262,13 +262,15 @@ fn drawn(w: u32, h: u32, pixels: &[u8]) -> windows_core::Result<HBITMAP> {
     Ok(made)
 }
 
-#[implement(IClassFactory)]
-struct Factory;
-
-/// The provider's class factory, for a process serving it out of process (`CoRegisterClassObject`).
-pub fn class_factory() -> IClassFactory {
-    Factory.into()
+/// Which class a factory makes: the thumbnail provider, or File Explorer's Send to iPhone.
+#[derive(Clone, Copy)]
+enum Class {
+    Thumbnails,
+    SendToIphone,
 }
+
+#[implement(IClassFactory)]
+struct Factory(Class);
 
 impl IClassFactory_Impl for Factory_Impl {
     fn CreateInstance(
@@ -286,7 +288,10 @@ impl IClassFactory_Impl for Factory_Impl {
             if outer.is_some() {
                 return Err(CLASS_E_NOAGGREGATION.into());
             }
-            let made: IUnknown = Provider::new().into();
+            let made: IUnknown = match self.0 {
+                Class::Thumbnails => Provider::new().into(),
+                Class::SendToIphone => crate::menu::SendToIphone::new().into(),
+            };
             // SAFETY: iid and object checked non-null; `query` fills `object` on success.
             unsafe { made.query(iid, object) }.ok()
         })
@@ -315,10 +320,14 @@ pub unsafe extern "system" fn DllGetClassObject(
         // SAFETY: checked non-null; COM's pointers.
         unsafe {
             *object = std::ptr::null_mut();
-            if *class != CLSID {
+            let made = if *class == CLSID {
+                Class::Thumbnails
+            } else if *class == crate::menu::CLSID {
+                Class::SendToIphone
+            } else {
                 return CLASS_E_CLASSNOTAVAILABLE;
-            }
-            let factory: IClassFactory = Factory.into();
+            };
+            let factory: IClassFactory = Factory(made).into();
             factory.query(iid, object)
         }
     })

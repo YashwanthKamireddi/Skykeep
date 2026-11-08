@@ -123,7 +123,14 @@ pub mod protocol {
 mod provider;
 
 #[cfg(windows)]
-pub use provider::{class_factory, CLSID};
+mod menu;
+
+#[cfg(windows)]
+pub use provider::CLSID;
+
+/// File Explorer's Send to iPhone command (Windows 11's menu, from the MSIX package).
+#[cfg(windows)]
+pub use menu::CLSID as SEND_TO_IPHONE_CLSID;
 
 /// Who may use the pipe, for Skykeep's side to create it with: this user (at any integrity
 /// level: Windows runs thumbnail providers in a low-integrity process, which the default pipe

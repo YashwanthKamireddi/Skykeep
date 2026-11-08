@@ -17,9 +17,11 @@
   xmlns:uap10="http://schemas.microsoft.com/appx/manifest/uap/windows10/10"
   xmlns:desktop="http://schemas.microsoft.com/appx/manifest/desktop/windows10"
   xmlns:desktop3="http://schemas.microsoft.com/appx/manifest/desktop/windows10/3"
+  xmlns:desktop4="http://schemas.microsoft.com/appx/manifest/desktop/windows10/4"
+  xmlns:desktop5="http://schemas.microsoft.com/appx/manifest/desktop/windows10/5"
   xmlns:rescap="http://schemas.microsoft.com/appx/manifest/foundation/windows10/restrictedcapabilities"
   xmlns:com="http://schemas.microsoft.com/appx/manifest/com/windows10"
-  IgnorableNamespaces="uap uap10 desktop desktop3 rescap">
+  IgnorableNamespaces="uap uap10 desktop desktop3 desktop4 desktop5 rescap">
 
   <Identity
     Name="__IDENTITY_NAME__"
@@ -63,10 +65,23 @@
             <desktop3:ThumbnailProviderHandler Clsid="4ee8b6ba-8522-41f1-a17e-19126a88c38e" />
           </desktop3:CloudFiles>
         </desktop3:Extension>
+        <!-- Send to iPhone at the top of Windows 11's right-click menu, for files and folders
+             (crates/quince-thumbs/src/menu.rs); an installed copy has Send to instead. -->
+        <desktop4:Extension Category="windows.fileExplorerContextMenus">
+          <desktop4:FileExplorerContextMenus>
+            <desktop5:ItemType Type="*">
+              <desktop5:Verb Id="SendToIphone" Clsid="9ece47db-eea3-4515-b644-4d7666ddf149" />
+            </desktop5:ItemType>
+            <desktop5:ItemType Type="Directory">
+              <desktop5:Verb Id="SendToIphone" Clsid="9ece47db-eea3-4515-b644-4d7666ddf149" />
+            </desktop5:ItemType>
+          </desktop4:FileExplorerContextMenus>
+        </desktop4:Extension>
         <com:Extension Category="windows.comServer">
           <com:ComServer>
-            <com:SurrogateServer DisplayName="Skykeep thumbnails">
+            <com:SurrogateServer DisplayName="Skykeep for File Explorer">
               <com:Class Id="4ee8b6ba-8522-41f1-a17e-19126a88c38e" Path="quince_thumbs.dll" ThreadingModel="STA" />
+              <com:Class Id="9ece47db-eea3-4515-b644-4d7666ddf149" Path="quince_thumbs.dll" ThreadingModel="STA" />
             </com:SurrogateServer>
           </com:ComServer>
         </com:Extension>
