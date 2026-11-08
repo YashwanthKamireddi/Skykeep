@@ -4,7 +4,7 @@
 
 <h1 align="center">Skykeep</h1>
 
-<p align="center"><strong>Six apps. Your whole iCloud.</strong><br>Notes, Reminders, Calendar, Contacts, iCloud Drive and Photos as native apps for Windows and Linux. Fast, light, and offline.</p>
+<p align="center"><strong>Six apps. Your whole iCloud.</strong><br>Notes, Reminders, Calendar, Contacts, iCloud Drive and Photos as native apps for Windows and Linux. Send files to your iPhone, back up every photo, and work offline.</p>
 
 <p align="center">
   <a href="https://github.com/YashwanthKamireddi/Skykeep/releases/latest"><strong>Download</strong></a> ·
@@ -46,9 +46,11 @@ Skykeep keeps your iCloud on your own computer and syncs it quietly in the backg
 
 ## Beyond the apps
 
-- **Send to iPhone.** Right-click any file in File Explorer or your file manager. Photos and videos land in Photos, everything else in the Files app. No app on the iPhone and no shared Wi-Fi: it travels through iCloud.
-- **Back Up Photos.** Every photo and video copied as the original into a folder or drive you choose, and kept up to date as you take more. A backup never deletes.
-- **Folders in your file manager.** iCloud Drive and Photos as real folders, and in File Explorer, thumbnails for photos not downloaded yet.
+**Send to iPhone.** Right-click any file on your computer and choose Send to iPhone. Photos and videos appear in your iPhone's Photos, documents in Files, whether the phone is on your desk or on the other side of the world. Nothing to install on the iPhone, nothing to pair.
+
+**Back up every photo.** Every photo and video you've ever taken, copied as the original to a folder or drive you choose, and kept up to date as you take more. Unplug the drive and it waits; plug it back in and it carries on. A backup never deletes.
+
+**iCloud in your file manager.** iCloud Drive and Photos are real folders in your file manager, and photos show their thumbnails before anything downloads.
 
 ## Engineering
 
