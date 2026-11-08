@@ -594,6 +594,15 @@ public static class Thumb {{
             .output()
             .unwrap();
         let answer = String::from_utf8_lossy(&asked.stdout).trim().to_string();
+        // Where the shell ran the provider: in the asking process, or isolated in another.
+        let hosts = Command::new("tasklist")
+            .args(["/m", "quince_thumbs.dll", "/fo", "csv"])
+            .output()
+            .unwrap();
+        println!(
+            "processes with the provider loaded:\n{}",
+            String::from_utf8_lossy(&hosts.stdout)
+        );
         println!(
             "thumbnail through Skykeep's provider: answer {answer:?}, asked {:?} {}",
             asked_for.lock().unwrap(),
