@@ -60,9 +60,14 @@
              package's own, which Windows removes with it — undeclared, it stayed registered
              after uninstall (Microsoft Q&A 5551232). -->
         <desktop3:Extension Category="windows.cloudFiles">
+          <!-- Thumbnails of photos not on this computer yet (crates/quince-thumbs). The schema
+               wants the other three handlers named too, in this order; as in Microsoft's
+               CloudMirror sample, a class registered nowhere stands for "none". -->
           <desktop3:CloudFiles>
-            <!-- Thumbnails of photos not on this computer yet (crates/quince-thumbs). -->
+            <desktop3:CustomStateHandler Clsid="20000000-0000-0000-0000-000000000001" />
             <desktop3:ThumbnailProviderHandler Clsid="4ee8b6ba-8522-41f1-a17e-19126a88c38e" />
+            <desktop3:ExtendedPropertyHandler Clsid="20000000-0000-0000-0000-000000000001" />
+            <desktop3:BannersHandler Clsid="20000000-0000-0000-0000-000000000001" />
           </desktop3:CloudFiles>
         </desktop3:Extension>
         <!-- Send to iPhone at the top of Windows 11's right-click menu, for files and folders
