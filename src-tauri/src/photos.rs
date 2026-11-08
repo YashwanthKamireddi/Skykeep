@@ -2780,13 +2780,17 @@ fn say(
     .ok();
 }
 
-/// One worker at a time drains the queue, as icloud.com uploads one file at a time.
+/// One worker at a time drains the queue, [`SENDERS`] files at once.
 static WORKING: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
 /// Batches, and single uploads, asked to stop.
 static CANCELLED: Mutex<Vec<String>> = Mutex::new(Vec::new());
-/// The upload on its way, so Cancel can stop it mid-file rather than after it lands.
-static CURRENT: Mutex<Option<(String, String, futures_util::future::AbortHandle)>> =
-    Mutex::new(None);
+/// The uploads on their way (up to [`SENDERS`]), so Cancel can stop each mid-file rather than
+/// after it lands.
+static CURRENT: Mutex<Vec<(String, String, futures_util::future::AbortHandle)>> =
+    Mutex::new(Vec::new());
+/// Files sent at once: each upload is three round trips to Apple, so a few at a time keep the
+/// connection busy, as icloud.com sends an import.
+const SENDERS: usize = 3;
 
 fn cancelled(u: &quince_core::photos::Upload) -> bool {
     CANCELLED
@@ -3028,10 +3032,10 @@ pub async fn photos_upload_cancel(
         .lock()
         .unwrap_or_else(std::sync::PoisonError::into_inner)
         .extend(ids.iter().cloned().chain(batch.clone()));
-    if let Some((id, b, handle)) = CURRENT
+    for (id, b, handle) in CURRENT
         .lock()
         .unwrap_or_else(std::sync::PoisonError::into_inner)
-        .as_ref()
+        .iter()
     {
         if wanted(id, b) {
             handle.abort();
@@ -3059,16 +3063,22 @@ pub fn work(app: AppHandle) {
     }
     tauri::async_runtime::spawn(async move {
         loop {
-            let next = {
+            let next: Vec<_> = {
                 let data = app.state::<Data>();
                 let library = data.0.lock().await;
                 library
                     .uploads_to_send()
-                    .ok()
-                    .and_then(|u| u.into_iter().next())
+                    .unwrap_or_default()
+                    .into_iter()
+                    .take(SENDERS)
+                    .collect()
             };
-            let Some(u) = next else { break };
-            if !one(&app, u).await {
+            if next.is_empty() {
+                break;
+            }
+            // A few at once; the queue pauses (the session lapsed) if any of them says so.
+            let went = futures_util::future::join_all(next.into_iter().map(|u| one(&app, u))).await;
+            if went.contains(&false) {
                 break;
             }
         }
@@ -3212,10 +3222,10 @@ async fn one(app: &AppHandle, u: quince_core::photos::Upload) -> bool {
                 }
             });
         let (handle, registration) = futures_util::future::AbortHandle::new_pair();
-        *CURRENT
+        CURRENT
             .lock()
-            .unwrap_or_else(std::sync::PoisonError::into_inner) =
-            Some((u.id.clone(), u.batch.clone(), handle));
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
+            .push((u.id.clone(), u.batch.clone(), handle));
         let library =
             quince_icloud::photos::library_zone(&quince_icloud::cloudkit::ZoneClient::new(
                 &http,
@@ -3244,7 +3254,7 @@ async fn one(app: &AppHandle, u: quince_core::photos::Upload) -> bool {
         CURRENT
             .lock()
             .unwrap_or_else(std::sync::PoisonError::into_inner)
-            .take();
+            .retain(|(id, ..)| *id != u.id);
         let Ok(result) = result else {
             set("cancelled", None, None).await;
             say(app, &u, "cancelled", 0, size, None);
