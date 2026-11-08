@@ -1435,6 +1435,22 @@ export type ExportSummary = {
   photosMissing: number;
 };
 
+/** Backup: every photo and video copied as the original into a chosen folder, kept up to date. */
+export type BackupStatus = {
+  folder: string | null;
+  hidden: boolean;
+  copied: number;
+  total: number;
+  running: boolean;
+  problem: string | null;
+};
+
+export const backupApi = {
+  status: () => invoke<BackupStatus>("backup_status"),
+  /** On into `folder` (from the folder dialog), or off with `null`; the Hidden album or not. */
+  set: (folder: string | null, hidden: boolean) => invoke<BackupStatus>("backup_set", { folder, hidden }),
+};
+
 export const exportApi = {
   /** Writes a new "Skykeep Export …" folder inside `dest`; photos only when asked (they can be huge). */
   start: (dest: string, photos: boolean) => invoke<ExportSummary>("library_export_start", { dest, photos }),

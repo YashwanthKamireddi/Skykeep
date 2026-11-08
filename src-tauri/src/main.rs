@@ -15,6 +15,7 @@ macro_rules! quiet {
 mod alerts;
 mod appearance;
 mod apps;
+mod backup;
 mod clipboard;
 mod contacts_cmds;
 mod contacts_merge;
@@ -1287,6 +1288,7 @@ async fn auth_resume(app: tauri::AppHandle, auth: State<'_, Auth>) -> UiResult<&
     if outcome == "library" {
         folders_up(&app).await;
         timing::mark("auth_resume: folders up");
+        backup::kick(&app);
     }
     Ok(outcome)
 }
@@ -7335,6 +7337,8 @@ fn main() {
             search_everything,
             apps::app_open,
             intake::intake_pending,
+            backup::backup_status,
+            backup::backup_set,
             intake::intake_capture_close,
             intake::intake_open_main,
             login::login_item_status,

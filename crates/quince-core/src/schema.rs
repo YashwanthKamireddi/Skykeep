@@ -965,6 +965,24 @@ pub const MIGRATIONS: &[&str] = &[
     DROP TABLE photo_walk_held;
     ALTER TABLE photo_walk_held_by_zone RENAME TO photo_walk_held;
     "#,
+    // 53 — Backup: every file copied into the backup folder, where, and how large: a photo's
+    // original, its Live Photo video, later its edited version; later iCloud Drive's files too.
+    // One row per file (`source` photos or drive, `item` its id there, `part` which file of it),
+    // so each later phase adds rows, never a table. A file is backed up exactly when its row
+    // names a file of that size there (backup.rs checks), so a backup folder moved, emptied or
+    // replaced is noticed and filled again. `version`: what it was copied from (Drive's etag),
+    // so a file changed in iCloud is copied again.
+    r#"
+    CREATE TABLE backup_files (
+        source  TEXT NOT NULL,
+        item    TEXT NOT NULL,
+        part    TEXT NOT NULL,
+        path    TEXT NOT NULL,
+        size    INTEGER NOT NULL,
+        version TEXT,
+        PRIMARY KEY (source, item, part)
+    ) STRICT, WITHOUT ROWID;
+    "#,
 ];
 
 /// Migrations that need more than SQL, run in the same transaction as the one numbered.

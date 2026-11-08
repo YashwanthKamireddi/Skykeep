@@ -32,7 +32,8 @@ pub fn forget_links() {
 /// this run, until the window locks it again (leaving Hidden, the window out of sight) or the
 /// account changes. Until then nothing of Hidden is handed to the window at all: its lock is
 /// not only the window's to keep.
-static HIDDEN_OPEN: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
+pub(crate) static HIDDEN_OPEN: std::sync::atomic::AtomicBool =
+    std::sync::atomic::AtomicBool::new(false);
 
 /// Wrong passwords in a row, and until when another is not taken: a few tries, then a wait
 /// that doubles, so nobody at an unlocked computer can go through guesses (and none of them
@@ -2576,8 +2577,6 @@ pub async fn photo_download(
     auth: State<'_, Auth>,
     data: State<'_, Data>,
 ) -> UiResult<String> {
-    use futures_util::StreamExt;
-    use tokio::io::AsyncWriteExt;
     let want = want.unwrap_or(quince_icloud::photos::Want::Originals);
     let photo = data
         .0
@@ -2646,33 +2645,86 @@ pub async fn photo_download(
         .map_err(|e| e.to_string())?;
     let fallback = format!("Photo {}", id.chars().take(8).collect::<String>());
     let path = crate::saving::save_path(&dir, &name, &fallback)?;
+    stream_to_new_file(&http, &url, &path)
+        .await
+        .map_err(String::from)?;
+    crate::saving::mark_from_internet(&path);
+    Ok(path.display().to_string())
+}
+
+/// Why a file from iCloud didn't arrive: Apple's answer when it gave one, or the disk's
+/// trouble, so a caller can tell one photo's problem from an outage.
+#[derive(Debug)]
+pub(crate) struct Fetch {
+    /// The HTTP status Apple answered with; `None` when the connection broke or never formed.
+    pub status: Option<u16>,
+    /// The disk refused the write (full, gone, not ours to write).
+    pub disk: Option<std::io::ErrorKind>,
+    pub message: String,
+}
+
+impl From<Fetch> for String {
+    fn from(f: Fetch) -> String {
+        f.message
+    }
+}
+
+fn disk(e: &std::io::Error) -> Fetch {
+    Fetch {
+        status: None,
+        disk: Some(e.kind()),
+        message: e.to_string(),
+    }
+}
+
+/// A file from iCloud written to `path`, which must not exist: streamed into a `.part` beside
+/// it (a large video never sits in memory) and named only once whole, so a broken download
+/// leaves no half file under the real name. Answers how many bytes it holds.
+pub(crate) async fn stream_to_new_file(
+    http: &reqwest::Client,
+    url: &str,
+    path: &std::path::Path,
+) -> Result<u64, Fetch> {
+    use futures_util::StreamExt;
+    use tokio::io::AsyncWriteExt;
     let part = path.with_extension(format!(
         "{}.part",
         path.extension()
             .map(|e| e.to_string_lossy().into_owned())
             .unwrap_or_default()
     ));
-    let response = http
-        .get(&url)
-        .send()
-        .await
-        .and_then(reqwest::Response::error_for_status)
-        .map_err(|e| format!("iCloud did not send the file: {e}"))?;
+    let response = http.get(url).send().await.map_err(|e| Fetch {
+        status: e.status().map(|s| s.as_u16()),
+        disk: None,
+        message: format!("iCloud did not send the file: {e}"),
+    })?;
+    if let Err(e) = response.error_for_status_ref() {
+        return Err(Fetch {
+            status: e.status().map(|s| s.as_u16()),
+            disk: None,
+            message: format!("iCloud did not send the file: {e}"),
+        });
+    }
     // A file of its own, never one already there (nor a link left in its place).
     let mut out = tokio::fs::OpenOptions::new()
         .write(true)
         .create_new(true)
         .open(&part)
         .await
-        .map_err(|e| e.to_string())?;
+        .map_err(|e| disk(&e))?;
     let mut body = response.bytes_stream();
-    let written: Result<(), String> = async {
+    let mut len = 0u64;
+    let written: Result<(), Fetch> = async {
         while let Some(chunk) = body.next().await {
-            out.write_all(&chunk.map_err(|e| format!("The download broke off: {e}"))?)
-                .await
-                .map_err(|e| e.to_string())?;
+            let chunk = chunk.map_err(|e| Fetch {
+                status: None,
+                disk: None,
+                message: format!("The download broke off: {e}"),
+            })?;
+            len += chunk.len() as u64;
+            out.write_all(&chunk).await.map_err(|e| disk(&e))?;
         }
-        out.flush().await.map_err(|e| e.to_string())
+        out.flush().await.map_err(|e| disk(&e))
     }
     .await;
     if let Err(e) = written {
@@ -2680,11 +2732,10 @@ pub async fn photo_download(
         return Err(e);
     }
     drop(out);
-    crate::move_into_place(&part, &path)
+    crate::move_into_place(&part, path)
         .await
-        .map_err(|e| e.to_string())?;
-    crate::saving::mark_from_internet(&path);
-    Ok(path.display().to_string())
+        .map_err(|e| disk(&e))?;
+    Ok(len)
 }
 
 /// Where Photos uploads tell the window how they are going: the same shape Drive's tray reads.

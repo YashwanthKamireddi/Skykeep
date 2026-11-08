@@ -160,7 +160,7 @@ pub enum View {
     RecentlyDeleted,
 }
 
-const COLUMNS: &str = "id, master, taken_at, added_at, kind, width, height, duration, filename, \
+pub(crate) const COLUMNS: &str = "id, master, taken_at, added_at, kind, width, height, duration, filename, \
                        size, uti, favorite, hidden, deleted, deleted_at, subtype, change_tag, expunge_at, title, caption, rating, \
                        keywords, latitude, longitude, rendered, burst, burst_pick, live_size";
 
@@ -175,7 +175,7 @@ pub(crate) const ONE_PER_BURST: &str =
                              WHERE k.burst = photos.burst AND k.burst IS NOT NULL \
                              AND k.burst_pick = 1 AND k.deleted = 0))";
 
-fn row_to_photo(r: &rusqlite::Row<'_>) -> rusqlite::Result<Photo> {
+pub(crate) fn row_to_photo(r: &rusqlite::Row<'_>) -> rusqlite::Result<Photo> {
     Ok(Photo {
         id: r.get(0)?,
         master: r.get(1)?,
@@ -1680,10 +1680,10 @@ impl Library {
 }
 
 #[cfg(test)]
-mod tests {
+pub(crate) mod tests {
     use super::*;
 
-    fn photo(id: &str, taken: i64) -> Photo {
+    pub(crate) fn photo(id: &str, taken: i64) -> Photo {
         Photo {
             id: id.into(),
             master: format!("m-{id}"),

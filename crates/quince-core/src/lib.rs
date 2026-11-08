@@ -5,6 +5,7 @@
 //! it. That is the whole reason the app can be instant and work offline.
 
 pub mod alarms;
+pub mod backup;
 pub mod calendar;
 pub mod changes;
 pub mod contacts;

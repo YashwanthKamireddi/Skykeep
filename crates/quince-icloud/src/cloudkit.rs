@@ -20,6 +20,9 @@ const PAGE_SIZE: u64 = 500;
 /// A ceiling on paging, so a server that always says `moreComing` cannot spin forever.
 const MAX_PAGES: usize = 200;
 
+/// The most records one lookup asks for: CloudKit's own limit for records/lookup.
+const LOOKUP_AT_ONCE: usize = 200;
+
 pub struct ZoneClient<'a> {
     http: &'a reqwest::Client,
     base: String,
@@ -647,6 +650,42 @@ mod tests {
         ResponseTemplate::new(503).set_body_json(json!({
             "uuid": "1", "retryAfter": 1, "serverErrorCode": "SERVER_OVERLOADED"
         }))
+    }
+
+    /// Many records are looked up 200 to a request, each found one kept by its name, and a
+    /// name CloudKit has no record for (a tombstone without a change tag) left out.
+    #[tokio::test]
+    async fn records_are_looked_up_two_hundred_at_a_time() {
+        let server = MockServer::start().await;
+        Mock::given(method("POST"))
+            .and(path_regex(r".*/records/lookup$"))
+            .respond_with(|req: &wiremock::Request| {
+                let body: Value = serde_json::from_slice(&req.body).unwrap();
+                let asked = body["records"].as_array().unwrap();
+                assert!(asked.len() <= 200, "{} in one lookup", asked.len());
+                let records: Vec<Value> = asked
+                    .iter()
+                    .map(|r| {
+                        let name = r["recordName"].as_str().unwrap();
+                        if name == "gone" {
+                            json!({ "recordName": name, "serverErrorCode": "NOT_FOUND" })
+                        } else {
+                            json!({ "recordName": name, "recordChangeTag": "t" })
+                        }
+                    })
+                    .collect();
+                ResponseTemplate::new(200).set_body_json(json!({ "records": records }))
+            })
+            .expect(3)
+            .mount(&server)
+            .await;
+        let http = reqwest::Client::new();
+        let client = ZoneClient::new(&http, &server.uri(), "com.apple.photos.cloud", vec![]);
+        let mut names: Vec<String> = (0..449).map(|i| format!("A{i}")).collect();
+        names.push("gone".into());
+        let found = client.lookup_records("PrimarySync", &names).await.unwrap();
+        assert_eq!(found.len(), 449);
+        assert!(found.contains_key("A448") && !found.contains_key("gone"));
     }
 
     /// A busy CloudKit asks to be asked again shortly; asked again, the change goes through
@@ -1590,6 +1629,46 @@ impl ZoneClient<'_> {
             .and_then(|r| r.first())
             .filter(|r| r.get("recordChangeTag").is_some())
             .cloned())
+    }
+
+    /// Many records at once, by name: CloudKit takes up to 200 in one lookup, so a backup of
+    /// fifty thousand photos asks a few hundred times rather than fifty thousand. Answers those
+    /// found, by name; a name with no record (deleted meanwhile) is simply absent.
+    pub async fn lookup_records(
+        &self,
+        zone: &str,
+        record_names: &[String],
+    ) -> Result<std::collections::HashMap<String, Value>> {
+        let mut found = std::collections::HashMap::new();
+        for names in record_names.chunks(LOOKUP_AT_ONCE) {
+            let url = self.url("records/lookup");
+            let body = json!({
+                "records": names.iter().map(|n| json!({ "recordName": n })).collect::<Vec<_>>(),
+                "zoneID": self.zone_id(zone),
+            });
+            let (status, text) = self.post_json(&url, &body).await?;
+            if status.as_u16() == 450 {
+                return Err(Error::ReauthRequired);
+            }
+            if !status.is_success() {
+                return Err(Error::Protocol(format!(
+                    "CloudKit couldn't look those up ({status})"
+                )));
+            }
+            let parsed: Value = serde_json::from_str(&text).unwrap_or(Value::Null);
+            for record in parsed
+                .get("records")
+                .and_then(Value::as_array)
+                .into_iter()
+                .flatten()
+                .filter(|r| r.get("recordChangeTag").is_some())
+            {
+                if let Some(name) = record.get("recordName").and_then(Value::as_str) {
+                    found.insert(name.to_string(), record.clone());
+                }
+            }
+        }
+        Ok(found)
     }
 
     /// A reference field pointing at another record in the same zone.

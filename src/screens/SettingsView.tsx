@@ -12,6 +12,8 @@ import {
   EXPORT_CANCELLED,
   EXPORT_PROGRESS,
   exportApi,
+  backupApi,
+  type BackupStatus,
   type AccountInfo,
   type DriveFolder,
   type ExportProgress,
@@ -263,6 +265,95 @@ async function runExport(photos: boolean, onError: (m: string) => void) {
 const folderName = (path: string) => path.split(/[\\/]/).filter(Boolean).pop() ?? path;
 
 /** The row: what goes out and where, Export, then the bar and Cancel, then Show in Folder. */
+/**
+ * Backup: Photos copied, as originals, into a folder the person chooses, and kept up to date as
+ * new ones arrive (src-tauri/src/backup.rs). Off until a folder is chosen; the Hidden album only
+ * when asked for.
+ */
+function BackupRow({ onError }: { onError: (m: string) => void }) {
+  const [state, setState] = useState<BackupStatus | null>(null);
+  useEffect(() => {
+    let live = true;
+    void backupApi.status().then((s) => live && setState(s), () => {});
+    const off = listen<BackupStatus>("quince://backup", (e) => live && setState(e.payload));
+    return () => {
+      live = false;
+      void off.then((f) => f());
+    };
+  }, []);
+  const set = (folder: string | null, hidden: boolean) =>
+    backupApi.set(folder, hidden).then(setState, (e) => onError(messageOf(e)));
+  const choose = async () => {
+    const picked = await pickOpen({ directory: true, title: "Choose where to back up your photos" }).catch((e) => {
+      onError(messageOf(e));
+      return null;
+    });
+    if (picked) await set(picked[0], state?.hidden ?? false);
+  };
+  const on = Boolean(state?.folder);
+  const counted = state && state.total > 0 ? `${state.copied.toLocaleString()} of ${state.total.toLocaleString()}` : "";
+  const hint = !state
+    ? ""
+    : state.problem
+      ? state.problem
+      : !on
+        ? "Every photo and video, as the original, in a folder you choose"
+        : state.running
+          ? `Copying · ${counted}`
+          : state.copied >= state.total
+            ? `All ${state.total.toLocaleString()} backed up in ${folderName(state.folder!)}`
+            : `${counted} backed up in ${folderName(state.folder!)}`;
+  return (
+    <div className="settings-row is-stacked" aria-label="Backup" role="group">
+      <div className="settings-row-line" style={{ alignItems: "center" }}>
+        <span className="settings-label settings-stack">
+          Back Up Photos
+          <span
+            className={`settings-hint${state?.problem ? " is-trouble" : ""}`}
+            aria-live="polite"
+            title={state?.folder ?? undefined}
+          >
+            {hint}
+          </span>
+        </span>
+        <button className="quiet" onClick={() => void choose()} disabled={!state}>
+          {on ? "Change Folder" : "Choose Folder"}
+        </button>
+        {on && (
+          <button
+            className="switch"
+            role="switch"
+            aria-checked
+            aria-label="Back Up Photos"
+            onClick={() => void set(null, state?.hidden ?? false)}
+          >
+            <span className="switch-knob" />
+          </button>
+        )}
+      </div>
+      {on && state?.running && state.total > 0 && (
+        <Progress value={state.copied / state.total} label="Backup progress" />
+      )}
+      {on && (
+        <div className="settings-row-line" style={{ alignItems: "center" }}>
+          <span className="settings-label settings-stack">
+            <span className="settings-hint">Include the Hidden album</span>
+          </span>
+          <button
+            className="switch"
+            role="switch"
+            aria-checked={state?.hidden ?? false}
+            aria-label="Include the Hidden album"
+            onClick={() => void set(state!.folder, !state!.hidden)}
+          >
+            <span className="switch-knob" />
+          </button>
+        </div>
+      )}
+    </div>
+  );
+}
+
 function ExportRow({ onError }: { onError: (m: string) => void }) {
   const state = useSyncExternalStore(subscribeExport, () => exportState);
   const [photos, setPhotos] = useState(false);
@@ -714,6 +805,7 @@ export function SettingsView({ onSignOut }: { onSignOut: (keep: boolean) => Prom
             {clearing ? "Clearing…" : "Clear"}
           </button>
         </div>
+        <BackupRow onError={setError} />
         <ExportRow onError={setError} />
       </section>
 
