@@ -265,6 +265,11 @@ fn drawn(w: u32, h: u32, pixels: &[u8]) -> windows_core::Result<HBITMAP> {
 #[implement(IClassFactory)]
 struct Factory;
 
+/// The provider's class factory, for a process serving it out of process (`CoRegisterClassObject`).
+pub fn class_factory() -> IClassFactory {
+    Factory.into()
+}
+
 impl IClassFactory_Impl for Factory_Impl {
     fn CreateInstance(
         &self,

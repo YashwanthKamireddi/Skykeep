@@ -584,6 +584,40 @@ public static class Thumb {{
                 .any(|(_, p)| p.ends_with("IMG_0001.JPG")),
             "the provider asked Skykeep over the pipe"
         );
+        // The same class served out of process too, by this test (as Skykeep itself would):
+        // whether the shell asks a cloud folder's provider that way rather than in-process.
+        {
+            use windows::Win32::System::Com::*;
+            let exe = std::env::current_exe().unwrap();
+            let key = format!(r"Software\Classes\CLSID\{{{clsid}}}\LocalServer32");
+            Command::new("reg")
+                .args([
+                    "add",
+                    &format!(r"HKCU\{key}"),
+                    "/ve",
+                    "/d",
+                    &exe.display().to_string(),
+                    "/f",
+                ])
+                .output()
+                .unwrap();
+            let (ready, registered) = std::sync::mpsc::channel();
+            std::thread::spawn(move || unsafe {
+                let _ = CoInitializeEx(None, COINIT_MULTITHREADED);
+                let factory = quince_thumbs::class_factory();
+                let cookie = CoRegisterClassObject(
+                    &quince_thumbs::CLSID,
+                    &factory,
+                    CLSCTX_LOCAL_SERVER,
+                    REGCLS_MULTIPLEUSE,
+                );
+                ready.send(cookie.is_ok()).unwrap();
+                loop {
+                    std::thread::park();
+                }
+            });
+            println!("served out of process: {}", registered.recv().unwrap());
+        }
         // The provider's own trace, on for this ask only: where the shell's way stops, if it does.
         let trace = PathBuf::from(std::env::var("USERPROFILE").unwrap())
             .join(r"AppData\LocalLow\Skykeep thumbnails trace");

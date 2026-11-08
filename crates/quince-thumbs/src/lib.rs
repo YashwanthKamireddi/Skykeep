@@ -123,7 +123,7 @@ pub mod protocol {
 mod provider;
 
 #[cfg(windows)]
-pub use provider::CLSID;
+pub use provider::{class_factory, CLSID};
 
 /// Who may use the pipe, for Skykeep's side to create it with: this user (at any integrity
 /// level: Windows runs thumbnail providers in a low-integrity process, which the default pipe
