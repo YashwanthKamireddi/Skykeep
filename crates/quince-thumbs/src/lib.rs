@@ -126,7 +126,7 @@ mod provider;
 mod menu;
 
 #[cfg(windows)]
-pub use provider::CLSID;
+pub use provider::{CLSID, NOTHING_CLSID};
 
 /// File Explorer's Send to iPhone command (Windows 11's menu, from the MSIX package).
 #[cfg(windows)]

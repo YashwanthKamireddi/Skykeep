@@ -61,13 +61,16 @@
              after uninstall (Microsoft Q&A 5551232). -->
         <desktop3:Extension Category="windows.cloudFiles">
           <!-- Thumbnails of photos not on this computer yet (crates/quince-thumbs). The schema
-               wants the other three handlers named too, in this order; as in Microsoft's
-               CloudMirror sample, a class registered nowhere stands for "none". -->
+               wants the other handlers named too, in this order, and the context menu element
+               present. Named handlers must be real classes: a CLSID registered nowhere left
+               Explorer's status icons wrong (OtherSync's notes), so these name Skykeep's own
+               class that offers nothing, and Explorer shows its own states. -->
           <desktop3:CloudFiles>
-            <desktop3:CustomStateHandler Clsid="20000000-0000-0000-0000-000000000001" />
+            <desktop3:CustomStateHandler Clsid="229ead8b-daf0-4cee-af79-c52b31c43c5f" />
             <desktop3:ThumbnailProviderHandler Clsid="4ee8b6ba-8522-41f1-a17e-19126a88c38e" />
-            <desktop3:ExtendedPropertyHandler Clsid="20000000-0000-0000-0000-000000000001" />
-            <desktop3:BannersHandler Clsid="20000000-0000-0000-0000-000000000001" />
+            <desktop3:ExtendedPropertyHandler Clsid="229ead8b-daf0-4cee-af79-c52b31c43c5f" />
+            <desktop3:BannersHandler Clsid="229ead8b-daf0-4cee-af79-c52b31c43c5f" />
+            <desktop3:CloudFilesContextMenus />
           </desktop3:CloudFiles>
         </desktop3:Extension>
         <!-- Send to iPhone at the top of Windows 11's right-click menu, for files and folders
@@ -87,6 +90,7 @@
             <com:SurrogateServer DisplayName="Skykeep for File Explorer">
               <com:Class Id="4ee8b6ba-8522-41f1-a17e-19126a88c38e" Path="quince_thumbs.dll" ThreadingModel="STA" />
               <com:Class Id="9ece47db-eea3-4515-b644-4d7666ddf149" Path="quince_thumbs.dll" ThreadingModel="STA" />
+              <com:Class Id="229ead8b-daf0-4cee-af79-c52b31c43c5f" Path="quince_thumbs.dll" ThreadingModel="STA" />
             </com:SurrogateServer>
           </com:ComServer>
         </com:Extension>

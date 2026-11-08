@@ -262,12 +262,23 @@ fn drawn(w: u32, h: u32, pixels: &[u8]) -> windows_core::Result<HBITMAP> {
     Ok(made)
 }
 
-/// Which class a factory makes: the thumbnail provider, or File Explorer's Send to iPhone.
+/// The class the MSIX names for the cloud folder's handlers Skykeep doesn't provide (custom
+/// states, extended properties, banners): the schema wants each named, and a class that does not
+/// exist left Explorer's own status icons wrong or stuck (OtherSync's manifest notes, versions
+/// 0.1.0.216-228). This one is created, then offers nothing, and Explorer shows its own.
+pub const NOTHING_CLSID: GUID = GUID::from_u128(0x229ead8b_daf0_4cee_af79_c52b31c43c5f);
+
+/// Which class a factory makes.
 #[derive(Clone, Copy)]
 enum Class {
     Thumbnails,
     SendToIphone,
+    Nothing,
 }
+
+/// "Present, nothing to add": answers to no interface but IUnknown.
+#[implement]
+struct Nothing;
 
 #[implement(IClassFactory)]
 struct Factory(Class);
@@ -291,6 +302,7 @@ impl IClassFactory_Impl for Factory_Impl {
             let made: IUnknown = match self.0 {
                 Class::Thumbnails => Provider::new().into(),
                 Class::SendToIphone => crate::menu::SendToIphone::new().into(),
+                Class::Nothing => Nothing.into(),
             };
             // SAFETY: iid and object checked non-null; `query` fills `object` on success.
             unsafe { made.query(iid, object) }.ok()
@@ -324,6 +336,8 @@ pub unsafe extern "system" fn DllGetClassObject(
                 Class::Thumbnails
             } else if *class == crate::menu::CLSID {
                 Class::SendToIphone
+            } else if *class == NOTHING_CLSID {
+                Class::Nothing
             } else {
                 return CLASS_E_CLASSNOTAVAILABLE;
             };
