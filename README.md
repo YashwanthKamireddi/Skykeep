@@ -40,9 +40,15 @@ Skykeep keeps your iCloud on your own computer and syncs it quietly in the backg
   <tr>
     <td width="33%" align="center" valign="top"><picture><source media="(prefers-color-scheme: dark)" srcset="docs/media/contacts-dark.webp"><img src="docs/media/contacts-light.webp" alt="A full contact card"></picture><br><b>Contacts</b><br><sub>Every field, photos, lists, duplicate merging, vCard and CSV import.</sub></td>
     <td width="33%" align="center" valign="top"><picture><source media="(prefers-color-scheme: dark)" srcset="docs/media/drive-dark.webp"><img src="docs/media/drive-light.webp" alt="An iCloud Drive folder in grid view"></picture><br><b>iCloud Drive</b><br><sub>Previews, uploads, resumable downloads, and a real folder in File Explorer or Files.</sub></td>
-    <td width="33%" align="center" valign="top"><picture><source media="(prefers-color-scheme: dark)" srcset="docs/media/photos-dark.webp"><img src="docs/media/photos-light.webp" alt="The photo library by month"></picture><br><b>Photos</b><br><sub>Library by month, albums, Shared Library, Live Photos and videos.</sub></td>
+    <td width="33%" align="center" valign="top"><picture><source media="(prefers-color-scheme: dark)" srcset="docs/media/photos-dark.webp"><img src="docs/media/photos-light.webp" alt="The photo library by month"></picture><br><b>Photos</b><br><sub>Library by month, albums, Shared Library, Live Photos and videos, and a backup to any drive.</sub></td>
   </tr>
 </table>
+
+## Beyond the apps
+
+- **Send to iPhone.** Right-click any file in File Explorer or your file manager. Photos and videos land in Photos, everything else in the Files app. No app on the iPhone and no shared Wi-Fi: it travels through iCloud.
+- **Back Up Photos.** Every photo and video copied as the original into a folder or drive you choose, and kept up to date as you take more. A backup never deletes.
+- **Folders in your file manager.** iCloud Drive and Photos as real folders, and in File Explorer, thumbnails for photos not downloaded yet.
 
 ## Engineering
 
