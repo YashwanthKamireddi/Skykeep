@@ -1065,11 +1065,33 @@ export function NotesView() {
           .catch(() => {}),
       );
       try {
+        // Each file on its own: one refused (a folder, a system file, too large) leaves the
+        // rest to go in, and is named once at the end.
+        let added = 0;
+        const refused: string[] = [];
         for (const path of paths) {
-          const added = await notesLockApi.noteAttachFile(guid, path, at, text);
-          text = added.body;
-          at = added.offset + 1;
-          toast({ message: `Added “${fileName(path)}”`, tone: "done" });
+          try {
+            const done = await notesLockApi.noteAttachFile(guid, path, at, text);
+            text = done.body;
+            at = done.offset + 1;
+            added += 1;
+          } catch (e) {
+            refused.push(messageOf(e));
+          }
+        }
+        if (added > 0) {
+          toast({
+            message:
+              paths.length === 1
+                ? `Added “${fileName(paths[0])}”`
+                : added === paths.length
+                  ? `Added ${added} files`
+                  : `Added ${added} of ${paths.length} files`,
+            tone: "done",
+          });
+        }
+        if (refused.length > 0) {
+          setError(refused.length === 1 ? refused[0] : `${refused[0]} ${refused.length - 1} more weren’t added either.`);
         }
         // The note as Apple now holds it, file in place — kept here as it answered (any typing
         // still on its way laid over it), so read from the library rather than asked again.

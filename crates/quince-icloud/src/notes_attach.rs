@@ -22,7 +22,8 @@
 //! device — a version number written without its summary would tell the phone the work is done
 //! when it is not — and the last is the server's to keep (see `document_like_apples`).
 //!
-//! The three go in one atomic `records/modify`, the note's part written only over the exact
+//! The three go in one atomic `records/modify`, the note's update first (see where it is
+//! sent), the note's part written only over the exact
 //! version it was built from: if a phone edited the note meanwhile, nothing is written, the
 //! note is read again, the attachment is placed again — moved along with the other device's
 //! edit — and the three are sent again. The file is uploaded once, before any of that.
@@ -461,10 +462,15 @@ async fn attach_file_unguarded(
         .and_then(|n| n.to_str())
         .ok_or_else(|| Error::Refused("That file has no name to give it.".into()))?
         .to_string();
-    let size = tokio::fs::metadata(path)
+    let meta = tokio::fs::metadata(path)
         .await
-        .map_err(|e| Error::Refused(format!("Couldn’t read {filename}: {e}")))?
-        .len();
+        .map_err(|e| Error::Refused(format!("Couldn’t read {filename}: {e}")))?;
+    if meta.is_dir() {
+        return Err(Error::Refused(format!(
+            "{filename} is a folder. A note takes files, so add the files inside it."
+        )));
+    }
+    let size = meta.len();
     if size == 0 || size > MOST_BYTES {
         return Err(Error::Refused(format!(
             "{filename} is {} — a note takes files up to {} MB.",
@@ -532,7 +538,17 @@ async fn attach_file_unguarded(
             stamp_ms: now_ms,
         };
         let parent = json!({ "recordName": guid });
+        // The note first: CloudKit takes a new record's `parent` as touching the note, and
+        // refuses a batch that then updates it ("Record updated multiple times in one batch",
+        // since November 2026). Written first, the same three still go atomically.
         let operations = json!([
+            { "operationType": "update", "record": {
+                "recordName": guid, "recordType": "Note", "recordChangeTag": tag,
+                "fields": {
+                    "TextDataEncrypted": { "type": "ENCRYPTED_BYTES", "value": document },
+                    "ModificationDate": { "type": "TIMESTAMP", "value": now_ms },
+                },
+            } },
             { "operationType": "create", "record": {
                 "recordName": media, "recordType": "Media", "parent": parent,
                 "fields": media_fields(&asset, &filename, min_version),
@@ -544,13 +560,6 @@ async fn attach_file_unguarded(
                     client.reference_to(ZONE, &media),
                     &described,
                 ),
-            } },
-            { "operationType": "update", "record": {
-                "recordName": guid, "recordType": "Note", "recordChangeTag": tag,
-                "fields": {
-                    "TextDataEncrypted": { "type": "ENCRYPTED_BYTES", "value": document },
-                    "ModificationDate": { "type": "TIMESTAMP", "value": now_ms },
-                },
             } },
         ]);
         let answer = post(
@@ -947,25 +956,26 @@ mod tests {
         let last = &writes[1];
         assert_eq!(last["atomic"], true);
         let ops = last["operations"].as_array().unwrap();
-        assert_eq!(ops[0]["record"]["recordType"], "Media");
-        assert_eq!(ops[0]["record"]["parent"]["recordName"], "N");
-        assert_eq!(ops[0]["record"]["fields"]["Asset"]["value"]["receipt"], "R");
-        assert_eq!(ops[1]["record"]["recordType"], "Attachment");
-        assert_eq!(ops[1]["record"]["fields"]["Width"]["value"], 2.0);
+        // The note first: after a new record naming it as `parent`, CloudKit refuses it.
+        assert_eq!(ops[0]["record"]["recordType"], "Note");
+        assert_eq!(ops[0]["record"]["recordChangeTag"], "t2");
+        assert_eq!(ops[1]["record"]["recordType"], "Media");
+        assert_eq!(ops[1]["record"]["parent"]["recordName"], "N");
+        assert_eq!(ops[1]["record"]["fields"]["Asset"]["value"]["receipt"], "R");
+        assert_eq!(ops[2]["record"]["recordType"], "Attachment");
+        assert_eq!(ops[2]["record"]["parent"]["recordName"], "N");
+        assert_eq!(ops[2]["record"]["fields"]["Width"]["value"], 2.0);
         assert_eq!(
-            ops[1]["record"]["fields"]["MinimumSupportedNotesVersion"]["value"],
+            ops[2]["record"]["fields"]["MinimumSupportedNotesVersion"]["value"],
             14
         );
-        assert_eq!(ops[2]["record"]["recordChangeTag"], "t2");
         // The same records, by the same names, both times: nothing made twice.
-        assert_eq!(
-            writes[0]["operations"][0]["record"]["recordName"],
-            ops[0]["record"]["recordName"]
-        );
-        assert_eq!(
-            writes[0]["operations"][1]["record"]["recordName"],
-            ops[1]["record"]["recordName"]
-        );
+        for i in 1..3 {
+            assert_eq!(
+                writes[0]["operations"][i]["record"]["recordName"],
+                ops[i]["record"]["recordName"]
+            );
+        }
         let _ = std::fs::remove_dir_all(&dir);
     }
 

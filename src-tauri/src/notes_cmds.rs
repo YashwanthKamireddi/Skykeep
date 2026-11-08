@@ -149,6 +149,14 @@ pub async fn note_attach_file(
     data: State<'_, Data>,
 ) -> UiResult<Attached> {
     crate::grants::take_read(&path)?;
+    // A computer's own bookkeeping (desktop.ini, .DS_Store…), as Send to iPhone leaves it out.
+    let name = std::path::Path::new(&path)
+        .file_name()
+        .map(|n| n.to_string_lossy().into_owned())
+        .unwrap_or_default();
+    if crate::send::not_sent(&name) {
+        return Err(format!("{name} is a system file, so it wasn’t added."));
+    }
     let (http, root, params) = crate::cloudkit_context(&auth).await?;
     let attached = quince_icloud::notes::attach::attach_file_cloudkit(
         &http,

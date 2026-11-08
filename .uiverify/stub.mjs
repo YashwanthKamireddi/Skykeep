@@ -503,6 +503,8 @@ export function installStub({ screen, services, twoFactor, calendarFixture, note
           (window.__attaches ??= []).push(args);
           // A slow upload, when a test asks for one.
           if (window.__attachDelay) await new Promise((r) => setTimeout(r, window.__attachDelay));
+          // A computer's own file, refused as the app refuses it (notes_cmds.rs).
+          if (/desktop\.ini$/i.test(args.path)) throw "desktop.ini is a system file, so it wasn’t added.";
           const n = noteList.find((x) => x.guid === args.guid);
           const base = args.base ?? n?.body ?? "";
           const body = base.slice(0, args.atOffset) + "\uFFFC" + base.slice(args.atOffset);

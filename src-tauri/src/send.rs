@@ -535,7 +535,7 @@ async fn put(
 }
 
 /// A file no one means to send: a system's own, or an editor's scratch file.
-fn not_sent(name: &str) -> bool {
+pub(crate) fn not_sent(name: &str) -> bool {
     let lower = name.to_ascii_lowercase();
     matches!(
         lower.as_str(),

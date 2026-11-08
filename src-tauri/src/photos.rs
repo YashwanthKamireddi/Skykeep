@@ -3409,7 +3409,9 @@ fn confirm(app: AppHandle) {
                         if let Some(asset) = &u.asset {
                             into_album(&app, &http, &ck, &params, &u, asset).await;
                         }
-                        say(&app, &u, "done", 1, 1, None);
+                        // Said with the file's real size: the panel shows it beside the photo.
+                        let size = std::fs::metadata(&u.path).map_or(0, |m| m.len());
+                        say(&app, &u, "done", size, size, None);
                         moved.remove(&u.id);
                         finished = true;
                     }

@@ -1140,6 +1140,8 @@ export function PhotosView() {
   // not at every landing: a screen out of sight is still mounted (lib/screen), and each pass
   // lands a service at a time.
   const active = useScreenActive();
+  // Whether Photos is the screen in front, read inside listeners that outlive a render.
+  const frontRef = useActiveRef();
   const hiddenLocked = view === "hidden" && !album && !searching && !hiddenOpen;
   // Locked again once it is left — another place, an album, a search, another screen — and
   // whenever the window goes out of sight (minimised, closed to the tray, another workspace).
@@ -2727,6 +2729,12 @@ export function PhotosView() {
         .onDragDropEvent((event) => {
           // Photos of the library's own being dragged to an album are not files arriving.
           if (dragging2.current) return;
+          // Only while Photos is the screen in front: a file dropped onto a note, with Photos
+          // kept mounted behind it, went up to Photos as well. Drive guards the same way.
+          if (!frontRef.current) {
+            setDropping(false);
+            return;
+          }
           if (event.payload.type === "over") setDropping(true);
           else if (event.payload.type === "leave") setDropping(false);
           else if (event.payload.type === "drop") {

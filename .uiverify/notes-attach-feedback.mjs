@@ -42,5 +42,19 @@ ok(sent === 1, "the file was sent once");
 const editable = await page.locator(".note-rich [contenteditable='true'], .note-rich[contenteditable='true']").count();
 ok(editable > 0, "and the note is editable again");
 
+// Several files at once, one refused: the others still go in, and the refused one is named.
+await page.evaluate(() => {
+  window.__attaches = [];
+  window.__attachDelay = 0;
+  window.__pick = ["/home/someone/a.txt", "/home/someone/desktop.ini", "/home/someone/b.mp4"];
+});
+await page.getByRole("button", { name: "Add a picture or file" }).click();
+await page.locator(".toast-host", { hasText: "Added 2 of 3 files" }).waitFor({ timeout: 5000 });
+ok(true, "the files around the refused one still go in");
+const tried = await page.evaluate(() => window.__attaches.map((a) => a.path.split("/").pop()));
+ok(JSON.stringify(tried) === JSON.stringify(["a.txt", "desktop.ini", "b.mp4"]), `each file tried once, in order (${tried})`);
+await page.locator(".toast-host", { hasText: "desktop.ini is a system file" }).waitFor({ timeout: 5000 });
+ok(true, "and the one left out is named");
+
 await b.close();
 process.exitCode = failures ? 1 : 0;
