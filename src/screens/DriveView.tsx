@@ -39,6 +39,7 @@ import { keepSame } from "../lib/same";
 import { carryLabel } from "../lib/dragPicture";
 import { copyName, copyText, keepBothName } from "../lib/clipboard";
 import { useChosen, useIsChosen, type Chosen } from "../lib/chosen";
+import { icloudSize } from "../lib/icloudSize";
 
 /** iCloud Drive's own four orders, as its "by Name" menu offers them. */
 const SORTS = [
@@ -398,23 +399,6 @@ function InfoSheet({ item, where, thumb, onClose }: { item: DriveItem; where: st
   );
 }
 
-/**
- * Sizes as icloud.com writes storage: in thousands, not 1024s — so a 5 GB plan reads "5 GB"
- * — kB with no decimals, MB with one, GB and up with two.
- */
-function decimalSize(bytes: number): string {
-  const units = ["bytes", "kB", "MB", "GB", "TB", "PB"];
-  const places = [0, 0, 1, 2, 2, 2];
-  let value = bytes;
-  let unit = 0;
-  while (value >= 1000 && unit < units.length - 1) {
-    value /= 1000;
-    unit += 1;
-  }
-  const p = 10 ** places[unit];
-  return `${(Math.round(value * p) / p).toLocaleString()} ${units[unit]}`;
-}
-
 /** Days until Apple deletes it for good, rounded up; `null` when Apple did not say. */
 function daysLeft(expiresAt: number | null): number | null {
   if (expiresAt === null) return null;
@@ -525,7 +509,7 @@ export function DriveView() {
     api.storageInfo().then(
       (s) => setAvailable(
         s && Number.isFinite(s.totalBytes) && Number.isFinite(s.usedBytes)
-          ? decimalSize(Math.max(0, s.totalBytes - s.usedBytes))
+          ? icloudSize(Math.max(0, s.totalBytes - s.usedBytes))
           : null),
       () => setAvailable(null),
     );

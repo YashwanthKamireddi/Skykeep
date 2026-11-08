@@ -17,7 +17,8 @@ await ctx.addInitScript(() => {
 const page = await ctx.newPage();
 page.on("pageerror", (e) => { console.log(`FAIL page error: ${e.message}`); process.exitCode = 1; });
 // The policy as Tauri sends it, in the page's own head.
-await page.route("http://localhost:4173/", async (route) => {
+// Every window's page: Skykeep's at "/", each app's at "/?app=notes" and so on.
+await page.route((url) => url.origin === "http://localhost:4173" && url.pathname === "/", async (route) => {
   const res = await route.fetch();
   const html = (await res.text()).replace("<head>", `<head><meta http-equiv="Content-Security-Policy" content="${csp}">`);
   await route.fulfill({ response: res, body: html, headers: { ...res.headers(), "content-type": "text/html" } });

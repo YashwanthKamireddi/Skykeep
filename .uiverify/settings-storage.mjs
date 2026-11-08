@@ -23,6 +23,9 @@ const open = async (init) => {
   const { ctx, page } = await open();
   const text = await page.locator(".settings").innerText();
   ok(/4\.9 GB kept on this computer/.test(text), "the local copy's whole size is on This Computer's card");
+  // Apple's storage in Apple's own units, the same figure Drive shows under a folder.
+  ok(/182\.2 MB of 5\.37 GB used/.test(text) && /5\.19 GB available/.test(text), "iCloud storage is said as Apple says it");
+  ok((await page.locator(".launch-tile", { hasText: "Drive" }).innerText()).includes("5.19 GB available"), "and Drive's tile says what Drive itself says");
   ok(/Cached pictures[\s\S]*4\.2 GB/.test(text), "what can be cleared is said before clearing");
   const clear = page.getByRole("button", { name: "Clear", exact: true });
   await clear.click();

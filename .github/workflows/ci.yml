@@ -175,10 +175,11 @@ jobs:
           fi
           echo "preview up"
           # The key flows, one or two per app: the window's security policy, accessibility,
-          # sign-out, and an instant write in each app.
+          # sign-out, Skykeep's window and each app's own, and an instant write in each app.
+          # check.sh refuses a name here that is not a suite it runs.
           suites="csp a11y boundary signout notes-compose notes-instant reminders-add-done
                   reminders-instant calendar-edits contacts-select drive-nav photos settings
-                  search-everything updates device-approval"
+                  app-window updates device-approval"
           failed=()
           for t in $suites; do
             if node ".uiverify/$t.mjs" >"$shots/$t.log" 2>&1; then

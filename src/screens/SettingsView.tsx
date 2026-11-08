@@ -35,6 +35,7 @@ import { Launcher } from "../components/Launcher";
 import { AccountAvatar, NOT_KEPT, useNotKept } from "../components/Account";
 import { Picker } from "../components/Picker";
 import { localeFirstDay, setWeekStart, weekStartChoice, type WeekStartChoice } from "./calendar/model";
+import { icloudSize } from "../lib/icloudSize";
 
 /** The Drive folder's line when it is up: up to date, uploading, or why something is waiting. */
 function folderState(f: DriveFolder): string {
@@ -552,7 +553,7 @@ export function SettingsView({ onSignOut }: { onSignOut: (keep: boolean) => Prom
         services={report?.services ?? []}
         syncing={syncing}
         onSync={() => void refresh(true)}
-        driveFree={storage ? size(Math.max(0, storage.totalBytes - storage.usedBytes)) : null}
+        driveFree={storage ? icloudSize(Math.max(0, storage.totalBytes - storage.usedBytes)) : null}
       />
       {/* Under the apps, cards in balanced rows: what matters at a glance, the long lists behind
           each card's Details. Three across, then two, in a wide window; one under another in a
@@ -570,9 +571,9 @@ export function SettingsView({ onSignOut }: { onSignOut: (keep: boolean) => Prom
           </div>
           <div className="settings-row is-stacked">
             <div className="settings-row-line">
-              <span>{storage ? `${size(storage.usedBytes)} of ${size(storage.totalBytes)} used` : "Reading storage…"}</span>
+              <span>{storage ? `${icloudSize(storage.usedBytes)} of ${icloudSize(storage.totalBytes)} used` : "Reading storage…"}</span>
               {storage && (
-                <span className="settings-value">{size(Math.max(0, storage.totalBytes - storage.usedBytes))} available</span>
+                <span className="settings-value">{icloudSize(Math.max(0, storage.totalBytes - storage.usedBytes))} available</span>
               )}
             </div>
             <div

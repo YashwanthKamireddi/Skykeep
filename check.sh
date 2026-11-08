@@ -41,6 +41,17 @@ step "app is standalone" bash -c '! grep -q devUrl src-tauri/tauri.conf.json'
 step "nothing stray is published" bash -c '! git ls-files | grep -vxE -f <(grep -vE "^(#|$)" .github/published-paths)'
 
 
+# Every suite CI runs is one this gate runs too, so a suite renamed or removed here can't
+# leave CI asking for it, and nothing CI checks goes unchecked here.
+ci_suites() {
+  local t missing=0
+  for t in $(sed -n '/suites="/,/"/p' .github/workflows/ci.yml | tr -d '"' | sed 's/.*suites=//'); do
+    grep -q "\.uiverify/$t\.mjs" check.sh || { echo "CI runs $t, which this gate does not"; missing=1; }
+  done
+  return $missing
+}
+step "CI's suites are the gate's" ci_suites
+
 # The app embeds the built bundle when it compiles, so the bundle is built before the Rust lane
 # starts and never changes under it.
 step "frontend build"   npm run build
@@ -85,6 +96,10 @@ for _ in $(seq 20); do curl -sf -o /dev/null http://localhost:4173/ && break; sl
 export PLAYWRIGHT_SKIP_VALIDATE_HOST_REQUIREMENTS=1
 step "webkit: set up"   .uiverify/webkit-libs.sh
 
+pooled "content policy"   node .uiverify/csp.mjs
+pooled "sign out"         node .uiverify/signout.mjs
+pooled "calendar edits"   node .uiverify/calendar-edits.mjs
+pooled "updates"          node .uiverify/updates.mjs
 pooled "ui renders"       node .uiverify/shots.mjs
 pooled "nav behaviour"    node .uiverify/assert.mjs
 pooled "accessibility"    node .uiverify/a11y.mjs
