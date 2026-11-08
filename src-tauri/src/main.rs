@@ -7273,6 +7273,7 @@ fn main() {
             }
             alerts::spawn(app.handle().clone());
             alerts::spawn_events(app.handle().clone());
+            backup::init(app.handle());
             #[cfg(windows)]
             send::offer_in_send_to();
             if let Err(e) = build_tray(app) {

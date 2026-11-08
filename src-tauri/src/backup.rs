@@ -144,6 +144,12 @@ pub async fn backup_set(
     Ok(status(&app).await)
 }
 
+/// At launch: the app kept for Photos' notices, which come from refresh.rs with no app of their
+/// own, so a launch in the tray (no window to sign in) still backs up.
+pub fn init(app: &AppHandle) {
+    let _ = APP.set(app.clone());
+}
+
 /// Photos changed at Apple: what is new goes into the backup, when backup is on.
 pub fn photos_changed() {
     if let Some(app) = APP.get() {
@@ -194,11 +200,11 @@ async fn pass(app: &AppHandle) -> Result<(), String> {
     if !CHECKED.swap(true, Ordering::SeqCst) {
         check(app, &folder).await?;
     }
-    let taken = Arc::new(Mutex::new({
+    let taken = Arc::new(Mutex::new(Names::new({
         let data = app.state::<Data>();
         let library = data.0.lock().await;
         library.backup_paths().map_err(|e| e.to_string())?
-    }));
+    })));
     let mut refused: HashMap<String, u8> = HashMap::new();
     let mut shown = std::time::Instant::now();
     loop {
@@ -300,7 +306,7 @@ async fn copy_round(
     app: &AppHandle,
     folder: &Path,
     round: Vec<Photo>,
-    taken: &Arc<Mutex<HashSet<String>>>,
+    taken: &Arc<Mutex<Names>>,
 ) -> Result<Vec<(String, Outcome)>, String> {
     use futures_util::StreamExt;
     let mut groups: HashMap<PlaceKey, Vec<Photo>> = HashMap::new();
@@ -375,7 +381,7 @@ async fn copy_one(
     photo: &Photo,
     asset: &serde_json::Value,
     master: &serde_json::Value,
-    taken: &Arc<Mutex<HashSet<String>>>,
+    taken: &Arc<Mutex<Names>>,
 ) -> Result<Outcome, String> {
     let video = photo.kind == Kind::Video;
     let Some((url, name)) = quince_icloud::photos::download_choice(
@@ -392,6 +398,10 @@ async fn copy_one(
     let rel = match fetch(http, folder, taken, &dir, &name, &url, expected).await? {
         Fetched::Done(rel, size) => {
             dated(&folder.join(&rel), photo.taken_at).await;
+            files.push(copied(photo, ORIGINAL, &rel, size));
+            rel
+        }
+        Fetched::Found(rel, size) => {
             files.push(copied(photo, ORIGINAL, &rel, size));
             rel
         }
@@ -420,6 +430,7 @@ async fn copy_one(
                     dated(&folder.join(&live_rel), photo.taken_at).await;
                     files.push(copied(photo, LIVE, &live_rel, size));
                 }
+                Fetched::Found(live_rel, size) => files.push(copied(photo, LIVE, &live_rel, size)),
                 Fetched::Refused => return Ok(Outcome::Refreshed),
                 // A still without its video is still a photo: kept, the video left out.
                 Fetched::Missing => {}
@@ -449,6 +460,8 @@ fn size_of(master: &serde_json::Value, resource: &str) -> Option<u64> {
 
 enum Fetched {
     Done(String, u64),
+    /// Already in the folder, whole: taken as it is, left untouched.
+    Found(String, u64),
     /// Apple refused the link (expired, 401/403/410).
     Refused,
     /// Apple has no such file (404).
@@ -460,27 +473,27 @@ enum Fetched {
 async fn fetch(
     http: &reqwest::Client,
     folder: &Path,
-    taken: &Arc<Mutex<HashSet<String>>>,
+    taken: &Arc<Mutex<Names>>,
     dir: &str,
     name: &str,
     url: &str,
     expected: Option<u64>,
 ) -> Result<Fetched, String> {
-    let own = format!("{dir}/{name}");
+    // Already there whole: the first of `name`, `name 2`, … on disk that no other photo has
+    // and that is the size Apple gives (two photos may share a name; each has its own file).
     if let Some(size) = expected {
-        let here = std::fs::metadata(folder.join(&own)).map(|m| m.len()).ok();
-        let free = taken
+        let found = taken
             .lock()
-            .map(|t| !t.contains(&own.to_lowercase()))
-            .unwrap_or(false);
-        if here == Some(size) && free {
-            if let Ok(mut t) = taken.lock() {
-                t.insert(own.to_lowercase());
-            }
-            return Ok(Fetched::Done(own, size));
+            .map(|mut t| t.adopt(folder, dir, name, size))
+            .unwrap_or(None);
+        if let Some(rel) = found {
+            return Ok(Fetched::Found(rel, size));
         }
     }
-    let rel = reserve(taken, dir, name, folder);
+    let rel = taken
+        .lock()
+        .unwrap_or_else(std::sync::PoisonError::into_inner)
+        .reserve(folder, dir, name);
     let path = folder.join(&rel);
     if let Err(e) = tokio::fs::create_dir_all(path.parent().unwrap_or(folder)).await {
         return Err(disk_trouble(e.kind(), &e.to_string(), folder));
@@ -528,39 +541,85 @@ fn month_folder(taken_at: i64) -> String {
     format!("Photos/{y:04}/{m:02}")
 }
 
-/// A name in `dir` no other photo has, on disk or claimed by a copy under way ("name 2", …),
-/// ignoring case: a backup drive is often exFAT or NTFS, where `IMG_1.HEIC` and `img_1.heic`
-/// are one file. A folder's own files are read into the claims the first time it is used.
-fn reserve(taken: &Arc<Mutex<HashSet<String>>>, dir: &str, name: &str, folder: &Path) -> String {
-    let (stem, ext) = match name.rsplit_once('.') {
-        Some((s, e)) if !s.is_empty() => (s.to_string(), format!(".{e}")),
-        _ => (name.to_string(), String::new()),
-    };
-    let mut taken = taken
-        .lock()
-        .unwrap_or_else(std::sync::PoisonError::into_inner);
-    let read = format!("{}/\0read", dir.to_lowercase());
-    if taken.insert(read) {
-        for entry in std::fs::read_dir(folder.join(dir))
-            .into_iter()
-            .flatten()
-            .flatten()
-        {
-            let file = entry.file_name().to_string_lossy().to_lowercase();
-            taken.insert(format!("{}/{file}", dir.to_lowercase()));
+/// The names in the backup folder: those a photo has (recorded, found or being copied), and
+/// those on disk, compared ignoring case (a backup drive is often exFAT or NTFS, where
+/// `IMG_1.HEIC` and `img_1.heic` are one file). Kept apart: a file on disk is not yet any
+/// photo's, so a photo can find its own among them.
+struct Names {
+    claimed: HashSet<String>,
+    on_disk: HashMap<String, HashSet<String>>,
+}
+
+impl Names {
+    fn new(claimed: HashSet<String>) -> Self {
+        Names {
+            claimed,
+            on_disk: HashMap::new(),
         }
     }
-    for n in 1.. {
-        let candidate = if n == 1 {
-            format!("{dir}/{stem}{ext}")
-        } else {
-            format!("{dir}/{stem} {n}{ext}")
+
+    /// `name`, then `name 2`, `name 3`, … in `dir`.
+    fn candidates<'a>(dir: &'a str, name: &'a str) -> impl Iterator<Item = String> + 'a {
+        let (stem, ext) = match name.rsplit_once('.') {
+            Some((s, e)) if !s.is_empty() => (s, format!(".{e}")),
+            _ => (name, String::new()),
         };
-        if taken.insert(candidate.to_lowercase()) {
-            return candidate;
-        }
+        (1..).map(move |n| {
+            if n == 1 {
+                format!("{dir}/{stem}{ext}")
+            } else {
+                format!("{dir}/{stem} {n}{ext}")
+            }
+        })
     }
-    unreachable!("a free name is always found")
+
+    fn present(&mut self, folder: &Path, dir: &str, rel: &str) -> bool {
+        let listed = self.on_disk.entry(dir.to_lowercase()).or_insert_with(|| {
+            std::fs::read_dir(folder.join(dir))
+                .into_iter()
+                .flatten()
+                .flatten()
+                .map(|e| {
+                    format!(
+                        "{}/{}",
+                        dir.to_lowercase(),
+                        e.file_name().to_string_lossy().to_lowercase()
+                    )
+                })
+                .collect()
+        });
+        listed.contains(&rel.to_lowercase())
+    }
+
+    /// A file already on disk for this photo: the first of `name`, `name 2`, … that is there,
+    /// is no other photo's, and is `size` bytes. Claimed when found.
+    fn adopt(&mut self, folder: &Path, dir: &str, name: &str, size: u64) -> Option<String> {
+        for rel in Self::candidates(dir, name) {
+            if !self.present(folder, dir, &rel) {
+                return None;
+            }
+            let key = rel.to_lowercase();
+            if !self.claimed.contains(&key)
+                && std::fs::metadata(folder.join(&rel)).map(|m| m.len()).ok() == Some(size)
+            {
+                self.claimed.insert(key);
+                return Some(rel);
+            }
+        }
+        None
+    }
+
+    /// A name for a new file: the first of `name`, `name 2`, … neither on disk nor any photo's.
+    fn reserve(&mut self, folder: &Path, dir: &str, name: &str) -> String {
+        for rel in Self::candidates(dir, name) {
+            let key = rel.to_lowercase();
+            if !self.claimed.contains(&key) && !self.present(folder, dir, &rel) {
+                self.claimed.insert(key);
+                return rel;
+            }
+        }
+        unreachable!("a free name is always found")
+    }
 }
 
 /// The file dated the day the photo was taken, as a camera's own files are.
@@ -586,15 +645,49 @@ mod tests {
         let folder = dir.path();
         std::fs::create_dir_all(folder.join("Photos/2026/11")).unwrap();
         std::fs::write(folder.join("Photos/2026/11/IMG_1.HEIC"), b"x").unwrap();
-        let taken = Arc::new(Mutex::new(HashSet::new()));
-        let a = reserve(&taken, "Photos/2026/11", "IMG_1.HEIC", folder);
-        let b = reserve(&taken, "Photos/2026/11", "IMG_1.HEIC", folder);
-        let c = reserve(&taken, "Photos/2026/11", "img_1.heic", folder);
+        let mut names = Names::new(HashSet::new());
+        let a = names.reserve(folder, "Photos/2026/11", "IMG_1.HEIC");
+        let b = names.reserve(folder, "Photos/2026/11", "IMG_1.HEIC");
+        let c = names.reserve(folder, "Photos/2026/11", "img_1.heic");
         assert_eq!(a, "Photos/2026/11/IMG_1 2.HEIC");
         assert_eq!(b, "Photos/2026/11/IMG_1 3.HEIC");
         assert_eq!(
             c, "Photos/2026/11/img_1 4.heic",
             "names differing only in case"
+        );
+    }
+
+    /// Two photos of one name, copied as `IMG_7.HEIC` and `IMG_7 2.HEIC`, are each found again
+    /// as they are (a folder pointed at again): neither is copied a second time.
+    #[test]
+    fn photos_sharing_a_name_each_find_their_own_file() {
+        let dir = tempfile::tempdir().unwrap();
+        let folder = dir.path();
+        let month = folder.join("Photos/2024/03");
+        std::fs::create_dir_all(&month).unwrap();
+        std::fs::write(month.join("IMG_7.HEIC"), vec![0u8; 10]).unwrap();
+        std::fs::write(month.join("IMG_7 2.HEIC"), vec![0u8; 20]).unwrap();
+        let mut names = Names::new(HashSet::new());
+        assert_eq!(
+            names
+                .adopt(folder, "Photos/2024/03", "IMG_7.HEIC", 10)
+                .as_deref(),
+            Some("Photos/2024/03/IMG_7.HEIC")
+        );
+        assert_eq!(
+            names
+                .adopt(folder, "Photos/2024/03", "IMG_7.HEIC", 20)
+                .as_deref(),
+            Some("Photos/2024/03/IMG_7 2.HEIC")
+        );
+        // A third of that name has no file yet: none found, and a new name taken for it.
+        assert_eq!(
+            names.adopt(folder, "Photos/2024/03", "IMG_7.HEIC", 30),
+            None
+        );
+        assert_eq!(
+            names.reserve(folder, "Photos/2024/03", "IMG_7.HEIC"),
+            "Photos/2024/03/IMG_7 3.HEIC"
         );
     }
 

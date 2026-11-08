@@ -724,7 +724,14 @@ async fn run(client: &Arc<Mutex<Client>>, data: &LibraryLock, services: &[&str])
     // not a window is open; off the async threads, as it touches the disk.
     if changed.contains(&"photos") {
         tauri::async_runtime::spawn_blocking(crate::mount::photos_changed);
-        // New photos into the backup folder, when backup is on.
+    }
+    // The backup carried on after every Photos sync, changed or not: a launch in the tray at
+    // login, with nothing new since, still finishes a backup left part way. When nothing is
+    // left to copy it is one query.
+    if reports
+        .iter()
+        .any(|r| r.service == "photos" && r.outcome == Outcome::Ok)
+    {
         crate::backup::photos_changed();
     }
     let items = reports
