@@ -1,4 +1,5 @@
 import { Fragment, memo, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
+import { AppFoot } from "../components/AppFoot";
 import { usePending } from "../lib/pending";
 import { useErrorToast } from "../components/Toast";
 import { useConfirm } from "../components/Confirm";
@@ -1535,6 +1536,7 @@ export function NotesView() {
             ]}
           />
         )}
+        <AppFoot />
       </aside>
 
       <section className="notes-list" aria-label="Notes">

@@ -1376,6 +1376,10 @@ export function installStub({ screen, services, twoFactor, calendarFixture, note
             driveFiles: args.folder ? 1203 : 0, driveFilesTotal: args.folder ? 4120 : 0, driveBytes: args.folder ? 1_100_000_000 : 0, driveBytesTotal: args.folder ? 4_100_000_000 : 0 };
           return { ...window.__backup, hiddenLocked: !window.__hiddenOpen };
         }
+        // Windows of their own (apps.rs): recorded, as the test can't see another window.
+        case "app_open": case "app_reveal": case "settings_open":
+          (window.__windows ??= []).push({ cmd, ...(args ?? {}) });
+          return null;
         default: throw new Error(`unstubbed command: ${cmd}`);
       }
     },

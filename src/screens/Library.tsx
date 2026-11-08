@@ -6,11 +6,12 @@ import { lazy, Suspense, useCallback, useEffect, useLayoutEffect, useRef, useSta
 import { listen } from "@tauri-apps/api/event";
 import { invoke } from "@tauri-apps/api/core";
 import { PanelLeft } from "lucide-react";
-import { api, DATA_ACCESS, messageOf, NEW_EVENT, OPEN_REMINDER, SYNCED, type AccountInfo, type DataAccess } from "../lib/ipc";
+import { api, DATA_ACCESS, messageOf, NEW_EVENT, OPEN_REMINDER, OPEN_SETTINGS, SYNCED, type AccountInfo, type DataAccess } from "../lib/ipc";
 import { ApprovalNotice, ApprovalScreen, awaitsApproval } from "../components/DeviceApproval";
 import { SyncProvider, useSync } from "../lib/sync";
 import { AccountCard } from "../components/Account";
-import { reveal, type Reveal } from "../lib/reveal";
+import { AppFootContext } from "../components/AppFoot";
+import { reveal, takeWaiting, type Reveal } from "../lib/reveal";
 
 /*
  * Each app is its own chunk, so the window opens on the code for the app it shows, not all
@@ -191,6 +192,20 @@ const startNewEvent = () => {
   window.dispatchEvent(new CustomEvent("quince:revealed"));
 };
 if (new URLSearchParams(window.location.search).get("new") === "event") startNewEvent();
+// An item asked for from another app's window, carried in this window's address as it was made
+// (apps.rs `app_reveal`): taken as the desktop's search hands one over.
+{
+  const asked = new URLSearchParams(window.location.search).get("reveal");
+  if (asked) {
+    try {
+      const r = JSON.parse(atob(asked.replace(/-/g, "+").replace(/_/g, "/"))) as Reveal;
+      revealedScreen = r.screen;
+      reveal(r);
+    } catch {
+      // A request that can't be read opens the app as asked, at its start.
+    }
+  }
+}
 void listen(NEW_EVENT, startNewEvent).catch(() => {});
 
 /** The screen open last time, so the app reopens where it was left. */
@@ -198,9 +213,15 @@ const LAST_KEY = "quince.library.screen";
 const RAIL_KEY = "quince.library.rail";
 
 /** The app this window opens on, when it was opened as one (`?app=notes`, from its launcher
- * entry or the tray). Everything else stays — the other apps, search, Settings, the account —
- * as in any window: an app's window is where that app is, not a place cut off from the rest. */
+ * entry or the tray). */
 const ONLY = new URLSearchParams(window.location.search).get("app");
+/**
+ * An app's own window is that app alone, as a Mac's Notes is: its own folders are the window's
+ * sidebar, with the account and sync status at their foot, and no switcher of the six. Another
+ * app asked for from here (a link, a notification, Calendar's Show in Reminders) opens in its
+ * own window; Settings open in Skykeep's main window, the one place they live.
+ */
+const SOLO = ONLY && ONLY in apps ? ONLY : null;
 
 /**
  * The code for the screen this window will most likely open on, asked for as this file loads —
@@ -476,6 +497,15 @@ export function Library({ onSignOut, onShown }: { onSignOut: (keep: boolean) => 
   const settleTimer = useRef<number | undefined>(undefined);
 
   const choose = (key: string) => {
+    if (SOLO && key !== SOLO) {
+      // Not this window's app: Settings in the main window, another app in its own.
+      if (key === "settings") void invoke("settings_open").catch(() => {});
+      else {
+        const asked = takeWaiting(key);
+        void (asked ? invoke("app_reveal", { key, reveal: asked }) : invoke("app_open", { key })).catch(() => {});
+      }
+      return;
+    }
     window.clearTimeout(settleTimer.current);
     gliding.current = null;
     setMarked(null);
@@ -553,12 +583,16 @@ export function Library({ onSignOut, onShown }: { onSignOut: (keep: boolean) => 
     };
     front();
     window.addEventListener("quince:revealed", front);
+    // Sent to every window: the main window (or Reminders' own) answers it; another app's
+    // window leaves it be, rather than opening Reminders a second time.
     const stop = listen<string>(OPEN_REMINDER, () => {
-      if (services.includes("reminders")) choose("reminders");
+      if (services.includes("reminders") && (!SOLO || SOLO === "reminders")) choose("reminders");
     });
+    const settings = SOLO ? null : listen(OPEN_SETTINGS, () => choose("settings"));
     return () => {
       window.removeEventListener("quince:revealed", front);
       void stop.then((unlisten) => unlisten()).catch(() => {});
+      void settings?.then((unlisten) => unlisten()).catch(() => {});
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [services]);
@@ -602,12 +636,28 @@ export function Library({ onSignOut, onShown }: { onSignOut: (keep: boolean) => 
     );
   };
 
+  // An app's own window: the account and sync status at the foot of the app's own sidebar,
+  // opening Settings in the main window (see `choose`).
+  const soloFoot = SOLO ? (
+    <AccountCard
+      current={false}
+      onOpen={() => choose("settings")}
+      app={(() => {
+        const app = SCREENS.find((s) => s.key === SOLO);
+        return app && webAccess !== false ? { service: serviceOf(app.key), name: app.name } : null;
+      })()}
+    />
+  ) : null;
+
   return (
     <SyncProvider>
       <UpdateKeys screen={selected} />
       <AppKeys screen={selected} onSettings={() => choose("settings")} />
       <FirstSyncHint />
-      <div className={`library enter-library${sidebarOpen ? " is-sidebar-open" : ""}${rail ? " is-rail" : ""}`}>
+      <AppFootContext.Provider value={soloFoot}>
+      <div className={`library enter-library${SOLO ? " is-solo" : `${sidebarOpen ? " is-sidebar-open" : ""}${rail ? " is-rail" : ""}`}`}>
+        {!SOLO && (
+        <>
         {/* Only in a narrow window, where the sidebar gives its room to the content. */}
         <button
           className="sidebar-toggle"
@@ -657,6 +707,8 @@ export function Library({ onSignOut, onShown }: { onSignOut: (keep: boolean) => 
             />
           </div>
         </nav>
+        </>
+        )}
 
         {/* Which screen is in front, for its layout (each screen's CSS keys on it): asked with
             :has() across the whole content instead, WebKit checked it again on every change
@@ -747,6 +799,7 @@ export function Library({ onSignOut, onShown }: { onSignOut: (keep: boolean) => 
           <UpdateNotice />
         </ToastHost>
       </div>
+      </AppFootContext.Provider>
     </SyncProvider>
   );
 }

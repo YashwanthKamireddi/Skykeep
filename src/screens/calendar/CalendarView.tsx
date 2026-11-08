@@ -1,4 +1,5 @@
 import { toast, dismissToast, useErrorToast } from "../../components/Toast";
+import { AppFoot } from "../../components/AppFoot";
 import { REFUSED_LINK, outsideHref } from "../../lib/links";
 import { follow } from "../../lib/follow";
 import { ConfirmSheet, useConfirm } from "../../components/Confirm";
@@ -1517,6 +1518,7 @@ export function CalendarView() {
           onPick={setSelected}
           weekNumbers={weekNumbers}
         />
+        <AppFoot />
       </aside>
 
       <section className="cx-main">

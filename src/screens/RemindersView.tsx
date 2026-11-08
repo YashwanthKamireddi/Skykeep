@@ -1,4 +1,5 @@
 import { Fragment, memo, useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { AppFoot } from "../components/AppFoot";
 import { REFUSED_LINK, outsideHref } from "../lib/links";
 import { fadeIn, fadeOut } from "../lib/fade";
 import { overlayOpen, useActiveRef } from "../lib/screen";
@@ -2067,6 +2068,7 @@ export function RemindersView() {
             Add List
           </button>
         )}
+        <AppFoot />
       </aside>
 
       <section className="rx-main" ref={mainRef}>

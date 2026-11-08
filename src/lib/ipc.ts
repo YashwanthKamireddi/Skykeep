@@ -159,6 +159,8 @@ export type UpdateStatus = {
 export const SYNCED = "quince://synced";
 /** An alert was clicked: open Reminders, where that reminder is. */
 export const OPEN_REMINDER = "quince://open-reminder";
+/** The main window is asked to show Settings (apps.rs `settings_open`). */
+export const OPEN_SETTINGS = "quince://open-settings";
 /** A lapsed session signed itself back in only as far as Apple's code. */
 export const NEEDS_CODE = "quince://needs-code";
 /** Apple signed the session out and wants the password again. */

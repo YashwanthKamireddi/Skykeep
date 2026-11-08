@@ -1,4 +1,5 @@
 import { Fragment, memo, useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { AppFoot } from "../components/AppFoot";
 import { Face } from "../components/Face";
 import { Unsent, Waiting } from "../components/Unsent";
 import { useOutbox } from "../lib/outbox";
@@ -1095,6 +1096,7 @@ export function ContactsView() {
             ]}
           />
         )}
+        <AppFoot />
       </aside>
 
       <section className="contacts-list" aria-label="Contacts">

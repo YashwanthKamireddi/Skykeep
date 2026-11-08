@@ -7338,6 +7338,8 @@ fn main() {
             account_unsent,
             search_everything,
             apps::app_open,
+            apps::settings_open,
+            apps::app_reveal,
             intake::intake_pending,
             backup::backup_status,
             backup::backup_set,

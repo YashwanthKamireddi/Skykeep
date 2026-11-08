@@ -20,6 +20,14 @@ export function reveal(r: Reveal) {
   window.dispatchEvent(new CustomEvent<Reveal>(EVENT, { detail: r }));
 }
 
+/** The request waiting for `screen`, taken: an app's own window hands it to that screen's
+ *  window instead of showing it itself (Library's `choose`). */
+export function takeWaiting(screen: string): Reveal | null {
+  const r = waiting.get(screen) ?? null;
+  waiting.delete(screen);
+  return r;
+}
+
 /** A screen's part: `show` is called with each request meant for it, now or waiting. */
 export function useReveal(screen: string, show: (r: Reveal) => void) {
   const latest = useRef(show);

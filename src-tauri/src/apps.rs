@@ -357,6 +357,36 @@ pub fn app_open(key: String, app: AppHandle) {
     open(&app, &key);
 }
 
+/// An item in another app, asked for from an app's own window (Calendar's Show in Reminders,
+/// a download's Show): that app's window brought up showing it. An open window is told as the
+/// desktop's search tells one (`quince://reveal`); a window made for it finds the request in
+/// its address, so it never misses it while its page loads.
+#[tauri::command]
+pub fn app_reveal(key: String, reveal: serde_json::Value, app: AppHandle) {
+    use base64::{engine::general_purpose::URL_SAFE_NO_PAD, Engine};
+    if let Some(w) = app.get_webview_window(&label(&key)) {
+        w.unminimize().ok();
+        show(&w);
+        app.emit_to(label(&key).as_str(), "quince://reveal", &reveal)
+            .ok();
+        return;
+    }
+    let asked = URL_SAFE_NO_PAD.encode(reveal.to_string());
+    make(&app, &key, &format!("&reveal={asked}"));
+}
+
+/// Told to the whole-library window: show Settings.
+pub const OPEN_SETTINGS: &str = "quince://open-settings";
+
+/// Settings from an app's own window, as a Mac app's Settings: in Skykeep's main window, the
+/// one place they live, made and shown first when it isn't open.
+#[tauri::command]
+pub fn settings_open(app: AppHandle) {
+    crate::show_window_then(&app, |app| {
+        app.emit_to("main", OPEN_SETTINGS, ()).ok();
+    });
+}
+
 #[cfg(test)]
 mod tests {
 

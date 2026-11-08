@@ -3,6 +3,7 @@
  * for how many across; a photo opens on a dark stage with the arrows to go through them. Everything draws from the local library at once; thumbnails come
  * from the disk cache and are fetched once.
  */
+import { AppFoot } from "../components/AppFoot";
 import { useActiveRef, useScreenActive } from "../lib/screen";
 import { putAway, watchNear } from "../lib/near";
 import { memo, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, useSyncExternalStore } from "react";
@@ -3432,6 +3433,7 @@ export function PhotosView() {
           <Users className="px-glyph" size={16} strokeWidth={1.8} aria-hidden="true" />
           <span className="source-name px-label">Shared Albums</span>
         </button>
+        <AppFoot />
       </aside>
 
       <section className="px-main" aria-label={sharedPage ? "Shared Albums" : albumsPage ? "Albums" : title} data-page={albumsPage || sharedPage ? "albums" : undefined}>

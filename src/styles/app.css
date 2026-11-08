@@ -2008,3 +2008,56 @@
 /* What Skykeep talks to (Settings): each source a label over its hosts, the hosts as written. */
 .settings-reach .settings-row.is-stacked { gap: 2px; }
 .settings-reach code { font: inherit; color: var(--text); }
+
+/*
+ * An app's own window (Library's SOLO): no switcher of the six. The app's own list (Notes'
+ * folders, Photos' library, Reminders' lists, Calendar's calendars, Contacts' lists) is the
+ * window's sidebar, drawn as the main window's is: a frosted card 8px in from the window's
+ * edges, the content beside it. Drive, with no list of its own, takes the whole window.
+ */
+.library.is-solo { --side: 0px; }
+.library.is-solo > main.content { padding-left: 8px; }
+.library.is-solo > main.content[data-screen="drivews"] { padding-left: 34px; }
+.library.is-solo :is(.notes-folders, .contacts-lists, .rx-side, .px-side, .cx-side) {
+  /* Reaching from 8px below the window's top to 8px above its foot, past the content's own
+     top and bottom padding. */
+  margin-top: calc(8px - var(--pane-top));
+  margin-bottom: -20px;
+  padding-top: 14px;
+  background: var(--glass-frost);
+  box-shadow: var(--glass-specular), 0 0 0 var(--hairline) var(--glass-edge);
+  border-radius: var(--r-plateau);
+  border-right: 0;
+}
+/* Photos' grid and Calendar's month run to their column's edge: a gutter from the card. */
+.library.is-solo :is(.px-side, .cx-side) { margin-right: 12px; }
+.app-foot {
+  margin-top: auto;
+  padding-top: 10px;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+/* A sidebar whose add button already keeps to the foot (New Folder, Add List, New List): the
+   account sits right under it, not splitting the free space with it. */
+.library.is-solo :is(.notes-folders, .contacts-lists, .rx-side):has(.side-add) > .app-foot { margin-top: 0; }
+/* Narrow: no hub sidebar to bring back, so no band for its button; the foot the card reaches
+   past stays as wide. */
+@media (max-width: 900px) {
+  .library.is-solo > main.content { padding: var(--pane-top) 16px 28px 8px; }
+}
+/* Where an app folds its own sidebar away (each at its own width), the content keeps a
+   margin from the window's edge instead of the card's 8px. */
+@media (max-width: 1000px) {
+  .library.is-solo > main.content:is([data-screen="notes"], [data-screen="contacts"]) { padding-left: 16px; }
+}
+@media (max-width: 720px) {
+  .library.is-solo > main.content:is([data-screen="photos"], [data-screen="reminders"]) { padding-left: 16px; }
+  /* No band beside a sidebar button for the library's pop-up: it sits above the library. */
+  .library.is-solo .px-compact { margin: 0 0 12px 18px; }
+  /* Reminders as on iPhone: the lists are the page itself, not a card on it. */
+  .library.is-solo .rx-side { margin: 0; padding-top: 0; background: none; box-shadow: none; border-radius: 0; }
+}
+@container cx-page (max-width: 860px) {
+  .library.is-solo .cx { margin-left: 8px; }
+}

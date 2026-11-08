@@ -27,7 +27,9 @@ const stub = { screen: "library", services: SERVICES, twoFactor: null, calendarF
   await ctx.addInitScript(installStub, stub);
   const page = await ctx.newPage();
   page.on("pageerror", (e) => { console.log(`FAIL page error: ${e.message}`); failures++; });
-  await page.goto("http://localhost:4173/?app=notes", { waitUntil: "networkidle" });
+  // The main window, open on Notes.
+  await page.addInitScript(() => localStorage.setItem("quince.library.screen", "notes"));
+  await page.goto("http://localhost:4173/", { waitUntil: "networkidle" });
   await page.waitForTimeout(800);
   ok((await started(page)) === 0, "a window open on Notes has no event started");
   // As Skykeep tells the open window (apps.rs, new_event).
@@ -40,6 +42,35 @@ const stub = { screen: "library", services: SERVICES, twoFactor: null, calendarF
   await page.evaluate(() => window.__emit("quince://new-event", null));
   await page.waitForTimeout(600);
   ok((await started(page)) === 1, "told again with Calendar built, it starts another");
+  await ctx.close();
+}
+
+// Notes' own window, told: Calendar's own window is asked for, with the new event in the asking.
+{
+  const ctx = await b.newContext({ viewport: { width: 1300, height: 850 } });
+  await ctx.addInitScript(installStub, stub);
+  const page = await ctx.newPage();
+  page.on("pageerror", (e) => { console.log(`FAIL page error: ${e.message}`); failures++; });
+  await page.goto("http://localhost:4173/?app=notes", { waitUntil: "networkidle" });
+  await page.waitForTimeout(800);
+  await page.evaluate(() => window.__emit("quince://new-event", null));
+  await page.waitForTimeout(400);
+  const asked = await page.evaluate(() => window.__windows ?? []);
+  ok(asked.some((w) => w.cmd === "app_reveal" && w.key === "calendar" && w.reveal?.startNew), "Notes' own window hands it to Calendar's window");
+  ok((await page.locator('main.content[data-screen="notes"]').count()) === 1, "and stays Notes");
+  await ctx.close();
+}
+
+// Calendar's window made for that hand-off: the new event, from its address.
+{
+  const ctx = await b.newContext({ viewport: { width: 1300, height: 850 } });
+  await ctx.addInitScript(installStub, stub);
+  const page = await ctx.newPage();
+  page.on("pageerror", (e) => { console.log(`FAIL page error: ${e.message}`); failures++; });
+  const asked = Buffer.from(JSON.stringify({ screen: "calendar", id: "", startNew: true })).toString("base64url");
+  await page.goto(`http://localhost:4173/?app=calendar&reveal=${asked}`, { waitUntil: "networkidle" });
+  await page.waitForTimeout(800);
+  ok((await started(page)) === 1, "Calendar's window made for it starts the new event");
   await ctx.close();
 }
 

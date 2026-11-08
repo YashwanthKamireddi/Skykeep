@@ -180,6 +180,12 @@ pooled "webkit: autoformat" env ENGINE=webkit node .uiverify/notes-autoformat.mj
 pooled "webkit: ticks"     env ENGINE=webkit node .uiverify/reminders-tick.mjs
 pooled "webkit: unsent"    env ENGINE=webkit node .uiverify/outbox-pending.mjs
 pooled "webkit: photos"    env ENGINE=webkit node .uiverify/photos.mjs
+pooled "app windows"       node .uiverify/app-window.mjs
+pooled "webkit: app windows" env ENGINE=webkit node .uiverify/app-window.mjs
+pooled "new event"         node .uiverify/calendar-new-event.mjs
+pooled "webkit: new event" env ENGINE=webkit node .uiverify/calendar-new-event.mjs
+pooled "notes attach"      node .uiverify/notes-attach-feedback.mjs
+pooled "webkit: notes attach" env ENGINE=webkit node .uiverify/notes-attach-feedback.mjs
 pooled "webkit: albums"    env ENGINE=webkit node .uiverify/photos-albums.mjs
 pooled "webkit: at scale"  env ENGINE=webkit node .uiverify/photos-scale.mjs
 pooled "webkit: drag"      env ENGINE=webkit node .uiverify/photos-drag.mjs
