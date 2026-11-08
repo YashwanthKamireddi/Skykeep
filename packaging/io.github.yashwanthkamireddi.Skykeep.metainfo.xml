@@ -99,6 +99,11 @@
     <color type="primary" scheme_preference="dark">#0B2A4A</color>
   </branding>
   <releases>
+    <release version="0.1.16" date="2026-11-09">
+      <description>
+        <p>Skykeep now opens to a launcher of your six apps, each showing what it holds and how fresh it is; Notes, Reminders, Calendar, Contacts, Drive and Photos each open in their own window, and Settings fit on one calm page. Downloading large iCloud Drive folders no longer crashes Skykeep, notes save cleanly every time, and every sidebar moves with the arrow keys.</p>
+      </description>
+    </release>
     <release version="0.1.15" date="2026-11-08">
       <description>
         <p>Send files to your iPhone from your file manager's right-click menu, back up every photo and everything in iCloud Drive to a folder or drive you choose, and see iCloud files' thumbnails in File Explorer. Each app now has its own icon. Photos upload several at once, files go into notes again, and Reminders syncs even when an alarm holds a date no calendar has.</p>

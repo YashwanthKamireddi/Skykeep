@@ -4025,7 +4025,7 @@ dependencies = [
 
 [[package]]
 name = "quince-app"
-version = "0.1.15"
+version = "0.1.16"
 dependencies = [
  "anyhow",
  "base64 0.22.1",
@@ -4073,7 +4073,7 @@ dependencies = [
 
 [[package]]
 name = "quince-auth"
-version = "0.1.15"
+version = "0.1.16"
 dependencies = [
  "aes-gcm",
  "anyhow",
@@ -4102,7 +4102,7 @@ dependencies = [
 
 [[package]]
 name = "quince-core"
-version = "0.1.15"
+version = "0.1.16"
 dependencies = [
  "base64 0.22.1",
  "icu_normalizer",
@@ -4116,7 +4116,7 @@ dependencies = [
 
 [[package]]
 name = "quince-icloud"
-version = "0.1.15"
+version = "0.1.16"
 dependencies = [
  "aes",
  "aes-gcm",
@@ -4144,7 +4144,7 @@ dependencies = [
 
 [[package]]
 name = "quince-media"
-version = "0.1.15"
+version = "0.1.16"
 dependencies = [
  "fast_image_resize",
  "gstreamer",
@@ -4186,7 +4186,7 @@ dependencies = [
 
 [[package]]
 name = "quince-thumbs"
-version = "0.1.15"
+version = "0.1.16"
 dependencies = [
  "windows 0.62.2",
  "windows-core 0.62.2",
@@ -4194,7 +4194,7 @@ dependencies = [
 
 [[package]]
 name = "quince-vfs"
-version = "0.1.15"
+version = "0.1.16"
 dependencies = [
  "fuser",
  "image",
