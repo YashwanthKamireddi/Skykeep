@@ -14,6 +14,9 @@ use windows::Win32::System::Com::IBindCtx;
 use windows::Win32::UI::Shell::*;
 use windows_core::{implement, Ref, BOOL, GUID, PWSTR};
 
+/// The longest command line handed to Skykeep, short of Windows' own limit (32,767).
+const LONGEST: usize = 30_000;
+
 /// The command's class, declared in the package manifest.
 pub const CLSID: GUID = GUID::from_u128(0x9ece47db_eea3_4515_b644_4d7666ddf149);
 
@@ -69,12 +72,25 @@ impl IExplorerCommand_Impl for SendToIphone_Impl {
                 return Ok(());
             }
             let exe = skykeep_exe().ok_or(E_FAIL)?;
-            std::process::Command::new(exe)
-                .arg("--send-to-iphone")
-                .args(paths)
-                .spawn()
-                .map(|_| ())
-                .map_err(|_| E_FAIL.into())
+            let mut launch = std::process::Command::new(exe);
+            // Past Windows' command line (about 32,000 characters; a thousand photos is more),
+            // the paths go in a file Skykeep reads and deletes.
+            let length: usize = paths.iter().map(|p| p.as_os_str().len() + 3).sum();
+            if length > LONGEST {
+                let list = std::env::temp_dir().join(format!(
+                    "skykeep-send-{}-{}.txt",
+                    std::process::id(),
+                    std::time::SystemTime::now()
+                        .duration_since(std::time::UNIX_EPOCH)
+                        .map_or(0, |d| d.as_nanos())
+                ));
+                let text: String = paths.iter().map(|p| format!("{}\n", p.display())).collect();
+                std::fs::write(&list, text).map_err(|_| E_FAIL)?;
+                launch.arg("--send-to-iphone-list").arg(list);
+            } else {
+                launch.arg("--send-to-iphone").args(paths);
+            }
+            launch.spawn().map(|_| ()).map_err(|_| E_FAIL.into())
         })
     }
 

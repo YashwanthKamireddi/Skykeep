@@ -19,6 +19,12 @@ use tokio::net::windows::named_pipe::{NamedPipeServer, ServerOptions};
 /// folder of thousands scrolled past asks Apple for no more than this at a time.
 static AT_ONCE: tokio::sync::Semaphore = tokio::sync::Semaphore::const_new(4);
 
+/// After Apple refuses a fetch, how long new pictures wait: a folder of ten thousand photos
+/// never seen scrolled past in Explorer would otherwise ask Apple ten thousand times, and keep
+/// asking while refused. Pictures already on this computer answer all the while.
+const PAUSE: Duration = Duration::from_secs(60);
+static PAUSED_UNTIL: std::sync::Mutex<Option<std::time::Instant>> = std::sync::Mutex::new(None);
+
 /// Within the provider's own patience (8 s), so a slow answer is ours to drop, not Explorer's.
 const ANSWER_WITHIN: Duration = Duration::from_secs(6);
 
@@ -85,7 +91,24 @@ async fn picture_for(app: &AppHandle, pipe: &mut NamedPipeServer) -> Option<(u32
     let id = tokio::task::spawn_blocking(move || crate::mount_photos::photo_at(&path))
         .await
         .ok()??;
-    let bytes = crate::photos::picture(app, &id, Size::Thumb).await.ok()?;
+    let kept = crate::photos::cache_path(app, &id, Size::Thumb).exists();
+    let paused = PAUSED_UNTIL
+        .lock()
+        .ok()
+        .and_then(|p| *p)
+        .is_some_and(|until| std::time::Instant::now() < until);
+    if !kept && paused {
+        return None;
+    }
+    let bytes = match crate::photos::picture(app, &id, Size::Thumb).await {
+        Ok(bytes) => bytes,
+        Err(_) => {
+            if let Ok(mut p) = PAUSED_UNTIL.lock() {
+                *p = Some(std::time::Instant::now() + PAUSE);
+            }
+            return None;
+        }
+    };
     tokio::task::spawn_blocking(move || quince_media::thumbnail_bgra(&bytes, size).ok())
         .await
         .ok()?

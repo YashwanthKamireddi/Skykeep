@@ -19,8 +19,24 @@ use tauri::AppHandle;
 /// The launch that asks for it: `skykeep --send-to-iphone <files…>`.
 pub const ASK: &str = "--send-to-iphone";
 
+/// The same, with the paths in a file (one per line), deleted once read: what File Explorer's
+/// command hands over when a selection is too long for one command line (Windows takes about
+/// 32,000 characters; a thousand photos is more).
+pub const ASK_LIST: &str = "--send-to-iphone-list";
+
 /// The files a launch asks to send, when it asks.
 pub fn asked(args: &[String], cwd: &Path) -> Option<Vec<PathBuf>> {
+    if let Some(at) = args.iter().position(|a| a == ASK_LIST) {
+        let list = PathBuf::from(args.get(at + 1)?);
+        let text = std::fs::read_to_string(&list).unwrap_or_default();
+        let _ = std::fs::remove_file(&list);
+        return Some(
+            text.lines()
+                .filter(|l| !l.trim().is_empty())
+                .map(PathBuf::from)
+                .collect(),
+        );
+    }
     args.iter()
         .any(|a| a == ASK)
         .then(|| crate::apps::paths_asked(args, cwd))
@@ -87,13 +103,18 @@ pub fn send(app: &AppHandle, paths: Vec<PathBuf>) {
 #[derive(Default)]
 struct Ended {
     photos: usize,
+    /// Photos already in the library: on the iPhone already, nothing to send.
+    already: usize,
     files: usize,
     failed: Vec<(String, String)>,
 }
 
+/// Failures named one by one in the notice; the rest counted.
+const NAMED: usize = 3;
+
 impl Ended {
     fn words(&self) -> (String, String) {
-        let where_ = match (self.photos, self.files) {
+        let mut where_ = match (self.photos, self.files) {
             (0, 0) => String::new(),
             (p, 0) => format!("In Photos on your iPhone ({p})."),
             (0, f) => format!("In the Files app, iCloud Drive, {} ({f}).", folder_name()),
@@ -102,24 +123,45 @@ impl Ended {
                 folder_name()
             ),
         };
+        if self.already > 0 {
+            let already = match self.already {
+                1 => "1 photo was in Photos already.".to_string(),
+                n => format!("{n} photos were in Photos already."),
+            };
+            where_ = if where_.is_empty() {
+                already
+            } else {
+                format!("{where_} {already}")
+            };
+        }
+        let sent = self.photos + self.files + self.already;
         match self.failed.as_slice() {
             [] => ("Sent to your iPhone".into(), where_),
-            [(name, why)] if self.photos + self.files == 0 => {
-                (format!("{name} wasn't sent"), why.clone())
-            }
-            failed => (
-                format!("{} sent, {} not", self.photos + self.files, failed.len()),
-                failed
+            [(name, why)] if sent == 0 => (format!("{name} wasn't sent"), why.clone()),
+            failed => {
+                let mut lines: Vec<String> = failed
                     .iter()
+                    .take(NAMED)
                     .map(|(n, why)| format!("{n}: {why}"))
-                    .collect::<Vec<_>>()
-                    .join("\n"),
-            ),
+                    .collect();
+                if failed.len() > NAMED {
+                    lines.push(format!("and {} more", failed.len() - NAMED));
+                }
+                (
+                    format!("{sent} sent, {} not", failed.len()),
+                    lines.join("\n"),
+                )
+            }
         }
     }
 }
 
+/// One sending at a time: two started together would each make "From <computer>" in iCloud
+/// Drive, and leave two. The second waits for the first.
+static SENDING: tokio::sync::Mutex<()> = tokio::sync::Mutex::const_new(());
+
 async fn deliver(app: &AppHandle, paths: &[PathBuf]) -> Ended {
+    let _one = SENDING.lock().await;
     let mut ended = Ended::default();
     let mut folder: Option<DriveItem> = None;
     let remote = crate::mount::drive_remote(app);
@@ -138,12 +180,15 @@ async fn deliver(app: &AppHandle, paths: &[PathBuf]) -> Ended {
                     };
                 }
                 let into = folder.as_ref().expect("made just above");
-                put(remote.as_ref(), into, path).await.map(|()| To::Files)
+                put(remote.as_ref(), into, path, &mut ended).await;
+                continue;
             }
         };
         match sent {
-            Ok(To::Photos) => ended.photos += 1,
-            Ok(To::Files) => ended.files += 1,
+            Ok(_) => ended.photos += 1,
+            Err(why) if why == quince_icloud::photos_upload::Refusal::Duplicate.words() => {
+                ended.already += 1;
+            }
             Err(why) => ended.failed.push((name, why)),
         }
     }
@@ -175,22 +220,55 @@ async fn ours(remote: &dyn Remote) -> Result<DriveItem, String> {
     remote.mkdir(&parent, &name).await
 }
 
-/// A file, or a folder and everything in it, into `into`.
-async fn put(remote: &dyn Remote, into: &DriveItem, path: &Path) -> Result<(), String> {
-    if !path.is_dir() {
-        return remote.upload(into, path).await.map(|_| ());
+/// A file, or a folder and everything in it, into `into`: each file counted as sent or failed
+/// on its own, so one that can't go never stops the rest. Left out: a system's own files
+/// (`Thumbs.db`, `.DS_Store`, …) and editors' scratch files, and links to folders, which can
+/// lead back into themselves.
+async fn put(remote: &dyn Remote, into: &DriveItem, path: &Path, ended: &mut Ended) {
+    let name = name_of(path);
+    let Ok(meta) = std::fs::symlink_metadata(path) else {
+        ended.failed.push((name, "It's no longer there.".into()));
+        return;
+    };
+    if meta.file_type().is_symlink() && path.is_dir() {
+        return;
     }
-    let made = remote.mkdir(into, &name_of(path)).await?;
+    if !path.is_dir() {
+        match remote.upload(into, path).await {
+            Ok(_) => ended.files += 1,
+            Err(why) => ended.failed.push((name, why)),
+        }
+        return;
+    }
+    let made = match remote.mkdir(into, &name).await {
+        Ok(made) => made,
+        Err(why) => {
+            ended.failed.push((name, why));
+            return;
+        }
+    };
     let mut entries: Vec<PathBuf> = std::fs::read_dir(path)
-        .map_err(|e| e.to_string())?
+        .into_iter()
+        .flatten()
         .flatten()
         .map(|e| e.path())
+        .filter(|p| !not_sent(&name_of(p)))
         .collect();
     entries.sort();
     for entry in entries {
-        Box::pin(put(remote, &made, &entry)).await?;
+        Box::pin(put(remote, &made, &entry, ended)).await;
     }
-    Ok(())
+}
+
+/// A file no one means to send: a system's own, or an editor's scratch file.
+fn not_sent(name: &str) -> bool {
+    let lower = name.to_ascii_lowercase();
+    matches!(
+        lower.as_str(),
+        "thumbs.db" | "desktop.ini" | ".ds_store" | ".localized" | "ehthumbs.db"
+    ) || lower.starts_with("._")
+        || lower.starts_with("~$")
+        || quince_vfs::writes::stays_local(name)
 }
 
 /// The entry in File Explorer's Send to menu, as it shows there.
@@ -302,13 +380,20 @@ mod tests {
         let mut e = Ended {
             photos: 2,
             files: 1,
-            failed: vec![],
+            ..Ended::default()
         };
         assert_eq!(e.words().0, "Sent to your iPhone");
         assert!(e.words().1.starts_with("2 in Photos, 1 in the Files app"));
         e.failed
             .push(("a.zip".into(), "Your iCloud storage is full.".into()));
         assert_eq!(e.words().0, "3 sent, 1 not");
+        // Many failures: three named, the rest counted. Photos already there are sent.
+        e.failed = (0..10).map(|i| (format!("f{i}"), "why".into())).collect();
+        e.already = 2;
+        let (title, body) = e.words();
+        assert_eq!(title, "5 sent, 10 not");
+        assert_eq!(body.lines().count(), 4);
+        assert!(body.ends_with("and 7 more"));
         let lone = Ended {
             failed: vec![("a.zip".into(), "Your iCloud storage is full.".into())],
             ..Ended::default()
@@ -320,6 +405,42 @@ mod tests {
                 "Your iCloud storage is full.".into()
             )
         );
+    }
+
+    #[test]
+    fn a_systems_own_files_are_never_sent() {
+        for name in [
+            "Thumbs.db",
+            "desktop.ini",
+            ".DS_Store",
+            "._IMG_1.JPG",
+            "~$Report.docx",
+        ] {
+            assert!(not_sent(name), "{name}");
+        }
+        for name in ["IMG_1.JPG", "Report.docx", ".bashrc"] {
+            assert!(!not_sent(name), "{name}");
+        }
+    }
+
+    #[test]
+    fn a_long_selection_comes_as_a_list_read_once() {
+        let dir = tempfile::tempdir().unwrap();
+        let list = dir.path().join("send.txt");
+        std::fs::write(&list, "/a/one.jpg\n/b/two words.pdf\n\n").unwrap();
+        let args = vec![
+            "skykeep".to_string(),
+            ASK_LIST.to_string(),
+            list.display().to_string(),
+        ];
+        assert_eq!(
+            asked(&args, Path::new("/")),
+            Some(vec![
+                PathBuf::from("/a/one.jpg"),
+                PathBuf::from("/b/two words.pdf")
+            ])
+        );
+        assert!(!list.exists(), "deleted once read");
     }
 
     #[test]
