@@ -243,6 +243,16 @@ fn fingerprint(items: &[DriveItem]) -> u64 {
 /// identity, and its old bytes let go so the next open fetches the new ones. Opened alone (no
 /// sharing): a file open in a program is left until it is closed, never changed under it.
 fn renew(path: &Path, item: &DriveItem) -> windows::core::Result<()> {
+    renew_unless_changed(path, item, || true).map(|_| ())
+}
+
+/// `renew`, only if `still()` holds once the file is held alone (nothing else can write it then,
+/// so the answer can't go stale before the update). `Ok(false)`: it didn't, nothing was changed.
+pub(crate) fn renew_unless_changed(
+    path: &Path,
+    item: &DriveItem,
+    still: impl FnOnce() -> bool,
+) -> windows::core::Result<bool> {
     use windows::Win32::Foundation::GENERIC_ACCESS_RIGHTS;
     use windows::Win32::Storage::FileSystem::*;
     // SAFETY: a path string alive for the call.
@@ -257,6 +267,9 @@ fn renew(path: &Path, item: &DriveItem) -> windows::core::Result<()> {
             None,
         )
     }?);
+    if !still() {
+        return Ok(false);
+    }
     let size = u64::try_from(item.size.unwrap_or(0)).unwrap_or(0);
     let made = Placeholder::of("", item, size);
     let flags = if item.is_container() {
@@ -277,6 +290,7 @@ fn renew(path: &Path, item: &DriveItem) -> windows::core::Result<()> {
             None,
         )
     }
+    .map(|_| true)
 }
 
 /// How Explorer shows the folder: its name in the navigation pane, its icon, and the id it is

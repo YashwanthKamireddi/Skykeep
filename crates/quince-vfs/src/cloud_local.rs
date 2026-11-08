@@ -10,8 +10,11 @@
 //! copy taken first, so a program still writing can never send half a file. It is marked in
 //! sync only if it is still exactly what was sent; otherwise it goes again. A file changed at
 //! Apple meanwhile is kept beside it as a conflicted copy, never written over (`writes::send`).
+//!
+//! iCloud Photos can't replace a photo from a computer, so a photo saved over goes to iCloud as
+//! a new photo and the one under it goes back to iCloud's copy (`save_as_new_photo`).
 
-use crate::cloud::{folder_item, identity_of, placeholder_state};
+use crate::cloud::{folder_item, identity_of, placeholder_state, renew_unless_changed};
 use crate::writes::{send, stays_local, SETTLE};
 use crate::Remote;
 use quince_core::drive::DriveItem;
@@ -248,9 +251,11 @@ async fn sync_path(
         return Ok(());
     }
     let edited_here = matches!(&state, Some((st, _)) if *st != CF_IN_SYNC_STATE_IN_SYNC);
-    if add_only && (edited_here || (state.is_none() && !remote.accepts(&folder))) {
-        // Photos: a photo saved over is not sent as a change (a photo has no versions to
-        // replace), and a view (Favorites, Videos) is no place to add one. Left as it is.
+    if add_only && edited_here {
+        return save_as_new_photo(remote, staging, path, &name, &folder).await;
+    }
+    if add_only && state.is_none() && !remote.accepts(&folder) {
+        // Photos: a view (Favorites, Videos) is no place to add a photo. Left as it is.
         return Ok(());
     }
     let base = match &state {
@@ -298,6 +303,61 @@ async fn sync_path(
     } else {
         convert(&here, Some(&sent.item)).map_err(|e| e.to_string())
     }
+}
+
+/// A photo saved over here (edited in Paint, say): sent to iCloud as a new photo, and the one
+/// it was saved over put back to iCloud's own copy. iCloud has no way to replace a photo from a
+/// computer (Apple's iCloud for Windows keeps such an edit on the PC only and tells people to
+/// upload it as a new photo); this does that for them, and loses neither.
+///
+/// Sent once per save: a receipt in `staging` (the save's own stamp) stops a second upload when
+/// putting the original back has to wait, for a program still holding the file or a restart. A
+/// save made meanwhile is never thrown away: the original goes back only if the file is still
+/// exactly what was sent, checked while it is held alone; otherwise the newer save goes too.
+async fn save_as_new_photo(
+    remote: &dyn Remote,
+    staging: &Path,
+    path: &Path,
+    name: &str,
+    folder: &DriveItem,
+) -> Result<(), String> {
+    let Some(original) = identity_of(path) else {
+        return Ok(());
+    };
+    let before = stamp(path).ok_or("the file went away")?;
+    let receipt = staging.join(format!("sent-{:016x}-{}", key_of(path), stamp_key(&before)));
+    if !receipt.exists() {
+        let dir = staging.join(format!("{}-{}", std::process::id(), stamp_key(&before)));
+        std::fs::create_dir_all(&dir).map_err(|e| e.to_string())?;
+        let staged = dir.join(name);
+        let copied = std::fs::copy(path, &staged).map_err(|e| e.to_string());
+        let sent = match copied {
+            Ok(_) => remote.upload(folder, &staged).await.map(|_| ()),
+            Err(e) => Err(e),
+        };
+        let _ = std::fs::remove_dir_all(&dir);
+        sent?;
+        std::fs::write(&receipt, b"").map_err(|e| e.to_string())?;
+    }
+    let back = renew_unless_changed(path, &original, || stamp(path) == Some(before))
+        .map_err(|e| e.to_string())?;
+    let _ = std::fs::remove_file(&receipt);
+    if back {
+        Ok(())
+    } else {
+        Err("saved again while sending; sending the newer one".into())
+    }
+}
+
+/// A short name for a path, for the receipts above: FNV-1a, the same in every version of
+/// Skykeep, so a receipt left before an update is still found after it.
+fn key_of(path: &Path) -> u64 {
+    path.as_os_str()
+        .as_encoded_bytes()
+        .iter()
+        .fold(0xcbf2_9ce4_8422_2325, |h, b| {
+            (h ^ u64::from(*b)).wrapping_mul(0x0100_0000_01b3)
+        })
 }
 
 /// When and how long: what tells a file changed under us.

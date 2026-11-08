@@ -516,6 +516,34 @@ public static class Thumb {{
             .unwrap()
             .success()
     };
+    // A photo saved over (an editor writing into it): sent once as a new photo, and the one
+    // under it back to iCloud's own bytes.
+    assert!(cmd("echo edited>> IMG_0001.JPG"));
+    until("upload IMG_0001.JPG");
+    let mut back = false;
+    for _ in 0..150 {
+        if std::fs::metadata(lib.join("IMG_0001.JPG"))
+            .map(|m| m.len())
+            .ok()
+            == Some(JPEG.len() as u64)
+        {
+            back = true;
+            break;
+        }
+        std::thread::sleep(std::time::Duration::from_millis(200));
+    }
+    assert!(back, "the original never went back to iCloud's copy");
+    copy_out(&lib.join("IMG_0001.JPG"), &copy);
+    assert_eq!(std::fs::read(&copy).unwrap(), JPEG, "the original's bytes");
+    std::thread::sleep(std::time::Duration::from_secs(4));
+    let sends = log
+        .lock()
+        .unwrap()
+        .iter()
+        .filter(|l| l.starts_with("upload IMG_0001.JPG"))
+        .count();
+    assert_eq!(sends, 1, "one save, one new photo");
+
     std::fs::write(out.join("new.jpg"), JPEG).unwrap();
     assert!(cmd(&format!(
         "copy /b /y \"{}\" new.jpg",
