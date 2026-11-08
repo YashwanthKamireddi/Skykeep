@@ -1,0 +1,10 @@
+# Send to iPhone in Nemo's right-click menu (Cinnamon), for files and folders alike. Installed
+# to /usr/share/nemo/actions by the distribution packages (src-tauri/src/send.rs).
+[Nemo Action]
+Name=Send to iPhone
+Comment=Send to your iPhone through iCloud
+Exec=skykeep --send-to-iphone %F
+Icon-Name=io.github.yashwanthkamireddi.Skykeep
+Selection=notnone
+Extensions=any;dir;
+Dependencies=skykeep;

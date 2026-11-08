@@ -109,6 +109,13 @@ install -Dm644 packaging/%{appid}.SearchProvider.service \
   %{buildroot}%{_datadir}/dbus-1/services/%{appid}.SearchProvider.service
 install -Dm644 packaging/%{appid}.krunner.desktop \
   %{buildroot}%{_datadir}/krunner/dbusplugins/%{appid}.krunner.desktop
+# Send to iPhone at the top of the file manager's right-click menu (packaging/file-managers).
+install -Dm644 packaging/file-managers/skykeep-send-to-iphone.desktop \
+  %{buildroot}%{_datadir}/kio/servicemenus/skykeep-send-to-iphone.desktop
+install -Dm644 packaging/file-managers/skykeep-send-to-iphone.nemo_action \
+  %{buildroot}%{_datadir}/nemo/actions/skykeep-send-to-iphone.nemo_action
+install -Dm644 packaging/file-managers/skykeep_send_to_iphone.py \
+  %{buildroot}%{_datadir}/nautilus-python/extensions/skykeep_send_to_iphone.py
 
 %check
 desktop-file-validate %{buildroot}%{_datadir}/applications/*.desktop
@@ -126,6 +133,15 @@ appstream-util validate-relax --nonet %{buildroot}%{_metainfodir}/%{appid}.metai
 %dir %{_datadir}/krunner
 %dir %{_datadir}/krunner/dbusplugins
 %{_datadir}/krunner/dbusplugins/%{appid}.krunner.desktop
+%dir %{_datadir}/kio
+%dir %{_datadir}/kio/servicemenus
+%{_datadir}/kio/servicemenus/skykeep-send-to-iphone.desktop
+%dir %{_datadir}/nemo
+%dir %{_datadir}/nemo/actions
+%{_datadir}/nemo/actions/skykeep-send-to-iphone.nemo_action
+%dir %{_datadir}/nautilus-python
+%dir %{_datadir}/nautilus-python/extensions
+%{_datadir}/nautilus-python/extensions/skykeep_send_to_iphone.py
 
 %changelog
 * Wed Nov 04 2026 Yashwanth Kamireddi <yashwanthkamireddi@users.noreply.github.com> - 0.1.2-1

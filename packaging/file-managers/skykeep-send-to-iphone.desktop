@@ -1,0 +1,18 @@
+# Send to iPhone at the top of Dolphin's right-click menu (KDE), for files and folders alike.
+# Installed to /usr/share/kio/servicemenus by the distribution packages; sent through iCloud
+# by Skykeep (src-tauri/src/send.rs).
+# Local files and folders only (Protocols), hidden where Skykeep isn't installed (TryExec);
+# ServiceTypes for Plasma 5, which Plasma 6 ignores.
+[Desktop Entry]
+Type=Service
+TryExec=skykeep
+MimeType=all/all;
+X-KDE-Protocols=file
+X-KDE-ServiceTypes=KonqPopupMenu/Plugin
+Actions=sendToIphone;
+X-KDE-Priority=TopLevel
+
+[Desktop Action sendToIphone]
+Name=Send to iPhone
+Icon=io.github.yashwanthkamireddi.Skykeep
+Exec=skykeep --send-to-iphone %F

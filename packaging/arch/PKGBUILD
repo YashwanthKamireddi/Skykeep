@@ -116,4 +116,12 @@ package() {
     "$pkgdir/usr/share/dbus-1/services/io.github.yashwanthkamireddi.Skykeep.SearchProvider.service"
   install -Dm644 packaging/io.github.yashwanthkamireddi.Skykeep.krunner.desktop \
     "$pkgdir/usr/share/krunner/dbusplugins/io.github.yashwanthkamireddi.Skykeep.krunner.desktop"
+  # Send to iPhone at the top of the file manager's right-click menu: Dolphin, Nemo, and
+  # GNOME Files with its Python extensions (packaging/file-managers).
+  install -Dm644 packaging/file-managers/skykeep-send-to-iphone.desktop \
+    "$pkgdir/usr/share/kio/servicemenus/skykeep-send-to-iphone.desktop"
+  install -Dm644 packaging/file-managers/skykeep-send-to-iphone.nemo_action \
+    "$pkgdir/usr/share/nemo/actions/skykeep-send-to-iphone.nemo_action"
+  install -Dm644 packaging/file-managers/skykeep_send_to_iphone.py \
+    "$pkgdir/usr/share/nautilus-python/extensions/skykeep_send_to_iphone.py"
 }
