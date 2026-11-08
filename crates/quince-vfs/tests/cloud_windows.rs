@@ -526,10 +526,16 @@ public static class Thumb {{
         rt.spawn(async move {
             let mut first = true;
             loop {
-                let mut pipe = tokio::net::windows::named_pipe::ServerOptions::new()
-                    .first_pipe_instance(first)
-                    .create(&name)
-                    .unwrap();
+                let mut pipe = {
+                    let mut security = quince_thumbs::PipeSecurity::new().unwrap();
+                    // SAFETY: the security attributes live until the pipe is made.
+                    unsafe {
+                        tokio::net::windows::named_pipe::ServerOptions::new()
+                            .first_pipe_instance(first)
+                            .create_with_security_attributes_raw(&name, security.as_raw())
+                    }
+                    .unwrap()
+                };
                 first = false;
                 pipe.connect().await.unwrap();
                 let mut head = [0u8; 8];
@@ -546,6 +552,38 @@ public static class Thumb {{
             }
         });
         let before = log.lock().unwrap().len();
+        // The provider itself first, loaded through COM in this process: a fault of the DLL or
+        // the pipe is never mistaken for one of the shell's.
+        // SAFETY: COM on this thread, its objects released before the test goes on.
+        unsafe {
+            use windows::Win32::Graphics::Gdi::{DeleteObject, HBITMAP};
+            use windows::Win32::System::Com::*;
+            use windows::Win32::UI::Shell::*;
+            let _ = CoInitializeEx(None, COINIT_APARTMENTTHREADED);
+            let item: IShellItem = SHCreateItemFromParsingName(
+                &windows::core::HSTRING::from(lib.join("IMG_0001.JPG").as_os_str()),
+                None,
+            )
+            .unwrap();
+            let init: IInitializeWithItem =
+                CoCreateInstance(&quince_thumbs::CLSID, None, CLSCTX_INPROC_SERVER).unwrap();
+            init.Initialize(&item, 0).unwrap();
+            let provider: IThumbnailProvider = windows::core::Interface::cast(&init).unwrap();
+            let mut bitmap = HBITMAP::default();
+            let mut alpha = WTSAT_UNKNOWN;
+            provider
+                .GetThumbnail(96, &mut bitmap, &mut alpha)
+                .expect("Skykeep's provider draws a thumbnail");
+            let _ = DeleteObject(bitmap.into());
+        }
+        assert!(
+            asked_for
+                .lock()
+                .unwrap()
+                .iter()
+                .any(|(_, p)| p.ends_with("IMG_0001.JPG")),
+            "the provider asked Skykeep over the pipe"
+        );
         let asked = Command::new("powershell")
             .env_remove("PSModulePath")
             .args([

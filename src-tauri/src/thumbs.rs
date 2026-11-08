@@ -3,8 +3,8 @@
 //! and gets back that photo's small picture, ready to draw. The picture is the one the Photos
 //! app's grid keeps, or fetched alone (a few kilobytes): a thumbnail never downloads the photo.
 //!
-//! The pipe takes only this session's own clients (`reject_remote_clients`; other people on the
-//! computer can read it but never write a request), answers for Skykeep's own placeholders
+//! The pipe takes only this session's own clients (`reject_remote_clients`), and only this user's
+//! (`PipeSecurity`: other people on the computer can't open it at all), answers for Skykeep's own placeholders
 //! only, a few at a time so a folder of thousands never floods Apple, and always within the
 //! provider's patience, so Explorer is never kept waiting on us.
 
@@ -37,11 +37,17 @@ pub fn serve(app: &AppHandle) {
     tauri::async_runtime::spawn(async move {
         let mut first = true;
         loop {
-            let Ok(pipe) = ServerOptions::new()
-                .first_pipe_instance(first)
-                .reject_remote_clients(true)
-                .create(&name)
-            else {
+            let made = quince_thumbs::PipeSecurity::new().and_then(|mut security| {
+                // SAFETY: the security attributes live until the pipe is made.
+                unsafe {
+                    ServerOptions::new()
+                        .first_pipe_instance(first)
+                        .reject_remote_clients(true)
+                        .create_with_security_attributes_raw(&name, security.as_raw())
+                }
+                .ok()
+            });
+            let Some(pipe) = made else {
                 return;
             };
             first = false;

@@ -125,6 +125,93 @@ mod provider;
 #[cfg(windows)]
 pub use provider::CLSID;
 
+/// Who may use the pipe, for Skykeep's side to create it with: this user (at any integrity
+/// level: Windows runs thumbnail providers in a low-integrity process, which the default pipe
+/// security shuts out) and the system. Nobody else on the computer.
+#[cfg(windows)]
+pub struct PipeSecurity {
+    descriptor: windows::Win32::Security::PSECURITY_DESCRIPTOR,
+    attributes: windows::Win32::Security::SECURITY_ATTRIBUTES,
+}
+
+#[cfg(windows)]
+impl PipeSecurity {
+    pub fn new() -> Option<Self> {
+        use windows::Win32::Security::Authorization::*;
+        use windows::Win32::Security::*;
+        let user = this_user()?;
+        // Full access for this user and the system, nothing for anyone else (`P`: nothing
+        // inherited), and a low integrity label that lets low-integrity processes write.
+        let sddl = format!("D:P(A;;GA;;;{user})(A;;GA;;;SY)S:(ML;;NW;;;LW)");
+        let mut descriptor = PSECURITY_DESCRIPTOR::default();
+        // SAFETY: a string alive for the call; the descriptor is ours, freed in `drop`.
+        unsafe {
+            ConvertStringSecurityDescriptorToSecurityDescriptorW(
+                &windows_core::HSTRING::from(sddl),
+                SDDL_REVISION_1,
+                &mut descriptor,
+                None,
+            )
+        }
+        .ok()?;
+        Some(PipeSecurity {
+            descriptor,
+            attributes: SECURITY_ATTRIBUTES {
+                nLength: std::mem::size_of::<SECURITY_ATTRIBUTES>() as u32,
+                lpSecurityDescriptor: descriptor.0,
+                bInheritHandle: false.into(),
+            },
+        })
+    }
+
+    /// For `CreateNamedPipe`'s security attributes: valid while `self` lives.
+    pub fn as_raw(&mut self) -> *mut std::ffi::c_void {
+        std::ptr::addr_of_mut!(self.attributes).cast()
+    }
+}
+
+#[cfg(windows)]
+impl Drop for PipeSecurity {
+    fn drop(&mut self) {
+        use windows::Win32::Foundation::{LocalFree, HLOCAL};
+        // SAFETY: allocated by ConvertStringSecurityDescriptorToSecurityDescriptorW, freed once.
+        unsafe { LocalFree(Some(HLOCAL(self.descriptor.0))) };
+    }
+}
+
+/// This process's user, as a SID string (`S-1-5-21-…`).
+#[cfg(windows)]
+fn this_user() -> Option<String> {
+    use windows::Win32::Foundation::{CloseHandle, LocalFree, HANDLE, HLOCAL};
+    use windows::Win32::Security::Authorization::ConvertSidToStringSidW;
+    use windows::Win32::Security::*;
+    use windows::Win32::System::Threading::{GetCurrentProcess, OpenProcessToken};
+    let mut token = HANDLE::default();
+    // SAFETY: our own process; the token is closed below.
+    unsafe { OpenProcessToken(GetCurrentProcess(), TOKEN_QUERY, &mut token) }.ok()?;
+    let mut needed = 0u32;
+    // SAFETY: asked for its size first, then read into a buffer of that size.
+    unsafe {
+        let _ = GetTokenInformation(token, TokenUser, None, 0, &mut needed);
+        let mut buffer = vec![0u64; (needed as usize).div_ceil(8)];
+        let read = GetTokenInformation(
+            token,
+            TokenUser,
+            Some(buffer.as_mut_ptr().cast()),
+            needed,
+            &mut needed,
+        );
+        let _ = CloseHandle(token);
+        read.ok()?;
+        let sid = (*buffer.as_ptr().cast::<TOKEN_USER>()).User.Sid;
+        let mut text = windows_core::PWSTR::null();
+        ConvertSidToStringSidW(sid, &mut text).ok()?;
+        let user = text.to_string().ok();
+        LocalFree(Some(HLOCAL(text.0.cast())));
+        user
+    }
+}
+
 /// This process's Windows session: the pipe's name is made from it on both sides.
 #[cfg(windows)]
 pub fn this_session() -> Option<u32> {
