@@ -131,7 +131,10 @@ fn ask(path: &[u16], size: u32) -> Option<(u32, u32, Vec<u8>)> {
     // Busy with another thumbnail: wait a little for it, never long. Closed: false at once.
     // SAFETY: a name string alive for the call.
     if !unsafe { WaitNamedPipeW(&name, 1_000) }.as_bool() {
-        trace(&format!("no pipe: {:?}", windows_core::Error::from_win32()));
+        trace(&format!(
+            "no pipe: {:?}",
+            windows_core::Error::from_thread()
+        ));
         return None;
     }
     // SAFETY: as above; the handle is closed by `Pipe`'s drop.
