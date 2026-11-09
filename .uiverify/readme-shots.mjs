@@ -482,10 +482,10 @@ if (want("posters")) {
       .w{display:block;border-radius:${Math.max(6, Math.round(winW / 50))}px;object-fit:cover;object-position:top left;
         box-shadow:0 0 0 1px rgba(255,255,255,.4),0 18px 40px -14px rgba(8,32,66,.55)}
       .w.dark{box-shadow:0 0 0 1px rgba(255,255,255,.18),0 18px 40px -14px rgba(8,32,66,.6)}
-      figcaption{display:flex;align-items:center;margin-top:${Math.round(k.chip * 0.32)}px}
+      figcaption{display:flex;align-items:center;margin-top:${Math.round(k.chip * 0.75)}px}
       .chip{display:inline-flex;align-items:center;gap:${Math.round(k.chip * 0.45)}px;padding:${Math.round(k.chip * 0.28)}px ${Math.round(k.chip * 0.8)}px ${Math.round(k.chip * 0.28)}px ${Math.round(k.chip * 0.35)}px;border-radius:999px;
         background:rgba(255,255,255,.94);color:#0B2A4A;font-weight:660;font-size:${k.chip}px;box-shadow:0 6px 18px -6px rgba(8,32,66,.5)}
-      .chip img{width:${Math.round(k.chip * 2.1)}px;height:${Math.round(k.chip * 2.1)}px;margin:-${Math.round(k.chip * 0.2)}px 0}
+      .chip img{width:${Math.round(k.chip * 1.9)}px;height:${Math.round(k.chip * 1.9)}px}
     </style></head><body>${words}<div class="g">${cards}</div></body></html>`;
     const page = await browser.newPage({ viewport: { width: k.W, height: k.H }, deviceScaleFactor: 2 });
     await page.setContent(html, { waitUntil: "load" });
