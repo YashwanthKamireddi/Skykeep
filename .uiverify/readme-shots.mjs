@@ -400,101 +400,118 @@ for (const scheme of want("hero") ? ["light", "dark"] : []) {
   console.log(`${path.relative(ROOT, webp)}  ${Math.round(fs.statSync(webp).size / 1024)} KB`);
 }
 
-// ---- Posters: the GitHub social preview (1280x640), a post image for Reddit and X (1600x900)
-// and an X header (1500x500). Skykeep's window in front with its six apps, two of the apps'
-// own windows behind it; the brand's sky and Instrument Sans. Written to POSTERS, outside the
-// repository: they are uploaded by hand, never published from here.
+// ---- Posters: a post image for Reddit and X (1600x900), GitHub's social preview (1280x640)
+// and a wide banner for listings (1500x500). The six apps' own windows, whole, in a grid, each
+// with its icon and name and alternately light and dark, under the headline; the brand's sky
+// in Instrument Sans. Written to POSTERS, outside the repository: they are uploaded by hand.
 if (want("posters")) {
   const DIR = process.env.POSTERS;
   if (!DIR) throw new Error("posters: set POSTERS to the folder they go in");
   const FONT = process.env.POSTER_FONT; // Instrument Sans, a variable .ttf
   fs.mkdirSync(DIR, { recursive: true });
-  const LOGO = fs.readFileSync(path.join(ROOT, "packaging/icons/skykeep-1024.png")).toString("base64");
+  const b64 = (f) => fs.readFileSync(f).toString("base64");
+  const LOGO = b64(path.join(ROOT, "packaging/icons/skykeep-1024.png"));
+  const APPS = [["notes", "Notes", "light"], ["reminders", "Reminders", "dark"], ["calendar", "Calendar", "light"],
+    ["contacts", "Contacts", "dark"], ["drive", "iCloud Drive", "light"], ["photos", "Photos", "dark"]];
+  // Each app's window alone, as its launcher opens it.
+  const shots = {};
+  for (const [scene, , scheme] of APPS) {
+    const { ctx, page } = await open({ scheme, storage: { "quince.drive.view": "grid" } });
+    await SCENES[scene](page);
+    await settled(page);
+    const raw = path.join(WORK, `poster-${scene}-${scheme}.png`);
+    await page.screenshot({ path: raw });
+    await ctx.close();
+    shots[scene] = b64(raw);
+  }
+  const icon = (k) => b64(path.join(ROOT, `packaging/icons/apps/${k}-256.png`));
+  const GH = "github.com/YashwanthKamireddi/Skykeep";
+  // Window sizes keep the screenshots' own shape (1200 by 760).
   const KINDS = {
-    // GitHub crops nothing, but shows it small: big type, one clear window.
-    social: { W: 1280, H: 640, text: { x: 64, y: 150, w: 560, h1: 66, p: 22, sub: "Notes, Reminders, Calendar, Contacts,<br>Drive and Photos on Linux and Windows.<br><b>Free and open source.</b>" },
-      sky: { x: 630, y: 150, s: 0.86 },
-      back: [["photos", 760, 60, 0.62]] },
-    // A post's picture: the headline over the windows, centred.
-    post: { W: 1600, H: 900, text: { x: 0, y: 64, w: 1600, h1: 78, p: 26, centre: true, sub: "Notes, Reminders, Calendar, Contacts, Drive and Photos on Linux and Windows. <b>Free and open source.</b>" },
-      sky: { x: 430, y: 400, s: 0.98 },
-      back: [["notes", 150, 362, 0.64], ["photos", 910, 352, 0.64]] },
-    // X's header: the profile picture covers the lower left, so the words sit high and the
-    // window on the right.
-    banner: { W: 1500, H: 500, text: { x: 72, y: 70, w: 620, h1: 54, p: 20, sub: "Notes, Reminders, Calendar, Contacts, Drive and Photos<br>on Linux and Windows. <b>Free and open source.</b>" },
-      sky: { x: 800, y: 80, s: 0.86 },
-      back: [["calendar", 1010, 26, 0.5]] },
+    post: { W: 1600, H: 900, layout: "top", pad: 98, head: 58, h1: 74, p: 18, gap: 36, rowGap: 22, chip: 18 },
+    social: { W: 1280, H: 640, layout: "top", inline: true, pad: 44, head: 26, h1: 52, p: 16, gap: 15, rowGap: 14, chip: 14 },
+    banner: { W: 1500, H: 500, layout: "side", pad: 56, h1: 50, p: 18, gap: 14, rowGap: 30, chip: 12, text: 470 },
   };
-  const ctx = await browser.newContext({ viewport: { width: 1600, height: 900 }, deviceScaleFactor: 2, colorScheme: "light",
-    timezoneId: TZ, locale: "en-US", reducedMotion: "reduce" });
-  await ctx.clock.setFixedTime(NOW);
-  await ctx.route(`${PICS}/**`, (route) => {
-    const body = pictureFor(decodeURIComponent(route.request().url().slice(PICS.length + 1)));
-    return body ? route.fulfill({ body, contentType: "image/jpeg" }) : route.fulfill({ status: 404, body: "" });
-  });
-  if (FONT) await ctx.route(`${URL_}/__font.ttf`, (route) => route.fulfill({ body: fs.readFileSync(FONT), contentType: "font/ttf" }));
-  await ctx.addInitScript(installDemo, { picBase: PICS, tz: TZ, library: LIBRARY });
-  await ctx.addInitScript(installStub, { screen: "library", services: SERVICES, twoFactor: null, notesFixture: true, calendarFixture: true,
-    remindersFixture: true, contactsFixture: true, driveFixture: true, demoFixture: true });
   for (const [name, k] of Object.entries(KINDS)) {
-    const t = k.text;
-    const win = (id, src, x, y, w, h, scale, z) => `<div class="w" id="${id}" style="left:${x}px;top:${y}px;width:${w}px;height:${h}px;transform:scale(${scale});z-index:${z}"><iframe src="${src}"></iframe></div>`;
-    await ctx.route(`${URL_}/__poster`, (route) => route.fulfill({ contentType: "text/html", body: `<!doctype html><html><head><meta charset="utf-8"><style>
-      ${FONT ? `@font-face{font-family:IS;src:url(/__font.ttf);font-weight:400 700;font-stretch:75% 100%}` : ""}
+    const side = k.layout === "side";
+    const gridW = side ? k.W - k.pad * 2 - k.text - 40 : k.W - k.pad * 2;
+    const winW = Math.floor((gridW - k.gap * 2) / 3);
+    const winH = Math.round((winW * 760) / 1200);
+    const cards = APPS.map(([key, label, scheme]) => `<figure>
+        <img class="w ${scheme}" src="data:image/png;base64,${shots[key]}" style="width:${winW}px;height:${winH}px">
+        <figcaption><span class="chip"><img src="data:image/png;base64,${icon(key)}" alt="">${label}</span><span class="mode">${scheme === "dark" ? "Dark" : "Light"}</span></figcaption>
+      </figure>`).join("");
+    const words = side
+      ? `<div class="words"><div class="brand"><img src="data:image/png;base64,${LOGO}" alt="">Skykeep</div>
+           <h1>Six apps.<br>Your whole iCloud.</h1>
+           <p>Real desktop apps for Linux and Windows,<br>kept on your computer and in sync<br>with your iPhone. <b>Free and open source.</b></p></div>`
+      : k.inline
+      ? `<header><div class="row"><div class="brand big"><img src="data:image/png;base64,${LOGO}" alt=""><h1>Six apps. Your whole iCloud.</h1></div>
+           <p><b>Skykeep</b> brings it to Linux and Windows,<br>in sync with your iPhone. <b>Free and open source.</b></p></div></header>`
+      : `<header><div class="brand"><img src="data:image/png;base64,${LOGO}" alt="">Skykeep</div>
+           <div class="row"><h1>Six apps. Your whole iCloud.</h1>
+           <p>Real desktop apps for Linux and Windows,<br>kept on your computer and in sync with your iPhone.<br><b>Free and open source.</b> ${GH}</p></div></header>`;
+    const html = `<!doctype html><html><head><meta charset="utf-8"><style>
+      ${FONT ? `@font-face{font-family:IS;src:url(data:font/ttf;base64,${b64(FONT)});font-weight:400 700;font-stretch:75% 100%}` : ""}
       *{margin:0;padding:0;box-sizing:border-box}
       html,body{width:${k.W}px;height:${k.H}px;overflow:hidden}
       body{position:relative;font-family:IS,system-ui,sans-serif;color:#fff;
-        background:radial-gradient(${k.W * 0.42}px ${k.H * 0.28}px at 82% 10%,rgba(255,255,255,.22),transparent 70%),
+        background:radial-gradient(${k.W * 0.4}px ${k.H * 0.26}px at 82% 12%,rgba(255,255,255,.20),transparent 70%),
           radial-gradient(${k.W * 0.5}px ${k.H * 0.3}px at 10% 100%,rgba(255,255,255,.30),transparent 70%),
           radial-gradient(${k.W * 0.45}px ${k.H * 0.28}px at 72% 104%,rgba(255,255,255,.26),transparent 70%),
           linear-gradient(180deg,#1F7FE6 0%,#2F9BFF 46%,#78BEFF 82%,#A9D7FF 100%)}
-      .t{position:absolute;left:${t.x}px;top:${t.y}px;width:${t.w}px;${t.centre ? "text-align:center" : ""}}
-      .brand{display:flex;align-items:center;gap:14px;${t.centre ? "justify-content:center" : ""};font-weight:660;font-size:${Math.round(t.p * 1.25)}px;letter-spacing:-.01em;margin-bottom:${Math.round(t.p * 0.9)}px}
-      .brand img{width:${Math.round(t.p * 2.3)}px;height:${Math.round(t.p * 2.3)}px;filter:drop-shadow(0 4px 12px rgba(11,42,74,.28))}
-      h1{font-weight:660;font-stretch:82%;font-size:${t.h1}px;line-height:1.02;letter-spacing:-.028em;text-shadow:0 8px 30px rgba(11,42,74,.22)}
-      p{margin-top:${Math.round(t.p * 0.8)}px;font-size:${t.p}px;line-height:1.4;font-weight:520;color:rgba(255,255,255,.95)}
+      .brand{display:flex;align-items:center;gap:${Math.round(k.p * 0.7)}px;font-weight:660;font-size:${Math.round(k.p * 1.45)}px;letter-spacing:-.01em}
+      .brand img{width:${Math.round(k.p * 2.3)}px;height:${Math.round(k.p * 2.3)}px;filter:drop-shadow(0 4px 12px rgba(11,42,74,.28))}
+      h1{font-weight:660;font-stretch:80%;font-size:${k.h1}px;line-height:1;letter-spacing:-.028em;text-shadow:0 8px 30px rgba(11,42,74,.2)}
+      p{font-size:${k.p}px;line-height:1.38;font-weight:480;color:rgba(255,255,255,.95)}
       p b{font-weight:660;color:#fff}
-      .w{position:absolute;transform-origin:0 0;border-radius:12px;overflow:hidden;background:#f5f5f7;
-        box-shadow:0 0 0 1px rgba(255,255,255,.45),0 30px 60px -18px rgba(8,32,66,.55),0 70px 120px -50px rgba(8,32,66,.55)}
-      .w iframe{display:block;width:100%;height:100%;border:0}
-    </style></head><body>
-      <div class="t"><div class="brand"><img src="data:image/png;base64,${LOGO}" alt="">Skykeep</div>
-        <h1>Six apps.${t.centre ? " " : "<br>"}Your whole iCloud.</h1>
-        <p>${t.sub}</p></div>
-      ${k.back.map(([key, x, y, sc], i) => win(`b${i}`, `/?app=${key}`, x, y, 1000, 640, sc, 1 + i)).join("")}
-      ${win("sky", "/", k.sky.x, k.sky.y, 720, 400, k.sky.s, 9)}
-    </body></html>` }));
-    const page = await ctx.newPage();
-    await page.setViewportSize({ width: k.W, height: k.H });
-    page.on("pageerror", (e) => console.log(`page error: ${e.message}`));
-    await page.goto(`${URL_}/__poster`, { waitUntil: "networkidle" });
-    const sky = page.frameLocator("#sky iframe");
-    await sky.locator(".launch-tile").first().waitFor();
-    // Skykeep's window ends just under its launcher, a whole window.
-    const h = Math.ceil(await sky.locator(".launcher").evaluate((el) => el.getBoundingClientRect().bottom)) + 26;
-    await page.evaluate((h) => { document.getElementById("sky").style.height = `${h}px`; }, h);
-    const cal = page.frames().find((f) => /app=calendar/.test(f.url()));
-    if (cal) {
-      await cal.locator(".cx").first().waitFor();
-      await cal.getByRole("button", { name: "Week", exact: true }).click();
-      await cal.evaluate(() => {
-        const s = [...document.querySelectorAll(".cx *")].find((e) => e.scrollHeight > e.clientHeight + 200 && getComputedStyle(e).overflowY !== "visible");
-        if (s) s.scrollTop = s.scrollHeight * (7.6 / 24);
-      });
-    }
-    for (const f of page.frames()) {
-      await f.evaluate(() => document.fonts.ready).catch(() => {});
-      await f.waitForFunction(() => [...document.querySelectorAll("img")].every((i) => i.complete), null, { timeout: 20000 }).catch(() => {});
-    }
-    await page.waitForTimeout(2500);
-    const out = path.join(DIR, `${name}-${k.W}x${k.H}.png`);
-    await page.screenshot({ path: path.join(WORK, `${name}.png`) });
-    // Saved at the size each place asks for: drawn at 2x, then scaled down, so text stays crisp.
-    sh("magick", [path.join(WORK, `${name}.png`), "-strip", "-filter", "Lanczos", "-resize", `${k.W}x${k.H}`, out]);
-    console.log(`${out}  ${Math.round(fs.statSync(out).size / 1024)} KB`);
+      header{position:absolute;left:${k.pad}px;right:${k.pad}px;top:${k.head}px}
+      header .brand{margin-bottom:${Math.round(k.p * 0.6)}px}
+      header .row{display:flex;justify-content:space-between;align-items:flex-end;gap:24px}
+      header .row .brand.big{margin:0;align-items:center}
+      header .row .brand.big img{width:${Math.round(k.h1 * 1.05)}px;height:${Math.round(k.h1 * 1.05)}px}
+      header p{text-align:right;white-space:nowrap}
+      header h1{white-space:nowrap}
+      .words{position:absolute;left:${k.pad}px;top:50%;transform:translateY(-50%);width:${k.text}px}
+      .words .brand{margin-bottom:${Math.round(k.p * 1.1)}px}
+      .words p{margin-top:${Math.round(k.p * 1.1)}px}
+      .g{position:absolute;${side ? `right:${k.pad}px;top:50%;transform:translateY(-50%)` : `left:50%;transform:translateX(-50%)`};
+        display:grid;grid-template-columns:repeat(3,var(--w,${winW}px));column-gap:${k.gap}px;row-gap:${k.rowGap}px}
+      .g .w{width:var(--w,${winW}px)!important;height:var(--h,${winH}px)!important}
+      figure{position:relative}
+      .w{display:block;border-radius:${Math.max(6, Math.round(winW / 50))}px;object-fit:cover;object-position:top left;
+        box-shadow:0 0 0 1px rgba(255,255,255,.4),0 18px 40px -14px rgba(8,32,66,.55)}
+      .w.dark{box-shadow:0 0 0 1px rgba(255,255,255,.18),0 18px 40px -14px rgba(8,32,66,.6)}
+      figcaption{display:flex;justify-content:space-between;align-items:center;margin-top:${Math.round(k.chip * 0.55)}px}
+      .chip{display:inline-flex;align-items:center;gap:${Math.round(k.chip * 0.45)}px;padding:${Math.round(k.chip * 0.28)}px ${Math.round(k.chip * 0.8)}px ${Math.round(k.chip * 0.28)}px ${Math.round(k.chip * 0.35)}px;border-radius:999px;
+        background:rgba(255,255,255,.94);color:#0B2A4A;font-weight:660;font-size:${k.chip}px;box-shadow:0 6px 18px -6px rgba(8,32,66,.5)}
+      .chip img{width:${Math.round(k.chip * 1.5)}px;height:${Math.round(k.chip * 1.5)}px}
+      .mode{font-size:${Math.round(k.chip * 0.85)}px;font-weight:520;color:rgba(255,255,255,.85)}
+    </style></head><body>${words}<div class="g">${cards}</div></body></html>`;
+    const page = await browser.newPage({ viewport: { width: k.W, height: k.H }, deviceScaleFactor: 2 });
+    await page.setContent(html, { waitUntil: "load" });
+    await page.evaluate(() => document.fonts.ready);
+    // Under a headline, the windows fill the room left below it: as wide as the width allows,
+    // no taller than the height does. Measured, so no window ever lies over the words.
+    if (!side) await page.evaluate(([W, H, pad, gap, rowGap, maxW]) => {
+      const top = document.querySelector("header").getBoundingClientRect().bottom + pad * 0.42;
+      const cap = document.querySelector("figcaption").getBoundingClientRect().height + 8;
+      const room = H - top - pad * 0.36 - rowGap - cap * 2;
+      const w = Math.floor(Math.min(maxW, ((room / 2) * 1200) / 760));
+      const g = document.querySelector(".g");
+      g.style.top = `${top}px`;
+      g.style.setProperty("--w", `${w}px`);
+      g.style.setProperty("--h", `${Math.round((w * 760) / 1200)}px`);
+    }, [k.W, k.H, k.pad, k.gap, k.rowGap, winW]);
+    await page.waitForTimeout(300);
+    const raw = path.join(WORK, `poster-${name}.png`);
+    await page.screenshot({ path: raw });
     await page.close();
+    const out = path.join(DIR, `${name}-${k.W}x${k.H}.png`);
+    // Drawn at 2x, saved at the size each place asks for, so the text stays crisp.
+    sh("magick", [raw, "-strip", "-filter", "Lanczos", "-resize", `${k.W}x${k.H}`, out]);
+    console.log(`${out}  ${Math.round(fs.statSync(out).size / 1024)} KB`);
   }
-  await ctx.close();
 }
 
 await browser.close();
