@@ -402,7 +402,7 @@ for (const scheme of want("hero") ? ["light", "dark"] : []) {
 
 // ---- Posters: a post image for Reddit and X (1600x900), GitHub's social preview (1280x640)
 // and a wide banner for listings (1500x500). The six apps' own windows, whole, in a grid, each
-// with its icon and name and alternately light and dark, under the headline; the brand's sky
+// with its icon and name, alternately light and dark, under the headline; the brand's sky
 // in Instrument Sans. Written to POSTERS, outside the repository: they are uploaded by hand.
 if (want("posters")) {
   const DIR = process.env.POSTERS;
@@ -439,7 +439,7 @@ if (want("posters")) {
     const winH = Math.round((winW * 760) / 1200);
     const cards = APPS.map(([key, label, scheme]) => `<figure>
         <img class="w ${scheme}" src="data:image/png;base64,${shots[key]}" style="width:${winW}px;height:${winH}px">
-        <figcaption><span class="chip"><img src="data:image/png;base64,${icon(key)}" alt="">${label}</span><span class="mode">${scheme === "dark" ? "Dark" : "Light"}</span></figcaption>
+        <figcaption><span class="chip"><img src="data:image/png;base64,${icon(key)}" alt="">${label}</span></figcaption>
       </figure>`).join("");
     const words = side
       ? `<div class="words"><div class="brand"><img src="data:image/png;base64,${LOGO}" alt="">Skykeep</div>
@@ -482,11 +482,10 @@ if (want("posters")) {
       .w{display:block;border-radius:${Math.max(6, Math.round(winW / 50))}px;object-fit:cover;object-position:top left;
         box-shadow:0 0 0 1px rgba(255,255,255,.4),0 18px 40px -14px rgba(8,32,66,.55)}
       .w.dark{box-shadow:0 0 0 1px rgba(255,255,255,.18),0 18px 40px -14px rgba(8,32,66,.6)}
-      figcaption{display:flex;justify-content:space-between;align-items:center;margin-top:${Math.round(k.chip * 0.55)}px}
+      figcaption{display:flex;align-items:center;margin-top:${Math.round(k.chip * 0.32)}px}
       .chip{display:inline-flex;align-items:center;gap:${Math.round(k.chip * 0.45)}px;padding:${Math.round(k.chip * 0.28)}px ${Math.round(k.chip * 0.8)}px ${Math.round(k.chip * 0.28)}px ${Math.round(k.chip * 0.35)}px;border-radius:999px;
         background:rgba(255,255,255,.94);color:#0B2A4A;font-weight:660;font-size:${k.chip}px;box-shadow:0 6px 18px -6px rgba(8,32,66,.5)}
-      .chip img{width:${Math.round(k.chip * 1.5)}px;height:${Math.round(k.chip * 1.5)}px}
-      .mode{font-size:${Math.round(k.chip * 0.85)}px;font-weight:520;color:rgba(255,255,255,.85)}
+      .chip img{width:${Math.round(k.chip * 2.1)}px;height:${Math.round(k.chip * 2.1)}px;margin:-${Math.round(k.chip * 0.2)}px 0}
     </style></head><body>${words}<div class="g">${cards}</div></body></html>`;
     const page = await browser.newPage({ viewport: { width: k.W, height: k.H }, deviceScaleFactor: 2 });
     await page.setContent(html, { waitUntil: "load" });
