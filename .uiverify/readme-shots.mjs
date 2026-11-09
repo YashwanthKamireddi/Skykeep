@@ -400,5 +400,102 @@ for (const scheme of want("hero") ? ["light", "dark"] : []) {
   console.log(`${path.relative(ROOT, webp)}  ${Math.round(fs.statSync(webp).size / 1024)} KB`);
 }
 
+// ---- Posters: the GitHub social preview (1280x640), a post image for Reddit and X (1600x900)
+// and an X header (1500x500). Skykeep's window in front with its six apps, two of the apps'
+// own windows behind it; the brand's sky and Instrument Sans. Written to POSTERS, outside the
+// repository: they are uploaded by hand, never published from here.
+if (want("posters")) {
+  const DIR = process.env.POSTERS;
+  if (!DIR) throw new Error("posters: set POSTERS to the folder they go in");
+  const FONT = process.env.POSTER_FONT; // Instrument Sans, a variable .ttf
+  fs.mkdirSync(DIR, { recursive: true });
+  const LOGO = fs.readFileSync(path.join(ROOT, "packaging/icons/skykeep-1024.png")).toString("base64");
+  const KINDS = {
+    // GitHub crops nothing, but shows it small: big type, one clear window.
+    social: { W: 1280, H: 640, text: { x: 64, y: 150, w: 560, h1: 66, p: 22, sub: "Notes, Reminders, Calendar, Contacts,<br>Drive and Photos on Linux and Windows.<br><b>Free and open source.</b>" },
+      sky: { x: 630, y: 150, s: 0.86 },
+      back: [["photos", 760, 60, 0.62]] },
+    // A post's picture: the headline over the windows, centred.
+    post: { W: 1600, H: 900, text: { x: 0, y: 64, w: 1600, h1: 78, p: 26, centre: true, sub: "Notes, Reminders, Calendar, Contacts, Drive and Photos on Linux and Windows. <b>Free and open source.</b>" },
+      sky: { x: 430, y: 400, s: 0.98 },
+      back: [["notes", 150, 362, 0.64], ["photos", 910, 352, 0.64]] },
+    // X's header: the profile picture covers the lower left, so the words sit high and the
+    // window on the right.
+    banner: { W: 1500, H: 500, text: { x: 72, y: 70, w: 620, h1: 54, p: 20, sub: "Notes, Reminders, Calendar, Contacts, Drive and Photos<br>on Linux and Windows. <b>Free and open source.</b>" },
+      sky: { x: 800, y: 80, s: 0.86 },
+      back: [["calendar", 1010, 26, 0.5]] },
+  };
+  const ctx = await browser.newContext({ viewport: { width: 1600, height: 900 }, deviceScaleFactor: 2, colorScheme: "light",
+    timezoneId: TZ, locale: "en-US", reducedMotion: "reduce" });
+  await ctx.clock.setFixedTime(NOW);
+  await ctx.route(`${PICS}/**`, (route) => {
+    const body = pictureFor(decodeURIComponent(route.request().url().slice(PICS.length + 1)));
+    return body ? route.fulfill({ body, contentType: "image/jpeg" }) : route.fulfill({ status: 404, body: "" });
+  });
+  if (FONT) await ctx.route(`${URL_}/__font.ttf`, (route) => route.fulfill({ body: fs.readFileSync(FONT), contentType: "font/ttf" }));
+  await ctx.addInitScript(installDemo, { picBase: PICS, tz: TZ, library: LIBRARY });
+  await ctx.addInitScript(installStub, { screen: "library", services: SERVICES, twoFactor: null, notesFixture: true, calendarFixture: true,
+    remindersFixture: true, contactsFixture: true, driveFixture: true, demoFixture: true });
+  for (const [name, k] of Object.entries(KINDS)) {
+    const t = k.text;
+    const win = (id, src, x, y, w, h, scale, z) => `<div class="w" id="${id}" style="left:${x}px;top:${y}px;width:${w}px;height:${h}px;transform:scale(${scale});z-index:${z}"><iframe src="${src}"></iframe></div>`;
+    await ctx.route(`${URL_}/__poster`, (route) => route.fulfill({ contentType: "text/html", body: `<!doctype html><html><head><meta charset="utf-8"><style>
+      ${FONT ? `@font-face{font-family:IS;src:url(/__font.ttf);font-weight:400 700;font-stretch:75% 100%}` : ""}
+      *{margin:0;padding:0;box-sizing:border-box}
+      html,body{width:${k.W}px;height:${k.H}px;overflow:hidden}
+      body{position:relative;font-family:IS,system-ui,sans-serif;color:#fff;
+        background:radial-gradient(${k.W * 0.42}px ${k.H * 0.28}px at 82% 10%,rgba(255,255,255,.22),transparent 70%),
+          radial-gradient(${k.W * 0.5}px ${k.H * 0.3}px at 10% 100%,rgba(255,255,255,.30),transparent 70%),
+          radial-gradient(${k.W * 0.45}px ${k.H * 0.28}px at 72% 104%,rgba(255,255,255,.26),transparent 70%),
+          linear-gradient(180deg,#1F7FE6 0%,#2F9BFF 46%,#78BEFF 82%,#A9D7FF 100%)}
+      .t{position:absolute;left:${t.x}px;top:${t.y}px;width:${t.w}px;${t.centre ? "text-align:center" : ""}}
+      .brand{display:flex;align-items:center;gap:14px;${t.centre ? "justify-content:center" : ""};font-weight:660;font-size:${Math.round(t.p * 1.25)}px;letter-spacing:-.01em;margin-bottom:${Math.round(t.p * 0.9)}px}
+      .brand img{width:${Math.round(t.p * 2.3)}px;height:${Math.round(t.p * 2.3)}px;filter:drop-shadow(0 4px 12px rgba(11,42,74,.28))}
+      h1{font-weight:660;font-stretch:82%;font-size:${t.h1}px;line-height:1.02;letter-spacing:-.028em;text-shadow:0 8px 30px rgba(11,42,74,.22)}
+      p{margin-top:${Math.round(t.p * 0.8)}px;font-size:${t.p}px;line-height:1.4;font-weight:520;color:rgba(255,255,255,.95)}
+      p b{font-weight:660;color:#fff}
+      .w{position:absolute;transform-origin:0 0;border-radius:12px;overflow:hidden;background:#f5f5f7;
+        box-shadow:0 0 0 1px rgba(255,255,255,.45),0 30px 60px -18px rgba(8,32,66,.55),0 70px 120px -50px rgba(8,32,66,.55)}
+      .w iframe{display:block;width:100%;height:100%;border:0}
+    </style></head><body>
+      <div class="t"><div class="brand"><img src="data:image/png;base64,${LOGO}" alt="">Skykeep</div>
+        <h1>Six apps.${t.centre ? " " : "<br>"}Your whole iCloud.</h1>
+        <p>${t.sub}</p></div>
+      ${k.back.map(([key, x, y, sc], i) => win(`b${i}`, `/?app=${key}`, x, y, 1000, 640, sc, 1 + i)).join("")}
+      ${win("sky", "/", k.sky.x, k.sky.y, 720, 400, k.sky.s, 9)}
+    </body></html>` }));
+    const page = await ctx.newPage();
+    await page.setViewportSize({ width: k.W, height: k.H });
+    page.on("pageerror", (e) => console.log(`page error: ${e.message}`));
+    await page.goto(`${URL_}/__poster`, { waitUntil: "networkidle" });
+    const sky = page.frameLocator("#sky iframe");
+    await sky.locator(".launch-tile").first().waitFor();
+    // Skykeep's window ends just under its launcher, a whole window.
+    const h = Math.ceil(await sky.locator(".launcher").evaluate((el) => el.getBoundingClientRect().bottom)) + 26;
+    await page.evaluate((h) => { document.getElementById("sky").style.height = `${h}px`; }, h);
+    const cal = page.frames().find((f) => /app=calendar/.test(f.url()));
+    if (cal) {
+      await cal.locator(".cx").first().waitFor();
+      await cal.getByRole("button", { name: "Week", exact: true }).click();
+      await cal.evaluate(() => {
+        const s = [...document.querySelectorAll(".cx *")].find((e) => e.scrollHeight > e.clientHeight + 200 && getComputedStyle(e).overflowY !== "visible");
+        if (s) s.scrollTop = s.scrollHeight * (7.6 / 24);
+      });
+    }
+    for (const f of page.frames()) {
+      await f.evaluate(() => document.fonts.ready).catch(() => {});
+      await f.waitForFunction(() => [...document.querySelectorAll("img")].every((i) => i.complete), null, { timeout: 20000 }).catch(() => {});
+    }
+    await page.waitForTimeout(2500);
+    const out = path.join(DIR, `${name}-${k.W}x${k.H}.png`);
+    await page.screenshot({ path: path.join(WORK, `${name}.png`) });
+    // Saved at the size each place asks for: drawn at 2x, then scaled down, so text stays crisp.
+    sh("magick", [path.join(WORK, `${name}.png`), "-strip", "-filter", "Lanczos", "-resize", `${k.W}x${k.H}`, out]);
+    console.log(`${out}  ${Math.round(fs.statSync(out).size / 1024)} KB`);
+    await page.close();
+  }
+  await ctx.close();
+}
+
 await browser.close();
 process.exit(0);
