@@ -93,11 +93,11 @@ private enum class Tab(val label: String, val icon: Int, val app: Palette.App?) 
   Reminders("Reminders", R.drawable.ic_reminders, Palette.App.Reminders),
   Notes("Notes", R.drawable.ic_notes, Palette.App.Notes),
   Photos("Photos", R.drawable.ic_photos, Palette.App.Photos),
-  Settings("Settings", R.drawable.ic_settings, null),
+  Drive("Drive", R.drawable.ic_drive, Palette.App.Drive),
 }
 
 /** A page opened from Home rather than the bar: Contacts' or Calendar's settings. */
-private enum class Page { Contacts, Calendar }
+private enum class Page { Contacts, Calendar, Settings }
 
 /**
  * Skykeep once set up. The using happens in the phone's own Contacts and Calendar apps; here are
@@ -140,11 +140,12 @@ fun MainScreens(engine: uniffi.quince_mobile.Account, onSignedOut: () -> Unit) {
     },
   ) { inner ->
     // Reminders, Notes and Photos scroll their own lists (they can be long); the rest are one column.
-    if (tab == Tab.Reminders || tab == Tab.Notes || tab == Tab.Photos) {
+    if (page == null && (tab == Tab.Reminders || tab == Tab.Notes || tab == Tab.Photos || tab == Tab.Drive)) {
       Box(Modifier.padding(inner).fillMaxSize()) {
         when (tab) {
           Tab.Notes -> AppTheme(Palette.App.Notes) { NotesPage(engine) }
           Tab.Photos -> PhotosPage(engine)
+          Tab.Drive -> DrivePage(engine)
           else -> RemindersPage(engine)
         }
       }
@@ -158,11 +159,14 @@ fun MainScreens(engine: uniffi.quince_mobile.Account, onSignedOut: () -> Unit) {
       ) {
         Box(Modifier.fillMaxSize().verticalScroll(rememberScrollState())) {
           Column(Modifier.padding(horizontal = 20.dp, vertical = 24.dp), verticalArrangement = Arrangement.spacedBy(16.dp)) {
+            if (page != null) IconButton(onClick = { page = null }, modifier = Modifier.padding(start = 0.dp)) {
+              Icon(painterResource(R.drawable.ic_back), contentDescription = "Home")
+            }
             when {
               page == Page.Contacts -> ContactsPage(account)
               page == Page.Calendar -> AppTheme(Palette.App.Calendar) { CalendarPage(account) }
               tab == Tab.Home -> Home(engine, account, sync, onSync = ::now, onOpen = { page = it }, onTab = { tab = it; page = null })
-              tab == Tab.Settings -> SettingsPage(engine, account, onSignedOut)
+              page == Page.Settings -> SettingsPage(engine, account, onSignedOut)
             }
           }
         }
@@ -220,6 +224,9 @@ private fun Home(
     IconButton(onClick = onSync, enabled = account != null && !sync.busy && online) {
       Icon(painterResource(R.drawable.ic_sync), contentDescription = "Sync now")
     }
+    IconButton(onClick = { onOpen(Page.Settings) }) {
+      Icon(painterResource(R.drawable.ic_settings), contentDescription = "Settings")
+    }
   }
   if (!online) {
     Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(10.dp)) {
@@ -276,6 +283,38 @@ private fun Home(
       else -> { { onTab(Tab.Photos) } }
     }
     Health(s, sync.last[s.authority], syncing = s.authority in sync.active, firstRun = sync.busy, now = now, onClick = open)
+  }
+  DriveCard(engine) { onTab(Tab.Drive) }
+}
+
+/**
+ * Drive on Home: it has no sync of its own (folders are read as they're opened, files fetched as
+ * they're used), so its card says how much of iCloud is used, the one number that matters here.
+ */
+@Composable
+private fun DriveCard(engine: uniffi.quince_mobile.Account, onClick: () -> Unit) {
+  val context = LocalContext.current
+  val space by produceState<List<ULong>?>(null) {
+    value = runCatching { kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) { engine.driveSpace() } }.getOrNull()
+  }
+  Surface(
+    onClick = onClick, color = MaterialTheme.colorScheme.surfaceContainer, shape = MaterialTheme.shapes.large,
+    modifier = Modifier.fillMaxWidth().semantics(mergeDescendants = true) {},
+  ) {
+    Row(Modifier.padding(16.dp), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(14.dp)) {
+      Image(painterResource(R.drawable.app_drive), contentDescription = null, modifier = Modifier.size(48.dp))
+      Column(Modifier.weight(1f)) {
+        Text("Drive", style = MaterialTheme.typography.titleMedium)
+        Text(
+          space?.let { (used, total) ->
+            "${android.text.format.Formatter.formatShortFileSize(context, used.toLong())} of ${android.text.format.Formatter.formatShortFileSize(context, total.toLong())} used"
+          } ?: "Files open as you need them",
+          style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant,
+        )
+        Text("Also in the Files app", style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
+      }
+      Icon(painterResource(R.drawable.ic_chevron_right), contentDescription = null, tint = MaterialTheme.colorScheme.onSurfaceVariant)
+    }
   }
 }
 

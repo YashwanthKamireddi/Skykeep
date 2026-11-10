@@ -70,9 +70,7 @@ class DriveProvider : DocumentsProvider() {
 
   private fun phoneSignedIn() = runCatching { io.github.yashwanthkamireddi.skykeep.ui.phoneAccount(context!!) != null }.getOrDefault(false)
 
-  private fun mimeOf(item: DItem): String =
-    if (item.folder) Document.MIME_TYPE_DIR
-    else item.name.substringAfterLast('.', "").lowercase().let { MimeTypeMap.getSingleton().getMimeTypeFromExtension(it) } ?: "application/octet-stream"
+  private fun mimeOf(item: DItem): String = DriveFiles.mimeOf(item)
 
   private fun MatrixCursor.add(item: DItem) {
     newRow().apply {
@@ -135,8 +133,7 @@ class DriveProvider : DocumentsProvider() {
   }
 
   /** Where a file's copy is kept on the phone: its own folder per item, named as the file is. */
-  private fun copyOf(item: DItem): File =
-    File(context!!.cacheDir, "drive/${item.id.hashCode().toUInt().toString(16)}/${item.name}").also { it.parentFile?.mkdirs() }
+  private fun copyOf(item: DItem): File = DriveFiles.copyOf(context!!, item)
 
   override fun openDocument(documentId: String, mode: String, signal: CancellationSignal?): ParcelFileDescriptor {
     val item = engine.driveItem(documentId) ?: throw java.io.FileNotFoundException("not in iCloud Drive")
@@ -144,7 +141,7 @@ class DriveProvider : DocumentsProvider() {
     val writing = mode.contains('w') || mode.contains('a')
     // The bytes on the phone, fetched whole when there is no copy, or Apple's is newer.
     val stale = documentId !in unsent &&
-      (!file.exists() || (item.modifiedAt ?: 0) * 1000 > file.lastModified() || file.length() != (item.size ?: file.length()))
+      DriveFiles.stale(file, item)
     if (stale && !(writing && mode.contains('t'))) {
       signal?.throwIfCanceled()
       engine.driveDownload(documentId, file.path)

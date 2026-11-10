@@ -15,6 +15,10 @@ MAP = {  # drawable: Lucide icon
   "ic_today": "calendar", "ic_inbox": "inbox", "ic_check": "check", "ic_list": "list",
   "ic_folder": "folder", "ic_pin": "pin", "ic_edit": "square-pen", "ic_trash": "trash-2",
   "ic_heart": "heart", "ic_play": "play",
+  "ic_more": "ellipsis-vertical", "ic_upload": "upload", "ic_folder_plus": "folder-plus",
+  "ic_file": "file", "ic_file_text": "file-text", "ic_file_image": "file-image",
+  "ic_file_video": "file-video-camera", "ic_file_archive": "file-archive", "ic_file_audio": "file-music",
+  "ic_file_sheet": "file-spreadsheet", "ic_file_slides": "presentation",
 }
 def f(v): return float(v)
 def shape(tag, a):
