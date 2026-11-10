@@ -30,6 +30,8 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.unit.dp
 import io.github.yashwanthkamireddi.skykeep.ui.theme.Palette
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.semantics
 
 /** A glyph that stays readable on [fill]: white where white holds 3:1, ink where it doesn't. */
 fun glyphOn(fill: Color): Color =
@@ -86,4 +88,46 @@ fun rememberOnline(): Boolean {
     onDispose { cm.unregisterNetworkCallback(callback) }
   }
   return online
+}
+
+/** The desktop's search field: a quiet filled pill with the search mark, no outline. */
+@Composable
+fun SearchPill(value: String, onChange: (String) -> Unit, modifier: Modifier = Modifier, cursor: Color = MaterialTheme.colorScheme.primary) {
+  Surface(color = MaterialTheme.colorScheme.surfaceContainerHigh, shape = MaterialTheme.shapes.medium, modifier = modifier.fillMaxWidth()) {
+    Row(Modifier.padding(horizontal = 12.dp, vertical = 10.dp), verticalAlignment = Alignment.CenterVertically) {
+      Icon(painterResource(io.github.yashwanthkamireddi.skykeep.R.drawable.ic_search), contentDescription = null, tint = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.size(18.dp))
+      androidx.compose.foundation.layout.Spacer(Modifier.size(10.dp))
+      androidx.compose.foundation.text.BasicTextField(
+        value = value, onValueChange = onChange, singleLine = true,
+        textStyle = MaterialTheme.typography.bodyLarge.copy(color = MaterialTheme.colorScheme.onSurface),
+        cursorBrush = androidx.compose.ui.graphics.SolidColor(cursor),
+        modifier = Modifier.weight(1f).androidx_semanticsSearch(),
+        decorationBox = { field ->
+          if (value.isEmpty()) Text("Search", style = MaterialTheme.typography.bodyLarge, color = MaterialTheme.colorScheme.onSurfaceVariant)
+          field()
+        },
+      )
+    }
+  }
+}
+
+private fun Modifier.androidx_semanticsSearch() = this.then(Modifier.semantics { contentDescription = "Search" })
+
+/** Rows in one rounded card, divided by hairlines set in past their leading mark, as the desktop groups them. */
+@Composable
+fun <T> GroupCard(items: List<T>, inset: Int = 56, row: @Composable (T) -> Unit) {
+  Surface(color = MaterialTheme.colorScheme.surfaceContainer, shape = MaterialTheme.shapes.large, modifier = Modifier.fillMaxWidth()) {
+    Column {
+      items.forEachIndexed { i, item ->
+        row(item)
+        if (i < items.lastIndex) androidx.compose.material3.HorizontalDivider(Modifier.padding(start = inset.dp), color = MaterialTheme.colorScheme.outlineVariant)
+      }
+    }
+  }
+}
+
+/** A section's name above its card. */
+@Composable
+fun SectionLabel(text: String, modifier: Modifier = Modifier) {
+  Text(text, style = MaterialTheme.typography.titleMedium, modifier = modifier.padding(start = 4.dp, top = 12.dp, bottom = 8.dp))
 }

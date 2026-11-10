@@ -6,6 +6,9 @@ import io.github.yashwanthkamireddi.skykeep.ui.theme.Palette
 import android.content.ContentResolver
 import android.os.Bundle
 import androidx.activity.compose.BackHandler
+import androidx.compose.ui.semantics.Role
+import androidx.compose.foundation.selection.toggleable
+import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
@@ -167,82 +170,125 @@ fun NotesPage(engine: Account) {
       is NPlace.Open -> NoteScreen(engine, p.guid, p.from.guid, onBack = { place = p.from; generation++ }, onProblem = { problem = it })
       else -> {
         val folder = p as? NPlace.Folder
-        Row(Modifier.padding(start = 4.dp, end = 12.dp, top = 8.dp), verticalAlignment = Alignment.CenterVertically) {
-          if (folder != null) IconButton(onClick = { place = NPlace.Folders; query = "" }) { Icon(painterResource(R.drawable.ic_back), contentDescription = "Back") }
-          else Spacer(Modifier.width(16.dp))
-          Text(folder?.title ?: "Notes", style = MaterialTheme.typography.headlineMedium, modifier = Modifier.weight(1f))
-          if (folder != null && folders.firstOrNull { it.guid == folder.guid }?.trash != true) {
+        val trash = folder != null && folders.firstOrNull { it.guid == folder.guid }?.trash == true
+        Row(Modifier.padding(start = 4.dp, end = 8.dp, top = 4.dp), verticalAlignment = Alignment.CenterVertically) {
+          if (folder != null) IconButton(onClick = { place = NPlace.Folders; query = "" }) { Icon(painterResource(R.drawable.ic_back), contentDescription = "Folders") }
+          Spacer(Modifier.weight(1f))
+          if (folder != null && !trash) {
             // Nothing is made yet: a new note is made in iCloud when something is typed in it,
             // so one opened and left empty leaves nothing behind, as in Notes.
-            TextButton(onClick = { place = NPlace.Open(null, folder) }) { Text("New Note", color = NotesYellow) }
+            IconButton(onClick = { place = NPlace.Open(null, folder) }) {
+              Icon(painterResource(R.drawable.ic_edit), contentDescription = "New Note", tint = MaterialTheme.colorScheme.primary)
+            }
           }
         }
-        OutlinedTextField(
-          query, { query = it }, placeholder = { Text("Search") }, singleLine = true,
-          shape = RoundedCornerShape(16.dp), modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 8.dp),
-        )
+        Column(Modifier.padding(horizontal = 20.dp)) {
+          Text(folder?.title ?: "Notes", style = MaterialTheme.typography.headlineLarge, maxLines = 1, overflow = TextOverflow.Ellipsis)
+          if (folder != null && query.isBlank()) {
+            Text(if (notes.size == 1) "1 note" else "${notes.size} notes", style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
+          }
+        }
+        SearchPill(query, { query = it }, Modifier.padding(horizontal = 16.dp, vertical = 12.dp), cursor = MaterialTheme.colorScheme.primary)
         if (folder == null && query.isBlank()) {
           FolderList(folders) { place = it }
         } else {
-          NoteList(notes) { n -> place = NPlace.Open(n.guid, folder ?: NPlace.Folder(null, "All Notes")) }
+          NoteList(notes, grouped = query.isBlank()) { n -> place = NPlace.Open(n.guid, folder ?: NPlace.Folder(null, "All iCloud")) }
         }
       }
     }
   }
 }
 
+/** The folders, as the desktop's sidebar lists them: All iCloud, each folder, Recently Deleted. */
 @Composable
 private fun FolderList(folders: List<NFolder>, open: (NPlace.Folder) -> Unit) {
   val all = folders.filter { !it.trash }.sumOf { it.count.toInt() }
-  LazyColumn(contentPadding = PaddingValues(horizontal = 20.dp, vertical = 8.dp)) {
-    item { FolderRow("All Notes", all) { open(NPlace.Folder(null, "All Notes")) } }
+  data class Row(val title: String, val count: Int, val icon: Int, val place: NPlace.Folder)
+  val rows = buildList {
+    add(Row("All iCloud", all, R.drawable.ic_folder, NPlace.Folder(null, "All iCloud")))
     // Apple's own "Notes" folder is the one with no folder: notes not filed anywhere.
-    items(folders.filter { !it.trash }, key = { it.guid }) { f -> FolderRow(f.title, f.count.toInt()) { open(NPlace.Folder(f.guid, f.title)) } }
-    folders.firstOrNull { it.trash }?.let { t ->
-      item { FolderRow("Recently Deleted", t.count.toInt()) { open(NPlace.Folder(t.guid, "Recently Deleted")) } }
+    folders.filter { !it.trash }.forEach { add(Row(it.title, it.count.toInt(), R.drawable.ic_folder, NPlace.Folder(it.guid, it.title))) }
+    folders.firstOrNull { it.trash }?.let { add(Row("Recently Deleted", it.count.toInt(), R.drawable.ic_trash, NPlace.Folder(it.guid, "Recently Deleted"))) }
+  }
+  LazyColumn(contentPadding = PaddingValues(start = 16.dp, end = 16.dp, bottom = 24.dp)) {
+    item {
+      GroupCard(rows, inset = 54) { r ->
+        androidx.compose.foundation.layout.Row(
+          Modifier.fillMaxWidth().clickable { open(r.place) }.padding(horizontal = 16.dp, vertical = 14.dp),
+          verticalAlignment = Alignment.CenterVertically,
+        ) {
+          Icon(painterResource(r.icon), contentDescription = null, tint = MaterialTheme.colorScheme.primary, modifier = Modifier.size(22.dp))
+          Spacer(Modifier.width(16.dp))
+          Text(r.title, style = MaterialTheme.typography.bodyLarge, modifier = Modifier.weight(1f), maxLines = 1, overflow = TextOverflow.Ellipsis)
+          Text("${r.count}", style = MaterialTheme.typography.bodyLarge, color = MaterialTheme.colorScheme.onSurfaceVariant)
+          Spacer(Modifier.width(6.dp))
+          Icon(painterResource(R.drawable.ic_chevron_right), contentDescription = null, tint = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.size(18.dp))
+        }
+      }
     }
   }
-}
-
-@Composable
-private fun FolderRow(title: String, count: Int, onClick: () -> Unit) {
-  Row(Modifier.fillMaxWidth().clickable(onClick = onClick).padding(vertical = 14.dp), verticalAlignment = Alignment.CenterVertically) {
-    Text(title, style = MaterialTheme.typography.bodyLarge, modifier = Modifier.weight(1f), maxLines = 1, overflow = TextOverflow.Ellipsis)
-    Text("$count", style = MaterialTheme.typography.bodyLarge, color = MaterialTheme.colorScheme.onSurfaceVariant)
-  }
-  HorizontalDivider()
 }
 
 private val dayFormat: DateTimeFormatter = DateTimeFormatter.ofLocalizedDate(FormatStyle.SHORT)
 private val timeFormat: DateTimeFormatter = DateTimeFormatter.ofLocalizedTime(FormatStyle.SHORT)
 
-/** When a note was changed, as Notes says it: the time today, else the date. */
+/** When a note was changed, as Notes says it: the time today, Yesterday, the weekday this week, else the date. */
 private fun changed(at: Long?): String {
   at ?: return ""
   val z = Instant.ofEpochSecond(at).atZone(ZoneId.systemDefault())
-  return if (z.toLocalDate() == LocalDate.now()) z.toLocalTime().format(timeFormat) else z.toLocalDate().format(dayFormat)
+  val today = LocalDate.now()
+  val d = z.toLocalDate()
+  return when {
+    d == today -> z.toLocalTime().format(timeFormat)
+    d == today.minusDays(1) -> "Yesterday"
+    d.isAfter(today.minusDays(7)) -> d.dayOfWeek.getDisplayName(java.time.format.TextStyle.FULL, java.util.Locale.getDefault())
+    else -> d.format(dayFormat)
+  }
 }
 
+/** Which section a note's last change puts it in, as Notes groups them. */
+private fun bucket(n: NItem, today: LocalDate): String {
+  if (n.pinned) return "Pinned"
+  val d = n.modifiedAt?.let { Instant.ofEpochSecond(it).atZone(ZoneId.systemDefault()).toLocalDate() } ?: return "Earlier"
+  return when {
+    d == today -> "Today"
+    d == today.minusDays(1) -> "Yesterday"
+    d.isAfter(today.minusDays(7)) -> "Previous 7 Days"
+    d.isAfter(today.minusDays(30)) -> "Previous 30 Days"
+    d.year == today.year -> d.month.getDisplayName(java.time.format.TextStyle.FULL, java.util.Locale.getDefault())
+    else -> d.year.toString()
+  }
+}
+
+/**
+ * Notes as the desktop lists them: grouped by when they changed (Pinned first), each section one
+ * card, each note its title in bold over its time and first line. Search results are one list.
+ */
 @Composable
-private fun NoteList(notes: List<NItem>, open: (NItem) -> Unit) {
-  LazyColumn(contentPadding = PaddingValues(horizontal = 20.dp, vertical = 4.dp)) {
-    if (notes.isEmpty()) item { Text("No notes", color = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.padding(vertical = 32.dp)) }
-    items(notes, key = { it.guid }) { n ->
-      Column(Modifier.fillMaxWidth().clickable { open(n) }.padding(vertical = 12.dp)) {
-        Row(verticalAlignment = Alignment.CenterVertically) {
-          if (n.pinned) Text("Pinned · ", style = MaterialTheme.typography.labelMedium, color = NotesYellow)
-          Text(n.title.ifBlank { "New Note" }, style = MaterialTheme.typography.titleMedium, maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = Modifier.weight(1f))
-        }
-        Row {
-          Text(changed(n.modifiedAt), style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
-          Spacer(Modifier.width(8.dp))
-          Text(
-            if (n.locked) "Locked" else n.snippet?.lineSequence()?.firstOrNull { it.isNotBlank() } ?: "No additional text",
-            style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant, maxLines = 1, overflow = TextOverflow.Ellipsis,
-          )
+private fun NoteList(notes: List<NItem>, grouped: Boolean, open: (NItem) -> Unit) {
+  val today = LocalDate.now()
+  val sections = if (grouped) notes.groupBy { bucket(it, today) }.toList() else listOf("" to notes)
+  LazyColumn(contentPadding = PaddingValues(start = 16.dp, end = 16.dp, bottom = 24.dp)) {
+    if (notes.isEmpty()) item {
+      Text("No notes", style = MaterialTheme.typography.bodyLarge, color = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.padding(horizontal = 4.dp, vertical = 24.dp))
+    }
+    for ((name, list) in sections) {
+      if (name.isNotEmpty()) item(key = "h-$name") { SectionLabel(name) }
+      item(key = "s-$name") {
+        GroupCard(list, inset = 16) { n ->
+          Column(Modifier.fillMaxWidth().clickable { open(n) }.padding(horizontal = 16.dp, vertical = 12.dp)) {
+            Text(n.title.ifBlank { "New Note" }, style = MaterialTheme.typography.titleMedium, maxLines = 1, overflow = TextOverflow.Ellipsis)
+            Row {
+              Text(changed(n.modifiedAt), style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurface)
+              Spacer(Modifier.width(8.dp))
+              Text(
+                if (n.locked) "Locked" else n.snippet?.lineSequence()?.firstOrNull { it.isNotBlank() } ?: "No additional text",
+                style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant, maxLines = 1, overflow = TextOverflow.Ellipsis,
+              )
+            }
+          }
         }
       }
-      HorizontalDivider()
     }
   }
 }
@@ -296,10 +342,13 @@ private fun NoteScreen(engine: Account, opened: String?, folderGuid: String?, on
   BackHandler { save { onBack() } }
 
   // A new note has no document yet: it is an empty one being typed.
-  val d = doc ?: NDoc(guid ?: "", folderGuid, "", text, emptyList(), pinned = false, locked = false, editable = true).takeIf { guid == null } ?: return
+  val d = doc ?: NDoc(guid ?: "", folderGuid, "", text, emptyList(), pinned = false, locked = false, editable = true, modifiedAt = null).takeIf { guid == null } ?: return
   Column(Modifier.fillMaxSize()) {
-    Row(Modifier.padding(start = 4.dp, end = 8.dp, top = 8.dp), verticalAlignment = Alignment.CenterVertically) {
-      IconButton(onClick = { save { onBack() } }) { Icon(painterResource(R.drawable.ic_back), contentDescription = "Back") }
+    // The desktop's note toolbar as phone actions: back; pin, delete (recover in Recently
+    // Deleted); Done while typing. Each a mark in Notes' colour, named for TalkBack.
+    val accent = MaterialTheme.colorScheme.primary
+    Row(Modifier.padding(start = 4.dp, end = 4.dp, top = 4.dp), verticalAlignment = Alignment.CenterVertically) {
+      IconButton(onClick = { save { onBack() } }) { Icon(painterResource(R.drawable.ic_back), contentDescription = "Back", tint = accent) }
       Spacer(Modifier.weight(1f))
       val g = guid
       // In Recently Deleted a note is recovered or deleted for good, as in Notes; not pinned or edited.
@@ -307,20 +356,32 @@ private fun NoteScreen(engine: Account, opened: String?, folderGuid: String?, on
       if (!d.locked && g != null) {
         if (trashed) {
           TextButton(onClick = { scope.launch { withContext(Dispatchers.IO) { runCatching { engine.noteMove(g, null) } }; syncNotes(context); onBack() } }) {
-            Text("Recover", color = NotesYellow)
+            Text("Recover")
           }
         } else {
-          TextButton(onClick = { scope.launch { withContext(Dispatchers.IO) { runCatching { engine.notePin(g, !d.pinned) } }; syncNotes(context); load() } }) {
-            Text(if (d.pinned) "Unpin" else "Pin", color = NotesYellow)
+          IconButton(onClick = { scope.launch { withContext(Dispatchers.IO) { runCatching { engine.notePin(g, !d.pinned) } }; syncNotes(context); load() } }) {
+            Icon(painterResource(R.drawable.ic_pin), contentDescription = if (d.pinned) "Unpin" else "Pin", tint = if (d.pinned) accent else MaterialTheme.colorScheme.onSurfaceVariant)
           }
         }
-        TextButton(onClick = { scope.launch { withContext(Dispatchers.IO) { runCatching { engine.noteDelete(g) } }; syncNotes(context); onBack() } }) {
-          Text(if (trashed) "Delete Now" else "Delete", color = MaterialTheme.colorScheme.error)
+        if (trashed) {
+          TextButton(onClick = { scope.launch { withContext(Dispatchers.IO) { runCatching { engine.noteDelete(g) } }; syncNotes(context); onBack() } }) {
+            Text("Delete Now", color = MaterialTheme.colorScheme.error)
+          }
+        } else {
+          IconButton(onClick = { scope.launch { withContext(Dispatchers.IO) { runCatching { engine.noteDelete(g) } }; syncNotes(context); onBack() } }) {
+            Icon(painterResource(R.drawable.ic_trash), contentDescription = "Delete", tint = MaterialTheme.colorScheme.onSurfaceVariant)
+          }
         }
       }
-      if (!d.locked) {
-        if (editing) TextButton(onClick = { save { editing = false; load() } }) { Text("Done", color = NotesYellow) }
-      }
+      if (!d.locked && editing) TextButton(onClick = { save { editing = false; load() } }) { Text("Done") }
+    }
+    // When it last changed, small and centred above the note, as the desktop shows it.
+    d.modifiedAt?.let { at ->
+      Text(
+        Instant.ofEpochSecond(at).atZone(ZoneId.systemDefault()).format(DateTimeFormatter.ofLocalizedDateTime(FormatStyle.LONG, FormatStyle.SHORT)),
+        style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant,
+        modifier = Modifier.fillMaxWidth().padding(bottom = 4.dp), textAlign = TextAlign.Center,
+      )
     }
     when {
       d.locked -> Text(
@@ -338,82 +399,113 @@ private fun NoteScreen(engine: Account, opened: String?, folderGuid: String?, on
           modifier = Modifier.fillMaxSize().imePadding().padding(horizontal = 24.dp, vertical = 8.dp).focusRequester(focus),
         )
       }
-      else -> Box(
-        Modifier.fillMaxSize().verticalScroll(rememberScrollState())
-          .clickable(enabled = d.editable && d.folderGuid != TRASH) { text = d.text; saved = d.text; editing = true }
-          .padding(horizontal = 24.dp, vertical = 8.dp),
-      ) {
-        RichNote(d) { at, checked ->
-          val g = guid ?: return@RichNote
-          scope.launch {
-            runCatching { withContext(Dispatchers.IO) { engine.noteCheck(g, at, checked) } }.onFailure { onProblem(reason(it)) }
-            syncNotes(context); load()
-          }
+      else -> RichNote(
+        d,
+        Modifier.fillMaxSize().clickable(enabled = d.editable && d.folderGuid != TRASH) { text = d.text; saved = d.text; editing = true },
+      ) { at, checked ->
+        val g = guid ?: return@RichNote
+        scope.launch {
+          runCatching { withContext(Dispatchers.IO) { engine.noteCheck(g, at, checked) } }.onFailure { onProblem(reason(it)) }
+          syncNotes(context); load()
         }
       }
     }
   }
 }
 
-/** A note drawn with its formatting: each line by its paragraph style, checklist items tickable. */
-@Composable
-private fun RichNote(d: NDoc, onCheck: (UInt, Boolean) -> Unit) {
-  // Lines with where each starts (UTF-16, as the spans count), and the span setting each.
+/** One line of a note, laid out once: where it starts, its text, its paragraph and the spans on it. */
+private class NoteLine(val start: Int, val text: String, val para: NSpan?, val spans: List<NSpan>, val number: Int)
+
+/**
+ * A note's lines with the spans on each, found in one pass (each span placed on the lines it
+ * covers by binary search), so a note of thousands of lines and spans lays out in milliseconds.
+ */
+private fun lay(d: NDoc): List<NoteLine> {
+  val texts = d.text.split('\n')
+  val starts = IntArray(texts.size)
   var at = 0
-  val lines = d.text.split('\n').map { line -> (at to line).also { at += line.length + 1 } }
-  fun spanAt(pos: Int): NSpan? = d.spans.firstOrNull { pos >= it.start.toInt() && pos < (it.start + it.length).toInt() }
-  Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
-    for ((start, line) in lines) {
-      val para = spanAt(start)
-      val style = when (para?.style?.toInt()) {
-        0 -> MaterialTheme.typography.headlineMedium.copy(fontWeight = FontWeight.Bold)
-        1 -> MaterialTheme.typography.titleLarge.copy(fontWeight = FontWeight.Bold)
-        2 -> MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.SemiBold)
-        4 -> MaterialTheme.typography.bodyMedium.copy(fontFamily = FontFamily.Monospace)
-        else -> MaterialTheme.typography.bodyLarge
-      }
-      val styled = buildAnnotatedString {
-        append(line.replace("￼", "[attachment]"))
-        // Character formatting, stretch by stretch, clipped to this line.
-        for (s in d.spans) {
-          val from = maxOf(s.start.toInt(), start) - start
-          val to = minOf((s.start + s.length).toInt(), start + line.length) - start
-          if (to <= from) continue
-          addStyle(
-            SpanStyle(
-              fontWeight = if (s.bold) FontWeight.Bold else null,
-              fontStyle = if (s.italic) FontStyle.Italic else null,
-              textDecoration = when {
-                s.underline && s.strike -> TextDecoration.combine(listOf(TextDecoration.Underline, TextDecoration.LineThrough))
-                s.underline || s.link != null -> TextDecoration.Underline
-                s.strike -> TextDecoration.LineThrough
-                else -> null
-              },
-              color = emphasisColour(s.emphasis) ?: if (s.link != null) MaterialTheme.colorScheme.primary else Color.Unspecified,
-            ),
-            from, to,
-          )
-        }
-      }
-      val indent = (para?.indent?.toInt() ?: 0) * 20
-      Row(Modifier.padding(start = indent.dp), verticalAlignment = Alignment.Top) {
-        when (para?.style?.toInt()) {
-          103 -> {
-            val ticked = para.checked == true
-            Box(
-              Modifier.padding(top = 3.dp, end = 10.dp).size(20.dp)
-                .border(2.dp, if (ticked) NotesYellow else MaterialTheme.colorScheme.outline, androidx.compose.foundation.shape.CircleShape)
-                .background(if (ticked) NotesYellow else Color.Transparent, androidx.compose.foundation.shape.CircleShape)
-                .clickable { onCheck(start.toUInt(), !ticked) },
-            )
-          }
-          100 -> Text("•  ", style = style)
-          101 -> Text("–  ", style = style)
-          102 -> Text("${lines.takeWhile { it.first < start }.count { spanAt(it.first)?.style?.toInt() == 102 } + 1}.  ", style = style)
-        }
-        if (para?.quote == true) Box(Modifier.padding(end = 10.dp).width(3.dp).size(3.dp, 22.dp).background(MaterialTheme.colorScheme.outline))
-        Text(styled, style = style.copy(lineHeight = (style.fontSize.value * 1.35f).sp))
-      }
+  texts.forEachIndexed { i, s -> starts[i] = at; at += s.length + 1 }
+  val on = Array(texts.size) { mutableListOf<NSpan>() }
+  for (s in d.spans) {
+    val from = s.start.toInt(); val to = (s.start + s.length).toInt()
+    if (to <= from) continue
+    var i = starts.binarySearch(from).let { if (it >= 0) it else -it - 2 }.coerceAtLeast(0)
+    while (i < texts.size && starts[i] < to) { on[i].add(s); i++ }
+  }
+  var numbered = 0
+  return texts.indices.map { i ->
+    val para = on[i].firstOrNull { starts[i] >= it.start.toInt() && starts[i] < (it.start + it.length).toInt() }
+    numbered = if (para?.style?.toInt() == 102) numbered + 1 else 0
+    NoteLine(starts[i], texts[i], para, on[i], numbered)
+  }
+}
+
+/**
+ * A note drawn with its formatting, each line by its paragraph style, checklist items tickable;
+ * lines composed only as they scroll into view.
+ */
+@Composable
+private fun RichNote(d: NDoc, modifier: Modifier, onCheck: (UInt, Boolean) -> Unit) {
+  val lines = remember(d) { lay(d) }
+  LazyColumn(modifier, contentPadding = PaddingValues(horizontal = 24.dp, vertical = 8.dp), verticalArrangement = Arrangement.spacedBy(2.dp)) {
+    items(lines.size) { i -> NoteLineView(lines[i], onCheck) }
+  }
+}
+
+@Composable
+private fun NoteLineView(l: NoteLine, onCheck: (UInt, Boolean) -> Unit) {
+  val para = l.para
+  val style = when (para?.style?.toInt()) {
+    0 -> MaterialTheme.typography.headlineMedium.copy(fontWeight = FontWeight.Bold)
+    1 -> MaterialTheme.typography.titleLarge.copy(fontWeight = FontWeight.Bold)
+    2 -> MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.SemiBold)
+    4 -> MaterialTheme.typography.bodyMedium.copy(fontFamily = FontFamily.Monospace)
+    else -> MaterialTheme.typography.bodyLarge
+  }
+  val link = MaterialTheme.colorScheme.primary
+  val styled = buildAnnotatedString {
+    append(l.text.replace("\uFFFC", "[attachment]"))
+    // Character formatting, stretch by stretch, clipped to this line.
+    for (s in l.spans) {
+      val from = maxOf(s.start.toInt(), l.start) - l.start
+      val to = minOf((s.start + s.length).toInt(), l.start + l.text.length) - l.start
+      if (to <= from) continue
+      addStyle(
+        SpanStyle(
+          fontWeight = if (s.bold) FontWeight.Bold else null,
+          fontStyle = if (s.italic) FontStyle.Italic else null,
+          textDecoration = when {
+            s.underline && s.strike -> TextDecoration.combine(listOf(TextDecoration.Underline, TextDecoration.LineThrough))
+            s.underline || s.link != null -> TextDecoration.Underline
+            s.strike -> TextDecoration.LineThrough
+            else -> null
+          },
+          color = emphasisColour(s.emphasis) ?: if (s.link != null) link else Color.Unspecified,
+        ),
+        from, to,
+      )
     }
+  }
+  val indent = (para?.indent?.toInt() ?: 0) * 20
+  Row(Modifier.padding(start = indent.dp), verticalAlignment = Alignment.Top) {
+    when (para?.style?.toInt()) {
+      103 -> {
+        // Notes' checklist circle: hollow, or filled yellow with a check.
+        val ticked = para.checked == true
+        val accent = MaterialTheme.colorScheme.primaryContainer
+        Box(
+          Modifier.padding(top = 3.dp, end = 10.dp).size(20.dp)
+            .border(1.75.dp, if (ticked) accent else MaterialTheme.colorScheme.outline, androidx.compose.foundation.shape.CircleShape)
+            .background(if (ticked) accent else Color.Transparent, androidx.compose.foundation.shape.CircleShape)
+            .toggleable(ticked, role = Role.Checkbox) { onCheck(l.start.toUInt(), it) },
+          contentAlignment = Alignment.Center,
+        ) { if (ticked) Icon(painterResource(R.drawable.ic_check), contentDescription = null, tint = MaterialTheme.colorScheme.onPrimaryContainer, modifier = Modifier.size(13.dp)) }
+      }
+      100 -> Text("•  ", style = style)
+      101 -> Text("–  ", style = style)
+      102 -> Text("${l.number}.  ", style = style)
+    }
+    if (para?.quote == true) Box(Modifier.padding(end = 10.dp).size(3.dp, 22.dp).background(MaterialTheme.colorScheme.outline))
+    Text(styled, style = style.copy(lineHeight = (style.fontSize.value * 1.35f).sp))
   }
 }

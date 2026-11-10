@@ -74,6 +74,8 @@ pub struct NDoc {
     pub locked: bool,
     /// False for a note this app can show but not yet change safely; shown read only.
     pub editable: bool,
+    /// When it last changed (Unix seconds), shown above it.
+    pub modified_at: Option<i64>,
 }
 
 /// What a sync of Notes came to.
@@ -231,6 +233,7 @@ impl Account {
                 pinned: n.pinned,
                 locked: n.locked,
                 editable: n.editable && !n.locked,
+                modified_at: n.modified_at,
             })
         })
     }
