@@ -91,6 +91,13 @@
         </service>
         <!-- iCloud Drive in the Files app and every app's pickers (DriveProvider.kt). Only the
              system's document UI may call it (MANAGE_DOCUMENTS). -->
+        <!-- Photos shared from Skykeep: the receiving app is granted that one copy, for that share. -->
+        <provider android:name="androidx.core.content.FileProvider"
+            android:authorities="${applicationId}.share"
+            android:exported="false"
+            android:grantUriPermissions="true">
+            <meta-data android:name="android.support.FILE_PROVIDER_PATHS" android:resource="@xml/share_paths" />
+        </provider>
         <provider android:name=".sync.DriveProvider"
             android:authorities="${applicationId}.drive"
             android:exported="true" android:grantUriPermissions="true"

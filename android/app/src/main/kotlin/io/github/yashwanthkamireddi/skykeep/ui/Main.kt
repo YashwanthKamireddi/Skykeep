@@ -117,9 +117,11 @@ fun MainScreens(engine: uniffi.quince_mobile.Account, onSignedOut: () -> Unit) {
   val account = remember { phoneAccount(context) }
   val sync = rememberSyncView(account, asked)
   fun now() { account?.let { asked = System.currentTimeMillis(); syncNow(it) } }
+  val full = remember { mutableStateOf(false) }
+  androidx.compose.runtime.CompositionLocalProvider(LocalFullScreen provides full) {
   Scaffold(
     bottomBar = {
-      NavigationBar {
+      if (!full.value) NavigationBar {
         for (t in Tab.entries) {
           // Each app's mark in its own colour, as the desktop's sidebar shows them.
           val tint = t.app?.let { mark(it) } ?: MaterialTheme.colorScheme.onSurfaceVariant
@@ -172,6 +174,7 @@ fun MainScreens(engine: uniffi.quince_mobile.Account, onSignedOut: () -> Unit) {
         }
       }
     }
+  }
   }
 }
 

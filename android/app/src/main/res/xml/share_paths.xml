@@ -1,0 +1,6 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- What Skykeep hands to another app when a person shares: copies made for that share, in the
+     cache's share/ folder, and nothing else of the app's. -->
+<paths>
+    <cache-path name="share" path="share/" />
+</paths>

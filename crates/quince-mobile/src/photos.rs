@@ -47,8 +47,29 @@ pub enum PView {
     Screenshots,
     Recents,
     RecentlyDeleted,
-    Album { id: String },
+    /// Shown only after the person proves it is them (fingerprint, face or screen lock).
+    Hidden,
+    Panoramas,
+    Portrait,
+    Album {
+        id: String,
+    },
 }
+
+/// A flag set on photos, as Photos sets them.
+#[derive(uniffi::Enum)]
+pub enum PFlag {
+    Favorite,
+    Hidden,
+    /// Into Recently Deleted; off, recovered from it.
+    Deleted,
+    /// Deleted for good, from Recently Deleted only. It cannot be undone.
+    Expunged,
+}
+
+/// The photos pass: a pass from Apple and a flag change never run at once, so a pass never
+/// reads a photo between the library's change and Apple's answer.
+static PASS: tokio::sync::Mutex<()> = tokio::sync::Mutex::const_new(());
 
 /// A grid's photos as one compact index: ids in order, each one's date (unix seconds), and its
 /// marks packed (bits 0–1 the kind: 0 image, 1 video, 2 Live; bit 2 a favorite).
@@ -122,6 +143,9 @@ fn source(v: PView) -> Source {
         PView::Screenshots => Source::View(View::Screenshots),
         PView::Recents => Source::View(View::Recents),
         PView::RecentlyDeleted => Source::View(View::RecentlyDeleted),
+        PView::Hidden => Source::View(View::Hidden),
+        PView::Panoramas => Source::View(View::Panoramas),
+        PView::Portrait => Source::View(View::Portrait),
         PView::Album { id } => Source::Album(id),
     }
 }
@@ -147,7 +171,10 @@ impl Account {
         let (lock, _) = self.library()?;
         let (http, root, params) = self.photos_context()?;
         let pass = runtime()
-            .block_on(quince_sync::photos::refresh(&lock, &http, &root, params))
+            .block_on(async {
+                let _one = PASS.lock().await;
+                quince_sync::photos::refresh(&lock, &http, &root, params).await
+            })
             .map_err(failed)?;
         remember(pass.links);
         let photos = runtime()
@@ -165,6 +192,36 @@ impl Account {
             preparing: pass.preparing,
             photos: u32::try_from(photos).unwrap_or(u32::MAX),
         })
+    }
+
+    /// Favorite, Hide, Delete, Recover or (from Recently Deleted) delete for good, on these
+    /// photos: shown at once, sent to Apple in batches, and any Apple refuses put back; the
+    /// desktop's exact code. Answers how many changed; an error names how many could not.
+    pub fn photos_set_flag(
+        &self,
+        ids: Vec<String>,
+        flag: PFlag,
+        on: bool,
+    ) -> Result<u32, EngineError> {
+        let (lock, _) = self.library()?;
+        let (http, root, params) = self.photos_context()?;
+        let flag = match flag {
+            PFlag::Favorite => quince_icloud::photos::Flag::Favorite,
+            PFlag::Hidden => quince_icloud::photos::Flag::Hidden,
+            PFlag::Deleted => quince_icloud::photos::Flag::Deleted,
+            PFlag::Expunged => quince_icloud::photos::Flag::Expunged,
+        };
+        let changed = runtime()
+            .block_on(quince_sync::photos::set_flags(
+                &lock,
+                &PASS,
+                (&http, &root, params),
+                ids,
+                flag,
+                on,
+            ))
+            .map_err(failed)?;
+        Ok(u32::try_from(changed.len()).unwrap_or(u32::MAX))
     }
 
     /// A grid's photos, newest first, as one compact index.

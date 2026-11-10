@@ -135,6 +135,12 @@ Notes, Reminders, Drive and Photos open only to a full sign-in with two-factor, 
 </details>
 
 <details>
+<summary>Is it safe to use with my Apple Account?</summary>
+
+Skykeep signs in the same way icloud.com does, with your password and two-factor code, and talks only to Apple. It is not an Apple-approved app: Apple offers no official way for other apps to reach Notes, Reminders, Drive or Photos, so Skykeep uses the same web services icloud.com uses, as long-standing open-source tools like icloudpd do. Apple can change those services at any time, and may now and then ask you to sign in again or approve on your iPhone. Skykeep has no servers of its own and its code is public, so you can check exactly what it sends.
+</details>
+
+<details>
 <summary>How do I send a diagnostics log?</summary>
 
 Quit Skykeep and start it with `SKYKEEP_LOG=1 skykeep` (Windows PowerShell: `$env:SKYKEEP_LOG=1`, then `skykeep.exe`). It writes `diagnostics.log` in its data folder with the addresses it asked and Apple's answer codes, never passwords, tokens or anything from your library. Attach it to a [bug report](https://github.com/YashwanthKamireddi/Skykeep/issues/new?template=bug_report.yml).

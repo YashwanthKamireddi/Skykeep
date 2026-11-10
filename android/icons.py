@@ -19,7 +19,13 @@ MAP = {  # drawable: Lucide icon
   "ic_file": "file", "ic_file_text": "file-text", "ic_file_image": "file-image",
   "ic_file_video": "file-video-camera", "ic_file_archive": "file-archive", "ic_file_audio": "file-music",
   "ic_file_sheet": "file-spreadsheet", "ic_file_slides": "presentation",
+  "ic_share": "share", "ic_eye_off": "eye-off", "ic_clock": "clock", "ic_video": "video",
+  "ic_screenshot": "scan", "ic_panorama": "rectangle-horizontal", "ic_portrait": "aperture",
+  "ic_albums": "images", "ic_lock": "lock", "ic_info": "info", "ic_close": "x", "ic_undo": "rotate-ccw",
+  "ic_heart_fill": "heart",
 }
+# Drawn filled as well as stroked: a favourite's heart, set apart from the outline.
+FILLED = {"ic_heart_fill"}
 def f(v): return float(v)
 def shape(tag, a):
   if tag == "path": return a["d"]
@@ -48,7 +54,7 @@ for out, name in MAP.items():
     paths.append(shape(tag, a))
   body = "".join(
     f'\n    <path android:pathData="{d}" android:strokeColor="#FF000000" android:strokeWidth="2"'
-    f'\n        android:strokeLineCap="round" android:strokeLineJoin="round" android:fillColor="#00000000" />'
+    f'\n        android:strokeLineCap="round" android:strokeLineJoin="round" android:fillColor="{"#FF000000" if out in FILLED else "#00000000"}" />'
     for d in paths)
   open(f"{OUT}/{out}.xml", "w").write(
     f'<?xml version="1.0" encoding="utf-8"?>\n'

@@ -131,3 +131,19 @@ fun <T> GroupCard(items: List<T>, inset: Int = 56, row: @Composable (T) -> Unit)
 fun SectionLabel(text: String, modifier: Modifier = Modifier) {
   Text(text, style = MaterialTheme.typography.titleMedium, modifier = modifier.padding(start = 4.dp, top = 12.dp, bottom = 8.dp))
 }
+
+/**
+ * Whether a screen is showing something full screen (the photo viewer): the bottom bar steps
+ * aside while it does. A screen sets it with [FullScreen].
+ */
+val LocalFullScreen = androidx.compose.runtime.staticCompositionLocalOf { androidx.compose.runtime.mutableStateOf(false) }
+
+/** Marks the caller as full screen for as long as it is shown. */
+@Composable
+fun FullScreen() {
+  val full = LocalFullScreen.current
+  DisposableEffect(Unit) {
+    full.value = true
+    onDispose { full.value = false }
+  }
+}
