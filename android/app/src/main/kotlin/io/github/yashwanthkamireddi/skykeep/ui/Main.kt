@@ -2,6 +2,10 @@ package io.github.yashwanthkamireddi.skykeep.ui
 
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.material3.Surface
+import io.github.yashwanthkamireddi.skykeep.ui.theme.mark
+import io.github.yashwanthkamireddi.skykeep.ui.theme.AppTheme
+import androidx.compose.foundation.Image
+import androidx.compose.material3.NavigationBarItemDefaults
 import androidx.compose.runtime.produceState
 import androidx.compose.material3.pulltorefresh.PullToRefreshBox
 import androidx.compose.material3.IconButton
@@ -83,12 +87,12 @@ import kotlinx.coroutines.withContext
  * The bottom bar: five places, as Material's navigation bar holds (three to five). Contacts and
  * Calendar live in the phone's own apps; their settings open from their cards on Home.
  */
-private enum class Tab(val label: String, val icon: Int) {
-  Home("Home", R.drawable.ic_home),
-  Reminders("Reminders", R.drawable.ic_reminders),
-  Notes("Notes", R.drawable.ic_notes),
-  Photos("Photos", R.drawable.ic_photos),
-  Settings("Settings", R.drawable.ic_settings),
+private enum class Tab(val label: String, val icon: Int, val app: Palette.App?) {
+  Home("Home", R.drawable.ic_home, null),
+  Reminders("Reminders", R.drawable.ic_reminders, Palette.App.Reminders),
+  Notes("Notes", R.drawable.ic_notes, Palette.App.Notes),
+  Photos("Photos", R.drawable.ic_photos, Palette.App.Photos),
+  Settings("Settings", R.drawable.ic_settings, null),
 }
 
 /** A page opened from Home rather than the bar: Contacts' or Calendar's settings. */
@@ -114,11 +118,19 @@ fun MainScreens(engine: uniffi.quince_mobile.Account, onSignedOut: () -> Unit) {
     bottomBar = {
       NavigationBar {
         for (t in Tab.entries) {
+          // Each app's mark in its own colour, as the desktop's sidebar shows them.
+          val tint = t.app?.let { mark(it) } ?: MaterialTheme.colorScheme.onSurfaceVariant
           NavigationBarItem(
             selected = tab == t,
             onClick = { tab = t; page = null },
             icon = { Icon(painterResource(t.icon), contentDescription = null) },
             label = { Text(t.label) },
+            colors = NavigationBarItemDefaults.colors(
+              selectedIconColor = t.app?.let { mark(it) } ?: MaterialTheme.colorScheme.onSurface,
+              unselectedIconColor = tint,
+              selectedTextColor = MaterialTheme.colorScheme.onSurface,
+              indicatorColor = (t.app?.let { mark(it) } ?: MaterialTheme.colorScheme.onSurface).copy(alpha = 0.14f),
+            ),
           )
         }
       }
@@ -128,7 +140,7 @@ fun MainScreens(engine: uniffi.quince_mobile.Account, onSignedOut: () -> Unit) {
     if (tab == Tab.Reminders || tab == Tab.Notes || tab == Tab.Photos) {
       Box(Modifier.padding(inner).fillMaxSize()) {
         when (tab) {
-          Tab.Notes -> NotesPage(engine)
+          Tab.Notes -> AppTheme(Palette.App.Notes) { NotesPage(engine) }
           Tab.Photos -> PhotosPage(engine)
           else -> RemindersPage(engine)
         }
@@ -145,7 +157,7 @@ fun MainScreens(engine: uniffi.quince_mobile.Account, onSignedOut: () -> Unit) {
           Column(Modifier.padding(horizontal = 20.dp, vertical = 24.dp), verticalArrangement = Arrangement.spacedBy(16.dp)) {
             when {
               page == Page.Contacts -> ContactsPage(account)
-              page == Page.Calendar -> CalendarPage(account)
+              page == Page.Calendar -> AppTheme(Palette.App.Calendar) { CalendarPage(account) }
               tab == Tab.Home -> Home(engine, account, sync, onSync = ::now, onOpen = { page = it }, onTab = { tab = it; page = null })
               tab == Tab.Settings -> SettingsPage(engine, account, onSignedOut)
             }
@@ -157,14 +169,14 @@ fun MainScreens(engine: uniffi.quince_mobile.Account, onSignedOut: () -> Unit) {
 }
 
 /** One service as Home lists it: its sync authority, name, mark and colour. */
-private data class Service(val authority: String, val name: String, val icon: Int, val colour: Color)
+private data class Service(val authority: String, val name: String, val icon: Int)
 
 private val SERVICES = listOf(
-  Service(io.github.yashwanthkamireddi.skykeep.sync.REMINDERS_AUTHORITY, "Reminders", R.drawable.ic_reminders, Color(Palette.Smart.TODAY)),
-  Service(io.github.yashwanthkamireddi.skykeep.sync.NOTES_AUTHORITY, "Notes", R.drawable.ic_notes, Color(Palette.NOTES)),
-  Service(io.github.yashwanthkamireddi.skykeep.sync.PHOTOS_AUTHORITY, "Photos", R.drawable.ic_photos, Color(Palette.SKY)),
-  Service(ContactsContract.AUTHORITY, "Contacts", R.drawable.ic_person, Color(Palette.Smart.ALL)),
-  Service(CalendarContract.AUTHORITY, "Calendar", R.drawable.ic_calendar, Color(Palette.Smart.SCHEDULED)),
+  Service(io.github.yashwanthkamireddi.skykeep.sync.REMINDERS_AUTHORITY, "Reminders", R.drawable.app_reminders),
+  Service(io.github.yashwanthkamireddi.skykeep.sync.NOTES_AUTHORITY, "Notes", R.drawable.app_notes),
+  Service(io.github.yashwanthkamireddi.skykeep.sync.PHOTOS_AUTHORITY, "Photos", R.drawable.app_photos),
+  Service(ContactsContract.AUTHORITY, "Contacts", R.drawable.app_contacts),
+  Service(CalendarContract.AUTHORITY, "Calendar", R.drawable.app_calendar),
 )
 
 /** Something on a card the person should act on or know: a failed sync, or items only here. */
@@ -295,7 +307,7 @@ private fun Health(s: Service, last: Outcome.Last?, syncing: Boolean, firstRun: 
   ) {
     Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
       Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(14.dp)) {
-        ServiceChip(s.icon, s.colour)
+        Image(painterResource(s.icon), contentDescription = null, modifier = Modifier.size(48.dp))
         Column(Modifier.weight(1f)) {
           Text(s.name, style = MaterialTheme.typography.titleMedium)
           Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {

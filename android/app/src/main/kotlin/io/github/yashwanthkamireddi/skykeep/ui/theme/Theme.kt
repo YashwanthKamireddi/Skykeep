@@ -65,3 +65,21 @@ fun SkykeepTheme(dark: Boolean = isSystemInDarkTheme(), content: @Composable () 
     MaterialTheme(colorScheme = roles.scheme(dark), shapes = SkykeepShapes, typography = Typography, content = content)
   }
 }
+
+/** An app's own colour (its mark), for the current light or dark. */
+@Composable
+fun mark(app: Palette.App): Color = Color(if (isSystemInDarkTheme()) app.dark else app.light)
+
+/**
+ * An app's screens in its own theme, as on the desktop: Notes in yellow, Calendar in red, the
+ * rest in Skykeep's blue. Only the accent roles change; surfaces and text stay the same.
+ */
+@Composable
+fun AppTheme(app: Palette.App, content: @Composable () -> Unit) {
+  val accent = Palette.accent(app, isSystemInDarkTheme()) ?: return content()
+  val scheme = MaterialTheme.colorScheme.copy(
+    primary = Color(accent.primary), onPrimary = Color(accent.onPrimary),
+    primaryContainer = Color(accent.primaryContainer), onPrimaryContainer = Color(accent.onPrimaryContainer),
+  )
+  MaterialTheme(colorScheme = scheme, shapes = MaterialTheme.shapes, typography = MaterialTheme.typography, content = content)
+}

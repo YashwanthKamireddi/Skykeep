@@ -81,4 +81,30 @@ object Palette {
 
   /** The Notes accent: a deep yellow for its icon chip and the editor's caret, never text. */
   const val NOTES = 0xFFE5A800
+
+  /**
+   * Each app's own colour, the desktop's exactly (src/styles/app.css --app-*): its mark in the
+   * bottom bar and on Home, in light and in dark.
+   */
+  enum class App(val light: Long, val dark: Long) {
+    Notes(0xFFA06C00, 0xFFFFD23F),
+    Reminders(0xFFC94A08, 0xFFFF8A4C),
+    Calendar(0xFFE0313F, 0xFFFF5A5F),
+    Contacts(0xFF6E7480, 0xFFAAB1BD),
+    Drive(0xFF1F7AE0, 0xFF5AB0FF),
+    Photos(0xFFB34FD6, 0xFFD38BFF),
+  }
+
+  /**
+   * An app's theme where the desktop gives it one (src/styles/tokens.css data-app): Notes yellow,
+   * Calendar red; every other app keeps Skykeep's blue. The roles a screen's buttons, links,
+   * switches and caret take, held to the same contrast as the rest.
+   */
+  data class Accent(val primary: Long, val onPrimary: Long, val primaryContainer: Long, val onPrimaryContainer: Long)
+
+  fun accent(app: App, dark: Boolean): Accent? = when (app) {
+    App.Notes -> if (dark) Accent(0xFFFFD600, INK, 0xFF5C4600, 0xFFFFE9A3) else Accent(0xFF856400, WHITE, 0xFFFFCC00, 0xFF1D1D1F)
+    App.Calendar -> if (dark) Accent(0xFFFF7A7A, INK, 0xFF8C1D18, 0xFFFFDAD6) else Accent(0xFFD70015, WHITE, 0xFFFFDAD6, 0xFF410002)
+    else -> null
+  }
 }

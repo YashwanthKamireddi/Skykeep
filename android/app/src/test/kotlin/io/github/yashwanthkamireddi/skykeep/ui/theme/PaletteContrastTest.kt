@@ -53,6 +53,17 @@ class PaletteContrastTest {
       need(3.0, "smart $label circle under its white glyph", Palette.WHITE, colour)
       need(3.0, "$name smart $label circle on its card", colour, p.surfaceContainer)
     }
+    val dark = name == "dark"
+    for (app in Palette.App.entries) {
+      val mark = if (dark) app.dark else app.light
+      need(3.0, "$name ${app.name} mark on the background", mark, p.background)
+      need(3.0, "$name ${app.name} mark on a card", mark, p.surfaceContainer)
+      Palette.accent(app, dark)?.let { a ->
+        for ((s, bg) in surfaces) need(4.5, "$name ${app.name} primary (text) on $s", a.primary, bg)
+        need(4.5, "$name ${app.name} onPrimary on primary", a.onPrimary, a.primary)
+        need(4.5, "$name ${app.name} onPrimaryContainer on primaryContainer", a.onPrimaryContainer, a.primaryContainer)
+      }
+    }
   }
 
   @Test
