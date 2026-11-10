@@ -1,5 +1,6 @@
 package io.github.yashwanthkamireddi.skykeep.ui
 
+import io.github.yashwanthkamireddi.skykeep.ui.theme.Palette
 import android.Manifest
 import android.content.ContentResolver
 import android.content.pm.PackageManager
@@ -92,7 +93,7 @@ import uniffi.quince_mobile.RView
 /** One of the overview's places: its title, its colour (Apple's), and how it is asked for. */
 private data class Place(val title: String, val colour: Color, val view: RView, val listGuid: String? = null)
 
-private fun colourOf(hex: String?, fallback: Color = Color(0xFF007AFF)): Color =
+private fun colourOf(hex: String?, fallback: Color = Color(Palette.Smart.TODAY)): Color =
   hex?.removePrefix("#")?.takeIf { it.length == 6 }?.toLongOrNull(16)?.let { Color(0xFF000000 or it) } ?: fallback
 
 /** Asks for a Reminders sync now: what was changed here goes, and Apple's is read. */
@@ -214,10 +215,10 @@ private fun Overview(counts: RCounts?, lists: List<RList>, open: (Place) -> Unit
     item { Text("Reminders", style = MaterialTheme.typography.headlineMedium) }
     item {
       val smart = listOf(
-        Place("Today", Color(0xFF007AFF), RView.Today) to counts?.today,
-        Place("Scheduled", Color(0xFFFF3B30), RView.Scheduled) to counts?.scheduled,
-        Place("All", Color(0xFF5E5E63), RView.All) to counts?.all,
-        Place("Flagged", Color(0xFFFF9500), RView.Flagged) to counts?.flagged,
+        Place("Today", Color(Palette.Smart.TODAY), RView.Today) to counts?.today,
+        Place("Scheduled", Color(Palette.Smart.SCHEDULED), RView.Scheduled) to counts?.scheduled,
+        Place("All", Color(Palette.Smart.ALL), RView.All) to counts?.all,
+        Place("Flagged", Color(Palette.Smart.FLAGGED), RView.Flagged) to counts?.flagged,
       )
       Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
         for (pair in smart.chunked(2)) {
@@ -225,7 +226,7 @@ private fun Overview(counts: RCounts?, lists: List<RList>, open: (Place) -> Unit
             for ((p, n) in pair) SmartCard(p, n?.toInt(), Modifier.weight(1f)) { open(p) }
           }
         }
-        val done = Place("Completed", Color(0xFF8E8E93), RView.Completed)
+        val done = Place("Completed", Color(Palette.Smart.COMPLETED), RView.Completed)
         SmartCard(done, counts?.completed?.toInt(), Modifier.fillMaxWidth()) { open(done) }
       }
     }
@@ -307,7 +308,7 @@ private fun ReminderRow(r: RItem, colour: Color, onTick: () -> Unit, onOpen: () 
         )
       }
     }
-    if (r.flagged) Icon(painterResource(R.drawable.ic_flag), contentDescription = "Flagged", tint = Color(0xFFFF9500), modifier = Modifier.size(18.dp))
+    if (r.flagged) Icon(painterResource(R.drawable.ic_flag), contentDescription = "Flagged", tint = Color(Palette.Smart.FLAGGED), modifier = Modifier.size(18.dp))
   }
 }
 

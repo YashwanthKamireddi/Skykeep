@@ -41,6 +41,8 @@ data class SyncView(
   val last: Map<String, Outcome.Last?>,
   /** Changes held by the circuit breaker, waiting for the person to confirm. */
   val held: Int,
+  /** The authorities Android is syncing at this moment. */
+  val active: Set<String> = emptySet(),
 )
 
 /**
@@ -55,8 +57,8 @@ fun rememberSyncView(account: Account?, asked: Long): SyncView {
     val last = AUTHORITIES.associateWith { Outcome.last(context, it) }
     val waiting = asked > 0 && System.currentTimeMillis() - asked < 120_000 &&
       last.values.any { (it?.at ?: 0) < asked }
-    val active = account != null && AUTHORITIES.any { ContentResolver.isSyncActive(account, it) }
-    return SyncView(waiting || active, last, AUTHORITIES.sumOf { Outcome.held(context, it) })
+    val active = if (account == null) emptySet() else AUTHORITIES.filter { ContentResolver.isSyncActive(account, it) }.toSet()
+    return SyncView(waiting || active.isNotEmpty(), last, AUTHORITIES.sumOf { Outcome.held(context, it) }, active)
   }
   var view by remember(account, asked) { mutableStateOf(read()) }
   DisposableEffect(account, asked) {

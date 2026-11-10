@@ -1,5 +1,6 @@
 package io.github.yashwanthkamireddi.skykeep.ui
 
+import io.github.yashwanthkamireddi.skykeep.ui.theme.Palette
 import android.content.ContentResolver
 import android.os.Bundle
 import androidx.activity.compose.BackHandler
@@ -79,7 +80,7 @@ import uniffi.quince_mobile.NSpan
 private const val TRASH = "TrashFolder-CloudKit"
 
 /** Notes' own yellow, as the iCloud Notes app has it. */
-private val NotesYellow = Color(0xFFE5A800)
+private val NotesYellow = Color(Palette.NOTES)
 
 private fun syncNotes(context: android.content.Context) {
   phoneAccount(context)?.let {
@@ -366,7 +367,7 @@ private fun RichNote(d: NDoc, onCheck: (UInt, Boolean) -> Unit) {
                 s.strike -> TextDecoration.LineThrough
                 else -> null
               },
-              color = emphasisColour(s.emphasis) ?: if (s.link != null) Color(0xFF007AFF) else Color.Unspecified,
+              color = emphasisColour(s.emphasis) ?: if (s.link != null) MaterialTheme.colorScheme.primary else Color.Unspecified,
             ),
             from, to,
           )

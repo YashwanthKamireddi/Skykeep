@@ -1,5 +1,12 @@
 package io.github.yashwanthkamireddi.skykeep.ui
 
+import androidx.compose.ui.semantics.semantics
+import androidx.compose.material3.Surface
+import androidx.compose.runtime.produceState
+import androidx.compose.material3.pulltorefresh.PullToRefreshBox
+import androidx.compose.material3.IconButton
+import androidx.compose.ui.text.style.TextOverflow
+import io.github.yashwanthkamireddi.skykeep.ui.theme.Palette
 import android.accounts.Account
 import android.content.ContentResolver
 import android.content.ContentValues
@@ -92,6 +99,7 @@ private enum class Page { Contacts, Calendar }
  * the account, how syncing is going, and what syncs — management screens, as the design has it,
  * and saying so plainly.
  */
+@OptIn(androidx.compose.material3.ExperimentalMaterial3Api::class)
 @Composable
 fun MainScreens(engine: uniffi.quince_mobile.Account, onSignedOut: () -> Unit) {
   val context = LocalContext.current
@@ -126,13 +134,21 @@ fun MainScreens(engine: uniffi.quince_mobile.Account, onSignedOut: () -> Unit) {
         }
       }
     } else {
-      Box(Modifier.padding(inner).fillMaxSize().verticalScroll(rememberScrollState())) {
-        Column(Modifier.padding(horizontal = 20.dp, vertical = 24.dp), verticalArrangement = Arrangement.spacedBy(16.dp)) {
-          when {
-            page == Page.Contacts -> ContactsPage(account)
-            page == Page.Calendar -> CalendarPage(account)
-            tab == Tab.Home -> Home(engine, account, sync, onSync = ::now, onOpen = { page = it })
-            tab == Tab.Settings -> SettingsPage(engine, account, onSignedOut)
+      // Home pulls down to sync (the same as its Sync button); the indicator shows only for a
+      // sync asked for here, until each service has answered.
+      PullToRefreshBox(
+        isRefreshing = asked > 0 && sync.busy,
+        onRefresh = ::now,
+        modifier = Modifier.padding(inner).fillMaxSize(),
+      ) {
+        Box(Modifier.fillMaxSize().verticalScroll(rememberScrollState())) {
+          Column(Modifier.padding(horizontal = 20.dp, vertical = 24.dp), verticalArrangement = Arrangement.spacedBy(16.dp)) {
+            when {
+              page == Page.Contacts -> ContactsPage(account)
+              page == Page.Calendar -> CalendarPage(account)
+              tab == Tab.Home -> Home(engine, account, sync, onSync = ::now, onOpen = { page = it }, onTab = { tab = it; page = null })
+              tab == Tab.Settings -> SettingsPage(engine, account, onSignedOut)
+            }
           }
         }
       }
@@ -140,13 +156,40 @@ fun MainScreens(engine: uniffi.quince_mobile.Account, onSignedOut: () -> Unit) {
   }
 }
 
+/** One service as Home lists it: its sync authority, name, mark and colour. */
+private data class Service(val authority: String, val name: String, val icon: Int, val colour: Color)
+
+private val SERVICES = listOf(
+  Service(io.github.yashwanthkamireddi.skykeep.sync.REMINDERS_AUTHORITY, "Reminders", R.drawable.ic_reminders, Color(Palette.Smart.TODAY)),
+  Service(io.github.yashwanthkamireddi.skykeep.sync.NOTES_AUTHORITY, "Notes", R.drawable.ic_notes, Color(Palette.NOTES)),
+  Service(io.github.yashwanthkamireddi.skykeep.sync.PHOTOS_AUTHORITY, "Photos", R.drawable.ic_photos, Color(Palette.SKY)),
+  Service(ContactsContract.AUTHORITY, "Contacts", R.drawable.ic_person, Color(Palette.Smart.ALL)),
+  Service(CalendarContract.AUTHORITY, "Calendar", R.drawable.ic_calendar, Color(Palette.Smart.SCHEDULED)),
+)
+
+/** Something on a card the person should act on or know: a failed sync, or items only here. */
+private fun Outcome.Last?.needsYou() = this != null && (!ok || onlyHere > 0)
+
+/**
+ * Home: the account, then one card per service, the ones that need the person first. Each card
+ * says its own state in the same few calm words (Up to date, Syncing, Will try again, Sign in
+ * again); nothing spins for the whole screen. Sync is in the top bar and on a pull.
+ */
 @Composable
-private fun Home(engine: uniffi.quince_mobile.Account, account: Account?, sync: SyncView, onSync: () -> Unit, onOpen: (Page) -> Unit) {
+private fun Home(
+  engine: uniffi.quince_mobile.Account, account: Account?, sync: SyncView,
+  onSync: () -> Unit, onOpen: (Page) -> Unit, onTab: (Tab) -> Unit,
+) {
   val context = LocalContext.current
   val id = remember { runCatching { engine.appleId() }.getOrNull() }
+  val online = rememberOnline()
+  // "2 minutes ago" stays true while Home is open: the time moves on each minute.
+  val now by produceState(System.currentTimeMillis()) {
+    while (true) { kotlinx.coroutines.delay(60_000); value = System.currentTimeMillis() }
+  }
   Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(14.dp)) {
     Box(
-      Modifier.size(48.dp).background(MaterialTheme.colorScheme.primaryContainer, CircleShape),
+      Modifier.size(44.dp).background(MaterialTheme.colorScheme.primaryContainer, CircleShape),
       contentAlignment = Alignment.Center,
     ) {
       Text(
@@ -155,31 +198,38 @@ private fun Home(engine: uniffi.quince_mobile.Account, account: Account?, sync: 
         color = MaterialTheme.colorScheme.onPrimaryContainer,
       )
     }
-    Column {
-      Text("Signed in", style = MaterialTheme.typography.titleMedium)
-      id?.let { Text(it, style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant) }
+    Column(Modifier.weight(1f)) {
+      Text("iCloud", style = MaterialTheme.typography.titleMedium)
+      id?.let { Text(it, style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant, maxLines = 1, overflow = TextOverflow.Ellipsis) }
+    }
+    IconButton(onClick = onSync, enabled = account != null && !sync.busy && online) {
+      Icon(painterResource(R.drawable.ic_sync), contentDescription = "Sync now")
+    }
+  }
+  if (!online) {
+    Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+      Icon(painterResource(R.drawable.ic_cloud_off), contentDescription = null, tint = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.size(18.dp))
+      Text(
+        "Offline. Everything here is on this phone, and changes you make will send when you're back online.",
+        style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant,
+      )
     }
   }
   if (!allowed(context)) {
     val ask = androidx.activity.compose.rememberLauncherForActivityResult(
       androidx.activity.result.contract.ActivityResultContracts.RequestMultiplePermissions(),
     ) { granted -> if (granted.values.all { it }) onSync() }
-    Card(colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.tertiaryContainer)) {
-      Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-        Text("Allow Contacts and Calendar access so Skykeep can add your iCloud contacts and calendars to this phone.", style = MaterialTheme.typography.bodyMedium)
-        Button(onClick = { ask.launch(NEEDED) }) { Text("Allow") }
-      }
+    Notice("Allow Contacts and Calendar so Skykeep can add your iCloud contacts and calendars to this phone.") {
+      Button(onClick = { ask.launch(NEEDED) }) { Text("Allow") }
     }
   }
-  for ((authority, name) in listOf(
-    ContactsContract.AUTHORITY to "Contacts", CalendarContract.AUTHORITY to "Calendar",
-    io.github.yashwanthkamireddi.skykeep.sync.REMINDERS_AUTHORITY to "Reminders",
-    io.github.yashwanthkamireddi.skykeep.sync.NOTES_AUTHORITY to "Notes",
-    io.github.yashwanthkamireddi.skykeep.sync.PHOTOS_AUTHORITY to "Photos",
-  )) {
-    // Contacts' and Calendar's cards open their settings (they have no tab of their own).
-    val opens = when (name) { "Contacts" -> Page.Contacts; "Calendar" -> Page.Calendar; else -> null }
-    Health(name, sync.last[authority], sync.busy, onClick = opens?.let { { onOpen(it) } })
+  if (sync.held > 0 && !sync.busy) {
+    Notice("${sync.held} changes are waiting for you. More than usual changed at once, so Skykeep held them to be safe.") {
+      Button(onClick = {
+        AUTHORITIES.forEach { Outcome.confirmMassRemoval(context, it) }
+        onSync()
+      }) { Text("Apply Them") }
+    }
   }
   // Phone makers' battery savers pause apps that aren't opened often, and a sync with them. Said
   // only when it has happened: nothing synced cleanly for two days, though Skykeep has synced
@@ -187,82 +237,89 @@ private fun Home(engine: uniffi.quince_mobile.Account, account: Account?, sync: 
   val lastGood = sync.last.values.mapNotNull { it?.okAt?.takeIf { t -> t > 0 } }.maxOrNull()
   if (lastGood != null && System.currentTimeMillis() - lastGood > 48 * 3_600_000L) {
     val brand = android.os.Build.MANUFACTURER.replaceFirstChar { it.uppercase() }
-    Card(colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.tertiaryContainer)) {
-      Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-        Text(
-          "Skykeep hasn't synced for two days. $brand phones can pause apps that aren't opened often. Allow Skykeep to run in the background so your contacts and calendars stay up to date.",
-          style = MaterialTheme.typography.bodyMedium,
-        )
-        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-          Button(onClick = {
-            runCatching {
-              context.startActivity(Intent(android.provider.Settings.ACTION_IGNORE_BATTERY_OPTIMIZATION_SETTINGS).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK))
-            }
-          }) { Text("Battery Settings") }
-          TextButton(onClick = {
-            context.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse("https://dontkillmyapp.com/${android.os.Build.MANUFACTURER.lowercase()}")).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK))
-          }) { Text("How on $brand") }
+    Notice(
+      "Skykeep hasn't synced for two days. $brand phones can pause apps that aren't opened often. Allow Skykeep to run in the background so everything stays up to date.",
+      warning = true,
+    ) {
+      Button(onClick = {
+        runCatching {
+          context.startActivity(Intent(android.provider.Settings.ACTION_IGNORE_BATTERY_OPTIMIZATION_SETTINGS).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK))
         }
-      }
+      }) { Text("Battery Settings") }
+      TextButton(onClick = {
+        context.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse("https://dontkillmyapp.com/${android.os.Build.MANUFACTURER.lowercase()}")).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK))
+      }) { Text("How on $brand") }
     }
   }
-  if (sync.held > 0 && !sync.busy) {
-    Card(colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.tertiaryContainer)) {
-      Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-        Text(
-          "${sync.held} changes are waiting for you. More than usual changed at once, so Skykeep held them to be safe.",
-          style = MaterialTheme.typography.bodyMedium,
-        )
-        Button(onClick = {
-          AUTHORITIES.forEach { Outcome.confirmMassRemoval(context, it) }
-          onSync()
-        }) { Text("Apply Them") }
-      }
+  // Problems float up; otherwise the order people use them in.
+  for (s in SERVICES.sortedBy { if (sync.last[it.authority].needsYou()) 0 else 1 }) {
+    val open: () -> Unit = when (s.name) {
+      "Contacts" -> { { onOpen(Page.Contacts) } }
+      "Calendar" -> { { onOpen(Page.Calendar) } }
+      "Reminders" -> { { onTab(Tab.Reminders) } }
+      "Notes" -> { { onTab(Tab.Notes) } }
+      else -> { { onTab(Tab.Photos) } }
     }
-  }
-  Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-    Button(onClick = onSync, enabled = account != null && !sync.busy) { Text("Sync Now") }
-    if (sync.busy) CircularProgressIndicator(Modifier.size(24.dp).align(Alignment.CenterVertically), strokeWidth = 2.dp)
-  }
-  Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-    FilledTonalButton(onClick = { openApp(context, contacts = true) }) { Text("Open Contacts") }
-    FilledTonalButton(onClick = { openApp(context, contacts = false) }) { Text("Open Calendar") }
+    Health(s, sync.last[s.authority], syncing = s.authority in sync.active, firstRun = sync.busy, now = now, onClick = open)
   }
 }
 
-/** One service's sync health, in the design's words. */
+/** One service's sync health, in the design's words, as one stop for TalkBack. */
 @Composable
-private fun Health(name: String, last: Outcome.Last?, busy: Boolean, onClick: (() -> Unit)? = null) {
-  val (line, detail, trouble) = when {
-    last == null && busy -> Triple("Setting up", "The first sync can take a little while. You can keep using your phone.", false)
-    last == null -> Triple("Not synced yet", null, false)
-    last.ok -> Triple("Up to date", "Synced ${ago(last.at)}", false)
-    last.said.contains("session", ignoreCase = true) || last.said.contains("sign in", ignoreCase = true) ->
-      Triple("Sign in again", "Your Apple sign-in session has expired. Sign in again to resume sync. Nothing is lost, and changes waiting to send are kept.", true)
-    else -> Triple(
-      "Will try again",
-      "Apple did not answer. Skykeep will try again on its own." + (if (last.okAt > 0) " Last successful sync: ${ago(last.okAt)}." else ""),
-      true,
-    )
+private fun Health(s: Service, last: Outcome.Last?, syncing: Boolean, firstRun: Boolean, now: Long, onClick: () -> Unit) {
+  val colours = MaterialTheme.colorScheme
+  val signIn = last != null && !last.ok &&
+    (last.said.contains("session", ignoreCase = true) || last.said.contains("sign in", ignoreCase = true))
+  val (status, trouble) = when {
+    syncing -> "Syncing" to false
+    last == null && firstRun -> "Setting up" to false
+    last == null -> "Not synced yet" to false
+    last.ok -> "Up to date · ${ago(last.at, now)}" to false
+    signIn -> "Sign in again" to true
+    else -> "Will try again" to true
   }
-  Card(Modifier.fillMaxWidth().then(if (onClick != null) Modifier.clickable(onClick = onClick) else Modifier)) {
-    Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
-      Row(verticalAlignment = Alignment.CenterVertically) {
-        Text(name, style = MaterialTheme.typography.titleMedium, modifier = Modifier.weight(1f))
-        Text(
-          line, style = MaterialTheme.typography.labelLarge,
-          color = if (trouble) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.primary,
-        )
+  val detail = when {
+    last == null && firstRun -> "The first sync can take a little while. You can keep using your phone."
+    last == null -> null
+    last.ok -> null
+    signIn -> "Your Apple sign-in has expired. Nothing is lost, and changes waiting to send are kept."
+    else -> "Apple didn't answer. Skykeep will try again on its own." + (if (last.okAt > 0) " Last synced ${ago(last.okAt, now)}." else "")
+  }
+  // What the adapter counted ("124 contacts"), without its per-sync change tally.
+  val counts = last?.takeIf { it.ok }?.said?.substringBefore(" · ")
+  Surface(
+    onClick = onClick,
+    color = colours.surfaceContainer,
+    shape = MaterialTheme.shapes.large,
+    modifier = Modifier.fillMaxWidth().semantics(mergeDescendants = true) {},
+  ) {
+    Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
+      Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(14.dp)) {
+        ServiceChip(s.icon, s.colour)
+        Column(Modifier.weight(1f)) {
+          Text(s.name, style = MaterialTheme.typography.titleMedium)
+          Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+            if (trouble) Icon(painterResource(R.drawable.ic_warning), contentDescription = null, tint = colours.error, modifier = Modifier.size(16.dp))
+            Text(
+              status, style = MaterialTheme.typography.bodyMedium,
+              color = if (trouble) colours.error else colours.onSurfaceVariant,
+            )
+          }
+          counts?.let { Text(it, style = MaterialTheme.typography.bodyMedium, color = colours.onSurfaceVariant) }
+        }
+        Icon(painterResource(R.drawable.ic_chevron_right), contentDescription = null, tint = colours.onSurfaceVariant)
       }
-      detail?.let { Text(it, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant) }
-      if (last?.ok == true) Text(last.said, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+      detail?.let { Text(it, style = MaterialTheme.typography.bodyMedium, color = colours.onSurfaceVariant) }
       if (last != null && last.onlyHere > 0) {
-        val what = if (name == "Contacts") "contact" else "event"
-        Text(
-          (if (last.onlyHere == 1) "1 $what is only on this phone." else "${last.onlyHere} ${what}s are only on this phone.") +
-            (last.why?.let { " $it" } ?: ""),
-          style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.error,
-        )
+        val what = if (s.name == "Contacts") "contact" else "event"
+        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+          Icon(painterResource(R.drawable.ic_warning), contentDescription = null, tint = colours.error, modifier = Modifier.size(18.dp))
+          Text(
+            (if (last.onlyHere == 1) "1 $what is only on this phone." else "${last.onlyHere} ${what}s are only on this phone.") +
+              (last.why?.let { " $it" } ?: ""),
+            style = MaterialTheme.typography.bodyMedium, color = colours.error,
+          )
+        }
       }
     }
   }
@@ -497,6 +554,6 @@ private fun showCalendar(context: Context, account: Account, id: Long, visible: 
 
 /** "5 minutes ago", in the phone's language. */
 /** "just now" under a minute (Android's own words would be "0 minutes ago"), then "5 minutes ago". */
-private fun ago(ms: Long): String =
-  if (System.currentTimeMillis() - ms < DateUtils.MINUTE_IN_MILLIS) "just now"
-  else DateUtils.getRelativeTimeSpanString(ms, System.currentTimeMillis(), DateUtils.MINUTE_IN_MILLIS).toString().lowercase()
+private fun ago(ms: Long, now: Long = System.currentTimeMillis()): String =
+  if (now - ms < DateUtils.MINUTE_IN_MILLIS) "just now"
+  else DateUtils.getRelativeTimeSpanString(ms, now, DateUtils.MINUTE_IN_MILLIS).toString().lowercase()
