@@ -59,10 +59,10 @@ jobs:
           $base = "https://github.com/YashwanthKamireddi/Skykeep/releases/download/v$env:VERSION"
           # Saved and read back: the release serves it as octet-stream, which Invoke-WebRequest
           # hands over as bytes, not text.
-          Invoke-WebRequest "$base/SHA256SUMS-windows.txt" -OutFile "$env:RUNNER_TEMP\sums.txt"
+          Invoke-WebRequest "$base/SHA256SUMS.txt" -OutFile "$env:RUNNER_TEMP\sums.txt"
           $sums = Get-Content "$env:RUNNER_TEMP\sums.txt" -Raw
           $line = $sums -split "`n" | Where-Object { $_ -match "\sSkykeep_$([regex]::Escape($env:VERSION))_x64-setup\.exe\s*$" }
-          if (-not $line) { throw "no installer for $env:VERSION in SHA256SUMS-windows.txt" }
+          if (-not $line) { throw "no installer for $env:VERSION in SHA256SUMS.txt" }
           $hash = ($line -split '\s+')[0].ToLower()
           [xml]$nuspec = Get-Content packaging/chocolatey/skykeep.nuspec
           $old = $nuspec.package.metadata.version
@@ -158,7 +158,7 @@ jobs:
           Start-Sleep -Seconds 2
 
           # checkver finds the release on GitHub, and autoupdate rebuilds the manifest from it —
-          # the URL and the hash read from SHA256SUMS-windows.txt — exactly as committed.
+          # the URL and the hash read from SHA256SUMS.txt — exactly as committed.
           $bin = "$env:USERPROFILE\scoop\apps\scoop\current\bin"
           New-Item -ItemType Directory check | Out-Null
           Copy-Item packaging/scoop/skykeep.json check/

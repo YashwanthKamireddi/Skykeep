@@ -19,12 +19,12 @@ is under <https://community.chocolatey.org/account>.
 ## Publishing a release
 
 1. Run the Packages workflow with the version (for example `0.1.3`) and wait for green. It
-   rewrites the version and installer SHA256 (from the release's `SHA256SUMS-windows.txt`) in
+   rewrites the version and installer SHA256 (from the release's `SHA256SUMS.txt`) in
    `skykeep.nuspec` and `tools/chocolateyinstall.ps1` and packs them.
 2. Make the same change here and commit it: in `skykeep.nuspec` the `<version>` and the two
    `v0.1.2` in `<iconUrl>` and `<releaseNotes>`; in `tools/chocolateyinstall.ps1` the
    version in `url64bit` and `checksum64` (the `Skykeep_<ver>_x64-setup.exe` line of
-   `SHA256SUMS-windows.txt`).
+   `SHA256SUMS.txt`).
 3. On any Windows machine with Chocolatey, from this folder (or with the `.nupkg` from the
    workflow's artifact):
 

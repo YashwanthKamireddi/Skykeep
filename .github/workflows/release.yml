@@ -302,9 +302,10 @@ jobs:
             > dist/latest.json
           cat dist/latest.json
       # One-click downloads: a copy of each installer under a name without the version, so the
-      # README can link to releases/latest/download/<name> and the download starts at once. They
-      # are byte-for-byte copies with their own checksum list. They live outside dist/, so
-      # latest.json and the .sig files above only ever name the versioned originals.
+      # README can link to releases/latest/download/<name> and the download starts at once.
+      # Byte-for-byte copies, kept outside dist/, so latest.json and the .sig files above only
+      # ever name the versioned originals (which the stores, Scoop, winget, Chocolatey and the
+      # AUR's skykeep-bin download by name).
       - name: Copies without the version, for one-click links
         run: |
           out="$RUNNER_TEMP/oneclick"; mkdir -p "$out"
@@ -322,24 +323,64 @@ jobs:
           copy '*_arm64.deb' Skykeep-linux-arm64.deb
           copy '*.aarch64.rpm' Skykeep-linux-aarch64.rpm
           copy '*.AppImage' Skykeep-linux-x86_64.AppImage
-          copy '*.flatpak' Skykeep-linux-x86_64.flatpak
-          (cd "$out" && sha256sum Skykeep-* > SHA256SUMS-unversioned.txt && cat SHA256SUMS-unversioned.txt)
-      # The bundle under the release's own name, with a checksum list of its own, so it sits
-      # beside the .deb, .rpm and AppImage of the same version.
+      # The Flatpak bundle under the release's own name, beside the .deb, .rpm and AppImage of
+      # the same version (nothing links to it without the version, so it has one copy only).
       - name: The Flatpak under the release's name
         run: |
           found=$(find dist -type f -name '*.flatpak')
           if [ "$(printf '%s\n' "$found" | grep -c .)" -ne 1 ]; then echo "::error::expected exactly one .flatpak, found: ${found:-none}"; exit 1; fi
           mkdir -p dist/flatpak-release
-          name="Skykeep-${GITHUB_REF_NAME#v}-x86_64.flatpak"
-          mv "$found" "dist/flatpak-release/$name"
-          (cd dist/flatpak-release && sha256sum "$name" > SHA256SUMS-flatpak.txt && cat SHA256SUMS-flatpak.txt)
+          mv "$found" "dist/flatpak-release/Skykeep-${GITHUB_REF_NAME#v}-x86_64.flatpak"
+      # Every published file in one folder, and ONE checksum list naming each of them. The
+      # per-build lists (SHA256SUMS-linux*.txt, SHA256SUMS-windows.txt) were checked against
+      # these same bytes when they were made; they stay inside the build artifacts.
+      - name: The files to publish, with one checksum list
+        run: |
+          pub="$RUNNER_TEMP/publish"; mkdir -p "$pub"
+          find dist -type f \( -name '*.deb' -o -name '*.rpm' -o -name '*.AppImage' -o -name '*.flatpak' -o -name '*.msi' -o -name '*-setup.exe' \
+              -o -name '*.AppImage.sig' -o -name '*.msi.sig' -o -name '*-setup.exe.sig' -o -name 'latest.json' \) -print0 \
+            | xargs -0 -I{} cp -n {} "$pub/"
+          cp -n "$RUNNER_TEMP"/oneclick/* "$pub/"
+          # A name found twice would have been silently dropped by cp -n: refuse instead.
+          want=$(( $(find dist -type f \( -name '*.deb' -o -name '*.rpm' -o -name '*.AppImage' -o -name '*.flatpak' -o -name '*.msi' -o -name '*-setup.exe' \
+              -o -name '*.AppImage.sig' -o -name '*.msi.sig' -o -name '*-setup.exe.sig' -o -name 'latest.json' \) | wc -l) + $(find "$RUNNER_TEMP/oneclick" -type f | wc -l) ))
+          have=$(find "$pub" -type f | wc -l)
+          [ "$want" -eq "$have" ] || { echo "::error::$want files to publish but $have distinct names"; ls -l "$pub"; exit 1; }
+          # Each per-build checksum still matches the file published under its name.
+          for sums in $(find dist -type f -name 'SHA256SUMS-*.txt'); do
+            tr -d '\r' < "$sums" | while read -r hash name; do
+              name=${name#\*}
+              [ -f "$pub/$name" ] || continue
+              echo "$hash  $pub/$name" | sha256sum -c --quiet - || { echo "::error::$name differs from $sums"; exit 1; }
+            done
+          done
+          (cd "$pub" && sha256sum -- * | sort -k2 > "$RUNNER_TEMP/SHA256SUMS.txt" && mv "$RUNNER_TEMP/SHA256SUMS.txt" . && cat SHA256SUMS.txt)
+          ls -l "$pub"
+      # The notes open with a table: which file is for which system, each a direct link to this
+      # release's own file; GitHub's list of changes follows.
       - name: A draft release with every file
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
-          { find dist -type f \( -name '*.deb' -o -name '*.rpm' -o -name '*.AppImage' -o -name '*.flatpak' -o -name '*.msi' -o -name '*-setup.exe' -o -name 'SHA256SUMS*' \
-              -o -name '*.AppImage.sig' -o -name '*.msi.sig' -o -name '*-setup.exe.sig' -o -name 'latest.json' \) -print0
-            find "$RUNNER_TEMP/oneclick" -type f -print0; } \
+          v=${GITHUB_REF_NAME#v}
+          base="https://github.com/$GITHUB_REPOSITORY/releases/download/$GITHUB_REF_NAME"
+          cat > "$RUNNER_TEMP/notes.md" <<NOTES
+          ## Download for your system
+
+          | System | File |
+          |---|---|
+          | Windows 10 and 11 | [Installer (.exe)]($base/Skykeep_${v}_x64-setup.exe) · [MSI]($base/Skykeep_${v}_x64_en-US.msi) |
+          | Ubuntu, Debian, Mint, Pop!_OS | [.deb for x86_64]($base/Skykeep_${v}_amd64.deb) · [.deb for ARM64]($base/Skykeep_${v}_arm64.deb) |
+          | Fedora, openSUSE, RHEL | [.rpm for x86_64]($base/Skykeep-${v}-1.x86_64.rpm) · [.rpm for ARM64]($base/Skykeep-${v}-1.aarch64.rpm) |
+          | Any Linux | [AppImage]($base/Skykeep_${v}_amd64.AppImage) · [Flatpak bundle]($base/Skykeep-${v}-x86_64.flatpak) |
+
+          Also in the Microsoft Store, winget, Scoop, Chocolatey, Snap, Fedora COPR and the AUR. Checksums for every file are in SHA256SUMS.txt.
+
+          NOTES
+          # Every link in the table names a file that is really here.
+          for name in $(grep -oE "download/$GITHUB_REF_NAME/[^)]+" "$RUNNER_TEMP/notes.md" | sed 's#.*/##'); do
+            [ -f "$RUNNER_TEMP/publish/$name" ] || { echo "::error::the notes link $name, which is not published"; exit 1; }
+          done
+          find "$RUNNER_TEMP/publish" -type f -print0 \
             | xargs -0 gh release create "$GITHUB_REF_NAME" --repo "$GITHUB_REPOSITORY" \
-                --draft --verify-tag --title "Skykeep ${GITHUB_REF_NAME#v}" --generate-notes
+                --draft --verify-tag --title "Skykeep $v" --generate-notes --notes-file "$RUNNER_TEMP/notes.md"

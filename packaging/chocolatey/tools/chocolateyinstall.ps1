@@ -1,7 +1,7 @@
 $ErrorActionPreference = 'Stop'
 
 # The release's own per-user installer, checked against the SHA256 published with it
-# (SHA256SUMS-windows.txt on the release page).
+# (SHA256SUMS.txt on the release page).
 $packageArgs = @{
   packageName    = $env:ChocolateyPackageName
   fileType       = 'exe'

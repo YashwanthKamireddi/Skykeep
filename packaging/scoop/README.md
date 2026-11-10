@@ -7,7 +7,7 @@ stays in Scoop's folder, with Start menu shortcuts for Skykeep and its six apps.
 installer's `.ics`/`.vcf` file associations are not registered this way.) No `persist`: Skykeep keeps its library and settings in your profile
 (`%APPDATA%`, `%LOCALAPPDATA%`), never in its own folder, so they stay across updates.
 `checkver` reads the latest GitHub release and `autoupdate` takes the installer's hash from
-the release's `SHA256SUMS-windows.txt`.
+the release's `SHA256SUMS.txt`.
 
 Releases after 0.1.2 see Scoop's `scoop-install.json` beside `skykeep.exe` and leave updates to
 Scoop (`src-tauri/src/updates.rs`); 0.1.2 itself still offers its own update.

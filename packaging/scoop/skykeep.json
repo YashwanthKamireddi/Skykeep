@@ -30,7 +30,7 @@
             "64bit": {
                 "url": "https://github.com/YashwanthKamireddi/Skykeep/releases/download/v$version/Skykeep_$version_x64-setup.exe#/dl.7z",
                 "hash": {
-                    "url": "$baseurl/SHA256SUMS-windows.txt"
+                    "url": "$baseurl/SHA256SUMS.txt"
                 }
             }
         }

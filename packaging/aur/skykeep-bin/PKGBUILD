@@ -32,7 +32,7 @@ options=('!strip' '!debug')
 
 source=("Skykeep_${pkgver}_amd64.deb::$url/releases/download/v$pkgver/Skykeep_${pkgver}_amd64.deb")
 # TODO(release day): replace with the .deb's real checksum once v$pkgver is published: run
-# `updpkgsums` in this folder, or copy its line from the release's SHA256SUMS-linux.txt. Until
+# `updpkgsums` in this folder, or copy its line from the release's SHA256SUMS.txt. Until
 # then makepkg refuses this value on purpose.
 sha256sums=('TODO-fill-at-release-with-updpkgsums')
 

@@ -1,7 +1,7 @@
 # Every store, from one published release. release.yml makes a draft; publishing it
 # (`gh release edit vX.Y.Z --draft=false`) runs this, and each channel takes that release:
 #   resolve    — the release is published, not a prerelease, its tag is vX.Y.Z and it has
-#                SHA256SUMS-windows.txt; nothing else runs otherwise;
+#                SHA256SUMS.txt; nothing else runs otherwise;
 #   snap       — snap.yml: the Snap built from the release's .deb, installed and started, then
 #                uploaded to the Snap Store's stable channel (SNAPCRAFT_STORE_CREDENTIALS);
 #   chocolatey — packages.yml: the Chocolatey package and the Scoop manifest installed, checked
@@ -67,8 +67,8 @@ jobs:
             echo "::notice::$TAG is a prerelease: no store gets it"
             echo "go=false" >> "$GITHUB_OUTPUT"; exit 0
           fi
-          jq -e '.assets[] | select(.name == "SHA256SUMS-windows.txt")' <<<"$info" >/dev/null \
-            || { echo "::error::$TAG has no SHA256SUMS-windows.txt"; exit 1; }
+          jq -e '.assets[] | select(.name == "SHA256SUMS.txt")' <<<"$info" >/dev/null \
+            || { echo "::error::$TAG has no SHA256SUMS.txt"; exit 1; }
           { echo "tag=$TAG"; echo "version=${TAG#v}"; echo "go=true"; } >> "$GITHUB_OUTPUT"
           echo "$TAG goes to every store"
 
@@ -115,16 +115,16 @@ jobs:
           SCOOP_BUCKET_TOKEN: ${{ secrets.SCOOP_BUCKET_TOKEN }}
         run: |
           [ -n "$SCOOP_BUCKET_TOKEN" ] || { echo "::error::the SCOOP_BUCKET_TOKEN secret is not set: a fine-grained token with Contents read and write on $BUCKET only"; exit 1; }
-      - name: The installer, checked against SHA256SUMS-windows.txt
+      - name: The installer, checked against SHA256SUMS.txt
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
           mkdir "$RUNNER_TEMP/release"; cd "$RUNNER_TEMP/release"
           installer="Skykeep_${VERSION}_x64-setup.exe"
-          gh release download "$TAG" --repo "$REPO" -p SHA256SUMS-windows.txt -p "$installer"
+          gh release download "$TAG" --repo "$REPO" -p SHA256SUMS.txt -p "$installer"
           # Written on Windows: CRLF line ends.
-          hash=$(tr -d '\r' < SHA256SUMS-windows.txt | awk -v f="$installer" '$2 == f { print tolower($1) }')
-          [ "${#hash}" -eq 64 ] || { echo "::error::no hash for $installer in SHA256SUMS-windows.txt"; exit 1; }
+          hash=$(tr -d '\r' < SHA256SUMS.txt | awk -v f="$installer" '$2 == f { print tolower($1) }')
+          [ "${#hash}" -eq 64 ] || { echo "::error::no hash for $installer in SHA256SUMS.txt"; exit 1; }
           echo "$hash  $installer" | sha256sum -c -
           echo "HASH=$hash" >> "$GITHUB_ENV"
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -152,7 +152,7 @@ jobs:
             "$f"
           jq -e --arg v "$VERSION" --arg u "$url" --arg h "$HASH" \
             '.version == $v and .architecture."64bit".url == $u and .architecture."64bit".hash == $h
-             and (.autoupdate.architecture."64bit".hash.url | endswith("SHA256SUMS-windows.txt"))' "$f" >/dev/null \
+             and (.autoupdate.architecture."64bit".hash.url | endswith("SHA256SUMS.txt"))' "$f" >/dev/null \
             || { echo "::error::bucket/skykeep.json did not take the new version, URL and hash"; git diff; exit 1; }
           git diff
           git config user.name "github-actions[bot]"
