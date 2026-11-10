@@ -6,7 +6,7 @@ plugins {
 
 android {
   namespace = "io.github.yashwanthkamireddi.skykeep"
-  compileSdk = 36
+  compileSdk = 37
   defaultConfig {
     applicationId = "io.github.yashwanthkamireddi.skykeep"
     minSdk = 29
