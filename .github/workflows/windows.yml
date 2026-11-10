@@ -115,13 +115,14 @@ jobs:
           tool: cargo-nextest
       - name: Tests, on Windows
         if: ${{ inputs.test_first }}
-        # In release mode, so the installer build below reuses what this compiled; tests only (the
-        # probe examples are live tools for Linux, not tests). nextest, with
+        # The ci-test profile (Cargo.toml): the release's optimised code without its link-time
+        # work, which each test binary paid again; tests only (the probe examples are live
+        # tools for Linux, not tests). nextest, with
         # the ci-windows profile (.config/nextest.toml): every core, hung tests stopped, the slow
         # named; the scale tests run on Linux and the Explorer test in its own step above.
         env:
           RUSTFLAGS: --remap-path-prefix=${{ github.workspace }}=skykeep -C target-feature=+crt-static
-        run: cargo nextest run --release --workspace --lib --bins --tests --locked --profile ci-windows
+        run: cargo nextest run --cargo-profile ci-test --workspace --lib --bins --tests --locked --profile ci-windows
       # The installers' own tools (WiX for the .msi, NSIS for the .exe), which tauri downloads
       # from GitHub on first use: kept between runs, so a release never fails on a download
       # GitHub answered with a 504 (8 Nov).
