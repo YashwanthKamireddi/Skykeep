@@ -81,13 +81,14 @@ jobs:
         with:
           tool: cargo-nextest
       - name: Tests, on Windows
-        # In release mode, with the build's flags, so both jobs share one cache; tests only (the
-        # probe examples are live tools for Linux, not tests). nextest, with the ci-windows
-        # profile (.config/nextest.toml): every core, hung tests stopped, the slow named; the
-        # scale tests run on Linux and the Explorer test in its own step above.
+        # The ci-test profile (Cargo.toml): the release's optimised code without its link-time
+        # work, which each of the test binaries paid again; tests only (the probe examples are
+        # live tools for Linux, not tests). nextest, with the ci-windows profile
+        # (.config/nextest.toml): every core, hung tests stopped, the slow named; the scale tests
+        # run on Linux and the Explorer test in its own step above.
         env:
           RUSTFLAGS: --remap-path-prefix=${{ github.workspace }}=skykeep -C target-feature=+crt-static
-        run: cargo nextest run --release --workspace --lib --bins --tests --locked --profile ci-windows
+        run: cargo nextest run --cargo-profile ci-test --workspace --lib --bins --tests --locked --profile ci-windows
 
   build:
     runs-on: windows-latest
