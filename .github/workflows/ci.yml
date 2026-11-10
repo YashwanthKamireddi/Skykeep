@@ -2,6 +2,7 @@
 # minutes on it are counted):
 #   rust — cargo fmt, clippy with warnings as errors, and the real tests (libraries, the app
 #          and test files; the probe examples are live tools, not tests);
+#   android — the engine for the phone, the app built and its unit tests run (job below);
 #   web  — npm ci, the type check, the production build, the model tests, and a smoke run of
 #          the key interface suites in Chromium against `vite preview`.
 # The two run side by side. A newer push to the same branch or pull request cancels the older
@@ -159,6 +160,42 @@ jobs:
           sudo mkdir -p /mnt/skykeep-full
           sudo mount -t tmpfs -o size=1m,uid=$(id -u) tmpfs /mnt/skykeep-full
           SKYKEEP_FULL_DISK=/mnt/skykeep-full cargo test --locked -p quince-app real_full_disk -- --ignored
+
+  # The Android app, which nothing else here builds: the engine for both ABIs (cargo-ndk) and its
+  # Kotlin bindings made from that same code, the app and its device-test APK compiled, the JVM
+  # unit tests run, and every engine library checked for 16 KB pages (Android 15+ devices with
+  # 16 KB pages refuse a library aligned for 4 KB). The device tests themselves need an
+  # emulator signed in to iCloud: they run locally (`am instrument`, never Gradle's connected
+  # tasks, which uninstall the app).
+  android:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 50
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: actions/setup-java@77dd5b2ce225ea11469928ac317850245a74ae78 # v6.2.0
+        with:
+          distribution: temurin
+          java-version: 17
+          cache: gradle
+      - uses: dtolnay/rust-toolchain@b725eda525362e7cf34af9a7243cac1e3f01a7ec # stable
+        with:
+          targets: aarch64-linux-android, x86_64-linux-android
+      - uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2.9.3
+        with:
+          workspaces: ". -> target-android"
+          save-if: ${{ github.ref == 'refs/heads/main' }}
+      - run: cargo install cargo-ndk --version 4.1.2 --locked
+      - name: The app, its device tests and its unit tests
+        working-directory: android
+        # The runner's newest NDK (its own variable, not the workflow's env context).
+        run: ANDROID_NDK_HOME="$ANDROID_NDK_LATEST_HOME" ./gradlew --no-daemon assembleDebug assembleDebugAndroidTest testDebugUnitTest
+      - name: Engine libraries aligned for 16 KB pages
+        run: |
+          for so in android/app/src/main/jniLibs/*/*.so; do
+            bad=$(readelf -lW "$so" | awk '$1 == "LOAD" && $NF != "0x4000" && $NF != "0x10000" { print $NF }')
+            if [ -n "$bad" ]; then echo "::error::$so has LOAD segments aligned to $bad, not 16 KB"; exit 1; fi
+            echo "$so: 16 KB"
+          done
 
   web:
     runs-on: ubuntu-24.04
