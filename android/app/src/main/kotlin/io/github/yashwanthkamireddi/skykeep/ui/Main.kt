@@ -1,5 +1,6 @@
 package io.github.yashwanthkamireddi.skykeep.ui
 
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.material3.Surface
 import io.github.yashwanthkamireddi.skykeep.ui.theme.mark
@@ -107,9 +108,11 @@ private enum class Page { Contacts, Calendar }
 @Composable
 fun MainScreens(engine: uniffi.quince_mobile.Account, onSignedOut: () -> Unit) {
   val context = LocalContext.current
-  var tab by remember { mutableStateOf(Tab.Home) }
-  var page by remember { mutableStateOf<Page?>(null) }
-  androidx.activity.compose.BackHandler(enabled = page != null) { page = null }
+  // Kept through a rotation or a light/dark switch (Android rebuilds the screen for both).
+  var tab by rememberSaveable { mutableStateOf(Tab.Home) }
+  var page by rememberSaveable { mutableStateOf<Page?>(null) }
+  // Back goes up one level: a page to Home, another tab to Home, then out of the app.
+  androidx.activity.compose.BackHandler(enabled = page != null || tab != Tab.Home) { if (page != null) page = null else tab = Tab.Home }
   var asked by remember { mutableLongStateOf(0L) }
   val account = remember { phoneAccount(context) }
   val sync = rememberSyncView(account, asked)

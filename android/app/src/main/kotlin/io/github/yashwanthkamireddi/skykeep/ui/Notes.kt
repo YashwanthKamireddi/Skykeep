@@ -1,5 +1,7 @@
 package io.github.yashwanthkamireddi.skykeep.ui
 
+import androidx.compose.runtime.saveable.listSaver
+import androidx.compose.runtime.saveable.rememberSaveable
 import io.github.yashwanthkamireddi.skykeep.ui.theme.Palette
 import android.content.ContentResolver
 import android.os.Bundle
@@ -92,6 +94,24 @@ private fun syncNotes(context: android.content.Context) {
 }
 
 /** Where Notes is: the folders, one folder's notes (or all), or one note open. */
+/** Where Notes is, kept through a rotation: kind, folder, folder title, note. */
+private val NPlaceSaver = listSaver<NPlace, String>(
+  save = { p ->
+    when (p) {
+      NPlace.Folders -> listOf("folders")
+      is NPlace.Folder -> listOf("folder", p.guid ?: "", p.title)
+      is NPlace.Open -> listOf("open", p.from.guid ?: "", p.from.title, p.guid ?: "")
+    }
+  },
+  restore = { s ->
+    when (s[0]) {
+      "folder" -> NPlace.Folder(s[1].ifEmpty { null }, s[2])
+      "open" -> NPlace.Open(s[3].ifEmpty { null }, NPlace.Folder(s[1].ifEmpty { null }, s[2]))
+      else -> NPlace.Folders
+    }
+  },
+)
+
 private sealed interface NPlace {
   data object Folders : NPlace
   data class Folder(val guid: String?, val title: String) : NPlace
@@ -108,7 +128,7 @@ private sealed interface NPlace {
 fun NotesPage(engine: Account) {
   val context = LocalContext.current
   val scope = rememberCoroutineScope()
-  var place by remember { mutableStateOf<NPlace>(NPlace.Folders) }
+  var place by rememberSaveable(stateSaver = NPlaceSaver) { mutableStateOf<NPlace>(NPlace.Folders) }
   var folders by remember { mutableStateOf<List<NFolder>>(emptyList()) }
   var notes by remember { mutableStateOf<List<NItem>>(emptyList()) }
   var query by remember { mutableStateOf("") }
@@ -138,6 +158,8 @@ fun NotesPage(engine: Account) {
     onDispose { stop() }
   }
   LaunchedEffect(place, query, generation) { reload() }
+  // Back from a folder returns to the folders (the open note handles its own back: it saves).
+  BackHandler(enabled = place is NPlace.Folder) { place = NPlace.Folders; query = "" }
 
   Column(Modifier.fillMaxSize()) {
     problem?.let { Text(it, color = MaterialTheme.colorScheme.error, modifier = Modifier.padding(20.dp, 12.dp)) }

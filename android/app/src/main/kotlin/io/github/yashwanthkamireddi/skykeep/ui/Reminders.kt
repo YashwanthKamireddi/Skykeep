@@ -1,7 +1,27 @@
 package io.github.yashwanthkamireddi.skykeep.ui
 
+import androidx.compose.ui.graphics.toArgb
+import androidx.compose.runtime.saveable.listSaver
+import androidx.compose.runtime.saveable.rememberSaveable
 import io.github.yashwanthkamireddi.skykeep.ui.theme.Palette
 import android.Manifest
+import androidx.compose.ui.graphics.luminance
+import io.github.yashwanthkamireddi.skykeep.ui.theme.motion
+import io.github.yashwanthkamireddi.skykeep.ui.theme.Motion
+import androidx.compose.ui.text.input.KeyboardCapitalization
+import androidx.compose.ui.graphics.SolidColor
+import androidx.compose.foundation.text.BasicTextField
+import androidx.compose.ui.draw.scale
+import androidx.compose.foundation.selection.toggleable
+import androidx.compose.animation.core.animateFloatAsState
+import androidx.compose.ui.text.SpanStyle
+import androidx.compose.ui.text.withStyle
+import androidx.compose.ui.text.buildAnnotatedString
+import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.semantics.Role
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.semantics
+import androidx.compose.material3.Surface
 import android.content.ContentResolver
 import android.content.pm.PackageManager
 import android.os.Build
@@ -91,7 +111,30 @@ import uniffi.quince_mobile.RList
 import uniffi.quince_mobile.RView
 
 /** One of the overview's places: its title, its colour (Apple's), and how it is asked for. */
-private data class Place(val title: String, val colour: Color, val view: RView, val listGuid: String? = null)
+private data class Place(val title: String, val colour: Color, val view: RView, val listGuid: String? = null, val icon: Int = R.drawable.ic_list)
+
+/** A place kept through a rotation: what it shows, as plain values. */
+private val PlaceSaver = listSaver<Place?, Any>(
+  save = { p ->
+    if (p == null) emptyList() else {
+      val v = p.view
+      listOf(p.title, p.colour.toArgb(), p.icon, p.listGuid ?: "", when (v) {
+        is RView.Today -> "today"; is RView.Scheduled -> "scheduled"; is RView.Flagged -> "flagged"
+        is RView.All -> "all"; is RView.Completed -> "completed"; is RView.List -> "list"
+      })
+    }
+  },
+  restore = { s ->
+    if (s.isEmpty()) null else {
+      val guid = (s[3] as String).ifEmpty { null }
+      val view = when (s[4]) {
+        "today" -> RView.Today; "scheduled" -> RView.Scheduled; "flagged" -> RView.Flagged
+        "completed" -> RView.Completed; "list" -> RView.List(guid ?: "", false); else -> RView.All
+      }
+      Place(s[0] as String, Color(s[1] as Int), view, guid, s[2] as Int)
+    }
+  },
+)
 
 private fun colourOf(hex: String?, fallback: Color = Color(Palette.Smart.TODAY)): Color =
   hex?.removePrefix("#")?.takeIf { it.length == 6 }?.toLongOrNull(16)?.let { Color(0xFF000000 or it) } ?: fallback
@@ -115,7 +158,7 @@ private fun syncReminders(context: android.content.Context) {
 fun RemindersPage(engine: Account) {
   val context = LocalContext.current
   val scope = rememberCoroutineScope()
-  var place by remember { mutableStateOf<Place?>(null) }
+  var place by rememberSaveable(stateSaver = PlaceSaver) { mutableStateOf<Place?>(null) }
   var lists by remember { mutableStateOf<List<RList>>(emptyList()) }
   var counts by remember { mutableStateOf<RCounts?>(null) }
   var items by remember { mutableStateOf<List<RItem>>(emptyList()) }
@@ -162,6 +205,8 @@ fun RemindersPage(engine: Account) {
     onDispose { stop() }
   }
   LaunchedEffect(place, showDone, generation) { reload() }
+  // Back from a list returns to the overview.
+  androidx.activity.compose.BackHandler(enabled = place != null) { place = null }
 
   Column(Modifier.fillMaxSize()) {
     problem?.let {
@@ -171,12 +216,33 @@ fun RemindersPage(engine: Account) {
     if (here == null) {
       Overview(counts, lists) { place = it; showDone = false }
     } else {
-      Row(Modifier.padding(start = 4.dp, end = 12.dp, top = 8.dp), verticalAlignment = Alignment.CenterVertically) {
+      // The desktop's list header: back, Show Completed; the list's name large in its colour,
+      // and how many reminders it has.
+      Row(Modifier.padding(start = 4.dp, end = 8.dp, top = 4.dp), verticalAlignment = Alignment.CenterVertically) {
         IconButton(onClick = { place = null }) { Icon(painterResource(R.drawable.ic_back), contentDescription = "Back") }
-        Text(here.title, style = MaterialTheme.typography.headlineSmall, color = here.colour, modifier = Modifier.weight(1f))
+        Spacer(Modifier.weight(1f))
         if (here.listGuid != null) {
           TextButton(onClick = { showDone = !showDone }) { Text(if (showDone) "Hide Completed" else "Show Completed") }
         }
+      }
+      Column(Modifier.padding(horizontal = 20.dp).padding(bottom = 8.dp)) {
+        // The list's name in its colour where that reads (3:1, large text); a person's own list
+        // colour that doesn't is never changed: the name goes ink, beside the list's mark.
+        val bg = MaterialTheme.colorScheme.surface
+        val readable = (maxOf(here.colour.luminance(), bg.luminance()) + 0.05f) / (minOf(here.colour.luminance(), bg.luminance()) + 0.05f) >= 3f
+        Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+          if (!readable) Glyph(here.icon, here.colour, 32)
+          Text(
+            here.title, style = MaterialTheme.typography.headlineLarge,
+            color = if (readable) here.colour else MaterialTheme.colorScheme.onSurface,
+            maxLines = 2, overflow = TextOverflow.Ellipsis,
+          )
+        }
+        val open = items.count { it.completedAt == null }
+        Text(
+          if (open == 1) "1 reminder" else "$open reminders",
+          style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant,
+        )
       }
       LazyColumn(Modifier.weight(1f), contentPadding = PaddingValues(horizontal = 20.dp, vertical = 4.dp)) {
         if (items.isEmpty()) {
@@ -188,9 +254,14 @@ fun RemindersPage(engine: Account) {
             )
           }
         }
-        items(items, key = { it.guid }) { r ->
-          ReminderRow(r, here.colour, onTick = { change { engine.reminderTick(r.guid, r.completedAt == null) } }, onOpen = { editing = r })
-          HorizontalDivider(Modifier.padding(start = 40.dp))
+        // Sub-tasks under their reminder, set in, as the desktop shows them.
+        val children = items.filter { it.parentGuid != null }.groupBy { it.parentGuid }
+        val shown = items.filter { it.parentGuid == null || items.none { p -> p.guid == it.parentGuid } }
+          .flatMap { listOf(it) + children[it.guid].orEmpty() }
+        items(shown, key = { it.guid }) { r ->
+          val sub = r.parentGuid != null && items.any { it.guid == r.parentGuid }
+          ReminderRow(r, here.colour, sub, onTick = { change { engine.reminderTick(r.guid, r.completedAt == null) } }, onOpen = { editing = r })
+          HorizontalDivider(Modifier.padding(start = if (sub) 76.dp else 40.dp), color = MaterialTheme.colorScheme.outlineVariant)
         }
       }
       // A new reminder goes in the list shown; in Reminders' own lists, into the first list.
@@ -209,53 +280,85 @@ fun RemindersPage(engine: Account) {
   }
 }
 
+/**
+ * Reminders' overview, the desktop's sidebar laid out for a phone: the four smart lists as tiles
+ * (icon, count, name), Completed, then My Lists as one grouped card, each list with its icon in
+ * its own colour and how many are open.
+ */
 @Composable
 private fun Overview(counts: RCounts?, lists: List<RList>, open: (Place) -> Unit) {
-  LazyColumn(contentPadding = PaddingValues(20.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
-    item { Text("Reminders", style = MaterialTheme.typography.headlineMedium) }
+  LazyColumn(contentPadding = PaddingValues(start = 16.dp, end = 16.dp, top = 20.dp, bottom = 24.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
+    item { Text("Reminders", style = MaterialTheme.typography.headlineMedium, modifier = Modifier.padding(start = 4.dp, bottom = 4.dp)) }
     item {
       val smart = listOf(
-        Place("Today", Color(Palette.Smart.TODAY), RView.Today) to counts?.today,
-        Place("Scheduled", Color(Palette.Smart.SCHEDULED), RView.Scheduled) to counts?.scheduled,
-        Place("All", Color(Palette.Smart.ALL), RView.All) to counts?.all,
-        Place("Flagged", Color(Palette.Smart.FLAGGED), RView.Flagged) to counts?.flagged,
+        Place("Today", Color(Palette.Smart.TODAY), RView.Today, icon = R.drawable.ic_today) to counts?.today,
+        Place("Scheduled", Color(Palette.Smart.SCHEDULED), RView.Scheduled, icon = R.drawable.ic_calendar) to counts?.scheduled,
+        Place("All", Color(Palette.Smart.ALL), RView.All, icon = R.drawable.ic_inbox) to counts?.all,
+        Place("Flagged", Color(Palette.Smart.FLAGGED), RView.Flagged, icon = R.drawable.ic_flag) to counts?.flagged,
       )
-      Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
+      Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
         for (pair in smart.chunked(2)) {
-          Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-            for ((p, n) in pair) SmartCard(p, n?.toInt(), Modifier.weight(1f)) { open(p) }
+          Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+            for ((p, n) in pair) SmartTile(p, n?.toInt(), Modifier.weight(1f)) { open(p) }
           }
         }
-        val done = Place("Completed", Color(Palette.Smart.COMPLETED), RView.Completed)
-        SmartCard(done, counts?.completed?.toInt(), Modifier.fillMaxWidth()) { open(done) }
+        val done = Place("Completed", Color(Palette.Smart.COMPLETED), RView.Completed, icon = R.drawable.ic_check)
+        Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+          SmartTile(done, counts?.completed?.toInt(), Modifier.weight(1f)) { open(done) }
+          Spacer(Modifier.weight(1f))
+        }
       }
     }
-    if (lists.isNotEmpty()) item { Text("My Lists", style = MaterialTheme.typography.titleMedium, modifier = Modifier.padding(top = 8.dp)) }
-    items(lists, key = { it.guid }) { l ->
-      val colour = colourOf(l.colour)
-      Row(
-        Modifier.fillMaxWidth().clickable { open(Place(l.title, colour, RView.List(l.guid, false), l.guid)) }.padding(vertical = 10.dp),
-        verticalAlignment = Alignment.CenterVertically,
-      ) {
-        Box(Modifier.size(28.dp).background(colour, CircleShape))
-        Spacer(Modifier.width(14.dp))
-        Text(l.title, style = MaterialTheme.typography.bodyLarge, modifier = Modifier.weight(1f), maxLines = 1, overflow = TextOverflow.Ellipsis)
-        Text("${l.open}", style = MaterialTheme.typography.bodyLarge, color = MaterialTheme.colorScheme.onSurfaceVariant)
+    if (lists.isNotEmpty()) {
+      item {
+        Text("My Lists", style = MaterialTheme.typography.titleMedium, modifier = Modifier.padding(start = 4.dp, top = 12.dp))
+      }
+      item {
+        Surface(color = MaterialTheme.colorScheme.surfaceContainer, shape = MaterialTheme.shapes.large) {
+          Column {
+            lists.forEachIndexed { i, l ->
+              val colour = colourOf(l.colour)
+              Row(
+                Modifier.fillMaxWidth().clickable { open(Place(l.title, colour, RView.List(l.guid, false), l.guid)) }
+                  .padding(horizontal = 14.dp, vertical = 12.dp),
+                verticalAlignment = Alignment.CenterVertically,
+              ) {
+                Glyph(R.drawable.ic_list, colour, 32)
+                Spacer(Modifier.width(14.dp))
+                Text(l.title, style = MaterialTheme.typography.bodyLarge, modifier = Modifier.weight(1f), maxLines = 1, overflow = TextOverflow.Ellipsis)
+                Text("${l.open}", style = MaterialTheme.typography.bodyLarge, color = MaterialTheme.colorScheme.onSurfaceVariant)
+              }
+              if (i < lists.lastIndex) HorizontalDivider(Modifier.padding(start = 60.dp), color = MaterialTheme.colorScheme.outlineVariant)
+            }
+          }
+        }
       }
     }
   }
 }
 
+/** A mark in a filled circle of [colour], its glyph white or ink, whichever reads on it. */
 @Composable
-private fun SmartCard(p: Place, n: Int?, modifier: Modifier, onClick: () -> Unit) {
-  Card(modifier.clickable(onClick = onClick), colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceContainerHigh)) {
-    Column(Modifier.padding(14.dp)) {
+private fun Glyph(icon: Int, colour: Color, size: Int) {
+  Box(Modifier.size(size.dp).background(colour, CircleShape), contentAlignment = Alignment.Center) {
+    Icon(painterResource(icon), contentDescription = null, tint = glyphOn(colour), modifier = Modifier.size((size * 0.56f).dp))
+  }
+}
+
+/** One smart list as the desktop draws it: its icon, the count large, the name under it. */
+@Composable
+private fun SmartTile(p: Place, n: Int?, modifier: Modifier, onClick: () -> Unit) {
+  Surface(
+    onClick = onClick, color = MaterialTheme.colorScheme.surfaceContainer, shape = MaterialTheme.shapes.large,
+    modifier = modifier.semantics(mergeDescendants = true) {},
+  ) {
+    Column(Modifier.padding(start = 12.dp, end = 14.dp, top = 12.dp, bottom = 10.dp)) {
       Row(verticalAlignment = Alignment.CenterVertically) {
-        Box(Modifier.size(28.dp).background(p.colour, CircleShape))
+        Glyph(p.icon, p.colour, 32)
         Spacer(Modifier.weight(1f))
-        Text(n?.toString() ?: "", style = MaterialTheme.typography.headlineSmall)
+        Text(n?.toString() ?: "", style = MaterialTheme.typography.headlineMedium.copy(fontWeight = FontWeight.SemiBold))
       }
-      Spacer(Modifier.height(8.dp))
+      Spacer(Modifier.height(6.dp))
       Text(p.title, style = MaterialTheme.typography.titleSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
     }
   }
@@ -279,36 +382,58 @@ private fun dueText(r: RItem): String? {
 }
 
 @Composable
-private fun ReminderRow(r: RItem, colour: Color, onTick: () -> Unit, onOpen: () -> Unit) {
+private fun ReminderRow(r: RItem, colour: Color, sub: Boolean, onTick: () -> Unit, onOpen: () -> Unit) {
   val done = r.completedAt != null
   val overdue = !done && (r.dueAt ?: Long.MAX_VALUE) < System.currentTimeMillis() / 1000 &&
     !(r.allDay && Instant.ofEpochSecond(r.dueAt ?: 0).atZone(ZoneId.systemDefault()).toLocalDate() == LocalDate.now())
-  Row(Modifier.fillMaxWidth().clickable(onClick = onOpen).padding(vertical = 10.dp), verticalAlignment = Alignment.Top) {
-    // Apple's circle: hollow while open, filled in the list's colour when done.
-    Box(
-      Modifier.padding(top = 2.dp).size(24.dp).clip(CircleShape)
-        .border(2.dp, if (done) colour else MaterialTheme.colorScheme.outline, CircleShape)
-        .background(if (done) colour else Color.Transparent, CircleShape)
-        .clickable(onClick = onTick),
-      contentAlignment = Alignment.Center,
-    ) { if (done) Box(Modifier.size(8.dp).background(MaterialTheme.colorScheme.surface, CircleShape)) }
-    Spacer(Modifier.width(16.dp))
+  Row(
+    Modifier.fillMaxWidth().clickable(onClick = onOpen).padding(start = if (sub) 36.dp else 0.dp, top = 10.dp, bottom = 10.dp),
+    verticalAlignment = Alignment.Top,
+  ) {
+    TickCircle(done, colour, onTick)
+    Spacer(Modifier.width(14.dp))
     Column(Modifier.weight(1f)) {
+      // Priority as the desktop marks it: ! low, !! medium, !!! high, in the list's colour.
+      val marks = when (r.priority) { 1L -> "!!! "; 5L -> "!! "; 9L -> "! "; else -> "" }
       Text(
-        r.title.ifBlank { "New Reminder" }, style = MaterialTheme.typography.bodyLarge,
+        buildAnnotatedString {
+          if (marks.isNotEmpty()) withStyle(SpanStyle(color = colour, fontWeight = FontWeight.SemiBold)) { append(marks) }
+          append(r.title.ifBlank { "New Reminder" })
+        },
+        style = MaterialTheme.typography.bodyLarge,
         color = if (done) MaterialTheme.colorScheme.onSurfaceVariant else MaterialTheme.colorScheme.onSurface,
       )
       r.notes?.takeIf { it.isNotBlank() }?.let {
-        Text(it, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant, maxLines = 2, overflow = TextOverflow.Ellipsis)
+        Text(it, style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant, maxLines = 2, overflow = TextOverflow.Ellipsis)
       }
       dueText(r)?.let {
         Text(
-          if (r.repeats) "$it · Repeats" else it, style = MaterialTheme.typography.bodySmall,
+          if (r.repeats) "$it · Repeats" else it, style = MaterialTheme.typography.bodyMedium,
           color = if (overdue) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.onSurfaceVariant,
         )
       }
     }
-    if (r.flagged) Icon(painterResource(R.drawable.ic_flag), contentDescription = "Flagged", tint = Color(Palette.Smart.FLAGGED), modifier = Modifier.size(18.dp))
+    if (r.flagged) Icon(painterResource(R.drawable.ic_flag), contentDescription = "Flagged", tint = Color(Palette.Smart.FLAGGED), modifier = Modifier.padding(start = 8.dp, top = 2.dp).size(18.dp))
+  }
+}
+
+/**
+ * The tick circle: hollow while open; ticked, it fills in the list's colour with a check, on
+ * the one expressive spring Skykeep has (instant when animations are off). 24 dp drawn, 48 dp
+ * to touch; TalkBack hears a checkbox.
+ */
+@Composable
+private fun TickCircle(done: Boolean, colour: Color, onTick: () -> Unit) {
+  val fill by animateFloatAsState(if (done) 1f else 0f, motion(Motion.tick()), label = "tick")
+  Box(
+    Modifier.size(24.dp).toggleable(done, role = Role.Checkbox, onValueChange = { onTick() })
+      .semantics { contentDescription = if (done) "Completed" else "Not completed" },
+    contentAlignment = Alignment.Center,
+  ) {
+    Box(Modifier.size(24.dp).border(1.75.dp, if (done) colour else MaterialTheme.colorScheme.outline, CircleShape))
+    Box(Modifier.size(24.dp).scale(fill).background(colour, CircleShape), contentAlignment = Alignment.Center) {
+      if (fill > 0.5f) Icon(painterResource(R.drawable.ic_check), contentDescription = null, tint = glyphOn(colour), modifier = Modifier.size(14.dp))
+    }
   }
 }
 
@@ -316,16 +441,26 @@ private fun ReminderRow(r: RItem, colour: Color, onTick: () -> Unit, onOpen: () 
 @Composable
 private fun QuickAdd(colour: Color, add: (String) -> Unit) {
   var text by remember { mutableStateOf("") }
-  OutlinedTextField(
-    value = text, onValueChange = { text = it },
-    placeholder = { Text("New Reminder") },
-    singleLine = true,
-    keyboardOptions = KeyboardOptions(imeAction = ImeAction.Done),
-    keyboardActions = KeyboardActions(onDone = { if (text.isNotBlank()) { add(text.trim()); text = "" } }),
-    leadingIcon = { Box(Modifier.size(20.dp).border(2.dp, colour, CircleShape)) },
-    shape = RoundedCornerShape(16.dp),
-    modifier = Modifier.fillMaxWidth().imePadding().padding(16.dp),
-  )
+  Row(
+    Modifier.fillMaxWidth().imePadding().background(MaterialTheme.colorScheme.surface).padding(horizontal = 20.dp, vertical = 12.dp),
+    verticalAlignment = Alignment.CenterVertically,
+  ) {
+    Icon(painterResource(R.drawable.ic_add), contentDescription = null, tint = colour, modifier = Modifier.size(24.dp))
+    Spacer(Modifier.width(14.dp))
+    BasicTextField(
+      value = text, onValueChange = { text = it },
+      singleLine = true,
+      textStyle = MaterialTheme.typography.bodyLarge.copy(color = MaterialTheme.colorScheme.onSurface),
+      cursorBrush = SolidColor(colour),
+      keyboardOptions = KeyboardOptions(imeAction = ImeAction.Done, capitalization = KeyboardCapitalization.Sentences),
+      keyboardActions = KeyboardActions(onDone = { if (text.isNotBlank()) { add(text.trim()); text = "" } }),
+      modifier = Modifier.weight(1f).semantics { contentDescription = "New Reminder" },
+      decorationBox = { field ->
+        if (text.isEmpty()) Text("New Reminder", style = MaterialTheme.typography.bodyLarge, color = MaterialTheme.colorScheme.onSurfaceVariant)
+        field()
+      },
+    )
+  }
 }
 
 /**

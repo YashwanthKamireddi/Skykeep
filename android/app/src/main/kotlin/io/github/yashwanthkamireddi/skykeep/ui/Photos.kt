@@ -1,5 +1,6 @@
 package io.github.yashwanthkamireddi.skykeep.ui
 
+import androidx.compose.runtime.saveable.rememberSaveable
 import android.content.ContentResolver
 import android.graphics.BitmapFactory
 import android.os.Bundle
@@ -101,7 +102,7 @@ fun PhotosPage(engine: Account) {
   var view by remember { mutableStateOf<PView>(PView.Library) }
   var albums by remember { mutableStateOf<List<PAlbum>>(emptyList()) }
   var index by remember { mutableStateOf<PIndex?>(null) }
-  var open by remember { mutableStateOf<String?>(null) }
+  var open by rememberSaveable { mutableStateOf<String?>(null) }
   var generation by remember { mutableIntStateOf(0) }
 
   LaunchedEffect(Unit) { syncPhotos(context) }

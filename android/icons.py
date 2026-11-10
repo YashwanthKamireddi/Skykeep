@@ -12,6 +12,9 @@ MAP = {  # drawable: Lucide icon
   "ic_warning": "triangle-alert", "ic_cloud_off": "cloud-off", "ic_chevron_right": "chevron-right",
   "ic_back": "chevron-left", "ic_flag": "flag", "ic_add": "plus", "ic_search": "search",
   "ic_check_circle": "circle-check",
+  "ic_today": "calendar", "ic_inbox": "inbox", "ic_check": "check", "ic_list": "list",
+  "ic_folder": "folder", "ic_pin": "pin", "ic_edit": "square-pen", "ic_trash": "trash-2",
+  "ic_heart": "heart", "ic_play": "play",
 }
 def f(v): return float(v)
 def shape(tag, a):
@@ -30,6 +33,9 @@ def shape(tag, a):
   raise SystemExit(f"no conversion for <{tag}>")
 for out, name in MAP.items():
   src = open(f"{L}/{name}.mjs").read()
+  # An alias (trash-2 is trash): the icon it re-exports.
+  alias = __import__("re").search(r"export \{ default \} from '\./([\w-]+)\.mjs'", src)
+  if alias: src = open(f"{L}/{alias.group(1)}.mjs").read()
   nodes = re.findall(r'\[\s*"(\w+)",\s*\{(.*?)\}\s*\]', src, re.S)
   if not nodes: raise SystemExit(f"{name}: no shapes found")
   paths = []
