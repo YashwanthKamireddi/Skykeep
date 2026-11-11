@@ -320,6 +320,23 @@ export function NotesView() {
    */
   const [scope, setScope] = useState<"all" | "folder">("all");
   const scoped = searching && scope === "folder" && folder !== ALL;
+  /**
+   * What the library is asked for: the search once typing pauses (120 ms, as Reminders and
+   * Calendar wait), and never a word an input method is still composing. Each key, each IME
+   * update among them, ran a full-text search with the folders and counts, and opened the first
+   * result (desktop audit H8). Clearing the field is at once.
+   */
+  const [settled, setSettled] = useState("");
+  const imeOn = useRef(false);
+  const [imeDone, setImeDone] = useState(0);
+  useEffect(() => {
+    if (!query.trim()) return setSettled("");
+    if (imeOn.current) return undefined;
+    const timer = window.setTimeout(() => setSettled(query), 120);
+    return () => window.clearTimeout(timer);
+  }, [query, imeDone]);
+  const sought = searching ? settled : "";
+  const seeking = sought.trim().length > 0;
   const searchRef = useRef<HTMLInputElement | null>(null);
   const rowsRef = useRef<HTMLDivElement | null>(null);
 
@@ -345,8 +362,8 @@ export function NotesView() {
     const [found, list] = await Promise.all([
       api.noteFolders(),
       // Search reaches every folder, as Apple's does — a note is found wherever it is filed.
-      searching
-        ? api.notesSearch(query).then((found) =>
+      seeking
+        ? api.notesSearch(sought).then((found) =>
             scoped && Array.isArray(found) ? found.filter((n) => n.folderGuid === folder) : found)
         : api.notesIn(folder === ALL ? null : folder),
     ]);
@@ -355,7 +372,7 @@ export function NotesView() {
     // Each note unchanged keeps its row as it was (lib/same).
     setNotes((was) => keepSame(was, over(Array.isArray(list) ? list : []), (n) => n.guid));
     setLoaded(true);
-  }, [folder, query, searching, scoped, over]);
+  }, [folder, sought, seeking, scoped, over]);
 
   // Reads the library and nothing else. `revision` ticks when a refresh finishes, whether
   // someone pressed for it or the timer came round, and that is the screen's whole
@@ -381,6 +398,8 @@ export function NotesView() {
    * so no row is drawn again for it.
    */
   const [pictures, setPictures] = useState<Record<string, string>>({});
+  const picturesRef = useRef(pictures);
+  picturesRef.current = pictures;
   useEffect(() => {
     let live = true;
     let timer: number | undefined;
@@ -393,6 +412,12 @@ export function NotesView() {
       );
     };
     const kept = () => {
+      // A picture drawn in a note whose row already shows one changes nothing in the list:
+      // every load fired this, cached pictures included, and each asked the library to scan
+      // every note's runs again (desktop audit H8). A picture added to a note is an edit,
+      // which asks again by itself.
+      const shown = openGuidRef.current;
+      if (shown && picturesRef.current[shown]) return;
       window.clearTimeout(timer);
       timer = window.setTimeout(ask, 120);
     };
@@ -788,7 +813,7 @@ export function NotesView() {
   // A note written on the phone, landing in the list on screen, fades in (lib/arrival) — not
   // one written here, which is being composed until it lands.
   const noteIds = useMemo(() => notes.map((n) => n.guid), [notes]);
-  useArrivals(rowsRef, noteIds, `${folder}\u0000${searching ? query : ""}\u0000${scoped}\u0000${listOrder.by}`, outbox.waiting.size > 0 || composing !== null);
+  useArrivals(rowsRef, noteIds, `${folder}\u0000${seeking ? sought : ""}\u0000${scoped}\u0000${listOrder.by}`, outbox.waiting.size > 0 || composing !== null);
   const setComposing = useCallback(
     (
       next:
@@ -1342,7 +1367,7 @@ export function NotesView() {
 
   const sections = useMemo(() => groupNotes(notes, new Date(), listOrder), [notes, listOrder]);
   /** What a search is looking for, marked in the results and in the note opened from them. */
-  const foundWords = useMemo(() => (searching ? queryWords(query) : []), [searching, query]);
+  const foundWords = useMemo(() => (seeking ? queryWords(sought) : []), [seeking, sought]);
   /** The folders as nested, worked out when they change rather than on every key typed. */
   const nested = useMemo(() => nestFolders(folders), [folders]);
 
@@ -1596,6 +1621,8 @@ export function NotesView() {
           aria-keyshortcuts="Control+F Control+Shift+F"
           value={query}
           onChange={setQuery}
+          onCompositionStart={() => { imeOn.current = true; }}
+          onCompositionEnd={() => { imeOn.current = false; setImeDone((n) => n + 1); }}
           onClear={() => {
             setQuery("");
             setScope("all");
