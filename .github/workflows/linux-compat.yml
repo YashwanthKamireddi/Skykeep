@@ -13,7 +13,7 @@
 # — the oldest base whose libheif (1.17) the app accepts; Debian 12 (libheif 1.15, glibc 2.36)
 # cannot run them — and the AppImage in an Ubuntu 22.04 container (appimage.yml), carrying a
 # libheif of its own, so it runs on 22.04 and newer; there it is also started with no network.
-# `native` also builds from source on Debian 13, Fedora 42 and openSUSE Tumbleweed (and `arch`
+# `native` also builds from source on Debian 13, Fedora 45 and openSUSE Tumbleweed (and `arch`
 # on Arch) with the build dependencies CONTRIBUTING lists, and installs each of those packages
 # in a clean container of the distribution it was built on.
 name: Linux compatibility
@@ -115,19 +115,19 @@ jobs:
           # an image of its own, Pop!_OS does not.
           - { name: "Linux Mint 22 (.deb)", image: "linuxmintd/mint22-amd64", pkg: "*.deb" }
           - { name: "Fedora 41 (.rpm)", image: "fedora:41", pkg: "*.rpm" }
-          - { name: "Fedora 42 (.rpm)", image: "fedora:42", pkg: "*.rpm" }
+          - { name: "Fedora 45 (.rpm)", image: "fedora:45", pkg: "*.rpm" }
           - { name: "openSUSE Tumbleweed (.rpm)", image: "opensuse/tumbleweed", pkg: "*.rpm" }
           # The AppImage's launches run with no network (check.sh, unshare -n), which needs
           # CAP_SYS_ADMIN in the container.
           - { name: "Ubuntu 22.04 (AppImage)", image: "ubuntu:22.04", pkg: "*.AppImage", options: "--cap-add=SYS_ADMIN" }
           - { name: "Ubuntu 24.04 (AppImage)", image: "ubuntu:24.04", pkg: "*.AppImage", options: "--cap-add=SYS_ADMIN" }
           - { name: "Debian 13 (AppImage)", image: "debian:trixie", pkg: "*.AppImage", options: "--cap-add=SYS_ADMIN" }
-          - { name: "Fedora 42 (AppImage)", image: "fedora:42", pkg: "*.AppImage", options: "--cap-add=SYS_ADMIN" }
+          - { name: "Fedora 45 (AppImage)", image: "fedora:45", pkg: "*.AppImage", options: "--cap-add=SYS_ADMIN" }
           # 64-bit ARM, each on an ARM machine: Ubuntu and Debian as on Asahi Ubuntu, Fedora as
           # Fedora Asahi Remix is.
           - { name: "Ubuntu 24.04 (.deb, ARM)", image: "ubuntu:24.04", pkg: "*.deb", arch: arm64 }
           - { name: "Debian 13 (.deb, ARM)", image: "debian:trixie", pkg: "*.deb", arch: arm64 }
-          - { name: "Fedora 42 (.rpm, ARM)", image: "fedora:42", pkg: "*.rpm", arch: arm64 }
+          - { name: "Fedora 45 (.rpm, ARM)", image: "fedora:45", pkg: "*.rpm", arch: arm64 }
     container:
       image: ${{ matrix.image }}
       options: ${{ matrix.options || '' }}
@@ -168,7 +168,7 @@ jobs:
       matrix:
         include:
           - { name: "Debian 13", key: debian13, image: "debian:trixie", bundle: deb }
-          - { name: "Fedora 42", key: fedora42, image: "fedora:42", bundle: rpm }
+          - { name: "Fedora 45", key: fedora45, image: "fedora:45", bundle: rpm }
           - { name: "openSUSE Tumbleweed", key: tumbleweed, image: "opensuse/tumbleweed", bundle: rpm }
     container:
       image: ${{ matrix.image }}
@@ -189,7 +189,7 @@ jobs:
                 libwebkit2gtk-4.1-dev libgtk-3-dev librsvg2-dev libsecret-1-dev \
                 libheif-dev libfuse3-dev libgstreamer1.0-dev libgstreamer-plugins-base1.0-dev \
                 pkg-config libayatana-appindicator3-dev ;;
-            fedora42)
+            fedora45)
               dnf -y install gcc gcc-c++ make curl git nodejs npm \
                 webkit2gtk4.1-devel gtk3-devel librsvg2-devel libsecret-devel \
                 libheif-devel fuse3-devel gstreamer1-devel gstreamer1-plugins-base-devel \
@@ -233,7 +233,7 @@ jobs:
       matrix:
         include:
           - { name: "Debian 13", key: debian13, image: "debian:trixie", bundle: deb }
-          - { name: "Fedora 42", key: fedora42, image: "fedora:42", bundle: rpm }
+          - { name: "Fedora 45", key: fedora45, image: "fedora:45", bundle: rpm }
           - { name: "openSUSE Tumbleweed", key: tumbleweed, image: "opensuse/tumbleweed", bundle: rpm }
     container:
       image: ${{ matrix.image }}

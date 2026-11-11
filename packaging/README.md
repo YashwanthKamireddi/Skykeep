@@ -143,7 +143,7 @@ for an Ubuntu/Debian machine with `libheif-plugin-libde265` (or the one appimage
 installed; elsewhere build the `.rpm` or the Arch package.
 
 `linux-compat.yml` (Actions → Linux compatibility) builds the packages on Ubuntu 24.04 (the
-AppImage on 22.04, and starts it there with no network), Debian 13, Fedora 42, openSUSE Tumbleweed and Arch from these instructions and installs each in a
+AppImage on 22.04, and starts it there with no network), Debian 13, Fedora 45, openSUSE Tumbleweed and Arch from these instructions and installs each in a
 clean container of its distribution; `linux-compat/check.sh` is what it runs there.
 
 ## Flatpak
