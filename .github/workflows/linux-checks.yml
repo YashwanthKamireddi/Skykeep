@@ -1,0 +1,36 @@
+# Linux and Android, checked on every push to main, as windows-checks.yml checks Windows: every
+# file a release publishes for them is built, installed, started and (the AppImage, the APK)
+# signed here, so a commit is ready to release the moment it is green, and the release only
+# promotes these files (release.yml, linux-proven) instead of building them again.
+# Every commit keeps its own run (grouped by SHA): a newer push never cancels the run a release
+# candidate is waiting on.
+name: Linux checks
+
+on:
+  push:
+    branches: [main]
+    paths-ignore:
+      - "docs/**"
+      - "**.md"
+      - "packaging/aur/**"
+  workflow_dispatch:
+  # Every Monday, a full build and test of everything, so a tool that changed or a system past
+  # its end of life shows up mid-week, never on release day.
+  schedule:
+    - cron: "0 6 * * 1"
+
+concurrency:
+  group: linux-checks-${{ github.sha }}
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+
+jobs:
+  linux:
+    uses: ./.github/workflows/linux.yml
+    secrets:
+      TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+      TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
+      ANDROID_KEYSTORE: ${{ secrets.ANDROID_KEYSTORE }}
+      ANDROID_KEYSTORE_PASSWORD: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
