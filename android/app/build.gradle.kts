@@ -7,6 +7,9 @@ plugins {
 android {
   namespace = "io.github.yashwanthkamireddi.skykeep"
   compileSdk = 37
+  // The NDK the engine is built with: Android's packaging uses its strip to take the symbols
+  // (kept for the bindings) out of the app.
+  ndkVersion = "30.0.16248370"
   defaultConfig {
     applicationId = "io.github.yashwanthkamireddi.skykeep"
     minSdk = 29
@@ -94,6 +97,9 @@ val repo = rootProject.projectDir.parentFile
 val engine = tasks.register<Exec>("buildEngine") {
   workingDir = repo
   environment("CARGO_TARGET_DIR", File(repo, "target-android").path)
+  // Symbols kept here: the bindings are read from them (UniFFI's metadata), and the app's own
+  // packaging strips them from the APK (stripDebugDebugSymbols / its release twin).
+  environment("CARGO_PROFILE_RELEASE_STRIP", "debuginfo")
   commandLine(
     "cargo", "ndk", "-t", "arm64-v8a", "-t", "x86_64", "-P", "29",
     "-o", file("src/main/jniLibs").path, "build", "--release", "-p", "quince-mobile",
@@ -103,11 +109,12 @@ val bindings = tasks.register<Exec>("engineBindings") {
   dependsOn(engine)
   workingDir = repo
   environment("CARGO_TARGET_DIR", File(repo, "target-android/host").path)
+  // Read from the phone library just built (the 64-bit Arm one): the tool is its own small
+  // crate, so nothing of the engine is built for this computer.
   commandLine(
-    "sh", "-c",
-    "cargo build -q -p quince-mobile && cargo run -q -p quince-mobile --features bindgen --bin uniffi-bindgen -- " +
-      "generate --library target-android/host/debug/libquince_mobile.so --language kotlin --no-format " +
-      "--out-dir ${file("src/main/kotlin").path}",
+    "cargo", "run", "-q", "-p", "uniffi-bindgen", "--",
+    "generate", "--library", file("src/main/jniLibs/arm64-v8a/libquince_mobile.so").path,
+    "--language", "kotlin", "--no-format", "--out-dir", file("src/main/kotlin").path,
   )
 }
 tasks.named("preBuild") { dependsOn(bindings) }

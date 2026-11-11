@@ -10,15 +10,6 @@ description = "Skykeep's engine for Android: the Kotlin app's one door into it, 
 [lib]
 crate-type = ["cdylib", "lib"]
 
-[[bin]]
-# Writes the Kotlin side of the bindings from the built library (uniffi-bindgen generate).
-name = "uniffi-bindgen"
-path = "src/bindgen.rs"
-required-features = ["bindgen"]
-
-[features]
-bindgen = ["uniffi/cli"]
-
 [dependencies]
 quince-auth = { path = "../quince-auth" }
 quince-icloud = { path = "../quince-icloud" }
