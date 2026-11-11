@@ -44,6 +44,7 @@ import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.unit.dp
+import androidx.compose.runtime.LaunchedEffect
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
@@ -144,12 +145,34 @@ fun SignInScreen(account: Account, onSignedIn: () -> Unit) {
         Text("Skykeep is not made by or affiliated with Apple.", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
       }
       Step.Code -> {
+        // Where Apple can send a code: its devices, or a trusted phone number by text. Someone
+        // who left the iPhone for Android may have no Apple device at all, and could not sign in
+        // with a code that only went to one.
+        var options by remember { mutableStateOf<uniffi.quince_mobile.CodeOptions?>(null) }
+        var texted by remember { mutableStateOf<uniffi.quince_mobile.TrustedPhone?>(null) }
+        LaunchedEffect(Unit) {
+          options = withContext(Dispatchers.IO) { runCatching { account.codeOptions() }.getOrNull() }
+        }
+        val o = options
+        val devices = o == null || o.trustedDevices > 0u
         Text("Enter the code", style = MaterialTheme.typography.headlineMedium)
         Text(
-          "Apple sent a six-digit code to your iPhone, iPad or Mac. Allow the sign-in there, then type the code here.",
+          when {
+            o?.securityKey == true -> "This Apple Account signs in with a security key, which Skykeep can't use yet. Sign in at icloud.com in a browser with your key instead."
+            o?.tooManyCodesSent == true -> "Apple has sent too many codes for now. Wait a while, then try again."
+            texted != null -> "Apple sent a six-digit code by text to ${texted!!.maskedNumber}. Type it here."
+            devices -> "Apple sent a six-digit code to your iPhone, iPad or Mac. Allow the sign-in there, then type the code here."
+            else -> "Apple can't send a code to an Apple device for this account. Get one by text message instead."
+          },
           style = MaterialTheme.typography.bodyLarge, color = MaterialTheme.colorScheme.onSurfaceVariant,
         )
-        val submit = { run { account.submitCode(code); scope.launch { onSignedIn() } } }
+        val submit = {
+          run {
+            val phone = texted
+            if (phone != null) account.submitSmsCode(phone.id, code) else account.submitCode(code)
+            scope.launch { onSignedIn() }
+          }
+        }
         OutlinedTextField(
           value = code, onValueChange = { v -> code = v.filter(Char::isDigit).take(6); if (code.length == 6) submit() },
           label = { Text("Code") }, singleLine = true, enabled = !busy,
@@ -159,7 +182,17 @@ fun SignInScreen(account: Account, onSignedIn: () -> Unit) {
         )
         if (busy) CircularProgressIndicator(Modifier.size(24.dp))
         error?.let { Text(it, color = MaterialTheme.colorScheme.error, style = MaterialTheme.typography.bodyMedium) }
-        TextButton(onClick = { run { account.resendToDevices() } }, enabled = !busy) { Text("Send a new code") }
+        TextButton(
+          onClick = { run { texted?.let { account.sendSms(it.id) } ?: account.resendToDevices() } },
+          enabled = !busy && o?.securityKey != true,
+        ) { Text("Send a new code") }
+        // Each trusted number Apple will text, the way icloud.com offers them.
+        if (o != null && !o.securityKey) for (phone in o.phones) {
+          if (texted?.id == phone.id) continue
+          TextButton(onClick = { run { account.sendSms(phone.id); texted = phone; code = "" } }, enabled = !busy) {
+            Text("Text a code to ${phone.maskedNumber}")
+          }
+        }
         TextButton(onClick = { step = Step.Credentials; code = ""; error = null }, enabled = !busy) { Text("Use a different account") }
       }
     }

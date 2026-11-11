@@ -328,6 +328,9 @@ fn two_factor_places(v: &Value) -> Vec<&Value> {
         Some(v),
         v.get("phoneNumberVerification"),
         v.get("direct"),
+        // The security-key answer's second layout (`fsaVerification.fsaChallenge`, seen by
+        // FindMy.py; docs/security-keys.md): read as well as the top-level one.
+        v.get("fsaVerification"),
         two_sv,
         two_sv.and_then(|t| t.get("phoneNumberVerification")),
         two_sv.and_then(|t| t.pointer("/bridgeInitiateData/phoneNumberVerification")),
@@ -1436,7 +1439,11 @@ impl Client {
             .iter()
             .any(|k| p.get(*k).is_some())
         });
-        if !says_where {
+        // A security-key account names no devices and no numbers: its answer is the key
+        // challenge. Said as such, so the screen can tell the person, rather than refused as an
+        // answer that says nothing.
+        let security_key = places.iter().any(|p| offers_security_key(p));
+        if !says_where && !security_key {
             return Err(Error::Protocol(
                 "Apple didn't say where it can send a code".into(),
             ));
@@ -1462,7 +1469,7 @@ impl Client {
             trusted_device_count: counted.unwrap_or(u64::from(has_devices)),
             phones,
             too_many_codes_sent: too_many,
-            security_key: places.iter().any(|p| offers_security_key(p)),
+            security_key,
         })
     }
 
@@ -2982,5 +2989,32 @@ mod sealed_jar_tests {
         assert_ne!(c.session.client_id(), id, "nor its client id");
         assert!(!cookies_file(dir.path()).exists(), "nor its cookies");
         assert!(!client(dir.path()).has_stored_session());
+    }
+}
+
+#[cfg(test)]
+mod security_key_tests {
+    use super::{offers_security_key, two_factor_places};
+
+    /// Both layouts Apple uses for a security-key account are found: the challenge at the top
+    /// and under `fsaVerification`. Neither names a device or a number.
+    #[test]
+    fn a_security_key_is_found_in_either_layout() {
+        let challenge =
+            serde_json::json!({ "challenge": "c", "keyHandles": ["k"], "rpId": "apple.com" });
+        let top = serde_json::json!({ "fsaChallenge": challenge });
+        let inner = serde_json::json!({ "fsaVerification": { "fsaChallenge": challenge } });
+        for answer in [&top, &inner] {
+            assert!(
+                two_factor_places(answer)
+                    .iter()
+                    .any(|p| offers_security_key(p)),
+                "{answer}"
+            );
+        }
+        let codes = serde_json::json!({ "trustedDeviceCount": 1 });
+        assert!(!two_factor_places(&codes)
+            .iter()
+            .any(|p| offers_security_key(p)));
     }
 }
