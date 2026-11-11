@@ -1,0 +1,67 @@
+# Supply-chain checks on every Rust dependency (cargo-deny, run by ci.yml's `supply-chain`):
+# known vulnerabilities and withdrawn crates (RustSec advisories), licences, duplicate
+# versions, and where crates may come from. `cargo deny check` runs it locally.
+
+[graph]
+# The platforms Skykeep ships for: the desktop on Linux (x86_64 and ARM) and Windows, the engine
+# on Android. A crate only another platform pulls in is not checked.
+targets = [
+  "x86_64-unknown-linux-gnu",
+  "aarch64-unknown-linux-gnu",
+  "x86_64-pc-windows-msvc",
+  "aarch64-linux-android",
+  "x86_64-linux-android",
+]
+
+[advisories]
+# Every advisory fails the check; a withdrawn (yanked) version too. An advisory that cannot be
+# fixed yet is ignored here by its id only, each with the reason, and looked at again with
+# every dependency update.
+yanked = "deny"
+ignore = [
+  # SQLite before 3.54 can return stale page-cache bytes for a database opened with a crafted
+  # -wal of another page size. Fixed in libsqlite3-sys 0.39 (rusqlite 0.41); Skykeep is on
+  # rusqlite 0.32, and the move is an API upgrade of its own, still to do. Skykeep opens only
+  # its own library.db and -wal in its own data folder, which only the person's own account
+  # can write: whoever could craft that pair could read the library outright.
+  { id = "RUSTSEC-2026-0459", reason = "rusqlite 0.41 upgrade pending; only Skykeep's own files are opened" },
+  # glib 0.18 and its proc-macro-error: the GTK 3 stack Tauri's Linux webview and tray are
+  # built on (tauri, wry, tray-icon pin gtk-rs 0.18). Skykeep never iterates a GVariant's
+  # strings (VariantStrIter) itself.
+  { id = "RUSTSEC-2024-0429", reason = "glib 0.18 is pinned by Tauri's GTK 3 stack; VariantStrIter is not used" },
+  { id = "RUSTSEC-2024-0370", reason = "proc-macro-error comes with glib-macros 0.18 (Tauri's GTK 3 stack), at build time only" },
+  # zbus 5's own parts, folded into zbus 6: ksni, notify-rust and tauri-plugin-opener are
+  # still on zbus 5. Unmaintained, with no known flaw.
+  { id = "RUSTSEC-2026-0370", reason = "zvariant comes with zbus 5, which ksni, notify-rust and tauri-plugin-opener still need" },
+  { id = "RUSTSEC-2026-0371", reason = "zbus_names comes with zbus 5, which ksni, notify-rust and tauri-plugin-opener still need" },
+  { id = "RUSTSEC-2026-0372", reason = "zvariant_derive comes with zbus 5, which ksni, notify-rust and tauri-plugin-opener still need" },
+  # basic-toml: archived, read at build time by askama in uniffi's binding generator (the
+  # Android engine's Kotlin bindings), never in a shipped program.
+  { id = "RUSTSEC-2026-0374", reason = "read at build time by uniffi 0.32's binding generator only" },
+]
+
+[licenses]
+# The licences any GPL-3.0 app may ship: the same list about.toml accepts for the licence
+# notices the apps show, so the two never disagree.
+allow = [
+  "MIT", "Apache-2.0", "Apache-2.0 WITH LLVM-exception", "BSD-2-Clause", "BSD-3-Clause", "ISC",
+  "Zlib", "Unicode-3.0", "Unicode-DFS-2016", "MPL-2.0", "Unlicense", "0BSD", "CDLA-Permissive-2.0",
+  "BSL-1.0", "CC0-1.0", "LGPL-2.1-or-later", "GPL-3.0-only",
+]
+confidence-threshold = 0.9
+# Kept whole even where no crate uses one today, so it stays about.toml's list.
+unused-allowed-license = "allow"
+# Skykeep's own crates are not published to crates.io.
+private = { ignore = true }
+
+[bans]
+# Two versions of one crate are said, not refused: most come from Tauri's and WebKit's own
+# dependency trees, beyond this repository to align.
+multiple-versions = "warn"
+
+[sources]
+# crates.io only: no git dependency, no other registry.
+unknown-registry = "deny"
+unknown-git = "deny"
+allow-registry = ["https://github.com/rust-lang/crates.io-index"]
+allow-git = []
