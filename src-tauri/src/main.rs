@@ -2014,7 +2014,10 @@ async fn auth_sign_out(keep: bool, app: tauri::AppHandle, auth: State<'_, Auth>)
         .await
         .map_err(|e| e.to_string())?;
     let mut client = auth.client.lock().await;
-    client.sign_out().map_err(|e| e.to_string())?;
+    // Whatever the keyring says, the rest of signing out goes ahead: returning here left the
+    // account's data on the computer. A locked keyring is erased once it answers (the store
+    // notes the sign-out as owed and reads nothing until then); its trouble is told at the end.
+    let signed_out = client.sign_out().map_err(|e| e.to_string());
     data_access::forget(&app);
     if !keep {
         let data = app.state::<Data>();
@@ -2034,7 +2037,7 @@ async fn auth_sign_out(keep: bool, app: tauri::AppHandle, auth: State<'_, Auth>)
     // Every app's window goes with the account: the one sign-in is Skykeep's own window's,
     // where Settings were.
     apps::close_all(&app);
-    Ok(())
+    signed_out
 }
 
 /// Services Apple advertises for this account, for the sidebar.
@@ -2592,6 +2595,14 @@ fn feeds_dir(app: &tauri::AppHandle) -> PathBuf {
     state_dir(app).join("subscriptions")
 }
 
+/// The file a subscription's copy is kept in: `<id>.ics` in `dir`, for an id of the form this
+/// app gives (12 lowercase hex characters) and no other. An id that came from the window could
+/// be absolute or hold `../`, and joined as it is would name a file anywhere on the computer.
+fn feed_file(dir: &std::path::Path, id: &str) -> Option<PathBuf> {
+    let ours = id.len() == 12 && id.bytes().all(|b| matches!(b, b'0'..=b'9' | b'a'..=b'f'));
+    ours.then(|| dir.join(format!("{id}.ics")))
+}
+
 fn save_subscriptions(
     app: &tauri::AppHandle,
     subs: &[(Subscription, Option<feeds::Feed>)],
@@ -2750,8 +2761,11 @@ async fn refresh_subscription(app: &tauri::AppHandle, id: &str) -> UiResult<Subs
     };
     let outcome = match fetched {
         Ok((text, feed)) => {
-            std::fs::create_dir_all(feeds_dir(app)).ok();
-            std::fs::write(feeds_dir(app).join(format!("{id}.ics")), text).ok();
+            // Named by the id kept here, which is the app's own form, never the one asked with.
+            if let Some(file) = feed_file(&feeds_dir(app), &entry.0.id) {
+                std::fs::create_dir_all(feeds_dir(app)).ok();
+                std::fs::write(file, text).ok();
+            }
             entry.0.fetched_at = Some(now_unix());
             entry.0.problem = None;
             entry.1 = Some(feed);
@@ -2904,9 +2918,27 @@ async fn calendar_unsubscribe(
     feeds_state: State<'_, Feeds>,
 ) -> UiResult<()> {
     let mut subs = feeds_state.subs.lock().await;
-    subs.retain(|(s, _)| s.id != id);
-    std::fs::remove_file(feeds_dir(&app).join(format!("{id}.ics"))).ok();
+    forget_subscription(&mut subs, &feeds_dir(&app), &id)?;
     save_subscriptions(&app, &subs)
+}
+
+/// One subscription taken out of `subs` and its copy deleted from `dir`. Found first, and its
+/// file named by the id kept here rather than the one asked with: an id that names no
+/// subscription deletes nothing.
+fn forget_subscription(
+    subs: &mut Vec<(Subscription, Option<feeds::Feed>)>,
+    dir: &std::path::Path,
+    id: &str,
+) -> UiResult<()> {
+    let at = subs
+        .iter()
+        .position(|(s, _)| s.id == id)
+        .ok_or("That subscription is no longer here.")?;
+    let (sub, _) = subs.remove(at);
+    if let Some(file) = feed_file(dir, &sub.id) {
+        std::fs::remove_file(file).ok();
+    }
+    Ok(())
 }
 
 /// Fetch a subscription now, as Refresh Calendars does.
@@ -7818,6 +7850,54 @@ mod tests {
         assert_eq!((drawn.width(), drawn.height()), (super::INLINE_LONG, 1200));
         assert!(super::inline_picture(&jpeg(1200, 800)).is_none());
         assert!(super::inline_picture(b"GIF89a....").is_none());
+    }
+
+    /// Unsubscribing deletes only the subscription's own copy: an id from the window that is
+    /// absolute, climbs out with `../` or names no subscription deletes nothing.
+    #[test]
+    fn unsubscribing_deletes_only_its_own_copy() {
+        use super::{feed_file, forget_subscription};
+        let root = tempfile::tempdir().unwrap();
+        let dir = root.path().join("subscriptions");
+        std::fs::create_dir_all(&dir).unwrap();
+        let outside = root.path().join("keep.ics");
+        std::fs::write(&outside, "x").unwrap();
+        let sub = |id: &str| quince_icloud::calendar_feeds::Subscription {
+            id: id.into(),
+            url: "https://example.com/a.ics".into(),
+            title: "A".into(),
+            colour: "#ff9500".into(),
+            refresh_minutes: 60,
+            fetched_at: None,
+            problem: None,
+        };
+        let id = "0123456789ab";
+        std::fs::write(dir.join(format!("{id}.ics")), "x").unwrap();
+        let mut subs = vec![(sub(id), None)];
+        for hostile in ["../keep", "/tmp/keep", outside.to_str().unwrap(), ""] {
+            assert!(forget_subscription(&mut subs, &dir, hostile).is_err());
+            assert_eq!(subs.len(), 1);
+        }
+        assert!(outside.exists());
+        forget_subscription(&mut subs, &dir, id).unwrap();
+        assert!(subs.is_empty());
+        assert!(!dir.join(format!("{id}.ics")).exists());
+        assert!(outside.exists());
+        // Only the app's own form names a file at all, even one kept in the list.
+        assert_eq!(feed_file(&dir, id), Some(dir.join(format!("{id}.ics"))));
+        for bad in [
+            "../keep12345",
+            "/etc/passwd",
+            "0123456789AB",
+            "0123456789a",
+            "..",
+            "",
+        ] {
+            assert_eq!(feed_file(&dir, bad), None, "{bad:?}");
+        }
+        let mut stored = vec![(sub("../keep"), None)];
+        forget_subscription(&mut stored, &dir, "../keep").unwrap();
+        assert!(outside.exists());
     }
 
     /// A shared note's attachment is saved under a plain name in its own folder, whatever its

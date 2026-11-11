@@ -81,11 +81,15 @@ Everything is in your user's data folder: `~/.local/share/io.github.yashwanthkam
 on Linux, readable by you alone (mode 700), and `%APPDATA%\io.github.yashwanthkamireddi.Skykeep`
 on Windows.
 
-- **Your password, Apple Account and session:** in the system keyring — the Secret Service
-  (GNOME Keyring or KWallet) on Linux, Credential Manager on Windows — never in a file. The
-  password is kept there so Skykeep can sign back in by itself when a session lapses, and you
-  sign in once; Apple asks for a code only when it stops trusting this computer. Signing out
-  erases it.
+- **Your password, Apple Account and session:** to keep you signed in, Skykeep keeps your
+  Apple Account password together with the session in the system keyring: the Secret Service
+  (GNOME Keyring or KWallet) on Linux, Credential Manager on Windows. Never in a file. With it
+  Skykeep signs back in by itself when a session lapses, so you sign in once; Apple asks for a
+  code only when it stops trusting this computer. Signing out erases the password, the session
+  and the cookies' key from the keyring. If the keyring is locked or not running when you sign
+  out, the cookies (and the library, if you chose not to keep it) are deleted all the same,
+  Skykeep writes down in its data folder that the sign-out is still owed, reads nothing from
+  the keyring until it is done, and erases those entries as soon as the keyring answers.
 - **Session cookies:** `cookies.json`, encrypted (AES-256-GCM) with a random 256-bit key
   kept in the same keyring, one key per data folder, and readable by you alone (mode 600) as
   well. The file on its own opens nothing: copied into a backup or another folder, it is of no
@@ -94,7 +98,7 @@ on Windows.
   Skykeep signs in afresh from what the keyring still holds, or asks you to.
 - **What that protects, and what it does not.** The keyring is locked when you are logged out
   and encrypted on disk, but while you are logged in **any program running as you can read
-  Skykeep's keyring entries**, the password included — the keyring does not tell one of your
+  Skykeep's keyring entries**, the password included. The keyring does not tell one of your
   programs from another. A program that runs as you can already read your files too; the
   keyring is the system's own place for a secret like this, which is why it is kept there
   rather than in a file of Skykeep's own.

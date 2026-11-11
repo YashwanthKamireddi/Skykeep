@@ -229,6 +229,8 @@ enum Backend {
 pub struct Store {
     cookie_path: PathBuf,
     cooldown_path: PathBuf,
+    /// Present while a sign-out has not yet reached the keyring (see [`Store::clear`]).
+    sign_out_path: PathBuf,
     backend: Backend,
 }
 
@@ -801,6 +803,10 @@ pub(crate) fn write_whole(path: &Path, bytes: &[u8], private: bool) -> std::io::
     written
 }
 
+/// The file that says a sign-out is still owed to the keyring: written before anything is
+/// erased, removed once the keyring has let go of every entry.
+const SIGN_OUT_PENDING: &str = "sign-out-pending";
+
 impl Store {
     /// Production: secrets in the OS keyring.
     pub fn keyring(state_dir: &Path) -> std::io::Result<Self> {
@@ -808,6 +814,7 @@ impl Store {
         Ok(Self {
             cookie_path: state_dir.join("cookies.json"),
             cooldown_path: state_dir.join("cooldown.json"),
+            sign_out_path: state_dir.join(SIGN_OUT_PENDING),
             backend: Backend::Keyring(entry_name(state_dir)),
         })
     }
@@ -819,6 +826,7 @@ impl Store {
         Ok(Self {
             cookie_path: state_dir.join("cookies.json"),
             cooldown_path: state_dir.join("cooldown.json"),
+            sign_out_path: state_dir.join(SIGN_OUT_PENDING),
             backend: Backend::File(state_dir.join("session.json")),
         })
     }
@@ -948,7 +956,17 @@ impl Store {
     /// [`Self::load`], telling "nothing stored" apart from "the keyring would not answer" —
     /// locked, or not started yet at login. Read as nothing stored, a locked keyring showed
     /// the sign-in screen, and signing in then replaced the entry and its trust token.
+    ///
+    /// While a sign-out is still owed to the keyring nothing it holds is read: the entries
+    /// are erased now if it answers, and either way the answer is nothing stored. Otherwise a
+    /// keyring locked at sign-out would sign the person back in on the next launch.
     pub fn try_load(&self) -> Result<Session, crate::Error> {
+        if self.sign_out_pending() {
+            if let Err(e) = self.finish_sign_out() {
+                quiet!("quince: keyring: sign-out still waiting on it: {e:?}");
+            }
+            return Ok(Session::default());
+        }
         let json = match &self.backend {
             Backend::Keyring(_) => match current().and_then(|now| {
                 let before = previous()?;
@@ -971,6 +989,11 @@ impl Store {
     }
 
     pub fn save(&self, session: &Session) -> Result<(), crate::Error> {
+        // A sign-out still owed is finished first: the new session is written over a keyring
+        // with nothing of the old one left in it, and no later read refuses the new one.
+        if self.sign_out_pending() {
+            self.finish_sign_out()?;
+        }
         let json = serde_json::to_string(session)?;
         match &self.backend {
             Backend::Keyring(_) => {
@@ -1004,31 +1027,159 @@ impl Store {
     }
 
     /// Forget everything. Used by sign-out, and when Apple rejects the stored session for good.
+    ///
+    /// A keyring that is locked, or not started yet, does not stop it. Stopping at its first
+    /// refusal left the cookies on disk, and the next launch signed straight back in. So the
+    /// sign-out is written down first ([`Self::sign_out_pending`]), the cookies are deleted
+    /// whatever the keyring says, and the keyring's entries are erased now or, when it will
+    /// not answer, the next time it is asked for anything; until then nothing in it is read.
+    /// An error only when the keyring refused and the sign-out could not be written down.
     pub fn clear(&self) -> Result<(), crate::Error> {
-        match &self.backend {
-            Backend::Keyring(_) => {
-                let now = current().map_err(crate::Error::Keyring)?;
-                delete_secret(&now, self.name()).map_err(crate::Error::Keyring)?;
-                // And under every earlier name, or the next read would move it back.
-                for before in previous().map_err(crate::Error::Keyring)? {
-                    delete_secret(&before, self.name()).map_err(crate::Error::Keyring)?;
-                }
+        let marked = write_whole(&self.sign_out_path, b"", false);
+        let cookies = match std::fs::remove_file(&self.cookie_path) {
+            Err(e) if e.kind() != std::io::ErrorKind::NotFound => Err(e),
+            _ => Ok(()),
+        };
+        if let Err(e) = self.finish_sign_out() {
+            if marked.is_err() {
+                return Err(e);
             }
-            Backend::File(path) => {
-                if path.exists() {
-                    std::fs::remove_file(path)?;
-                }
-            }
+            quiet!("quince: keyring: sign-out finishes when it answers: {e:?}");
         }
-        // The cookies' key goes with them: the next sign-in seals under a new one.
-        self.with_key_store(|k, name| k.delete(name))?;
-        if self.cookie_path.exists() {
-            std::fs::remove_file(&self.cookie_path)?;
-        }
+        cookies?;
         // The cooldown stays. It is owed to Apple, not to the session — clearing it here
         // would make signing out a way to wipe the wait and start hammering again, which is
         // exactly what it exists to prevent.
         Ok(())
+    }
+
+    /// Whether a sign-out has not yet reached the keyring: while it has not, no stored session
+    /// is resumed (see [`Self::try_load`]).
+    #[must_use]
+    pub fn sign_out_pending(&self) -> bool {
+        self.sign_out_path.exists()
+    }
+
+    /// Erase every keyring entry the session left, and once all are gone, the note that a
+    /// sign-out was owed. Every entry is tried even when one is refused; the first refusal is
+    /// the answer, and the note stays for the next try.
+    pub fn finish_sign_out(&self) -> Result<(), crate::Error> {
+        let mut refused: Option<crate::Error> = None;
+        let mut note = |r: Result<(), crate::Error>| {
+            if let Err(e) = r {
+                refused.get_or_insert(e);
+            }
+        };
+        match &self.backend {
+            Backend::Keyring(_) => {
+                note(
+                    current()
+                        .and_then(|now| delete_secret(&now, self.name()))
+                        .map_err(crate::Error::Keyring),
+                );
+                // And under every earlier name, or the next read would move it back.
+                match previous() {
+                    Ok(before) => {
+                        for k in before {
+                            note(delete_secret(&k, self.name()).map_err(crate::Error::Keyring));
+                        }
+                    }
+                    Err(e) => note(Err(crate::Error::Keyring(e))),
+                }
+            }
+            Backend::File(path) => note(match std::fs::remove_file(path) {
+                Err(e) if e.kind() != std::io::ErrorKind::NotFound => Err(e.into()),
+                _ => Ok(()),
+            }),
+        }
+        // The cookies' key goes with them: the next sign-in seals under a new one.
+        note(self.with_key_store(|k, name| k.delete(name)));
+        if let Some(e) = refused {
+            return Err(e);
+        }
+        match std::fs::remove_file(&self.sign_out_path) {
+            Err(e) if e.kind() != std::io::ErrorKind::NotFound => Err(e.into()),
+            _ => Ok(()),
+        }
+    }
+}
+
+/// Signing out with the keyring locked: the person stays signed out.
+#[cfg(test)]
+mod sign_out_tests {
+    use super::*;
+
+    fn resumable() -> Session {
+        Session {
+            session_token: Some("token".into()),
+            ..Session::default()
+        }
+    }
+
+    /// The keyring refusing (here the cookie key's entry cannot be deleted) does not stop the
+    /// cookies going, and nothing it still holds is resumed until it answers; then every entry
+    /// is erased and the note with them.
+    #[test]
+    fn a_locked_keyring_never_signs_back_in() {
+        let dir = tempfile::tempdir().expect("a temporary directory");
+        let store = Store::file(dir.path()).expect("a store");
+        store.save(&resumable()).expect("a session");
+        std::fs::write(store.cookie_path(), b"sealed cookies").expect("cookies");
+        // A directory where the key is kept: deleting it fails, as a locked keyring does.
+        let key = dir.path().join("cookie-key");
+        std::fs::create_dir(&key).expect("in the way");
+        std::fs::write(key.join("x"), b"x").expect("not empty");
+
+        store.clear().expect("signed out, the keyring's part owed");
+        assert!(
+            !store.cookie_path().exists(),
+            "the cookies go whatever the keyring says"
+        );
+        assert!(store.sign_out_pending());
+
+        // What the locked keyring kept, still there: never read, by a new store either.
+        std::fs::write(
+            dir.path().join("session.json"),
+            serde_json::to_string(&resumable()).unwrap(),
+        )
+        .expect("left behind");
+        let reopened = Store::file(dir.path()).expect("the next launch");
+        assert!(!reopened.try_load().expect("read").is_resumable());
+        assert!(reopened.sign_out_pending(), "still owed while it refuses");
+
+        // The keyring answers: the next read erases what it held, and the note.
+        std::fs::remove_dir_all(&key).expect("unlocked");
+        assert!(!reopened.try_load().expect("read").is_resumable());
+        assert!(!reopened.sign_out_pending());
+        assert!(!dir.path().join("session.json").exists());
+
+        // Signed in again, the new session is read as any other.
+        reopened.save(&resumable()).expect("a new session");
+        assert!(reopened.try_load().expect("read").is_resumable());
+    }
+
+    /// A new sign-in while the sign-out is owed finishes it first, so the new session is not
+    /// refused by the note on the next launch.
+    #[test]
+    fn signing_in_again_finishes_a_sign_out_owed() {
+        let dir = tempfile::tempdir().expect("a temporary directory");
+        let store = Store::file(dir.path()).expect("a store");
+        std::fs::write(dir.path().join(SIGN_OUT_PENDING), b"").expect("owed");
+        store.save(&resumable()).expect("a new session");
+        assert!(!store.sign_out_pending());
+        let reopened = Store::file(dir.path()).expect("the next launch");
+        assert!(reopened.try_load().expect("read").is_resumable());
+    }
+
+    /// With the keyring answering, signing out leaves no note behind.
+    #[test]
+    fn an_answering_keyring_leaves_nothing_owed() {
+        let dir = tempfile::tempdir().expect("a temporary directory");
+        let store = Store::file(dir.path()).expect("a store");
+        store.save(&resumable()).expect("a session");
+        store.clear().expect("signed out");
+        assert!(!store.sign_out_pending());
+        assert!(!store.try_load().expect("read").is_resumable());
     }
 }
 

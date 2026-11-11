@@ -756,7 +756,13 @@ async fn fetch(
         .unwrap_or_else(std::sync::PoisonError::into_inner)
         .reserve(folder, dir, name);
     let path = folder.join(&rel);
-    if let Err(e) = tokio::fs::create_dir_all(path.parent().unwrap_or(folder)).await {
+    // The name was made one plain file name, but nothing is written until that is proven:
+    // a file anywhere but directly in the month's folder is left out, never created.
+    let month = folder.join(dir);
+    if !crate::saving::directly_in(&month, &path) {
+        return Ok(Fetched::Missing);
+    }
+    if let Err(e) = tokio::fs::create_dir_all(&month).await {
         return Err(disk_trouble(e.kind(), &e.to_string(), folder));
     }
     match stream_to_new_file(http, url, &path).await {
@@ -819,11 +825,15 @@ impl Names {
         }
     }
 
-    /// `name`, then `name 2`, `name 3`, … in `dir`.
-    fn candidates<'a>(dir: &'a str, name: &'a str) -> impl Iterator<Item = String> + 'a {
+    /// `name`, then `name 2`, `name 3`, … in `dir`. The name is the photo's owner's (a Shared
+    /// Library's are other people's), so it is made one plain file name first, the same way a
+    /// single download is ([`crate::export::file_name`]): `../../x` or `a\b` would otherwise put
+    /// the file outside the month's folder.
+    fn candidates<'a>(dir: &'a str, name: &str) -> impl Iterator<Item = String> + 'a {
+        let name = crate::export::file_name(name, "Photo");
         let (stem, ext) = match name.rsplit_once('.') {
-            Some((s, e)) if !s.is_empty() => (s, format!(".{e}")),
-            _ => (name, String::new()),
+            Some((s, e)) if !s.is_empty() => (s.to_string(), format!(".{e}")),
+            _ => (name.clone(), String::new()),
         };
         (1..).map(move |n| {
             if n == 1 {
@@ -950,6 +960,46 @@ mod tests {
             names.reserve(folder, "Photos/2024/03", "IMG_7.HEIC"),
             "Photos/2024/03/IMG_7 3.HEIC"
         );
+    }
+
+    /// A Shared Library photo's name is someone else's: whatever it holds, the file it is
+    /// copied to, and any file found for it, sits directly in the month's folder.
+    #[test]
+    fn hostile_names_stay_in_the_month_folder() {
+        let dir = tempfile::tempdir().unwrap();
+        let folder = dir.path();
+        let month = "Photos/2026/11";
+        std::fs::create_dir_all(folder.join(month)).unwrap();
+        // A file outside, where `../x` points: never taken as this photo's.
+        std::fs::write(folder.join("Photos/2026/x.JPG"), vec![0u8; 5]).unwrap();
+        let mut names = Names::new(HashSet::new());
+        for hostile in [
+            "../x.JPG",
+            "../../../../.config/autostart/x.desktop",
+            "a/b.JPG",
+            "a\\b.JPG",
+            "..",
+            ".",
+            "CON",
+            "CON.JPG",
+            "x\0y.JPG",
+            "/etc/passwd",
+            "C:\\Windows\\x.JPG",
+            "name:stream.JPG",
+            "",
+        ] {
+            assert_eq!(names.adopt(folder, month, hostile, 5), None, "{hostile:?}");
+            let rel = names.reserve(folder, month, hostile);
+            let path = folder.join(&rel);
+            assert!(
+                crate::saving::directly_in(&folder.join(month), &path),
+                "{hostile:?} became {rel:?}"
+            );
+            let name = path.file_name().unwrap().to_string_lossy().into_owned();
+            assert!(!name.contains('\0') && !name.starts_with('.'), "{name:?}");
+            let stem = name.split('.').next().unwrap_or_default().to_uppercase();
+            assert_ne!(stem, "CON", "{name:?}");
+        }
     }
 
     #[test]

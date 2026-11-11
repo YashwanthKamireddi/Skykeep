@@ -1421,10 +1421,43 @@ fn rendition(slot: &str, record: &Value) -> Option<(String, String)> {
     Some((kind, url?.as_str()?.to_string()))
 }
 
+/// The extension a downloaded file is saved with, always one of a fixed list of media types.
+/// The type and the name both come from whoever took the photo (a Shared Library's are other
+/// people's), so neither is used as it is: a claimed type ending `.desktop` would otherwise
+/// name a launcher. An original of a type not listed keeps its own extension only when that
+/// is a known media one, and is otherwise saved as plain data.
+fn media_extension(kind: &str, own: &str) -> &'static str {
+    const KNOWN: [&str; 22] = [
+        "JPG", "JPEG", "PNG", "GIF", "HEIC", "HEIF", "TIF", "TIFF", "WEBP", "DNG", "CR2", "CR3",
+        "NEF", "ARW", "ORF", "RAF", "RW2", "MOV", "MP4", "M4V", "AVI", "PDF",
+    ];
+    match kind {
+        "public.jpeg" => "JPG",
+        "public.png" => "PNG",
+        "com.compuserve.gif" => "GIF",
+        "public.heic" => "HEIC",
+        "public.heif" => "HEIF",
+        "public.tiff" => "TIF",
+        "org.webmproject.webp" => "WEBP",
+        "com.adobe.raw-image" => "DNG",
+        "com.apple.quicktime-movie" => "MOV",
+        "public.mpeg-4" => "MP4",
+        "com.apple.m4v-video" => "M4V",
+        "public.avi" => "AVI",
+        "com.adobe.pdf" => "PDF",
+        _ => KNOWN
+            .into_iter()
+            .find(|k| k.eq_ignore_ascii_case(own))
+            .unwrap_or("bin"),
+    }
+}
+
 /// The file a download takes, as icloud.com picks it (ui.main.js `getDownloadURLInfo`): the
 /// largest rendition of an allowed type, from the asset first — where an edit's renditions are —
 /// then the master; for originals, the master's original whatever its type. Answers the URL with
 /// `${f}` filled, and the file's name: the original's, with the chosen type's extension.
+/// The name is the photo's owner's to choose and may hold anything, a path included: a caller
+/// writing a file makes it one plain file name first (src-tauri's `export::file_name`).
 #[must_use]
 pub fn download_choice(
     asset: &Value,
@@ -1458,20 +1491,9 @@ pub fn download_choice(
     } else {
         pick(asset).or(from_master)?
     };
-    let ext = match kind.as_str() {
-        "public.jpeg" => "JPG",
-        "public.png" => "PNG",
-        "com.compuserve.gif" => "GIF",
-        "public.heic" => "HEIC",
-        "com.apple.quicktime-movie" => "MOV",
-        "public.mpeg-4" => "MP4",
-        "com.apple.m4v-video" => "M4V",
-        "com.adobe.pdf" => "PDF",
-        other => other.rsplit('.').next().unwrap_or("bin"),
-    };
     let full = decoded(master, "filenameEnc").unwrap_or_else(|| "Photo".into());
-    let base = full.rsplit_once('.').map_or(full.as_str(), |(b, _)| b);
-    let name = format!("{base}.{ext}");
+    let (base, own_ext) = full.rsplit_once('.').unwrap_or((full.as_str(), ""));
+    let name = format!("{base}.{}", media_extension(&kind, own_ext));
     let encoded: String = name
         .bytes()
         .map(|b| match b {
@@ -1981,6 +2003,31 @@ mod tests {
                 .0,
             "https://o/IMG_0001.HEIC"
         );
+    }
+
+    /// A type Apple's record claims never becomes the extension: a Shared Library photo of
+    /// type `x.desktop` is saved as data, a raw original keeps its own known extension.
+    #[test]
+    fn a_downloads_extension_is_always_a_known_media_one() {
+        let master = |name: &str, kind: &str| {
+            json!({"recordType": "CPLMaster", "fields": {
+                "filenameEnc": {"value": base64::engine::general_purpose::STANDARD.encode(name)},
+                "resOriginalFileType": {"value": kind},
+                "resOriginalRes": {"value": {"downloadURL": "https://o/${f}"}},
+            }})
+        };
+        let plain = json!({"recordType": "CPLAsset", "fields": {}});
+        let name = |name: &str, kind: &str| {
+            download_choice(&plain, &master(name, kind), Want::Originals, false)
+                .unwrap()
+                .1
+        };
+        // Its own known media extension, never the claimed type's.
+        assert_eq!(name("x.png", "com.evil.desktop"), "x.PNG");
+        assert_eq!(name("x.desktop", "com.evil.desktop"), "x.bin");
+        assert_eq!(name("IMG_2.cr2", "com.canon.cr2-raw-image"), "IMG_2.CR2");
+        assert_eq!(name("IMG_3.DNG", "com.adobe.raw-image"), "IMG_3.DNG");
+        assert_eq!(name("no extension", "public.tiff"), "no extension.TIF");
     }
 
     /// Folders come through as folders, an album in one knows it, and when the folder is

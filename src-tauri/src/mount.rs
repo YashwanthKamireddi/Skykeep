@@ -225,6 +225,14 @@ impl Remote for AppRemote {
     fn read_part(&self, item: &DriveItem, offset: u64, len: u64) -> Fut<quince_vfs::Part> {
         let (app, links, item) = (self.app.clone(), Arc::clone(&self.links), item.clone());
         Box::pin(async move {
+            // Nothing asked for is nothing to fetch, and `offset + len - 1` below has no last
+            // byte to name for it.
+            if len == 0 {
+                return Ok(quince_vfs::Part {
+                    bytes: Vec::new(),
+                    total: None,
+                });
+            }
             let key = format!("{}~{}", item.drivewsid, item.etag.as_deref().unwrap_or(""));
             let known = links
                 .lock()
@@ -281,30 +289,56 @@ impl Remote for AppRemote {
                         None => Err(format!("Apple answered {status}")),
                     };
                 }
-                let bytes = r.bytes().await.map_err(|e| e.to_string())?;
-                // A server that ignores the range sends the whole file: the part is cut from it,
-                // and its length is the file's.
-                return Ok(if whole {
-                    let from = usize::try_from(offset)
-                        .unwrap_or(usize::MAX)
-                        .min(bytes.len());
-                    let to = usize::try_from(offset + len)
-                        .unwrap_or(usize::MAX)
-                        .min(bytes.len());
-                    quince_vfs::Part {
-                        bytes: bytes[from..to].to_vec(),
-                        total: Some(bytes.len() as u64),
-                    }
+                // A server that ignores the range sends the whole file: the part is read out of
+                // it as it streams, from the offset, and the rest is never taken.
+                return if whole {
+                    body_part(r, offset, len).await
                 } else {
-                    quince_vfs::Part {
-                        bytes: bytes.to_vec(),
+                    body_part(r, 0, len).await.map(|part| quince_vfs::Part {
+                        bytes: part.bytes,
                         total,
-                    }
-                });
+                    })
+                };
             }
             Err("Apple would not send the file".into())
         })
     }
+}
+
+/// `len` bytes from `skip` on of a body, read as it arrives: never more of it is held than the
+/// part, so a server that answers a range with the whole file (200) costs the bytes up to the
+/// part and not the file in memory on every read. Its length is the file's when the server
+/// gives one, or when the body ended before the part was whole; otherwise not known.
+async fn body_part(
+    mut r: reqwest::Response,
+    skip: u64,
+    len: u64,
+) -> Result<quince_vfs::Part, String> {
+    let declared = r.content_length();
+    let mut seen: u64 = 0;
+    let mut bytes = Vec::with_capacity(usize::try_from(len.min(1 << 20)).unwrap_or(0));
+    let end = skip.saturating_add(len);
+    while seen < end {
+        let Some(chunk) = r.chunk().await.map_err(|e| e.to_string())? else {
+            // The whole body read: its length is the file's, whatever was declared.
+            return Ok(quince_vfs::Part {
+                bytes,
+                total: Some(seen),
+            });
+        };
+        let at = seen;
+        seen += chunk.len() as u64;
+        // The piece of this chunk inside [skip, end).
+        let from = skip.saturating_sub(at).min(chunk.len() as u64) as usize;
+        let to = end.saturating_sub(at).min(chunk.len() as u64) as usize;
+        if from < to {
+            bytes.extend_from_slice(&chunk[from..to]);
+        }
+    }
+    Ok(quince_vfs::Part {
+        bytes,
+        total: declared,
+    })
 }
 
 /// The whole length a `Content-Range` gives: `bytes 0-9/52311` or `bytes */52311`. `None` for
@@ -1056,6 +1090,31 @@ mod stale_tests {
         assert_eq!(served_total("bytes */52311"), Some(52_311));
         assert_eq!(served_total("bytes 0-9/*"), None);
         assert_eq!(served_total("items 0-9/10"), None);
+    }
+
+    /// A range answered with the whole file (200) gives just the part, read as it streams,
+    /// with the file's length; a part past the end is empty, never a panic.
+    #[tokio::test]
+    async fn a_whole_answer_gives_only_the_part() {
+        use wiremock::matchers::method;
+        use wiremock::{Mock, MockServer, ResponseTemplate};
+        let server = MockServer::start().await;
+        let file: Vec<u8> = (0..200_000u32).map(|i| (i % 251) as u8).collect();
+        Mock::given(method("GET"))
+            .respond_with(ResponseTemplate::new(200).set_body_bytes(file.clone()))
+            .mount(&server)
+            .await;
+        let http = reqwest::Client::new();
+        let get = || http.get(server.uri()).send();
+        let part = body_part(get().await.unwrap(), 150_000, 10).await.unwrap();
+        assert_eq!(part.bytes, file[150_000..150_010]);
+        assert_eq!(part.total, Some(200_000));
+        let tail = body_part(get().await.unwrap(), 199_995, 10).await.unwrap();
+        assert_eq!(tail.bytes, file[199_995..]);
+        assert_eq!(tail.total, Some(200_000));
+        let past = body_part(get().await.unwrap(), 300_000, 10).await.unwrap();
+        assert!(past.bytes.is_empty());
+        assert_eq!(past.total, Some(200_000));
     }
 
     /// A dead mount is let go of before a new one is made over it; a folder that answers, or
