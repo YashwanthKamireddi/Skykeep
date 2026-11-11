@@ -30,9 +30,18 @@ on:
   # A dry run from a branch: everything built and started, nothing published. A tag can never
   # be moved or deleted, so the whole path is proven here before the next one is pushed.
   workflow_dispatch:
+  # Every Monday, the same dry run on main: a tool that changed its output or a distribution
+  # past its end of life shows up mid-week, never on release day (11 Nov: both did).
+  schedule:
+    - cron: "0 6 * * 1"
 
 permissions:
   contents: read
+
+# Android's build tools at one exact version, so the APK's checks never meet a newer tool's
+# output unannounced (11 Nov: build-tools 37 renamed "Signer #1" and broke the signing check).
+env:
+  BUILD_TOOLS: "37.0.0"
 
 jobs:
   appimage:
@@ -70,8 +79,8 @@ jobs:
           fi
       - name: Build dependencies
         run: |
-          sudo apt-get update
-          sudo apt-get install -y --no-install-recommends \
+          sudo apt-get -o Acquire::Retries=5 update
+          sudo apt-get -o Acquire::Retries=5 install -y --no-install-recommends \
             libwebkit2gtk-4.1-dev libgtk-3-dev libayatana-appindicator3-dev librsvg2-dev \
             libsecret-1-dev libheif-dev libheif-plugin-libde265 libfuse3-dev pkg-config patchelf rpm file \
             libgstreamer1.0-dev libgstreamer-plugins-base1.0-dev \
@@ -127,7 +136,7 @@ jobs:
           deb=$(ls target/release/bundle/deb/*.deb)
           dpkg-deb -f "$deb" Depends
           # "./": apt takes a bare relative path for a package name ("Unable to locate package").
-          sudo apt-get install -y "./$deb"
+          sudo apt-get -o Acquire::Retries=5 install -y "./$deb"
           prog=$(dpkg -L "$(dpkg-deb -f "$deb" Package)" | grep -m1 '^/usr/bin/')
           echo "installed: $prog"
           if ldd "$prog" | grep "not found"; then exit 1; fi
@@ -169,8 +178,8 @@ jobs:
               bash -euc 'cd "$(mktemp -d)" && /app/'"$(basename "$app")"' --appimage-extract >/dev/null
                 /check/stays-up.sh "AppImage on $(. /etc/os-release && echo "$PRETTY_NAME"), offline" "$PWD/squashfs-root/AppRun"'
           }
-          offline ubuntu:22.04 'export DEBIAN_FRONTEND=noninteractive; apt-get update -qq
-            apt-get install -y -qq --no-install-recommends xvfb xauth dbus libgl1 libegl1 libgles2 \
+          offline ubuntu:22.04 'export DEBIAN_FRONTEND=noninteractive; apt-get -o Acquire::Retries=5 update -qq
+            apt-get -o Acquire::Retries=5 install -y -qq --no-install-recommends xvfb xauth dbus libgl1 libegl1 libgles2 \
               libfontconfig1 fonts-dejavu-core libx11-6 libx11-xcb1 libxcb1 libdrm2 libharfbuzz0b \
               libfribidi0 libfreetype6 libasound2 libgpg-error0 >/dev/null'
           offline fedora:41 'dnf -y -q install --setopt=install_weak_deps=False \
@@ -276,14 +285,13 @@ jobs:
         run: ANDROID_NDK_HOME="$ANDROID_NDK_LATEST_HOME" ./gradlew --no-daemon assembleRelease
       - name: Its version is the release's
         run: |
-          # The version the app was built from; on a tag, also the tag's. The newest build-tools
-          # only: the runner has several, and a bare glob ran one aapt2 with another as its
-          # command (0.1.21's release read an empty version and stopped there).
+          # The version the app was built from; on a tag, also the tag's.
           want=$(jq -r .version src-tauri/tauri.conf.json)
           if [[ "$GITHUB_REF" == refs/tags/v* && "v$want" != "$GITHUB_REF_NAME" ]]; then
             echo "::error::tag $GITHUB_REF_NAME, but tauri.conf.json says $want"; exit 1
           fi
-          tools=$(ls -d "$ANDROID_HOME"/build-tools/* | sort -V | tail -n1)
+          tools="$ANDROID_HOME/build-tools/$BUILD_TOOLS"
+          [ -x "$tools/aapt2" ] || yes | "$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager" "build-tools;$BUILD_TOOLS" >/dev/null
           got=$("$tools/aapt2" dump badging android/app/build/outputs/apk/release/app-release-unsigned.apk | sed -n "s/.*versionName='\([^']*\)'.*/\1/p" | head -n1)
           if [ "$got" != "$want" ]; then echo "::error::the app says '$got', the release is $want"; exit 1; fi
       - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
@@ -313,8 +321,8 @@ jobs:
           # Each step says what failed: zipalign -c and a grep that finds nothing exit quietly,
           # and 0.1.22's rehearsal stopped here with no word of which.
           set -o pipefail
-          tools=$(ls -d "$ANDROID_HOME"/build-tools/* | sort -V | tail -n1)
-          echo "build-tools: $(basename "$tools")"
+          tools="$ANDROID_HOME/build-tools/$BUILD_TOOLS"
+          [ -x "$tools/aapt2" ] || yes | "$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager" "build-tools;$BUILD_TOOLS" >/dev/null
           key="$RUNNER_TEMP/release.p12"
           ( umask 077; printf '%s' "$KEYSTORE" | base64 -d > "$key" ) || { echo "::error::ANDROID_KEYSTORE is not base64"; exit 1; }
           [ -s "$key" ] || { echo "::error::ANDROID_KEYSTORE is empty"; exit 1; }

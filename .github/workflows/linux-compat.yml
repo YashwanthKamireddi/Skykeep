@@ -22,6 +22,10 @@ on:
   workflow_dispatch:
   push:
     tags: ["v*"]
+  # Every Monday, the same dry run on main: a tool that changed its output or a distribution
+  # past its end of life shows up mid-week, never on release day (11 Nov: both did).
+  schedule:
+    - cron: "0 6 * * 1"
 
 permissions:
   contents: read
@@ -46,8 +50,8 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - name: Build dependencies
         run: |
-          sudo apt-get update
-          sudo apt-get install -y --no-install-recommends \
+          sudo apt-get -o Acquire::Retries=5 update
+          sudo apt-get -o Acquire::Retries=5 install -y --no-install-recommends \
             libwebkit2gtk-4.1-dev libgtk-3-dev libayatana-appindicator3-dev librsvg2-dev \
             libsecret-1-dev libheif-dev libfuse3-dev pkg-config patchelf rpm file \
             libgstreamer1.0-dev libgstreamer-plugins-base1.0-dev \
@@ -186,8 +190,8 @@ jobs:
         run: |
           case "${{ matrix.key }}" in
             debian13)
-              apt-get update
-              DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends \
+              apt-get -o Acquire::Retries=5 update
+              DEBIAN_FRONTEND=noninteractive apt-get -o Acquire::Retries=5 install -y --no-install-recommends \
                 build-essential curl ca-certificates git nodejs npm \
                 libwebkit2gtk-4.1-dev libgtk-3-dev librsvg2-dev libsecret-1-dev \
                 libheif-dev libfuse3-dev libgstreamer1.0-dev libgstreamer-plugins-base1.0-dev \

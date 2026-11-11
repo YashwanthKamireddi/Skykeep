@@ -220,8 +220,8 @@ jobs:
     runs-on: ubuntu-24.04
     steps:
       - run: |
-          sudo apt-get update
-          sudo apt-get install -y --no-install-recommends libheif-examples libheif-plugin-x265
+          sudo apt-get -o Acquire::Retries=5 update
+          sudo apt-get -o Acquire::Retries=5 install -y --no-install-recommends libheif-examples libheif-plugin-x265
           W=64 H=48
           { printf 'YUV4MPEG2 W%s H%s F25:1 Ip A1:1 C420jpeg\nFRAME\n' "$W" "$H"
             LC_ALL=C awk -v w=$W -v h=$H 'BEGIN {
