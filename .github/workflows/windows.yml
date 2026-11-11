@@ -7,7 +7,7 @@
 #              then each app's Start-menu entry and window checked for its own app ID, the jump
 #              list's tasks found, and the uninstaller seen to take every entry away;
 #   ui       — every interface suite in Edge, only when asked for: Edge is the Chromium engine
-#              ci.yml already runs every suite in on each push.
+#              check.sh runs every suite in, and ci.yml the key ones on each push.
 # Run by hand (Actions → Windows build → Run workflow) or by a release (release.yml); never on
 # every push.
 name: Windows build

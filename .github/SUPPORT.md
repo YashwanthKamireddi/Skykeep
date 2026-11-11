@@ -1,7 +1,8 @@
 # Getting help
 
 - **A question, or not sure if it's a bug?** Ask in [Discussions → Q&A](https://github.com/YashwanthKamireddi/Skykeep/discussions/categories/q-a). Someone may have hit it before.
-- **Something broken?** [Open a bug report](https://github.com/YashwanthKamireddi/Skykeep/issues/new?template=bug_report.yml). The form asks for what helps most: your Skykeep version, how you installed it, and your system.
+- **Something broken?** [Open a bug report](https://github.com/YashwanthKamireddi/Skykeep/issues/new?template=bug_report.yml). The form asks for what helps most: your Skykeep version, how you installed it, and your system. On the desktop, Settings → Save Diagnostic Report writes those down for you.
+- **Want to fix it yourself?** [CONTRIBUTING.md](CONTRIBUTING.md) covers building, testing and where to start.
 - **An idea?** [Suggest a feature](https://github.com/YashwanthKamireddi/Skykeep/issues/new?template=feature_request.yml), or talk it through first in [Discussions → Ideas](https://github.com/YashwanthKamireddi/Skykeep/discussions/categories/ideas).
 - **A security problem?** Please report it [privately](https://github.com/YashwanthKamireddi/Skykeep/security/advisories/new), never in public. [SECURITY.md](../SECURITY.md) explains what happens next.
 

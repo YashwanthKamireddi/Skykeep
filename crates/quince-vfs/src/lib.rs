@@ -3,8 +3,8 @@
 //! The platform-free engine: which item an inode is, what a folder holds, and a file's bytes
 //! read in chunks into a sparse cache on disk — only the parts an app actually reads, each
 //! fetched once (Apple's download links answer byte ranges; proven live). The platform's
-//! own front end ([`fuse`] on Linux) asks it and never waits on the network for what the
-//! library already knows. Design: docs/mount-design.md.
+//! own front end (`fuse` on Linux, `cloud` on Windows) asks it and never waits on the
+//! network for what the library already knows. Design: docs/mount-design.md.
 
 #[cfg(windows)]
 pub mod cloud;
