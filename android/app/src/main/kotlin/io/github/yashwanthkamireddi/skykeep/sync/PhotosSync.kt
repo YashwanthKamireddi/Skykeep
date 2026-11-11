@@ -19,7 +19,7 @@ import android.os.IBinder
  * Photos' place in Android's sync, as Notes' is (NotesSync.kt): the library is read from Apple a
  * few pages a pass into the engine's library; the pictures are fetched when shown.
  */
-const val PHOTOS_AUTHORITY = "io.github.yashwanthkamireddi.skykeep.photos"
+val PHOTOS_AUTHORITY = "${io.github.yashwanthkamireddi.skykeep.BuildConfig.APPLICATION_ID}.photos"
 
 /** The authority the sync is listed under. It stores nothing; every call answers empty. */
 class PhotosProvider : ContentProvider() {

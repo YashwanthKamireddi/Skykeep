@@ -78,7 +78,7 @@
         </service>
         <!-- Reminders, synced with the account like Contacts and Calendar (RemindersSync.kt). -->
         <provider android:name=".sync.RemindersProvider"
-            android:authorities="io.github.yashwanthkamireddi.skykeep.reminders"
+            android:authorities="${applicationId}.reminders"
             android:exported="false" android:syncable="true" />
         <service android:name=".sync.RemindersSyncService" android:exported="true">
             <intent-filter>
@@ -89,7 +89,7 @@
         </service>
         <!-- Notes, synced with the account the same way (NotesSync.kt). -->
         <provider android:name=".sync.NotesProvider"
-            android:authorities="io.github.yashwanthkamireddi.skykeep.notes"
+            android:authorities="${applicationId}.notes"
             android:exported="false" android:syncable="true" />
         <service android:name=".sync.NotesSyncService" android:exported="true">
             <intent-filter>
@@ -100,7 +100,7 @@
         </service>
         <!-- Photos, synced with the account the same way (PhotosSync.kt). -->
         <provider android:name=".sync.PhotosProvider"
-            android:authorities="io.github.yashwanthkamireddi.skykeep.photos"
+            android:authorities="${applicationId}.photos"
             android:exported="false" android:syncable="true" />
         <service android:name=".sync.PhotosSyncService" android:exported="true">
             <intent-filter>

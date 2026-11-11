@@ -508,7 +508,7 @@ fn base_with_photo(
 }
 
 fn failed(e: impl std::fmt::Display + std::fmt::Debug) -> EngineError {
-    log::error(&format!("{e:?}"));
+    log::error(&log::redact(&format!("{e:?}")));
     EngineError::Failed {
         reason: e.to_string(),
     }
@@ -525,6 +525,33 @@ pub use photos::{PAlbum, PBackup, PIndex, PItem, PSize, PSync, PView};
 pub use reminders::{RCounts, REdit, RItem, RList, RSync, RView};
 
 mod log {
+    /// A line for the phone's log with every web address cut at its `?`: Apple's addresses carry
+    /// the account's number and the session's ids in their query, and the log ends up in bug
+    /// reports and on any computer connected over USB. The address itself (which call failed)
+    /// stays, as the desktop's diagnostics keep it.
+    pub fn redact(text: &str) -> String {
+        let mut out = String::with_capacity(text.len());
+        let mut rest = text;
+        while let Some(at) = rest.find("http") {
+            let (before, url) = rest.split_at(at);
+            out.push_str(before);
+            let end = url
+                .find(|c: char| c.is_whitespace() || matches!(c, '"' | '\'' | ')' | ','))
+                .unwrap_or(url.len());
+            let (address, after) = url.split_at(end);
+            match address.find('?') {
+                Some(q) => {
+                    out.push_str(&address[..q]);
+                    out.push_str("?…");
+                }
+                None => out.push_str(address),
+            }
+            rest = after;
+        }
+        out.push_str(rest);
+        out
+    }
+
     #[cfg(target_os = "android")]
     pub fn error(text: &str) {
         use std::ffi::{c_char, c_int, CString};
@@ -1217,5 +1244,23 @@ impl Account {
     pub fn sign_out(&self) -> Result<(), EngineError> {
         let mut c = self.client.lock().map_err(failed)?;
         c.sign_out().map_err(failed)
+    }
+}
+
+#[cfg(test)]
+mod log_tests {
+    /// Apple's query (the account number, the session's ids) never reaches the phone's log;
+    /// the address and the rest of the line do.
+    #[test]
+    fn a_logged_address_loses_its_query() {
+        let line = r#"Network(reqwest::Error { url: "https://p42-ckdatabasews.icloud.com/database/1/x?dsid=12345&clientId=ab", source: dns })"#;
+        let out = super::log::redact(line);
+        assert!(!out.contains("12345") && !out.contains("clientId"), "{out}");
+        assert!(
+            out.contains("https://p42-ckdatabasews.icloud.com/database/1/x?…"),
+            "{out}"
+        );
+        assert!(out.ends_with("source: dns })"), "{out}");
+        assert_eq!(super::log::redact("no address here"), "no address here");
     }
 }

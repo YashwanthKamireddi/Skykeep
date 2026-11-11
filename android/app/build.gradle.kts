@@ -18,12 +18,30 @@ android {
     versionCode = 1
     versionName = "1.0"
     testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
+    // The account type and sync authorities, from the app's id, for the XML that can't read it.
+    resValue("string", "account_type", "$applicationId.account")
+    for (s in listOf("reminders", "notes", "photos")) resValue("string", "authority_$s", "$applicationId.$s")
   }
 
   buildTypes {
     release {
-      isMinifyEnabled = false
+      // R8: the release app shrunk and its code optimised; what JNA and UniFFI reach by
+      // reflection is kept (proguard-rules.pro).
+      isMinifyEnabled = true
+      isShrinkResources = true
       proguardFiles(getDefaultProguardFile("proguard-android-optimize.txt"), "proguard-rules.pro")
+    }
+    // The release build exactly (shrunk by R8), signed with the debug key and installed beside
+    // the real app under its own id: what is shipped is run and checked on a phone without
+    // touching the signed-in copy there.
+    create("verify") {
+      initWith(getByName("release"))
+      applicationIdSuffix = ".verify"
+      val id = "io.github.yashwanthkamireddi.skykeep.verify"
+      resValue("string", "account_type", "$id.account")
+      for (s in listOf("reminders", "notes", "photos")) resValue("string", "authority_$s", "$id.$s")
+      signingConfig = signingConfigs.getByName("debug")
+      matchingFallbacks += listOf("release")
     }
   }
   compileOptions {
@@ -33,7 +51,10 @@ android {
   buildFeatures {
     compose = true
     aidl = false
-    buildConfig = false
+    // BuildConfig.APPLICATION_ID names the account and sync authorities, so a second build
+    // (verify) installs beside the real app without clashing.
+    buildConfig = true
+    resValues = true
     shaders = false
   }
 

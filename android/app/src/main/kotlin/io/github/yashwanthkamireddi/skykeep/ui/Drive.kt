@@ -176,7 +176,7 @@ fun DrivePage(engine: Account) {
         runCatching {
           withContext(Dispatchers.IO) {
             // Staged under its own name: the name is what iCloud Drive calls it.
-            val staged = File(context.cacheDir, "drive-upload/${System.nanoTime()}/$name").also { it.parentFile?.mkdirs() }
+            val staged = File(context.cacheDir, "drive-upload/${System.nanoTime()}/${DriveFiles.safeName(name)}").also { it.parentFile?.mkdirs() }
             context.contentResolver.openInputStream(uri)!!.use { input -> staged.outputStream().use { input.copyTo(it) } }
             try { engine.driveWriteBack(folder, staged.path, null) } finally { staged.parentFile?.deleteRecursively() }
           }

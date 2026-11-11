@@ -8,7 +8,7 @@ import android.provider.CalendarContract
 import android.provider.ContactsContract
 
 /** The account type Android files Skykeep's contacts and calendars under. */
-const val ACCOUNT_TYPE = "io.github.yashwanthkamireddi.skykeep.account"
+val ACCOUNT_TYPE = "${io.github.yashwanthkamireddi.skykeep.BuildConfig.APPLICATION_ID}.account"
 
 /** How often Android syncs on its own unless chosen in Settings: hourly, gentle on the battery. */
 const val SYNC_EVERY_SECONDS = 60L * 60

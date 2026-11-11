@@ -68,7 +68,7 @@ object PhotoBackup {
     for (t in newer(context, p.getLong("since", Long.MAX_VALUE))) {
       // The engine takes a file: the bytes copied to the app's cache, under the photo's name.
       val dir = File(context.cacheDir, "backup/${t.key.hashCode().toUInt().toString(16)}").also { it.mkdirs() }
-      val file = File(dir, t.name)
+      val file = File(dir, DriveFiles.safeName(t.name))
       val ok = runCatching {
         context.contentResolver.openInputStream(t.uri)?.use { input -> file.outputStream().use { input.copyTo(it) } }
         engine.photoBackup(t.key, file.path, t.name)

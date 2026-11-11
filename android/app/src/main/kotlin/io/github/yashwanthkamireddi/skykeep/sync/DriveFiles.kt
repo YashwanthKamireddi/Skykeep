@@ -13,7 +13,17 @@ import uniffi.quince_mobile.DItem
  */
 object DriveFiles {
   fun copyOf(context: Context, item: DItem): File =
-    File(context.cacheDir, "drive/${item.id.hashCode().toUInt().toString(16)}/${item.name}").also { it.parentFile?.mkdirs() }
+    File(context.cacheDir, "drive/${item.id.hashCode().toUInt().toString(16)}/${safeName(item.name)}").also { it.parentFile?.mkdirs() }
+
+  /**
+   * A name from outside (Apple's, or another app's) made safe to be one file's name in a folder
+   * of ours: no slash, no NUL, never "." or "..", never empty, at most 200 characters. Without
+   * it a name like ".." or "a/../../x" could reach outside the folder it was meant for.
+   */
+  fun safeName(name: String): String {
+    val clean = name.replace('/', '_').replace('\u0000', '_').trim().take(200)
+    return if (clean.isEmpty() || clean == "." || clean == "..") "file" else clean
+  }
 
   fun mimeOf(item: DItem): String =
     if (item.folder) Document.MIME_TYPE_DIR

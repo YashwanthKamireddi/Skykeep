@@ -241,7 +241,7 @@ private suspend fun share(context: Context, engine: Account, ids: List<String>) 
       val item = runCatching { engine.photoItem(id) }.getOrNull() ?: return@mapNotNull null
       val base = item.filename?.substringBeforeLast('.') ?: "photo"
       val name = if (item.video) "$base.mp4" else "$base.jpg"
-      val file = File(context.cacheDir, "share/${id.hashCode().toUInt().toString(16)}/$name").also { it.parentFile?.mkdirs() }
+      val file = File(context.cacheDir, "share/${id.hashCode().toUInt().toString(16)}/${io.github.yashwanthkamireddi.skykeep.sync.DriveFiles.safeName(name)}").also { it.parentFile?.mkdirs() }
       val size = if (item.video) PSize.VIDEO else PSize.MEDIUM
       if (!file.exists() && !runCatching { engine.photoFile(id, size, file.path) }.getOrDefault(false)) return@mapNotNull null
       FileProvider.getUriForFile(context, "${context.packageName}.share", file)

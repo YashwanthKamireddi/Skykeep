@@ -73,15 +73,20 @@ class ShareActivity : ComponentActivity() {
       contentResolver.query(uri, arrayOf(OpenableColumns.DISPLAY_NAME), null, null, null)
         ?.use { c -> if (c.moveToFirst()) c.getString(0) else null }
     }.getOrNull() ?: uri.lastPathSegment?.substringAfterLast('/')
-    val name = given?.replace('/', '_')?.takeIf { it.isNotBlank() } ?: "Shared file"
+    val name = given?.let { io.github.yashwanthkamireddi.skykeep.sync.DriveFiles.safeName(it) }?.takeIf { it != "file" } ?: "Shared file"
     if ('.' in name.substringAfterLast('/').drop(1)) return name
     val type = contentResolver.getType(uri) ?: intent.type
     val ext = type?.let { android.webkit.MimeTypeMap.getSingleton().getExtensionFromMimeType(it) }
     return if (ext != null) "$name.$ext" else name
   }
 
-  /** A shared item copied under its own name, in a folder of its own (two shares never clash). */
+  /**
+   * A shared item copied under its own name, in a folder of its own (two shares never clash).
+   * Only content addresses are taken, as Android has apps share: a plain file path could point
+   * into Skykeep's own storage and have it upload its private files.
+   */
   private fun copy(uri: Uri): File? = runCatching {
+    if (uri.scheme != android.content.ContentResolver.SCHEME_CONTENT) return null
     val file = File(cacheDir, "send/${UUID.randomUUID()}/${nameOf(uri)}").also { it.parentFile?.mkdirs() }
     contentResolver.openInputStream(uri)!!.use { input -> file.outputStream().use { input.copyTo(it) } }
     file

@@ -1,0 +1,5 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- The licence notices are read by name (Settings › Open-source licences), so resource
+     shrinking must keep them. -->
+<resources xmlns:tools="http://schemas.android.com/tools"
+    tools:keep="@raw/engine_licences,@raw/aboutlibraries,@raw/lucide_license" />

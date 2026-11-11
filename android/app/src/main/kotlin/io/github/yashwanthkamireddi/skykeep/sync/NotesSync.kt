@@ -18,7 +18,7 @@ import android.os.IBinder
  * Notes' place in Android's sync, as Reminders' is (RemindersSync.kt): the notes live in the
  * engine's library (quince-sync, the desktop's own code), and this provider holds nothing.
  */
-const val NOTES_AUTHORITY = "io.github.yashwanthkamireddi.skykeep.notes"
+val NOTES_AUTHORITY = "${io.github.yashwanthkamireddi.skykeep.BuildConfig.APPLICATION_ID}.notes"
 
 /** The authority the sync is listed under. It stores nothing; every call answers empty. */
 class NotesProvider : ContentProvider() {

@@ -20,7 +20,7 @@ import android.os.IBinder
  * Reminders store of its own, so this names one: the reminders live in the engine's library
  * (quince-sync, the desktop's own code), and this provider holds nothing.
  */
-const val REMINDERS_AUTHORITY = "io.github.yashwanthkamireddi.skykeep.reminders"
+val REMINDERS_AUTHORITY = "${io.github.yashwanthkamireddi.skykeep.BuildConfig.APPLICATION_ID}.reminders"
 
 /** The authority the sync is listed under. It stores nothing; every call answers empty. */
 class RemindersProvider : ContentProvider() {
