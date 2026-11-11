@@ -1,5 +1,6 @@
 import { useEffect, useState } from "react";
 import { timeText } from "../lib/when";
+import { composing } from "../lib/keys";
 
 /**
  * A time of day, typed as a person says it — "9", "930", "9:30", "9.30pm", "21:15",
@@ -54,6 +55,7 @@ export function TimeField({
       onFocus={(e) => e.currentTarget.select()}
       onBlur={commit}
       onKeyDown={(e) => {
+        if (composing(e)) return;
         if (e.key === "Enter") {
           e.preventDefault();
           commit();

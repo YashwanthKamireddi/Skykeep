@@ -4,6 +4,7 @@ import { listen } from "@tauri-apps/api/event";
 import { api, intakeApi, CAPTURE } from "../lib/ipc";
 import { Picker, type PickerOption } from "./Picker";
 import "../styles/intake.css";
+import { composing } from "../lib/keys";
 
 type Kind = "reminder" | "note";
 
@@ -129,6 +130,7 @@ export function QuickCapture({ initial }: { initial: Kind }) {
     <main
       className="qc"
       onKeyDown={(e) => {
+        if (composing(e)) return;
         if (e.key === "Escape" && !document.querySelector(".picker-menu")) {
           e.preventDefault();
           close();

@@ -1,6 +1,7 @@
 import { Fragment, memo, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { AppFoot } from "../components/AppFoot";
 import { REFUSED_LINK, outsideHref } from "../lib/links";
+import { composing } from "../lib/keys";
 import { fadeIn, fadeOut } from "../lib/fade";
 import { overlayOpen, useActiveRef } from "../lib/screen";
 import { useModalFocus } from "../lib/focus";
@@ -1760,6 +1761,7 @@ export function RemindersView() {
             }
           }}
           onKeyDown={(e) => {
+            if (composing(e)) return;
             if (e.key === "Enter") e.currentTarget.blur();
             if (e.key === "Escape") {
               e.currentTarget.value = list.title;
@@ -1943,6 +1945,7 @@ export function RemindersView() {
           value={query}
           onChange={setQuery}
           onKeyDown={(e) => {
+            if (composing(e)) return;
             if (e.key === "Escape") setQuery("");
           }}
         />
@@ -2135,6 +2138,7 @@ export function RemindersView() {
                     if (found) void renameSection(found, e.target.value);
                   }}
                   onKeyDown={(e) => {
+                    if (composing(e)) return;
                     if (e.key === "Enter") e.currentTarget.blur();
                     if (e.key === "Escape") {
                       e.currentTarget.value = section.heading ?? "";
@@ -2232,6 +2236,7 @@ export function RemindersView() {
                 void createSection(e.target.value);
               }}
               onKeyDown={(e) => {
+                if (composing(e)) return;
                 if (e.key === "Enter") e.currentTarget.blur();
                 if (e.key === "Escape") {
                   e.currentTarget.value = "";
@@ -2573,6 +2578,7 @@ const ReminderRow = memo(function ReminderRow({
             
             onBlur={(e) => void act.current.rename(reminder, e.target.value)}
             onKeyDown={(e) => {
+              if (composing(e)) return;
               // As in Reminders on a Mac: Return finishes it and starts the next,
               // Tab tucks it under the one above, Shift-Tab brings it back out.
               if (e.key === "Enter") {
@@ -2900,6 +2906,7 @@ function NextReminder({ subtask, onAdd, onCancel }: { subtask: boolean; onAdd: (
             autoFocus
             aria-label="New reminder"
             onKeyDown={(e) => {
+              if (composing(e)) return;
               if (e.key === "Enter") {
                 e.preventDefault();
                 const typed = e.currentTarget.value;
@@ -2973,7 +2980,7 @@ function ListInfo({ list, onClose, onDone }: {
           style={{ color: `color-mix(in srgb, ${shown} 55%, var(--text))` }}
           autoFocus
           onChange={(e) => setTitle(e.target.value)}
-          onKeyDown={(e) => e.key === "Enter" && done()}
+          onKeyDown={(e) => !composing(e) && e.key === "Enter" && done()}
         />
         <div className="rx-info-colours" role="radiogroup" aria-label="Colour">
           {LIST_COLOURS.map((c) => (
@@ -3084,6 +3091,7 @@ function UrlField({ reminder, url, onSave }: { reminder: Reminder; url: string |
           if (typed !== (url ?? "")) onSave(typed || null);
         }}
         onKeyDown={(e) => {
+          if (composing(e)) return;
           if (e.key === "Enter") e.currentTarget.blur();
           if (e.key === "Escape") {
             e.currentTarget.value = url ?? "";
@@ -3174,6 +3182,7 @@ function TagsField({ reminder, tags, onOpen, onAdd, onRemove }: {
             aria-label={`Add a tag to ${reminder.title}`}
             onChange={(e) => setTyped(e.target.value.replace(/\s/g, ""))}
             onKeyDown={(e) => {
+              if (composing(e)) return;
               if ((e.key === "Enter" || e.key === "," || e.key === " ") && typed.replace(/^#+/, "")) {
                 e.preventDefault();
                 onAdd(typed);
@@ -3308,7 +3317,7 @@ function RepeatField({ reminder, rule, onChange }: {
                 value={typed}
                 onChange={(e) => setTyped(e.target.value.replace(/\D/g, "").slice(0, 3))}
                 onBlur={(e) => commitEvery(e.target.value)}
-                onKeyDown={(e) => e.key === "Enter" && e.currentTarget.blur()}
+                onKeyDown={(e) => !composing(e) && e.key === "Enter" && e.currentTarget.blur()}
               />
               <button type="button" className="rx-step" aria-label="More" disabled={interval >= 999} onClick={() => commitEvery(String(interval + 1))}>
                 +

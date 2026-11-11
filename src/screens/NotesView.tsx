@@ -30,6 +30,7 @@ import { Arriving } from "../components/EmptyState";
 import { useArriving, useRevision, useShownRevision } from "../lib/sync";
 import { Picker } from "../components/Picker";
 import { holdTyping } from "../lib/updates";
+import { composing as imeComposing } from "../lib/keys";
 import { keepSame, same } from "../lib/same";
 import { useChosen, useIsChosen, type Chosen } from "../lib/chosen";
 import { useArrivals } from "../lib/arrival";
@@ -1466,6 +1467,7 @@ export function NotesView() {
                   onFocus={(e) => e.currentTarget.select()}
                   onBlur={(e) => void renameFolder(f, e.currentTarget.value)}
                   onKeyDown={(e) => {
+                    if (imeComposing(e)) return;
                     if (e.key === "Enter") e.currentTarget.blur();
                     if (e.key === "Escape") { e.currentTarget.value = f.title; e.currentTarget.blur(); }
                   }}
@@ -1595,6 +1597,7 @@ export function NotesView() {
             searchRef.current?.focus();
           }}
           onKeyDown={(e) => {
+            if (imeComposing(e)) return;
             if (e.key === "Escape") {
               e.preventDefault();
               leaveSearch();

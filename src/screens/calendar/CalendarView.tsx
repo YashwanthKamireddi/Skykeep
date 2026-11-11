@@ -64,6 +64,7 @@ import {
 } from "./model";
 import { dateText, timeText } from "../../lib/when";
 import { reveal, useReveal } from "../../lib/reveal";
+import { composing } from "../../lib/keys";
 
 const ZONE = Intl.DateTimeFormat().resolvedOptions().timeZone || "UTC";
 
@@ -1692,6 +1693,7 @@ export function CalendarView() {
                     goTo(new FormData(e.currentTarget).get("day") as string);
                   }}
                   onKeyDown={(e) => {
+                    if (composing(e)) return;
                     if (e.key === "Escape") {
                       e.stopPropagation();
                       setGoingTo(false);
@@ -1725,6 +1727,7 @@ export function CalendarView() {
               value={query}
               onChange={setQuery}
               onKeyDown={(e) => {
+                if (composing(e)) return;
                 if (e.key === "Escape") setQuery("");
                 // Its default kept from the event's own field, which takes the focus as it
                 // opens: Return there is Save, and it saved and closed the event at once.
@@ -3402,6 +3405,7 @@ function ZoneField({ zone, at, editable, onChange }: { zone: string; at: number;
         onChange={(e) => { setQuery(e.target.value); setLit(0); }}
         onBlur={() => setQuery(null)}
         onKeyDown={(e) => {
+          if (composing(e)) return;
           if (e.key === "Escape") { e.preventDefault(); e.stopPropagation(); setQuery(null); }
           else if (e.key === "ArrowDown") { e.preventDefault(); setLit((i) => Math.min(found.length - 1, i + 1)); }
           else if (e.key === "ArrowUp") { e.preventDefault(); setLit((i) => Math.max(0, i - 1)); }
@@ -3990,6 +3994,7 @@ function CalendarName({ initial, label, onDone, onCancel }: {
         onDone(e.currentTarget.value);
       }}
       onKeyDown={(e) => {
+        if (composing(e)) return;
         if (e.key === "Enter") e.currentTarget.blur();
         if (e.key === "Escape") {
           settled.current = true;
@@ -4039,6 +4044,7 @@ function QuickEvent({ calendar, onAdd, onClose }: {
         onAdd(text, false, at());
       }}
       onKeyDown={(e) => {
+        if (composing(e)) return;
         if (e.key === "Escape") {
           e.stopPropagation();
           onClose();
@@ -4056,6 +4062,7 @@ function QuickEvent({ calendar, onAdd, onClose }: {
         value={text}
         onChange={(e) => setText(e.target.value)}
         onKeyDown={(e) => {
+          if (composing(e)) return;
           if (e.key === "Enter" && (e.shiftKey || e.ctrlKey || e.metaKey)) {
             e.preventDefault();
             onAdd(text, true, at());
@@ -4151,6 +4158,7 @@ function NextcloudForm({ initial, leaving, onDone, onCancel }: {
       aria-label="Set Up Nextcloud Server"
       onSubmit={(e) => { e.preventDefault(); begin(); }}
       onKeyDown={(e) => {
+        if (composing(e)) return;
         if (e.key === "Escape") {
           e.stopPropagation();
           cancel();
@@ -4229,6 +4237,7 @@ function CalDavForm({ onNextcloud, onDone, onCancel }: {
         );
       }}
       onKeyDown={(e) => {
+        if (composing(e)) return;
         if (e.key === "Escape") {
           e.stopPropagation();
           onCancel();
@@ -4285,6 +4294,7 @@ function SubscribeForm({ onDone, onCancel }: {
         );
       }}
       onKeyDown={(e) => {
+        if (composing(e)) return;
         if (e.key === "Escape") {
           e.stopPropagation();
           onCancel();
