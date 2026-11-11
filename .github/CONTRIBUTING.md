@@ -220,7 +220,8 @@ Most work can be done and tested without signing in:
 - **The library:** `quince-core` tests open throwaway databases (`tempfile`), including the
   scale tests in `crates/quince-core/tests/scale.rs`.
 - **The queue:** `quince_sync::queue::drain` is `drain_as` without the owner check, for tests
-  against a pretend Apple (see the tests in `src-tauri/src/outbox.rs`).
+  against a pretend Apple (see the tests in `crates/quince-sync/src/contacts/tests.rs` and
+  `src-tauri/src/outbox.rs`).
 - **Folders:** `crates/quince-vfs/tests/` mount and write through the engine with a stand-in
   remote.
 - **The interface:** every `.uiverify` suite runs against an IPC stub (`.uiverify/stub.mjs`
