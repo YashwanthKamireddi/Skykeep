@@ -298,18 +298,46 @@ impl Account {
         })
     }
 
+    /// A new folder at the top of Notes, made at Apple and read back, as the desktop makes one.
+    pub fn note_folder_create(&self, title: String) -> Result<(), EngineError> {
+        let (http, root, params) = self.notes_context()?;
+        runtime()
+            .block_on(quince_icloud::notes::create_folder_cloudkit(
+                &http, &root, params, &title, None,
+            ))
+            .map_err(failed)?;
+        self.notes_reread()
+    }
+
+    /// A folder renamed at Apple and read back.
+    pub fn note_folder_rename(&self, guid: String, title: String) -> Result<(), EngineError> {
+        let (http, root, params) = self.notes_context()?;
+        runtime()
+            .block_on(quince_icloud::notes::rename_folder_cloudkit(
+                &http, &root, params, &guid, &title,
+            ))
+            .map_err(failed)?;
+        self.notes_reread()
+    }
+
+    /// A folder deleted at Apple: its notes, and those of every folder inside it, to Recently
+    /// Deleted (as Notes does it), then read back.
+    pub fn note_folder_delete(&self, guid: String) -> Result<(), EngineError> {
+        let (http, root, params) = self.notes_context()?;
+        let (folders, notes) = self.with_notes(|l| Ok((l.note_folders()?, l.notes_in(None)?)))?;
+        runtime()
+            .block_on(quince_icloud::notes::delete_folder_cloudkit(
+                &http, &root, params, &folders, &notes, &guid,
+            ))
+            .map_err(failed)?;
+        self.notes_reread()
+    }
+
     /// The changes made here sent to Apple, oldest first, then Apple's Notes read and laid
     /// under whatever is still on its way, as the desktop does it.
     pub fn notes_sync(&self) -> Result<NSync, EngineError> {
         let (lock, account) = self.library()?;
-        let (http, root, params) = {
-            let c = self.client.lock().map_err(failed)?;
-            let root = c
-                .session()
-                .service_url("ckdatabasews")
-                .ok_or_else(|| failed("Apple hasn't offered Notes for this account."))?;
-            (c.http().clone(), root, c.service_params())
-        };
+        let (http, root, params) = self.notes_context()?;
         runtime().block_on(async {
             let report = quince_sync::queue::drain_as(&lock, shared::NOTES, &PASS, &account, |p| {
                 shared::send(&lock, &http, &root, params.clone(), p)
@@ -337,6 +365,32 @@ impl Account {
                 refused: report.refused.into_iter().map(|(_, why)| why).collect(),
             })
         })
+    }
+}
+
+/// What a call to Apple's Notes needs: the client, CloudKit's address, the session's parameters.
+type Apple = (reqwest::Client, String, Vec<(String, String)>);
+
+impl Account {
+    fn notes_context(&self) -> Result<Apple, EngineError> {
+        let c = self.client.lock().map_err(failed)?;
+        let root = c
+            .session()
+            .service_url("ckdatabasews")
+            .ok_or_else(|| failed("Apple hasn't offered Notes for this account."))?;
+        Ok((c.http().clone(), root, c.service_params()))
+    }
+
+    /// Apple's Notes read again after a folder change that reached Apple. Failing, it is not the
+    /// change failing (it is made): the next sync brings the screen up to date.
+    fn notes_reread(&self) -> Result<(), EngineError> {
+        let (lock, _) = self.library()?;
+        let (http, root, params) = self.notes_context()?;
+        let _ = runtime().block_on(async {
+            let _pass = PASS.lock().await;
+            shared::refresh(&lock, &http, &root, params).await
+        });
+        Ok(())
     }
 }
 

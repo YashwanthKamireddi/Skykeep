@@ -329,15 +329,18 @@ private fun UploadingRow(name: String) {
 
 /** A name asked for: a folder's, or a new name for an item. Names Apple can't hold are refused here. */
 @Composable
-private fun NameDialog(title: String, initial: String, onDismiss: () -> Unit, onDone: (String) -> Unit) {
+internal fun NameDialog(title: String, initial: String, onDismiss: () -> Unit, onDone: (String) -> Unit) {
   var name by remember { mutableStateOf(initial) }
   val clean = name.trim()
+  // The keyboard goes with the dialog, whichever way it closes.
+  val keyboard = androidx.compose.ui.platform.LocalSoftwareKeyboardController.current
+  val close = { keyboard?.hide(); onDismiss() }
   val ok = clean.isNotEmpty() && '/' !in clean && clean != "." && clean != ".."
   AlertDialog(
-    onDismissRequest = onDismiss,
+    onDismissRequest = close,
     title = { Text(title) },
     text = { OutlinedTextField(name, { name = it }, singleLine = true, label = { Text("Name") }, isError = name.isNotEmpty() && !ok) },
-    confirmButton = { TextButton(onClick = { onDone(clean) }, enabled = ok) { Text("Done") } },
-    dismissButton = { TextButton(onClick = onDismiss) { Text("Cancel") } },
+    confirmButton = { TextButton(onClick = { keyboard?.hide(); onDone(clean) }, enabled = ok) { Text("Done") } },
+    dismissButton = { TextButton(onClick = close) { Text("Cancel") } },
   )
 }

@@ -446,8 +446,9 @@ private fun ListInfo(list: RList?, onDismiss: () -> Unit, onDone: (String, Strin
   var title by remember { mutableStateOf(list?.title ?: "") }
   var colour by remember { mutableStateOf<String?>(null) }
   val current = list?.colour?.let { colourOf(it) }
+  val keyboard = androidx.compose.ui.platform.LocalSoftwareKeyboardController.current
   AlertDialog(
-    onDismissRequest = onDismiss,
+    onDismissRequest = { keyboard?.hide(); onDismiss() },
     title = { Text(if (list == null) "New List" else "List Info") },
     text = {
       Column(verticalArrangement = Arrangement.spacedBy(16.dp)) {
@@ -469,8 +470,8 @@ private fun ListInfo(list: RList?, onDismiss: () -> Unit, onDone: (String, Strin
         }
       }
     },
-    confirmButton = { TextButton(onClick = { onDone(title.trim(), colour) }, enabled = title.isNotBlank()) { Text("Done") } },
-    dismissButton = { TextButton(onClick = onDismiss) { Text("Cancel") } },
+    confirmButton = { TextButton(onClick = { keyboard?.hide(); onDone(title.trim(), colour) }, enabled = title.isNotBlank()) { Text("Done") } },
+    dismissButton = { TextButton(onClick = { keyboard?.hide(); onDismiss() }) { Text("Cancel") } },
   )
 }
 

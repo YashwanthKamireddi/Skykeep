@@ -6,6 +6,9 @@ import io.github.yashwanthkamireddi.skykeep.ui.theme.Palette
 import android.content.ContentResolver
 import android.os.Bundle
 import androidx.activity.compose.BackHandler
+import androidx.compose.material3.DropdownMenuItem
+import androidx.compose.material3.DropdownMenu
+import androidx.compose.material3.AlertDialog
 import androidx.compose.ui.semantics.Role
 import androidx.compose.foundation.selection.toggleable
 import androidx.compose.ui.text.style.TextAlign
@@ -137,6 +140,9 @@ fun NotesPage(engine: Account) {
   var query by remember { mutableStateOf("") }
   var problem by remember { mutableStateOf<String?>(null) }
   var generation by remember { mutableIntStateOf(0) }
+  var newFolder by remember { mutableStateOf(false) }
+  var renaming by remember { mutableStateOf<NFolder?>(null) }
+  var dropping by remember { mutableStateOf<NFolder?>(null) }
 
   fun reason(t: Throwable) = (t as? uniffi.quince_mobile.EngineException.Failed)?.reason ?: "Notes couldn't be read."
 
@@ -155,6 +161,12 @@ fun NotesPage(engine: Account) {
     }.onSuccess { (f, n) -> folders = f; notes = n; problem = null }.onFailure { problem = reason(it) }
   }
 
+  /** A folder made, renamed or deleted at Apple, then everything read again. */
+  fun folderChange(what: String, write: () -> Unit) = scope.launch {
+    runCatching { withContext(Dispatchers.IO) { write() } }.onFailure { problem = (it as? uniffi.quince_mobile.EngineException.Failed)?.reason ?: "$what didn't reach iCloud." }
+    generation++
+  }
+
   LaunchedEffect(Unit) { syncNotes(context) }
   DisposableEffect(Unit) {
     val stop = Outcome.watch(context) { generation++ }
@@ -167,7 +179,7 @@ fun NotesPage(engine: Account) {
   Column(Modifier.fillMaxSize()) {
     problem?.let { Text(it, color = MaterialTheme.colorScheme.error, modifier = Modifier.padding(20.dp, 12.dp)) }
     when (val p = place) {
-      is NPlace.Open -> NoteScreen(engine, p.guid, p.from.guid, onBack = { place = p.from; generation++ }, onProblem = { problem = it })
+      is NPlace.Open -> NoteScreen(engine, p.guid, p.from.guid, folders, onBack = { place = p.from; generation++ }, onProblem = { problem = it })
       else -> {
         val folder = p as? NPlace.Folder
         val trash = folder != null && folders.firstOrNull { it.guid == folder.guid }?.trash == true
@@ -181,6 +193,18 @@ fun NotesPage(engine: Account) {
               Icon(painterResource(R.drawable.ic_edit), contentDescription = "New Note", tint = MaterialTheme.colorScheme.primary)
             }
           }
+          // A folder of the person's own (not All iCloud, Notes' own, or Recently Deleted): Rename, Delete.
+          val own = folders.firstOrNull { it.guid == folder?.guid && !it.trash }
+          if (own != null) {
+            var menu by remember { mutableStateOf(false) }
+            Box {
+              IconButton(onClick = { menu = true }) { Icon(painterResource(R.drawable.ic_more), contentDescription = "Folder options") }
+              DropdownMenu(expanded = menu, onDismissRequest = { menu = false }) {
+                DropdownMenuItem(text = { Text("Rename Folder") }, onClick = { menu = false; renaming = own })
+                DropdownMenuItem(text = { Text("Delete Folder", color = MaterialTheme.colorScheme.error) }, onClick = { menu = false; dropping = own })
+              }
+            }
+          }
         }
         Column(Modifier.padding(horizontal = 20.dp)) {
           Text(folder?.title ?: "Notes", style = MaterialTheme.typography.headlineLarge, maxLines = 1, overflow = TextOverflow.Ellipsis)
@@ -190,18 +214,45 @@ fun NotesPage(engine: Account) {
         }
         SearchPill(query, { query = it }, Modifier.padding(horizontal = 16.dp, vertical = 12.dp), cursor = MaterialTheme.colorScheme.primary)
         if (folder == null && query.isBlank()) {
-          FolderList(folders) { place = it }
+          FolderList(folders, onNewFolder = { newFolder = true }) { place = it }
         } else {
           NoteList(notes, grouped = query.isBlank()) { n -> place = NPlace.Open(n.guid, folder ?: NPlace.Folder(null, "All iCloud")) }
         }
       }
     }
   }
+  if (newFolder) NameDialog("New Folder", "", onDismiss = { newFolder = false }) { name ->
+    newFolder = false
+    folderChange("Making $name") { engine.noteFolderCreate(name) }
+  }
+  renaming?.let { f ->
+    NameDialog("Rename Folder", f.title, onDismiss = { renaming = null }) { name ->
+      renaming = null
+      if (name != f.title) {
+        place = NPlace.Folder(f.guid, name)
+        folderChange("Renaming ${f.title}") { engine.noteFolderRename(f.guid, name) }
+      }
+    }
+  }
+  dropping?.let { f ->
+    AlertDialog(
+      onDismissRequest = { dropping = null },
+      title = { Text("Delete “${f.title}”?") },
+      text = { Text("Its notes move to Recently Deleted on all your devices, where they stay for 30 days.") },
+      confirmButton = {
+        TextButton(onClick = {
+          dropping = null; place = NPlace.Folders
+          folderChange("Deleting ${f.title}") { engine.noteFolderDelete(f.guid) }
+        }) { Text("Delete", color = MaterialTheme.colorScheme.error) }
+      },
+      dismissButton = { TextButton(onClick = { dropping = null }) { Text("Cancel") } },
+    )
+  }
 }
 
 /** The folders, as the desktop's sidebar lists them: All iCloud, each folder, Recently Deleted. */
 @Composable
-private fun FolderList(folders: List<NFolder>, open: (NPlace.Folder) -> Unit) {
+private fun FolderList(folders: List<NFolder>, onNewFolder: () -> Unit, open: (NPlace.Folder) -> Unit) {
   val all = folders.filter { !it.trash }.sumOf { it.count.toInt() }
   data class Row(val title: String, val count: Int, val icon: Int, val place: NPlace.Folder)
   val rows = buildList {
@@ -224,6 +275,13 @@ private fun FolderList(folders: List<NFolder>, open: (NPlace.Folder) -> Unit) {
           Spacer(Modifier.width(6.dp))
           Icon(painterResource(R.drawable.ic_chevron_right), contentDescription = null, tint = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.size(18.dp))
         }
+      }
+    }
+    item {
+      TextButton(onClick = onNewFolder, modifier = Modifier.padding(top = 8.dp)) {
+        Icon(painterResource(R.drawable.ic_folder_plus), contentDescription = null, modifier = Modifier.size(18.dp))
+        Spacer(Modifier.width(8.dp))
+        Text("New Folder")
       }
     }
   }
@@ -305,7 +363,8 @@ private fun emphasisColour(e: UInt?): Color? = when (e?.toInt()) {
  * to the new text, so nothing the phone doesn't draw is lost. Locked notes are not opened.
  */
 @Composable
-private fun NoteScreen(engine: Account, opened: String?, folderGuid: String?, onBack: () -> Unit, onProblem: (String) -> Unit) {
+private fun NoteScreen(engine: Account, opened: String?, folderGuid: String?, folders: List<NFolder>, onBack: () -> Unit, onProblem: (String) -> Unit) {
+  var moving by remember { mutableStateOf(false) }
   val context = LocalContext.current
   val scope = rememberCoroutineScope()
   var guid by remember { mutableStateOf(opened) }
@@ -362,6 +421,9 @@ private fun NoteScreen(engine: Account, opened: String?, folderGuid: String?, on
           IconButton(onClick = { scope.launch { withContext(Dispatchers.IO) { runCatching { engine.notePin(g, !d.pinned) } }; syncNotes(context); load() } }) {
             Icon(painterResource(R.drawable.ic_pin), contentDescription = if (d.pinned) "Unpin" else "Pin", tint = if (d.pinned) accent else MaterialTheme.colorScheme.onSurfaceVariant)
           }
+          IconButton(onClick = { moving = true }) {
+            Icon(painterResource(R.drawable.ic_folder), contentDescription = "Move to Folder", tint = MaterialTheme.colorScheme.onSurfaceVariant)
+          }
         }
         if (trashed) {
           TextButton(onClick = { scope.launch { withContext(Dispatchers.IO) { runCatching { engine.noteDelete(g) } }; syncNotes(context); onBack() } }) {
@@ -410,6 +472,37 @@ private fun NoteScreen(engine: Account, opened: String?, folderGuid: String?, on
         }
       }
     }
+  }
+  if (moving) {
+    val g = guid
+    AlertDialog(
+      onDismissRequest = { moving = false },
+      title = { Text("Move to Folder") },
+      text = {
+        Column {
+          // Notes' own folder (no folder) first, then the person's; Recently Deleted is not a place to move to.
+          val choices = listOf<Pair<String?, String>>(null to "Notes") + folders.filter { !it.trash }.map { it.guid to it.title }
+          for ((to, title) in choices) {
+            Row(
+              Modifier.fillMaxWidth().clickable {
+                moving = false
+                if (g != null && to != d.folderGuid) scope.launch {
+                  runCatching { withContext(Dispatchers.IO) { engine.noteMove(g, to) } }.onFailure { onProblem(reason(it)) }
+                  syncNotes(context); load()
+                }
+              }.padding(vertical = 12.dp),
+              verticalAlignment = Alignment.CenterVertically,
+            ) {
+              Icon(painterResource(R.drawable.ic_folder), contentDescription = null, tint = MaterialTheme.colorScheme.primary, modifier = Modifier.size(20.dp))
+              Spacer(Modifier.width(14.dp))
+              Text(title, style = MaterialTheme.typography.bodyLarge, modifier = Modifier.weight(1f))
+              if (to == d.folderGuid) Icon(painterResource(R.drawable.ic_check), contentDescription = "Here now", tint = MaterialTheme.colorScheme.primary, modifier = Modifier.size(18.dp))
+            }
+          }
+        }
+      },
+      confirmButton = { TextButton(onClick = { moving = false }) { Text("Cancel") } },
+    )
   }
 }
 
