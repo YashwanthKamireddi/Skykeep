@@ -405,6 +405,17 @@ fn offers_security_key(v: &Value) -> bool {
         })
 }
 
+/// Where an app goes when it opens with what it kept ([`Client::reopen`]).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Reopen {
+    /// Signed in (or offline with a session kept): the library.
+    Library,
+    /// Apple wants a code before it trusts this device again.
+    Code,
+    /// Nothing kept, or Apple refused what was: sign in.
+    SignIn,
+}
+
 /// What `sign_in` decided.
 #[derive(Debug, PartialEq, Eq)]
 pub enum SignInOutcome {
@@ -966,6 +977,31 @@ impl Client {
     }
 
     // ---- the restart test -----------------------------------------------------------
+
+    /// Where an app opening with what it kept should go: the library, Apple's code screen, or
+    /// sign-in. Offline (or Apple busy, or asking to wait) with a session kept is the library,
+    /// as a local-first app opens: the next refresh signs back in once Apple answers. Only
+    /// Apple refusing the session, or nothing kept, is sign-in. The desktop and the phone both
+    /// open through this.
+    pub async fn reopen(&mut self) -> Result<Reopen> {
+        let resumed = match self.resume().await {
+            Ok(resumed) => resumed,
+            Err(
+                Error::Network(_)
+                | Error::Unavailable(_)
+                | Error::RateLimited
+                | Error::CoolingDown { .. },
+            ) if self.has_stored_session() => true,
+            Err(e) => return Err(e),
+        };
+        Ok(if resumed {
+            Reopen::Library
+        } else if self.awaiting_code() {
+            Reopen::Code
+        } else {
+            Reopen::SignIn
+        })
+    }
 
     /// Try to resume a stored session without a password.
     ///

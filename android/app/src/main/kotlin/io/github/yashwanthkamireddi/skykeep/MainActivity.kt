@@ -26,6 +26,7 @@ import io.github.yashwanthkamireddi.skykeep.ui.theme.SkykeepTheme
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import uniffi.quince_mobile.Account
+import uniffi.quince_mobile.Reopened
 
 /** Where the app is: starting; first-run welcome; signing in; setting up the phone; in use. */
 private enum class Stage { Starting, Welcome, SignIn, Setup, Main }
@@ -47,16 +48,24 @@ class MainActivity : ComponentActivity() {
           var stage by remember { mutableStateOf(Stage.Starting) }
           var engine by remember { mutableStateOf<Account?>(null) }
           LaunchedEffect(Unit) {
-            val (a, resumed) = withContext(Dispatchers.IO) {
+            // From the phone alone: a kept session opens the library at once, offline included;
+            // Apple is asked behind it, and only Apple refusing the session (or Apple wanting a
+            // code) brings sign-in up. The screen never waits on the network to draw.
+            val (a, kept) = withContext(Dispatchers.IO) {
               val a = Engine.account(applicationContext)
-              a to runCatching { a.resume() }.getOrDefault(false)
+              a to a.hasSession()
             }
             engine = a
             stage = when {
-              !resumed -> if (welcomed(applicationContext)) Stage.SignIn else Stage.Welcome
+              !kept -> if (welcomed(applicationContext)) Stage.SignIn else Stage.Welcome
               // Signed in, but the phone not set up yet (no account here, or no access).
               phoneAccount(applicationContext) == null || !allowed(applicationContext) -> Stage.Setup
               else -> Stage.Main
+            }
+            if (kept) {
+              val where = withContext(Dispatchers.IO) { runCatching { a.reopen() }.getOrNull() }
+              // A failure to ask (not Apple's answer) leaves the library open: the next sync tries again.
+              if (where == Reopened.SIGN_IN || where == Reopened.CODE) stage = Stage.SignIn
             }
             // An account made before something synced (Reminders, 10 Nov) is given it now.
             phoneAccount(applicationContext)?.let { existing ->

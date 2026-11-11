@@ -68,6 +68,14 @@ fn runtime() -> &'static tokio::runtime::Runtime {
 }
 
 /// The engine's version, the same as the desktop app's.
+/// Where the app goes when it opens.
+#[derive(uniffi::Enum)]
+pub enum Reopened {
+    Library,
+    Code,
+    SignIn,
+}
+
 #[uniffi::export]
 pub fn engine_version() -> String {
     env!("CARGO_PKG_VERSION").to_string()
@@ -575,6 +583,23 @@ impl Account {
     }
 
     /// Signs in again with the session kept from last time; false when there is none to use.
+    /// Whether a session is kept on the phone: answered from the phone alone, so the app can
+    /// open the library at once and let [`Account::reopen`] check with Apple behind it.
+    pub fn has_session(&self) -> bool {
+        self.client.lock().is_ok_and(|c| c.has_stored_session())
+    }
+
+    /// Where the app goes, as the desktop decides it: offline with a session kept is the
+    /// library; only Apple refusing the session, or nothing kept, is sign-in.
+    pub fn reopen(&self) -> Result<Reopened, EngineError> {
+        let mut c = self.client.lock().map_err(failed)?;
+        Ok(match runtime().block_on(c.reopen()).map_err(failed)? {
+            quince_auth::Reopen::Library => Reopened::Library,
+            quince_auth::Reopen::Code => Reopened::Code,
+            quince_auth::Reopen::SignIn => Reopened::SignIn,
+        })
+    }
+
     pub fn resume(&self) -> Result<bool, EngineError> {
         let mut c = self.client.lock().map_err(failed)?;
         runtime().block_on(c.resume()).map_err(failed)

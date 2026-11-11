@@ -1298,27 +1298,11 @@ async fn auth_resume(app: tauri::AppHandle, auth: State<'_, Auth>) -> UiResult<&
 }
 
 async fn resume_session(client: &mut Client) -> UiResult<&'static str> {
-    let resumed = match client.resume().await {
-        Ok(resumed) => resumed,
-        // Offline with a session kept: the library opens on what it holds, as a local-first
-        // app should, and the next refresh — on the timer, or when the network is back —
-        // signs back in. Apple busy, or asking to wait, is the same: not now, not signed out.
-        Err(
-            quince_auth::Error::Network(_)
-            | quince_auth::Error::Unavailable(_)
-            | quince_auth::Error::RateLimited
-            | quince_auth::Error::CoolingDown { .. },
-        ) if client.has_stored_session() => true,
-        Err(e) => return Err(e.to_string()),
-    };
-    // Back in; or back in but for the code Apple wants before trusting this computer again;
-    // or out, with nothing kept to sign in with.
-    Ok(if resumed {
-        "library"
-    } else if client.awaiting_code() {
-        "code"
-    } else {
-        "signin"
+    // Offline with a session kept opens the library (quince_auth::Client::reopen).
+    Ok(match client.reopen().await.map_err(|e| e.to_string())? {
+        quince_auth::Reopen::Library => "library",
+        quince_auth::Reopen::Code => "code",
+        quince_auth::Reopen::SignIn => "signin",
     })
 }
 
@@ -3521,6 +3505,13 @@ async fn reminder_list_delete(
     let (http, root, params) = cloudkit_context(&auth).await?;
     quince_icloud::reminders::delete_list_cloudkit(&http, &root, params.clone(), &list_guid)
         .await
+        .map_err(|e| e.to_string())?;
+    // Gone at once: Apple's change feed can lag the delete it just took, and a re-read alone
+    // left the list in the sidebar until the next pass.
+    data.0
+        .lock()
+        .await
+        .forget_reminder_list(&list_guid)
         .map_err(|e| e.to_string())?;
     settle(resync_reminders(&http, &root, params, &data).await)
 }
