@@ -32,6 +32,7 @@ export const engine = {
       ...(engineName === "gtk" ? { headless: false } : {}),
       ...(engineName === "msedge" ? { channel: "msedge" } : {}),
     });
+    englishUnlessAsked(browser);
     if (webview2) return asWebView2(browser);
     if (engineName !== "gtk") return browser;
     const newContext = browser.newContext.bind(browser);
@@ -49,6 +50,17 @@ export const engine = {
     return browser;
   },
 };
+
+/**
+ * Every context in American English unless a suite asks for another locale, as on CI. A browser
+ * otherwise takes this machine's language, and on a German desktop the interface (which follows
+ * the system language) would answer in German to a suite that reads its English words.
+ */
+function englishUnlessAsked(browser) {
+  const newContext = browser.newContext.bind(browser);
+  browser.newContext = async (opts = {}) => newContext({ locale: "en-US", ...opts });
+  browser.newPage = async (opts = {}) => (await browser.newContext(opts)).newPage();
+}
 
 /** Run as Skykeep's window on Windows (WEBVIEW2=1, Chromium only). */
 const webview2 = Boolean(process.env.WEBVIEW2) && base === chromium;

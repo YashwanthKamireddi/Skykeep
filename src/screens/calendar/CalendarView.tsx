@@ -1,6 +1,6 @@
 import { toast, dismissToast, useErrorToast } from "../../components/Toast";
 import { AppFoot } from "../../components/AppFoot";
-import { REFUSED_LINK, outsideHref } from "../../lib/links";
+import { refusedLink, outsideHref } from "../../lib/links";
 import { follow } from "../../lib/follow";
 import { ConfirmSheet, useConfirm } from "../../components/Confirm";
 import { EmptyState } from "../../components/EmptyState";
@@ -3660,7 +3660,7 @@ function EventPopover({
         {draft.url && (outsideHref(draft.url) ? (
           <a className="cx-info-url" href={outsideHref(draft.url)!} target="_blank" rel="noreferrer">{draft.url}</a>
         ) : (
-          <p className="cx-info-url" title={REFUSED_LINK}>{draft.url}</p>
+          <p className="cx-info-url" title={refusedLink()}>{draft.url}</p>
         ))}
         <Guests guid={draft.guid} />
         {draft.notes && <p className="cx-info-notes">{draft.notes}</p>}

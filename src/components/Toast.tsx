@@ -3,6 +3,7 @@ import { CircleCheck, TriangleAlert, X } from "lucide-react";
 import { fadeIn, fadeOut } from "../lib/fade";
 import { useScreenActive } from "../lib/screen";
 import { api, messageOf } from "../lib/ipc";
+import { t as translate } from "../lib/i18n";
 
 /**
  * Everything the window says in passing — a file saved, a change undone, a change Apple turned
@@ -173,7 +174,7 @@ function ToastCard({ toast: t }: { toast: Toast }) {
       ref={card}
       className={`toast is-${t.tone ?? "info"}`}
       role={t.tone === "error" ? "alert" : "group"}
-      aria-label={t.tone === "error" ? undefined : "Notice"}
+      aria-label={t.tone === "error" ? undefined : translate("common.notice")}
       onPointerEnter={hold(true)}
       onPointerLeave={hold(false)}
       onFocus={hold(true)}
@@ -224,7 +225,7 @@ export function toastSaved(path: string, count = 1) {
     message: count === 1 ? `Saved to ${folderOf(path)}` : `${count} saved to ${folderOf(path)}`,
     tone: "done",
     action: {
-      label: "Show in Folder",
+      label: translate("common.showInFolder"),
       run: () => void api.downloadReveal(path).catch((e) => toast({ message: messageOf(e), tone: "error" })),
     },
   });

@@ -4,17 +4,18 @@ import { Check, Link } from "lucide-react";
 import { inMenu, Portal } from "../../components/Portal";
 import type { EditorStatus } from "./NoteEditor";
 import { STYLE } from "./rich";
+import { useI18n, type Key } from "../../lib/i18n";
 
 /** The styles, in icloud.com's order, each drawn the way it sets a line. */
-const STYLES: { style: number | null; label: string; className: string; mark?: string }[] = [
-  { style: STYLE.title, label: "Title", className: "fp-title" },
-  { style: STYLE.heading, label: "Heading", className: "fp-heading" },
-  { style: STYLE.subheading, label: "Subheading", className: "fp-subheading" },
-  { style: null, label: "Body", className: "fp-body" },
-  { style: STYLE.mono, label: "Monospaced", className: "fp-mono" },
-  { style: STYLE.bulleted, label: "Bulleted List", className: "fp-list", mark: "•" },
-  { style: STYLE.dashed, label: "Dashed List", className: "fp-list", mark: "-" },
-  { style: STYLE.numbered, label: "Numbered List", className: "fp-list", mark: "1." },
+const STYLES: { style: number | null; label: Key; className: string; mark?: string }[] = [
+  { style: STYLE.title, label: "notes.styleTitle", className: "fp-title" },
+  { style: STYLE.heading, label: "notes.styleHeading", className: "fp-heading" },
+  { style: STYLE.subheading, label: "notes.styleSubheading", className: "fp-subheading" },
+  { style: null, label: "notes.styleBody", className: "fp-body" },
+  { style: STYLE.mono, label: "notes.styleMono", className: "fp-mono" },
+  { style: STYLE.bulleted, label: "notes.styleBulleted", className: "fp-list", mark: "•" },
+  { style: STYLE.dashed, label: "notes.styleDashed", className: "fp-list", mark: "-" },
+  { style: STYLE.numbered, label: "notes.styleNumbered", className: "fp-list", mark: "1." },
 ];
 
 /** The phone's line tools, drawn as Notes draws them: lines of text with a triangle for
@@ -38,18 +39,18 @@ const GLYPHS = {
 
 /** Notes' text colours, in the phone's order; the number is what Apple stores. */
 const COLOURS = [
-  { colour: 1, label: "Purple" },
-  { colour: 2, label: "Pink" },
-  { colour: 3, label: "Orange" },
-  { colour: 4, label: "Mint" },
-  { colour: 5, label: "Blue" },
+  { colour: 1, label: "notes.purple" },
+  { colour: 2, label: "notes.pink" },
+  { colour: 3, label: "notes.orange" },
+  { colour: 4, label: "notes.mint" },
+  { colour: 5, label: "notes.blue" },
 ] as const;
 
 const MARKS = [
-  { mark: "bold", label: "Bold", glyph: <b>B</b> },
-  { mark: "italic", label: "Italic", glyph: <i>I</i> },
-  { mark: "underline", label: "Underline", glyph: <u>U</u> },
-  { mark: "strike", label: "Strikethrough", glyph: <s>S</s> },
+  { mark: "bold", label: "notes.bold", glyph: <b>B</b> },
+  { mark: "italic", label: "notes.italic", glyph: <i>I</i> },
+  { mark: "underline", label: "notes.underline", glyph: <u>U</u> },
+  { mark: "strike", label: "notes.strikethrough", glyph: <s>S</s> },
 ] as const;
 
 /**
@@ -82,6 +83,7 @@ export function FormatPanel({
   /** Add Link, or edit the link the cursor is in. */
   onLink: () => void;
 }) {
+  const { t } = useI18n();
   const box = useRef<HTMLDivElement | null>(null);
   const [pos, setPos] = useState({ left: at.x, top: at.y });
   useLayoutEffect(() => {
@@ -119,20 +121,20 @@ export function FormatPanel({
         ref={box}
         className="format-panel"
         role="dialog"
-        aria-label="Format"
+        aria-label={t("notes.format")}
         style={{ left: pos.left, top: pos.top }}
         // Clicks here never take focus from the note.
         onMouseDown={(e) => e.preventDefault()}
       >
-        <div className="fp-marks" role="group" aria-label="Text style">
+        <div className="fp-marks" role="group" aria-label={t("notes.textStyle")}>
           {MARKS.map(({ mark, label, glyph }) => (
             <button
               key={mark}
               type="button"
               className="fp-mark"
-              aria-label={label}
+              aria-label={t(label)}
               aria-pressed={Boolean(status?.[mark])}
-              title={label}
+              title={t(label)}
               onClick={() => onMark(mark)}
             >
               {glyph}
@@ -141,9 +143,9 @@ export function FormatPanel({
           <button
             type="button"
             className="fp-mark fp-link"
-            aria-label={status?.link ? "Edit Link" : "Add Link"}
+            aria-label={status?.link ? t("notes.editLink") : t("notes.addLink")}
             aria-pressed={Boolean(status?.link)}
-            title={`${status?.link ? "Edit Link" : "Add Link"} (Ctrl+K)`}
+            title={`${status?.link ? t("notes.editLink") : t("notes.addLink")} (Ctrl+K)`}
             onClick={() => {
               onClose();
               onLink();
@@ -152,27 +154,27 @@ export function FormatPanel({
             <Link size={15} strokeWidth={2} aria-hidden="true" />
           </button>
         </div>
-        <div className="fp-marks fp-lines" role="group" aria-label="Line">
+        <div className="fp-marks fp-lines" role="group" aria-label={t("notes.line")}>
           {[
-            { label: "Decrease Indent", glyph: GLYPHS.outdent, run: () => onIndent(-1) },
-            { label: "Increase Indent", glyph: GLYPHS.indent, run: () => onIndent(1) },
-            { label: "Move Line Up", glyph: GLYPHS.up, run: () => onMove(-1) },
-            { label: "Move Line Down", glyph: GLYPHS.down, run: () => onMove(1) },
-            { label: "Block Quote", glyph: GLYPHS.quote, run: onQuote, on: Boolean(status?.quote) },
-            { label: "Bulleted List", glyph: GLYPHS.list, run: () => onStyle(status?.style === STYLE.bulleted ? null : STYLE.bulleted), on: status?.style === STYLE.bulleted },
+            { label: t("notes.decreaseIndent"), glyph: GLYPHS.outdent, run: () => onIndent(-1) },
+            { label: t("notes.increaseIndent"), glyph: GLYPHS.indent, run: () => onIndent(1) },
+            { label: t("notes.moveLineUp"), glyph: GLYPHS.up, run: () => onMove(-1) },
+            { label: t("notes.moveLineDown"), glyph: GLYPHS.down, run: () => onMove(1) },
+            { label: t("notes.blockQuote"), glyph: GLYPHS.quote, run: onQuote, on: Boolean(status?.quote) },
+            { label: t("notes.styleBulleted"), glyph: GLYPHS.list, run: () => onStyle(status?.style === STYLE.bulleted ? null : STYLE.bulleted), on: status?.style === STYLE.bulleted },
           ].map(({ label, glyph, run, on }) => (
             <button key={label} type="button" className="fp-mark" aria-label={label} title={label} aria-pressed={on} onClick={run}>
               {glyph}
             </button>
           ))}
         </div>
-        <div className="fp-colours" role="radiogroup" aria-label="Text colour">
+        <div className="fp-colours" role="radiogroup" aria-label={t("notes.textColour")}>
           <button
             type="button"
             role="radio"
             aria-checked={!status?.colour}
-            aria-label="No colour"
-            title="None"
+            aria-label={t("notes.noColour")}
+            title={t("common.none")}
             className="fp-colour is-none"
             onClick={() => onColour(null)}
           />
@@ -182,15 +184,15 @@ export function FormatPanel({
               type="button"
               role="radio"
               aria-checked={status?.colour === colour}
-              aria-label={label}
-              title={label}
+              aria-label={t(label)}
+              title={t(label)}
               className="fp-colour"
               style={{ "--swatch": `var(--note-c${colour})` } as React.CSSProperties}
               onClick={() => onColour(colour)}
             />
           ))}
         </div>
-        <div className="fp-styles" role="menu" aria-label="Paragraph style">
+        <div className="fp-styles" role="menu" aria-label={t("notes.paragraphStyle")}>
           {STYLES.map(({ style, label, className, mark }) => (
             <button
               key={label}
@@ -205,7 +207,7 @@ export function FormatPanel({
             >
               <span className="fp-check" aria-hidden="true">{isCurrent(style) && <Check size={15} strokeWidth={2} />}</span>
               {mark && <span className="fp-list-mark" aria-hidden="true">{mark}</span>}
-              <span>{label}</span>
+              <span>{t(label)}</span>
             </button>
           ))}
         </div>

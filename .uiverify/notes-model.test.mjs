@@ -1,7 +1,11 @@
 // The rules Notes' list and editor follow, checked directly.
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { groupNotes, listDate, splitTitle, joinTitle } from "../src/screens/notes/model.ts";
+import { groupNotes, listDate, splitTitle, joinTitle, editorDate } from "../src/screens/notes/model.ts";
+import { setLanguage } from "../src/lib/i18n.ts";
+
+// The words below are English whatever this machine's language: the interface follows it.
+setLanguage("en");
 
 const now = new Date(2026, 8, 30, 12, 0);
 const at = (y, m, d, h = 9) => Math.floor(new Date(y, m, d, h).getTime() / 1000);
@@ -70,5 +74,23 @@ test("every note appears exactly once, in every order", () => {
   for (const by of ["edited", "created", "title"]) for (const groupByDate of [true, false]) {
     const seen = groupNotes(all, now, { by, groupByDate }).flatMap((s) => s.notes.map((n) => n.guid)).sort();
     assert.deepEqual(seen, ["a", "b", "c", "d"], `${by} ${groupByDate}`);
+  }
+});
+
+test("in German, the list's headings and dates are German", () => {
+  setLanguage("de");
+  try {
+    const notes = [
+      { guid: "p", title: "Fixed", pinned: true, modifiedAt: at(2026, 8, 30), createdAt: at(2026, 8, 30) },
+      { guid: "t", title: "Today", pinned: false, modifiedAt: at(2026, 8, 30), createdAt: at(2026, 8, 30) },
+      { guid: "y", title: "Yesterday", pinned: false, modifiedAt: at(2026, 8, 29), createdAt: at(2026, 8, 29) },
+      { guid: "w", title: "Week", pinned: false, modifiedAt: at(2026, 8, 25), createdAt: at(2026, 8, 25) },
+    ];
+    const headings = groupNotes(notes, now, { by: "edited", groupByDate: true }).map((s) => s.heading);
+    assert.deepEqual(headings, ["Fixiert", "Heute", "Gestern", "Vorherige 7 Tage"]);
+    assert.equal(listDate(at(2026, 8, 29), now), "Gestern");
+    assert.match(editorDate(at(2026, 8, 30, 22)), / um /);
+  } finally {
+    setLanguage("en");
   }
 });

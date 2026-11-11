@@ -3,6 +3,7 @@
  */
 import type { Note } from "../../lib/ipc";
 import { dateText, timeText } from "../../lib/when.ts";
+import { t } from "../../lib/i18n.ts";
 
 const midnight = (d: Date) => new Date(d.getFullYear(), d.getMonth(), d.getDate());
 const daysBetween = (from: Date, to: Date) =>
@@ -46,24 +47,24 @@ export function groupNotes(notes: Note[], now = new Date(), order: NoteOrder = D
   const dated = order.by !== "title" && order.groupByDate;
   for (const note of sorted) {
     if (note.pinned) {
-      add("pinned", "Pinned", note);
+      add("pinned", t("notes.pinned"), note);
       continue;
     }
     if (!dated) {
-      add("notes", "Notes", note);
+      add("notes", t("sidebar.notes"), note);
       continue;
     }
     const at = dateOf(note);
     if (at === null) {
-      add("undated", "Earlier", note);
+      add("undated", t("notes.earlier"), note);
       continue;
     }
     const when = new Date(at * 1000);
     const ago = daysBetween(when, now);
-    if (ago <= 0) add("today", "Today", note);
-    else if (ago === 1) add("yesterday", "Yesterday", note);
-    else if (ago <= 7) add("week", "Previous 7 Days", note);
-    else if (ago <= 30) add("month", "Previous 30 Days", note);
+    if (ago <= 0) add("today", t("notes.today"), note);
+    else if (ago === 1) add("yesterday", t("notes.yesterday"), note);
+    else if (ago <= 7) add("week", t("notes.previous7Days"), note);
+    else if (ago <= 30) add("month", t("notes.previous30Days"), note);
     else if (when.getFullYear() === now.getFullYear())
       add(`m${when.getMonth()}`, dateText(when, { month: "long" }), note);
     else add(`y${when.getFullYear()}`, String(when.getFullYear()), note);
@@ -85,7 +86,7 @@ export function listDate(seconds: number | null, now = new Date()): string {
   const when = new Date(seconds * 1000);
   const ago = daysBetween(when, now);
   if (ago <= 0) return timeText(when, { hour: "numeric", minute: "2-digit" });
-  if (ago === 1) return "Yesterday";
+  if (ago === 1) return t("notes.yesterday");
   if (ago < 7) return dateText(when, { weekday: "long" });
   return dateText(when, { day: "numeric", month: "numeric", year: "numeric" });
 }
@@ -96,7 +97,7 @@ export function editorDate(seconds: number | null): string {
   const when = new Date(seconds * 1000);
   const day = dateText(when, { day: "numeric", month: "long", year: "numeric" });
   const time = timeText(when, { hour: "numeric", minute: "2-digit" });
-  return `${day} at ${time}`;
+  return t("notes.dayAtTime", { day, time });
 }
 
 /**

@@ -12,7 +12,8 @@ import { useEffect, useRef } from "react";
 import { describe, drawMedia } from "./NoteEditor";
 import { addressesIn, openLinkAt } from "./links";
 import { listNumbers } from "./rich";
-import { REFUSED_LINK, linkedNote, outsideHref } from "../../lib/links";
+import { t } from "../../lib/i18n";
+import { refusedLink, linkedNote, outsideHref } from "../../lib/links";
 export type Run = {
   length: number;
   style: number | null;
@@ -165,7 +166,7 @@ function Inline({ span }: { span: Span }) {
   } else if (run.link) {
     // A link to something Skykeep does not open (a file on a share, a program's own scheme)
     // is its text, saying why it is not a link.
-    node = <span className="nf-link-refused" title={REFUSED_LINK}>{node}</span>;
+    node = <span className="nf-link-refused" title={refusedLink()}>{node}</span>;
   }
   return <>{node}</>;
 }
@@ -208,7 +209,7 @@ export function FormattedBody({
                 className="nf-circle"
                 role="checkbox"
                 aria-checked={done}
-                aria-label={p.spans.map((s) => s.text).join("") || "Checklist item"}
+                aria-label={p.spans.map((s) => s.text).join("") || t("notes.checklistItem")}
                 disabled={!onTick}
                 onClick={(e) => {
                   e.stopPropagation();

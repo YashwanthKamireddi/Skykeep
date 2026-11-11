@@ -1,16 +1,15 @@
 import { TriangleAlert } from "lucide-react";
 import type { RefusedChange } from "../lib/ipc";
 import { changeWords } from "../lib/outbox";
-
-/** The small grey words beside something saved here that Apple does not have yet. */
-export const WAITING = "Waiting to sync";
+import { useI18n } from "../lib/i18n";
 
 /** Inline, so it sits beside any row or title without a stylesheet of its own. */
 export function Waiting({ shown }: { shown: boolean }) {
+  const { t } = useI18n();
   if (!shown) return null;
   return (
     <span className="sync-waiting" role="status">
-      {WAITING}
+      {t("common.waitingToSync")}
     </span>
   );
 }
@@ -32,6 +31,7 @@ export function Unsent({
   onResend: (r: RefusedChange) => void;
   onDiscard: (r: RefusedChange) => void;
 }) {
+  const { t } = useI18n();
   const r = refused[0];
   if (!r) return null;
   const more = refused.length - 1;
@@ -44,22 +44,22 @@ export function Unsent({
       <TriangleAlert className="toast-glyph" size={15} strokeWidth={2} aria-hidden="true" />
       <div className="unsent-body">
         {/* Apple's reason already says what was not saved; `what` names it for a reader. */}
-        <p aria-label={`iCloud didn’t take ${changeWords(r) ?? what}: ${r.reason}`}>
+        <p aria-label={t("unsent.didntTake", { what: changeWords(r) ?? what, reason: r.reason })}>
           {r.reason}
-          {more > 0 ? ` (and ${more} more)` : ""}
+          {more > 0 ? t("unsent.andMore", { count: more }) : ""}
         </p>
         {preview && <p className="unsent-content">“{preview}”</p>}
         <div className="unsent-actions">
           {r.content && (
             <button className="quiet" onClick={copy}>
-              Copy Text
+              {t("unsent.copyText")}
             </button>
           )}
           <button className="quiet" onClick={() => onResend(r)}>
-            Try Again
+            {t("unsent.tryAgain")}
           </button>
           <button className="quiet danger" onClick={() => onDiscard(r)}>
-            Discard
+            {t("unsent.discard")}
           </button>
         </div>
       </div>

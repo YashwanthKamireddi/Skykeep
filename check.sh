@@ -128,6 +128,8 @@ pooled "webkit: shortcuts fit" env ENGINE=webkit node .uiverify/shortcuts-fit.mj
 pooled "notes add link"     node .uiverify/notes-add-link.mjs
 pooled "launcher status"    node .uiverify/launcher-status.mjs
 pooled "webkit: launcher status" env ENGINE=webkit node .uiverify/launcher-status.mjs
+pooled "german"             node .uiverify/german.mjs
+pooled "webkit: german"     env ENGINE=webkit node .uiverify/german.mjs
 pooled "webkit: notes add link" env ENGINE=webkit node .uiverify/notes-add-link.mjs
 pooled "updates"          node .uiverify/updates.mjs
 pooled "licences"         node .uiverify/licences.mjs

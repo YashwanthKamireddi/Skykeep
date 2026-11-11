@@ -1,4 +1,5 @@
 import { Fragment, useEffect, useRef } from "react";
+import { useI18n } from "../lib/i18n";
 
 /**
  * Six-digit verification code.
@@ -19,6 +20,7 @@ export function CodeInput({
   disabled?: boolean;
   invalid?: boolean;
 }) {
+  const { t } = useI18n();
   const boxes = useRef<(HTMLInputElement | null)[]>([]);
 
   const digits = value.padEnd(6, " ").slice(0, 6).split("");
@@ -92,7 +94,7 @@ export function CodeInput({
     <div
       className={`code${invalid ? " is-invalid" : ""}`}
       role="group"
-      aria-label="Six-digit verification code"
+      aria-label={t("codeEntry.codeAria")}
     >
       {digits.map((digit, i) => (
         <Fragment key={i}>
@@ -112,7 +114,7 @@ export function CodeInput({
             autoComplete={i === 0 ? "one-time-code" : "off"}
             maxLength={6}
             disabled={disabled}
-            aria-label={`Digit ${i + 1}`}
+            aria-label={t("codeEntry.digitAria", { n: i + 1 })}
             aria-invalid={invalid || undefined}
           />
         </Fragment>

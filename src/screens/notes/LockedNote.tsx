@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import { LockKeyhole } from "lucide-react";
+import { useI18n } from "../../lib/i18n";
 import { messageOf, notesLockApi, type UnlockedNote } from "../../lib/ipc";
 import { Spinner } from "../../components/Spinner";
 
@@ -21,6 +22,7 @@ export function LockScreen({
   autoFocus: boolean;
   onOpen: (opened: UnlockedNote) => void;
 }) {
+  const { t } = useI18n();
   const field = useRef<HTMLInputElement | null>(null);
   const [password, setPassword] = useState("");
   const [busy, setBusy] = useState(false);
@@ -51,7 +53,7 @@ export function LockScreen({
       onOpen(opened);
     } catch (e) {
       const said = messageOf(e);
-      setProblem(/password/i.test(said) ? "That password didn’t match. Try again." : said);
+      setProblem(/password/i.test(said) ? t("notes.wrongPassword") : said);
       setBusy(false);
       window.requestAnimationFrame(() => field.current?.focus());
     }
@@ -69,12 +71,12 @@ export function LockScreen({
   };
 
   return (
-    <div className="note-lock" role="group" aria-label={`${title || "Note"}, locked`}>
+    <div className="note-lock" role="group" aria-label={t("notes.lockedAria", { name: title || t("notes.note") })}>
       <span className="note-lock-glyph" aria-hidden="true">
         <LockKeyhole size={26} strokeWidth={1.75} />
       </span>
-      <h2 className="note-lock-title">This note is locked</h2>
-      <p className="note-lock-lede">Enter the note’s password to read it.</p>
+      <h2 className="note-lock-title">{t("notes.lockedTitle")}</h2>
+      <p className="note-lock-lede">{t("notes.lockedLede")}</p>
       <form
         className="note-lock-form"
         onSubmit={(e) => {
@@ -88,8 +90,8 @@ export function LockScreen({
           type="password"
           autoComplete="off"
           spellCheck={false}
-          placeholder="Password"
-          aria-label="Note password"
+          placeholder={t("notes.password")}
+          aria-label={t("notes.notePassword")}
           aria-invalid={problem ? true : undefined}
           aria-describedby={problem ? "note-lock-problem" : undefined}
           value={password}
@@ -101,7 +103,7 @@ export function LockScreen({
         />
         <button type="submit" className="primary note-lock-open" disabled={!password || busy}>
           {busy ? <Spinner small /> : null}
-          {busy ? "Unlocking…" : "Unlock"}
+          {busy ? t("notes.unlocking") : t("notes.unlock")}
         </button>
       </form>
       <p id="note-lock-problem" className="note-lock-problem" role="alert">
@@ -109,10 +111,10 @@ export function LockScreen({
       </p>
       {hint === undefined ? (
         <button type="button" className="link note-lock-hint-ask" onClick={() => void showHint()} disabled={hintBusy}>
-          Show Hint
+          {t("notes.showHint")}
         </button>
       ) : (
-        <p className="note-lock-hint">{hint ? <>Hint: {hint}</> : "This note has no hint."}</p>
+        <p className="note-lock-hint">{hint ? t("notes.hint", { hint }) : t("notes.noHint")}</p>
       )}
     </div>
   );

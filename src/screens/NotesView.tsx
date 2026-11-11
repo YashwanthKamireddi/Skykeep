@@ -37,6 +37,7 @@ import { keepSame, same } from "../lib/same";
 import { useChosen, useIsChosen, type Chosen } from "../lib/chosen";
 import { useArrivals } from "../lib/arrival";
 import { foundRanges, queryWords } from "./notes/found";
+import { useI18n } from "../lib/i18n";
 
 const ALL = "__all__";
 
@@ -124,8 +125,9 @@ const NoteRows = memo(function NoteRows({
   /** Each note's first picture kept on this computer, by note (`api.notePictures`). */
   pictures: Record<string, string>;
 }) {
+  const { t } = useI18n();
   return (
-    <div className="note-rows" ref={rowsRef} role="listbox" aria-label="Notes" data-rows="">
+    <div className="note-rows" ref={rowsRef} role="listbox" aria-label={t("sidebar.notes")} data-rows="">
       {sections.map((section) => (
         <Fragment key={section.key}>
           <div className="notes-section" aria-hidden="true">{section.heading}</div>
@@ -169,6 +171,7 @@ const NoteRow = memo(function NoteRow({
   found: string[];
 }) {
   const selected = useIsChosen(chosen, note.guid);
+  const { t } = useI18n();
   return (
     <button
       className="note-row"
@@ -179,14 +182,14 @@ const NoteRow = memo(function NoteRow({
     >
       <span className="note-row-title">
         {note.locked && (
-          <LockKeyhole className="note-row-lock" size={12} strokeWidth={2.4} aria-label="Locked" />
+          <LockKeyhole className="note-row-lock" size={12} strokeWidth={2.4} aria-label={t("notes.locked")} />
         )}
-        <span className="note-row-name"><Found text={wordsOnly(note.title) || "New Note"} words={found} /></span>
+        <span className="note-row-name"><Found text={wordsOnly(note.title) || t("notes.newNote")} words={found} /></span>
       </span>
       <span className="note-row-meta">
         <span className="note-row-when">{listDate(note.modifiedAt)}</span>
         <span className="note-row-snippet">
-          {note.locked ? "Locked" : <Found text={wordsOnly(note.snippet ?? "").slice(0, 120) || "No additional text"} words={found} />}
+          {note.locked ? t("notes.locked") : <Found text={wordsOnly(note.snippet ?? "").slice(0, 120) || t("notes.noAdditionalText")} words={found} />}
         </span>
       </span>
       {/* The note's first picture, small, at the row's end, as Notes on the Mac shows it —
@@ -235,6 +238,7 @@ function Found({ text, words }: { text: string; words: string[] }) {
 }
 
 export function NotesView() {
+  const { t, lang } = useI18n();
   // The folders' column: as wide as it was left, or — the first time — as wide as the longest
   // folder name needs, within reason.
   const notesRef = useRef<HTMLDivElement | null>(null);
@@ -278,7 +282,7 @@ export function NotesView() {
   // list once and kept: Up and Down, and the note opened after a delete, walk it rather than
   // a sort with a collator over every note on each press (desktop audit H7).
   const today = dayOf(useClock());
-  const sections = useMemo(() => groupNotes(notes, new Date(), listOrder), [notes, listOrder, today]);
+  const sections = useMemo(() => groupNotes(notes, new Date(), listOrder), [notes, listOrder, today, lang]);
   const shownOrder = useMemo(() => sections.flatMap((g) => g.notes.map((n) => n.guid)), [sections]);
   const [openGuid, setOpenGuid] = useState<string | null>(null);
   /** `openGuid` as last drawn, for work that finishes later — a save landing — to tell whether
@@ -521,7 +525,7 @@ export function NotesView() {
       setOpenGuid(guid);
       setDetail(true);
     } else {
-      setError("That note isn’t in your notes. It may have been deleted, or it belongs to someone else.");
+      setError(t("notes.notFound"));
     }
   }, [notes, folder]);
 
@@ -899,7 +903,7 @@ export function NotesView() {
       // list is read again.
       const now = Math.floor(Date.now() / 1000);
       setNotes((ns) => ns.some((n) => n.guid === guid) ? ns : [{
-        guid, folderGuid: draft.folderGuid, title: splitTitle(latest).title || "New Note", snippet: null, body: null,
+        guid, folderGuid: draft.folderGuid, title: splitTitle(latest).title || t("notes.newNote"), snippet: null, body: null,
         locked: false, pinned: false, createdAt: now, modifiedAt: now, editable: true, etag: null,
       } as Note, ...ns]);
       setOpenGuid(guid);
@@ -993,9 +997,9 @@ export function NotesView() {
    */
   const newFolder = async (parent: string | null) => {
     const standIn = `pending-folder-${Date.now()}`;
-    setFolders((fs) => [...fs, { guid: standIn, title: "New Folder", sortOrder: 0, parentGuid: parent } as NoteFolder]);
+    setFolders((fs) => [...fs, { guid: standIn, title: t("notes.newFolder"), sortOrder: 0, parentGuid: parent } as NoteFolder]);
     try {
-      const guid = await api.noteFolderCreate("New Folder", parent);
+      const guid = await api.noteFolderCreate(t("notes.newFolder"), parent);
       await readNow.current();
       setRenamingFolder(guid);
     } catch (e) {
@@ -1019,9 +1023,9 @@ export function NotesView() {
   const deleteFolder = async (f: NoteFolder) => {
     // Apple's own words for it.
     const sure = await confirm({
-      title: `Delete \u201c${f.title}\u201d?`,
-      body: "All notes and any subfolders will be deleted.",
-      action: "Delete",
+      title: t("notes.deleteNamed", { name: f.title }),
+      body: t("notes.deleteFolderBody"),
+      action: t("common.delete"),
       danger: true,
       symbol: "trash",
     });
@@ -1042,9 +1046,9 @@ export function NotesView() {
     if (
       open.folderGuid === TRASH_FOLDER &&
       !(await confirm({
-        title: "Delete this note now?",
-        body: "It will be deleted immediately. You can’t undo this action.",
-        action: "Delete",
+        title: t("notes.deleteNowTitle"),
+        body: t("notes.deleteNowBody"),
+        action: t("common.delete"),
         danger: true,
         symbol: "trash",
       }))
@@ -1162,15 +1166,21 @@ export function NotesView() {
           toast({
             message:
               paths.length === 1
-                ? `Added “${fileName(paths[0])}”`
+                ? t("notes.addedFile", { name: fileName(paths[0]) })
                 : added === paths.length
-                  ? `Added ${added} files`
-                  : `Added ${added} of ${paths.length} files`,
+                  ? t("notes.addedFiles", { count: added })
+                  : t("notes.addedSomeFiles", { added, total: paths.length }),
             tone: "done",
           });
         }
         if (refused.length > 0) {
-          setError(refused.length === 1 ? refused[0] : `${refused[0]} ${refused.length - 1} more weren’t added either.`);
+          setError(
+            refused.length === 1
+              ? refused[0]
+              : refused.length === 2
+                ? t("notes.moreNotAddedOne", { reason: refused[0] })
+                : t("notes.moreNotAddedMany", { reason: refused[0], count: refused.length - 1 }),
+          );
         }
         // The note as Apple now holds it, file in place — kept here as it answered (any typing
         // still on its way laid over it), so read from the library rather than asked again.
@@ -1190,7 +1200,7 @@ export function NotesView() {
   );
   const pickAttachment = async () => {
     try {
-      const chosen = await pickOpen({ multiple: true, title: "Add to Note" });
+      const chosen = await pickOpen({ multiple: true, title: t("notes.addToNote") });
       if (!chosen) return;
       await attach(chosen);
     } catch (e) {
@@ -1257,11 +1267,11 @@ export function NotesView() {
     if (!open || open.locked) return;
     // Recently Deleted asks its own, final question.
     if (open.folderGuid === TRASH_FOLDER) return remove();
-    const name = wordsOnly(open.title) || "New Note";
+    const name = wordsOnly(open.title) || t("notes.newNote");
     const sure = await confirm({
-      title: `Delete \u201c${name}\u201d?`,
-      body: "It moves to Recently Deleted, where you can recover it.",
-      action: "Delete",
+      title: t("notes.deleteNamed", { name }),
+      body: t("notes.deleteToTrashBody"),
+      action: t("common.delete"),
       danger: true,
       symbol: "trash",
     });
@@ -1388,7 +1398,7 @@ export function NotesView() {
     const shown = editorRef.current?.current();
     const text = shown?.text ?? draft ?? body;
     const set = shown?.runs ?? runs ?? [];
-    const name = (text.split("\n")[0].trim() || "Note").replace(/[\\/:*?"<>|]/g, "-").slice(0, 80);
+    const name = (text.split("\n")[0].trim() || t("notes.note")).replace(/[\\/:*?"<>|]/g, "-").slice(0, 80);
     let path: string | null;
     try {
       path = await pickSave({ defaultName: `${name}.md`, filters: [{ name: "Markdown", extensions: ["md"] }] });
@@ -1474,10 +1484,10 @@ export function NotesView() {
     return () => window.clearTimeout(t);
   }, [waiting, openGuid]);
   const heading = searching
-    ? "Search"
+    ? t("notes.searchHeading")
     : folder === ALL
-      ? "All iCloud"
-      : (folders.find((f) => f.guid === folder)?.title ?? "Notes");
+      ? t("notes.allICloud")
+      : (folders.find((f) => f.guid === folder)?.title ?? t("sidebar.notes"));
   const saveFailed = error !== null;
 
   return (
@@ -1491,8 +1501,8 @@ export function NotesView() {
         className="notes-folders-edge"
         role="separator"
         aria-orientation="vertical"
-        aria-label="Folder column width"
-        title="Drag to resize. Double-click to fit the names."
+        aria-label={t("notes.folderColumnWidth")}
+        title={t("notes.folderColumnHint")}
         onPointerDown={(e) => {
           const box = notesRef.current?.getBoundingClientRect();
           if (!box) return;
@@ -1522,10 +1532,10 @@ export function NotesView() {
           }
         }}
       />
-      <aside className="notes-folders" aria-label="Note folders" ref={foldersRef}>
+      <aside className="notes-folders" aria-label={t("notes.foldersAria")} ref={foldersRef}>
         <button className="source-row notes-folder" aria-current={folder === ALL} onClick={() => setFolder(ALL)}>
           <FolderOpen className="notes-folder-glyph" size={16} strokeWidth={2} aria-hidden="true" />
-          <span className="source-name notes-folder-name">All iCloud</span>
+          <span className="source-name notes-folder-name">{t("notes.allICloud")}</span>
           <span className="count notes-folder-count">{counts.all || ""}</span>
         </button>
         {nested
@@ -1538,7 +1548,7 @@ export function NotesView() {
                   key={f.guid}
                   className="field notes-folder-rename"
                   defaultValue={f.title}
-                  aria-label={`Rename ${f.title}`}
+                  aria-label={t("notes.renameNamed", { name: f.title })}
                   autoFocus
                   onFocus={(e) => e.currentTarget.select()}
                   onBlur={(e) => void renameFolder(f, e.currentTarget.value)}
@@ -1576,7 +1586,7 @@ export function NotesView() {
                 {own && (
                   <button
                     className="icon-button small round row-more notes-folder-more"
-                    aria-label={`Actions for ${f.title}`}
+                    aria-label={t("notes.actionsFor", { name: f.title })}
                     aria-haspopup="menu"
                     onClick={(e) => {
                       const r = e.currentTarget.getBoundingClientRect();
@@ -1596,36 +1606,36 @@ export function NotesView() {
             onClick={() => setFolder(TRASH_FOLDER)}
           >
             <Trash2 className="notes-folder-glyph" size={16} strokeWidth={2} aria-hidden="true" />
-            <span className="source-name notes-folder-name">Recently Deleted</span>
+            <span className="source-name notes-folder-name">{t("notes.recentlyDeleted")}</span>
             <span className="count notes-folder-count">{counts.per.get(TRASH_FOLDER) || ""}</span>
           </button>
         )}
         <button className="side-add" onClick={() => void newFolder(null)}>
           <FolderPlus size={15} strokeWidth={2} aria-hidden="true" />
-          New Folder
+          {t("notes.newFolder")}
         </button>
         {folderMenu && (
           <RowMenu
             at={folderMenu}
             onClose={() => setFolderMenu(null)}
             entries={[
-              { label: "Rename Folder", run: () => setRenamingFolder(folderMenu.folder.guid) },
-              { label: "New Folder", run: () => void newFolder(folderMenu.folder.guid) },
+              { label: t("notes.renameFolder"), run: () => setRenamingFolder(folderMenu.folder.guid) },
+              { label: t("notes.newFolder"), run: () => void newFolder(folderMenu.folder.guid) },
               null,
-              { label: "Delete Folder", danger: true, run: () => void deleteFolder(folderMenu.folder) },
+              { label: t("notes.deleteFolder"), danger: true, run: () => void deleteFolder(folderMenu.folder) },
             ]}
           />
         )}
         <AppFoot />
       </aside>
 
-      <section className="notes-list" aria-label="Notes">
+      <section className="notes-list" aria-label={t("sidebar.notes")}>
         <header className="pane-head notes-list-head">
-          <PaneTitle count={`${notes.length} ${notes.length === 1 ? "note" : "notes"}`}>{heading}</PaneTitle>
+          <PaneTitle count={notes.length === 1 ? t("notes.countOne") : t("notes.countMany", { count: notes.length })}>{heading}</PaneTitle>
           <button
             className="icon-button"
-            aria-label="View Options"
-            title="View Options"
+            aria-label={t("notes.viewOptions")}
+            title={t("notes.viewOptions")}
             aria-haspopup="menu"
             aria-expanded={!!viewMenu}
             onClick={(e) => {
@@ -1640,19 +1650,19 @@ export function NotesView() {
               at={viewMenu}
               onClose={() => setViewMenu(null)}
               entries={[
-                { label: "Date Edited", checked: listOrder.by === "edited", run: () => orderBy({ ...listOrder, by: "edited" }) },
-                { label: "Date Created", checked: listOrder.by === "created", run: () => orderBy({ ...listOrder, by: "created" }) },
-                { label: "Title", checked: listOrder.by === "title", run: () => orderBy({ ...listOrder, by: "title" }) },
+                { label: t("notes.dateEdited"), checked: listOrder.by === "edited", run: () => orderBy({ ...listOrder, by: "edited" }) },
+                { label: t("notes.dateCreated"), checked: listOrder.by === "created", run: () => orderBy({ ...listOrder, by: "created" }) },
+                { label: t("notes.sortTitle"), checked: listOrder.by === "title", run: () => orderBy({ ...listOrder, by: "title" }) },
                 ...(listOrder.by === "title"
                   ? []
-                  : [null, { label: "Group By Date", checked: listOrder.groupByDate, run: () => orderBy({ ...listOrder, groupByDate: !listOrder.groupByDate }) }]),
+                  : [null, { label: t("notes.groupByDate"), checked: listOrder.groupByDate, run: () => orderBy({ ...listOrder, groupByDate: !listOrder.groupByDate }) }]),
               ]}
             />
           )}
           <button
             className="icon-button"
-            aria-label="New note"
-            title="New Note"
+            aria-label={t("notes.newNoteLabel")}
+            title={t("notes.newNote")}
             onClick={() => void create()}
             disabled={busy || folder === TRASH_FOLDER}
           >
@@ -1662,8 +1672,8 @@ export function NotesView() {
         <SearchField
           ref={searchRef}
           className="notes-search"
-          placeholder={folder !== ALL && scope === "folder" ? `Search ${folders.find((f) => f.guid === folder)?.title ?? "This Folder"}` : "Search"}
-          aria-label="Search notes"
+          placeholder={folder !== ALL && scope === "folder" ? t("notes.searchNamed", { name: folders.find((f) => f.guid === folder)?.title ?? t("notes.thisFolder") }) : t("common.search")}
+          aria-label={t("notes.searchNotes")}
           aria-keyshortcuts="Control+F Control+Shift+F"
           value={query}
           onChange={setQuery}
@@ -1687,12 +1697,12 @@ export function NotesView() {
           }}
         />
         {searching && folder !== ALL && (
-          <div className="segmented notes-scope" role="group" aria-label="Search in">
+          <div className="segmented notes-scope" role="group" aria-label={t("notes.searchIn")}>
             <button type="button" className="segment" aria-pressed={scope === "all"} onClick={() => setScope("all")}>
-              All iCloud
+              {t("notes.allICloud")}
             </button>
             <button type="button" className="segment" aria-pressed={scope === "folder"} onClick={() => setScope("folder")}>
-              <span className="notes-scope-name">{folders.find((f) => f.guid === folder)?.title ?? "This Folder"}</span>
+              <span className="notes-scope-name">{folders.find((f) => f.guid === folder)?.title ?? t("notes.thisFolder")}</span>
             </button>
           </div>
         )}
@@ -1700,17 +1710,17 @@ export function NotesView() {
         {/* Shown only when the folder column has folded away. */}
         <div className="notes-folder-picker">
           <Picker
-            label="Folder"
+            label={t("notes.folder")}
             value={folder}
             onChange={setFolder}
             options={[
-              { value: ALL, label: "All iCloud" },
+              { value: ALL, label: t("notes.allICloud") },
               ...folders.map((f) => ({ value: f.guid, label: f.title })),
             ]}
           />
         </div>
 
-        <Unsent refused={outbox.refused} what="an edit to a note" onResend={(r) => void outbox.resend(r)} onDiscard={(r) => void outbox.discard(r)} />
+        <Unsent refused={outbox.refused} what={t("outbox.notes.save")} onResend={(r) => void outbox.resend(r)} onDiscard={(r) => void outbox.discard(r)} />
 
         {/* One list box of notes, a group per heading: the open note is its selected option.
             The heading is drawn for the eye; the group's name says it to a screen reader. */}
@@ -1719,24 +1729,24 @@ export function NotesView() {
         {loaded && notes.length === 0 && !error && !(arriving && !searching) && (
           searching ? (
             <EmptyState className="notes-empty">
-              Nothing matches “{query.trim()}”{scoped ? " in this folder" : ""}.
+              {scoped ? t("notes.nothingMatchesInFolder", { query: query.trim() }) : t("notes.nothingMatches", { query: query.trim() })}
             </EmptyState>
           ) : folder === TRASH_FOLDER ? (
             <EmptyState className="notes-empty" icon={<Trash2 size={28} strokeWidth={1.5} />}>
-              Recently Deleted is empty.
+              {t("notes.trashEmpty")}
             </EmptyState>
           ) : (
             <EmptyState className="notes-empty" icon={<SquarePen size={28} strokeWidth={1.5} />}>
-              Notes you write here appear on all your devices.
+              {t("notes.emptyHint")}
             </EmptyState>
           )
         )}
         {notes.length === 0 && !searching && (
-          <Arriving service="notes" what="notes" className="notes-empty" />
+          <Arriving service="notes" what="notes" text={t("notes.arriving")} className="notes-empty" />
         )}
       </section>
 
-      <article className={`note-body${dropping ? " is-dropping" : ""}`} aria-label="Note">
+      <article className={`note-body${dropping ? " is-dropping" : ""}`} aria-label={t("notes.note")}>
         {(composing || open) && (
           <div className="note-bar">
             <button
@@ -1758,11 +1768,11 @@ export function NotesView() {
               }`}
             >
               {busy || (!saveFailed && (dirty || composing?.body.trim()))
-                ? "Saving…"
+                ? t("notes.saving")
                 : open && outbox.waiting.has(open.guid)
                   ? <Waiting shown />
                   : saved
-                  ? "Saved"
+                  ? t("notes.saved")
                   : editorDate(composing ? Math.floor(Date.now() / 1000) : (open?.modifiedAt ?? null))}
             </p>
             {!composing && open && !open.locked && (
@@ -1771,10 +1781,10 @@ export function NotesView() {
                   <>
                     <button
                       className={`tool notes-aa${formatAt ? " is-on" : ""}`}
-                      aria-label="Format"
+                      aria-label={t("notes.format")}
                       aria-haspopup="dialog"
                       aria-expanded={Boolean(formatAt)}
-                      title="Choose a style to apply to text"
+                      title={t("notes.formatHint")}
                       disabled={!canEdit}
                       // Keeps the cursor where it is in the note while the panel is open.
                       onMouseDown={(e) => e.preventDefault()}
@@ -1788,8 +1798,8 @@ export function NotesView() {
                     {canAttach && (
                       <button
                         className="tool"
-                        aria-label="Add a picture or file"
-                        title="Add a picture or file"
+                        aria-label={t("notes.addAttachment")}
+                        title={t("notes.addAttachment")}
                         disabled={attaching || busy}
                         onMouseDown={(e) => e.preventDefault()}
                         onClick={() => void pickAttachment()}
@@ -1799,9 +1809,9 @@ export function NotesView() {
                     )}
                     <button
                       className="tool"
-                      aria-label="Make a checklist"
+                      aria-label={t("notes.makeChecklist")}
                       aria-pressed={Boolean(status?.checklist)}
-                      title="Make a checklist"
+                      title={t("notes.makeChecklist")}
                       disabled={!canEdit}
                       onMouseDown={(e) => e.preventDefault()}
                       onClick={() => editorRef.current?.toggleChecklist()}
@@ -1826,7 +1836,7 @@ export function NotesView() {
                 )}
                 {!inTrash && <Picker
                   pullDown
-                  label={`Folder for ${open.title}`}
+                  label={t("notes.folderFor", { name: open.title })}
                   value={open.folderGuid ?? ALL}
                   disabled={busy}
                   onChange={(guid) => void moveTo(guid)}
@@ -1835,7 +1845,7 @@ export function NotesView() {
                     // with one, it was a second "Notes" that meant something else.
                     ...(folders.some((f) => f.guid === DEFAULT_FOLDER)
                       ? []
-                      : [{ value: ALL, label: "Notes" }]),
+                      : [{ value: ALL, label: t("sidebar.notes") }]),
                     ...folders
                       .filter((f) => f.guid !== TRASH_FOLDER)
                       .map((f) => ({ value: f.guid, label: f.title })),
@@ -1844,8 +1854,8 @@ export function NotesView() {
                 {!inTrash && !open.locked && (
                   <button
                     className="tool"
-                    aria-label="Export as Markdown"
-                    title="Export as Markdown"
+                    aria-label={t("notes.exportMarkdown")}
+                    title={t("notes.exportMarkdown")}
                     onClick={() => void exportNote()}
                     disabled={body === null}
                   >
@@ -1855,9 +1865,9 @@ export function NotesView() {
                 {!inTrash && (
                   <button
                     className="tool"
-                    aria-label={open.pinned ? "Unpin Note" : "Pin Note"}
+                    aria-label={open.pinned ? t("notes.unpin") : t("notes.pin")}
                     aria-pressed={open.pinned}
-                    title={open.pinned ? "Unpin Note" : "Pin Note"}
+                    title={open.pinned ? t("notes.unpin") : t("notes.pin")}
                     onClick={() => void pin()}
                     disabled={busy}
                   >
@@ -1870,18 +1880,18 @@ export function NotesView() {
                 )}
                 {inTrash && (
                   <button className="tool has-label is-accent" onClick={() => void recover()} disabled={busy}>
-                    Recover
+                    {t("notes.recover")}
                   </button>
                 )}
                 {inTrash ? (
                   <button className="tool has-label danger" onClick={() => void remove()}>
-                    Delete Now
+                    {t("notes.deleteNow")}
                   </button>
                 ) : (
                   <button
                     className="tool"
-                    aria-label="Delete"
-                    title="Delete"
+                    aria-label={t("common.delete")}
+                    title={t("common.delete")}
                     onClick={() => void remove()}
                   >
                     <Trash2 size={17} strokeWidth={2} aria-hidden="true" />
@@ -1891,9 +1901,9 @@ export function NotesView() {
             )}
             {!composing && open?.locked && opened && (
               <div className="toolbar-group note-bar-actions">
-                <button className="tool has-label note-lock-now" onClick={lockNow} title="Lock every opened note again">
+                <button className="tool has-label note-lock-now" onClick={lockNow} title={t("notes.lockNowHint")}>
                   <LockKeyholeOpen size={16} strokeWidth={2} aria-hidden="true" />
-                  Lock Now
+                  {t("notes.lockNow")}
                 </button>
               </div>
             )}
@@ -1925,8 +1935,8 @@ export function NotesView() {
               runs={composing ? draftRuns.current : formatSafe ? runs : null}
               editable={!attaching}
               autoFocus={Boolean(composing)}
-              label={composing ? "New note" : `${open?.title ?? "Note"}`}
-              placeholder={composing ? "New Note" : undefined}
+              label={composing ? t("notes.newNoteLabel") : `${open?.title ?? t("notes.note")}`}
+              placeholder={composing ? t("notes.newNote") : undefined}
               onChange={apply}
               onStatus={setStatus}
               onBlur={leave}
@@ -1951,7 +1961,7 @@ export function NotesView() {
                   </div>
                 ))}
                 <span className="note-adding-state">
-                  <Spinner small /> Adding to the note
+                  <Spinner small /> {t("notes.addingToNote")}
                 </span>
               </div>
             </div>
@@ -1968,7 +1978,7 @@ export function NotesView() {
             ) : (
               <pre className="note-text">{splitTitle(opened.body).rest}</pre>
             )}
-            <p className="note-readonly">Locked notes open read-only here. Edit them on your iPhone, iPad or Mac.</p>
+            <p className="note-readonly">{t("notes.lockedReadOnly")}</p>
           </div>
         ) : open?.locked ? (
           <LockScreen
@@ -1983,11 +1993,10 @@ export function NotesView() {
              is slow in coming. */
           open && noText === open.guid ? (
             <EmptyState className="note-loading">
-              This note's text isn't here yet. If it doesn't appear after the next sync, Skykeep
-              can't read it, but it's safe in iCloud: open it on your iPhone, iPad or Mac.
+              {t("notes.textNotHere")}
             </EmptyState>
           ) : (
-            slow && <EmptyState busy className="note-loading">Opening…</EmptyState>
+            slow && <EmptyState busy className="note-loading">{t("notes.openingEllipsis")}</EmptyState>
           )
         ) : open ? (
           <div className="note-editor is-readonly">
@@ -2000,16 +2009,15 @@ export function NotesView() {
               <pre className="note-text">{splitTitle(body ?? "").rest}</pre>
             )}
             {inTrash ? (
-              <p className="note-readonly">Recover this note to edit it.</p>
+              <p className="note-readonly">{t("notes.recoverToEdit")}</p>
             ) : (
               <p className="note-readonly">
-                Read-only here, to keep everything in it safe. A quick edit on your iPhone, iPad or
-                Mac usually makes it editable again.
+                {t("notes.readOnly")}
               </p>
             )}
           </div>
         ) : (
-          loaded && <EmptyState className="note-pick">Select a note.</EmptyState>
+          loaded && <EmptyState className="note-pick">{t("notes.selectNote")}</EmptyState>
         )}
       </article>
       {confirmSheet}

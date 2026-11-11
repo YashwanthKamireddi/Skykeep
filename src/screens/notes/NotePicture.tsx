@@ -7,11 +7,13 @@
 import { useEffect, useRef, useState } from "react";
 import { useModalFocus } from "../../lib/focus";
 import { X } from "lucide-react";
+import { useI18n } from "../../lib/i18n";
 import { Portal } from "../../components/Portal";
 import { api, messageOf } from "../../lib/ipc";
 import { PICTURE_EVENT, type PictureShown } from "./NoteEditor";
 
 export function NotePicture() {
+  const { t } = useI18n();
   const [shown, setShown] = useState<PictureShown | null>(null);
   const [problem, setProblem] = useState<string | null>(null);
   // Said on the button at once, until the other app has it.
@@ -91,10 +93,10 @@ export function NotePicture() {
                     .finally(() => setOpening(false));
                 }}
               >
-                {opening ? "Opening" : "Open in Default App"}
+                {opening ? t("notes.opening") : t("notes.openInDefaultApp")}
               </button>
             )}
-            <button className="icon-button round nf-picture-close" aria-label="Close" autoFocus onClick={() => setShown(null)}>
+            <button className="icon-button round nf-picture-close" aria-label={t("common.close")} autoFocus onClick={() => setShown(null)}>
               <X size={16} strokeWidth={2} />
             </button>
           </figcaption>

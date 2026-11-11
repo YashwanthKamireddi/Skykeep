@@ -13,7 +13,7 @@
  */
 import { Schema, type DOMOutputSpec, type Node as PMNode, type Mark } from "prosemirror-model";
 import type { Run } from "./Formatted";
-import { REFUSED_LINK, linkedNote, outsideHref } from "../../lib/links.ts";
+import { refusedLink, linkedNote, outsideHref } from "../../lib/links.ts";
 
 /** Apple's paragraph styles. */
 export const STYLE = {
@@ -137,7 +137,7 @@ export const schema = new Schema({
       toDOM: (m) =>
         outsideHref(m.attrs.href) || linkedNote(m.attrs.href)
           ? ["a", { href: m.attrs.href, rel: "noreferrer" }, 0]
-          : ["a", { href: m.attrs.href, rel: "noreferrer", class: "nf-link-refused", title: REFUSED_LINK }, 0],
+          : ["a", { href: m.attrs.href, rel: "noreferrer", class: "nf-link-refused", title: refusedLink() }, 0],
     },
   },
 });

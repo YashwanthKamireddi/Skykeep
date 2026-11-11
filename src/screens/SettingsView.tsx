@@ -35,7 +35,7 @@ import { AccountAvatar, useNotKept } from "../components/Account";
 import { Picker } from "../components/Picker";
 import { localeFirstDay, setWeekStart, weekStartChoice, type WeekStartChoice } from "./calendar/model";
 import { icloudSize } from "../lib/icloudSize";
-import { appName, useI18n, LANGUAGES, type LanguageChoice, type Translate, systemLanguage, languageName } from "../lib/i18n";
+import { appName, t, useI18n, LANGUAGES, type LanguageChoice, type Translate, systemLanguage, languageName } from "../lib/i18n";
 
 // Its licence texts are some 400 kB: loaded when the sheet is first opened, not with Settings.
 const LicencesSheet = lazy(() => import("../components/LicencesSheet").then((m) => ({ default: m.LicencesSheet })));
@@ -49,10 +49,12 @@ function folderState(f: DriveFolder, t: Translate): string {
   return t("settings.driveFilesWaitingToUpload", { count: w.files });
 }
 
+/** A size on this computer, with the system's decimal mark: "6.8 GB", "6,8 GB". */
 function size(bytes: number): string {
   const gb = bytes / 1024 ** 3;
-  if (gb >= 1) return `${gb >= 10 ? gb.toFixed(0) : gb.toFixed(1)} GB`;
-  if (bytes < 1024 ** 2) return bytes < 1024 ? "Zero KB" : `${Math.round(bytes / 1024)} KB`;
+  const places = gb >= 10 ? 0 : 1;
+  if (gb >= 1) return `${gb.toLocaleString(undefined, { minimumFractionDigits: places, maximumFractionDigits: places })} GB`;
+  if (bytes < 1024 ** 2) return bytes < 1024 ? t("settings.zeroKB") : `${Math.round(bytes / 1024)} KB`;
   return `${Math.round(bytes / 1024 ** 2)} MB`;
 }
 
@@ -821,7 +823,7 @@ export function SettingsView({ onSignOut }: { onSignOut: (keep: boolean) => Prom
       </div>
       <footer className="dash-foot">
         <span>Skykeep {version ?? ""}</span>
-        <span>Copyright (C) 2026 Yashwanth Kamireddi. Free software under the GPL-3.0, with no warranty. Not affiliated with Apple.</span>
+        <span>Copyright (C) 2026 Yashwanth Kamireddi. {t("settings.licence")}</span>
             <button
               className="quiet"
               aria-label={t("settings.saveDiagnosticReport")}

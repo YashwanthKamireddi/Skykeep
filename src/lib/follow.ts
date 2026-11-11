@@ -1,5 +1,5 @@
 import { toast } from "../components/Toast";
-import { OPEN_NOTE_EVENT, REFUSED_LINK, linkedNote, outsideHref } from "./links";
+import { OPEN_NOTE_EVENT, refusedLink, linkedNote, outsideHref } from "./links";
 
 /**
  * The one way a link is followed, from anywhere in the window. The engine never follows one
@@ -18,7 +18,7 @@ export function follow(href: string): boolean {
   }
   const out = outsideHref(href);
   if (!out) {
-    toast(REFUSED_LINK);
+    toast(refusedLink());
     return false;
   }
   window.location.assign(out);

@@ -1,3 +1,5 @@
+import { t } from "./i18n.ts";
+
 /**
  * Which links Skykeep opens. Much of what the window shows was written by someone else — a
  * shared note, a shared list, an invitation, a public calendar — so a link's address is theirs
@@ -13,7 +15,8 @@
 export const OUTSIDE_SCHEMES = ["http:", "https:", "mailto:", "tel:", "geo:"] as const;
 
 /** What a refused link says, once, when clicked. */
-export const REFUSED_LINK = "This kind of link can't be opened from Skykeep.";
+/** What a link Skykeep will not open says, in the interface's language. */
+export const refusedLink = () => t("common.refusedLink");
 
 /** A link to another note asked to be followed: the Notes screen (NotesView) opens it. */
 export const OPEN_NOTE_EVENT = "quince:open-note";

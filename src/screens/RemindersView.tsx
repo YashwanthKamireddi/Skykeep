@@ -1,6 +1,6 @@
 import { Fragment, memo, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { AppFoot } from "../components/AppFoot";
-import { REFUSED_LINK, outsideHref } from "../lib/links";
+import { refusedLink, outsideHref } from "../lib/links";
 import { composing } from "../lib/keys";
 import { fadeIn, fadeOut } from "../lib/fade";
 import { overlayOpen, useActiveRef } from "../lib/screen";
@@ -3143,7 +3143,7 @@ function UrlField({ reminder, url, onSave }: { reminder: Reminder; url: string |
             {url.replace(/^https?:\/\//, "").replace(/\/$/, "")}
           </a>
         ) : (
-          <span className="rx-url" title={REFUSED_LINK}>{url}</span>
+          <span className="rx-url" title={refusedLink()}>{url}</span>
         )}
       </div>
     );

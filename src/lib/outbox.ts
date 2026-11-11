@@ -2,6 +2,7 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 import { listen } from "@tauri-apps/api/event";
 import { invoke } from "@tauri-apps/api/core";
 import { api, type OutboxStatus, type RefusedChange } from "./ipc";
+import { t, type Key } from "./i18n";
 
 const CHANGED = "quince://outbox-changed";
 const REFUSED = "quince://outbox-refused";
@@ -24,14 +25,15 @@ function wakeWhenOnline() {
 
 /** What a refused change was, in this app's words — for a reader of the notice. */
 export function changeWords(r: Pick<RefusedChange, "service" | "kind">): string | null {
-  const words: Record<string, Record<string, string>> = {
-    notes: { save: "an edit to a note", create: "a new note", move: "a note's move", delete: "a note's deletion", pin: "a note's pin" },
-    reminders: { create: "a new reminder", edit: "a change to a reminder", delete: "a reminder's deletion", done: "a tick", advance: "a tick" },
-    contacts: { save: "a change to a contact", delete: "a contact's deletion", merge: "a merge of duplicate cards", address: "a change to a contact's address" },
-    calendar: { save: "a change to an event", delete: "an event's deletion" },
-    photos: { favorite: "a change to Favorites", hidden: "a change to Hidden", deleted: "a delete or recover", expunged: "a delete for good" },
+  const words: Record<string, Record<string, Key>> = {
+    notes: { save: "outbox.notes.save", create: "outbox.notes.create", move: "outbox.notes.move", delete: "outbox.notes.delete", pin: "outbox.notes.pin" },
+    reminders: { create: "outbox.reminders.create", edit: "outbox.reminders.edit", delete: "outbox.reminders.delete", done: "outbox.reminders.done", advance: "outbox.reminders.advance" },
+    contacts: { save: "outbox.contacts.save", delete: "outbox.contacts.delete", merge: "outbox.contacts.merge", address: "outbox.contacts.address" },
+    calendar: { save: "outbox.calendar.save", delete: "outbox.calendar.delete" },
+    photos: { favorite: "outbox.photos.favorite", hidden: "outbox.photos.hidden", deleted: "outbox.photos.deleted", expunged: "outbox.photos.expunged" },
   };
-  return words[r.service]?.[r.kind] ?? null;
+  const key = words[r.service]?.[r.kind];
+  return key ? t(key) : null;
 }
 
 /**

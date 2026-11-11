@@ -1,6 +1,7 @@
 import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import { Link, Type, Unlink } from "lucide-react";
 import { Portal } from "../../components/Portal";
+import { useI18n } from "../../lib/i18n";
 import { useActiveRef } from "../../lib/screen";
 import { api } from "../../lib/ipc";
 import { linkAddress } from "./linking";
@@ -36,6 +37,7 @@ export function LinkBox({
   /** Closed with nothing changed: `back` into the note (Escape, Cancel), or clicked away. */
   onCancel: (back: boolean) => void;
 }) {
+  const { t } = useI18n();
   const box = useRef<HTMLFormElement | null>(null);
   const [address, setAddress] = useState(ask.href ?? "");
   const [text, setText] = useState("");
@@ -101,7 +103,7 @@ export function LinkBox({
     };
   }, [onCancel, live]);
 
-  const title = ask.href ? "Edit Link" : "Add Link";
+  const title = ask.href ? t("notes.editLink") : t("notes.addLink");
   return (
     <Portal>
       <form
@@ -125,13 +127,13 @@ export function LinkBox({
           <input
             ref={field}
             autoFocus
-            aria-label="Link to"
+            aria-label={t("notes.linkTo")}
             value={address}
             inputMode="url"
             spellCheck={false}
             autoCapitalize="off"
             autoComplete="off"
-            placeholder="Type or paste a link"
+            placeholder={t("notes.linkPlaceholder")}
             aria-invalid={wrong}
             aria-describedby={wrong ? "link-box-wrong" : undefined}
             onChange={(e) => {
@@ -140,7 +142,7 @@ export function LinkBox({
             }}
           />
           {ask.href && (
-            <button type="button" className="icon-button small" aria-label="Remove Link" title="Remove Link" onClick={onRemove}>
+            <button type="button" className="icon-button small" aria-label={t("notes.removeLink")} title={t("notes.removeLink")} onClick={onRemove}>
               <Unlink size={14} strokeWidth={2} aria-hidden="true" />
             </button>
           )}
@@ -148,12 +150,12 @@ export function LinkBox({
         {ask.needsText && (
           <div className="search-field link-box-field">
             <Type size={14} strokeWidth={2} aria-hidden="true" />
-            <input aria-label="Text" value={text} placeholder="Text to show (optional)" onChange={(e) => setText(e.target.value)} />
+            <input aria-label={t("notes.linkText")} value={text} placeholder={t("notes.linkTextPlaceholder")} onChange={(e) => setText(e.target.value)} />
           </div>
         )}
         {wrong && (
           <p id="link-box-wrong" className="link-box-wrong" role="alert">
-            That isn’t a link Notes can open. Try a web or email address.
+            {t("notes.linkWrong")}
           </p>
         )}
         {/* Return in either field adds it, as in Notes; Escape leaves. */}

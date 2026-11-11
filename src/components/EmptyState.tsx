@@ -41,13 +41,14 @@ export function EmptyState({
 
 /**
  * A first sync, said where the content will be: what is coming, and that it is moving. Shown in
- * place of an empty state until the service has landed once, and then never again.
+ * place of an empty state until the service has landed once, and then never again. `text` says
+ * it in the interface's language; an app that gives none says it in English, naming `what`.
  */
-export function Arriving({ service, what, className }: { service: string; what: string; className?: string }) {
+export function Arriving({ service, what, text, className }: { service: string; what: string; text?: string; className?: string }) {
   if (!useArriving(service)) return null;
   return (
     <EmptyState busy className={`arriving${className ? ` ${className}` : ""}`}>
-      Getting your {what} from iCloud…
+      {text ?? `Getting your ${what} from iCloud…`}
     </EmptyState>
   );
 }

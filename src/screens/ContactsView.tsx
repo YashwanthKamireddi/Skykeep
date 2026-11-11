@@ -32,7 +32,7 @@ import { RowMenu, type MenuEntry } from "../components/RowMenu";
 import { pickOpen } from "../lib/pick";
 import { useReveal } from "../lib/reveal";
 import { FIRST_LABEL, OFFERED, labelText, offeredMatch, profileHref } from "../lib/contactLabels";
-import { REFUSED_LINK, outsideHref } from "../lib/links";
+import { refusedLink, outsideHref } from "../lib/links";
 import { DateField, dateWords } from "./contacts/DateField";
 import { PhotoSheet } from "./contacts/PhotoSheet";
 import { DuplicatesBanner, DuplicatesView } from "./contacts/Duplicates";
@@ -1698,7 +1698,7 @@ export function ContactsView() {
                     ) : m.kind === "phone" ? (
                       <a href={`tel:${m.value.replace(/[^\d+#*,;]/g, "")}`}>{m.value}</a>
                     ) : m.kind === "url" ? (
-                      webHref(m.value) ? <a href={webHref(m.value)!}>{m.value}</a> : <span title={REFUSED_LINK}>{m.value}</span>
+                      webHref(m.value) ? <a href={webHref(m.value)!}>{m.value}</a> : <span title={refusedLink()}>{m.value}</span>
                     ) : m.kind === "date" ? (
                       dateWords(m.value)
                     ) : m.kind === "profile" && profileHref(m.label, m.value) ? (

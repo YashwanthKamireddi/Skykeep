@@ -4,7 +4,7 @@ import { Spinner } from "../components/Spinner";
 import { StatusLine } from "../components/StatusLine";
 import { api, messageOf, type SignInResult } from "../lib/ipc";
 import { onWindows } from "../lib/platform";
-import { useI18n } from "../lib/i18n";
+import { t as translate, useI18n } from "../lib/i18n";
 
 // Where the copy is kept, as this system names it.
 /** A path that may wrap only after a separator or a dot, as macOS wraps one, never mid-name. */
@@ -24,7 +24,7 @@ const STORE = onWindows ? "%APPDATA%\\io.github.yashwanthkamireddi.Skykeep" : "~
  */
 export function sentence(message: string) {
   const s = message.trim();
-  if (!s) return "Something went wrong. Try again.";
+  if (!s) return translate("common.somethingWentWrong");
   const capped = s[0].toUpperCase() + s.slice(1);
   return /[.!?]$/.test(capped) ? capped : `${capped}.`;
 }

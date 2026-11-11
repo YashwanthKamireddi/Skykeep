@@ -24,6 +24,7 @@ import { autolink, openLinkAt } from "./links";
 import { linkAt, setLink } from "./linking";
 import { LinkBox, type LinkAsk } from "./LinkBox";
 import { composing } from "../../lib/keys";
+import { t } from "../../lib/i18n";
 
 /** `content` with every attachment taken out, a table's cells kept as text in its place. */
 function withoutAttachments(content: Fragment): Fragment {
@@ -95,7 +96,7 @@ export function describe(id: string): Promise<NoteAttachment | null> {
 
 function size(bytes: number | null): string {
   if (!bytes) return "";
-  if (bytes >= 1024 ** 2) return `${(bytes / 1024 ** 2).toFixed(1)} MB`;
+  if (bytes >= 1024 ** 2) return `${(bytes / 1024 ** 2).toLocaleString(undefined, { minimumFractionDigits: 1, maximumFractionDigits: 1 })} MB`;
   return `${Math.max(1, Math.round(bytes / 1024))} KB`;
 }
 
@@ -113,7 +114,7 @@ export type PictureShown = { id: string; name: string; src: string; srcDark?: st
 export const PICTURE_KEPT_EVENT = "quince:note-picture-kept";
 
 export function drawMedia(dom: HTMLElement, info: NoteAttachment) {
-  const name = info.filename ?? info.title ?? (info.kind === "audio" ? "Recording" : "Attachment");
+  const name = info.filename ?? info.title ?? (info.kind === "audio" ? t("notes.recording") : t("notes.attachment"));
   // Opened in the app this computer uses for it; one that cannot be says why, on the chip
   // itself, rather than a click that seems to do nothing.
   let said: HTMLElement | null = null;
@@ -128,7 +129,7 @@ export function drawMedia(dom: HTMLElement, info: NoteAttachment) {
     dom.setAttribute("aria-busy", "true");
     const before = said?.textContent ?? null;
     if (said) {
-      said.textContent = "Opening";
+      said.textContent = t("notes.opening");
       said.classList.remove("is-trouble");
     }
     void api
@@ -139,7 +140,7 @@ export function drawMedia(dom: HTMLElement, info: NoteAttachment) {
         },
         (e) => {
           if (!said) return;
-          said.textContent = `Couldn’t open: ${messageOf(e)}`;
+          said.textContent = t("notes.couldntOpen", { reason: messageOf(e) });
           said.classList.add("is-trouble");
         },
       )
@@ -157,7 +158,7 @@ export function drawMedia(dom: HTMLElement, info: NoteAttachment) {
     glyph.className = "nf-file-glyph";
     // The kind of file, as Finder labels a document: its extension, short.
     const ext = name.includes(".") ? name.split(".").pop()!.slice(0, 4).toUpperCase() : "";
-    glyph.textContent = info.kind === "audio" ? "♪" : info.kind === "video" ? "▶" : ext || "FILE";
+    glyph.textContent = info.kind === "audio" ? "♪" : info.kind === "video" ? "▶" : ext || t("notes.fileBadge");
     const label = document.createElement("span");
     label.className = "nf-file-name";
     label.textContent = name;
@@ -166,7 +167,7 @@ export function drawMedia(dom: HTMLElement, info: NoteAttachment) {
     meta.textContent = size(info.size);
     said = meta;
     c.append(glyph, label, meta);
-    c.title = `Open ${name}`;
+    c.title = t("notes.openNamed", { name });
     c.addEventListener("click", open);
     return c;
   };
@@ -204,7 +205,7 @@ export function drawMedia(dom: HTMLElement, info: NoteAttachment) {
     dom.replaceChildren(words);
     return;
   }
-  dom.title = `Open ${name}`;
+  dom.title = t("notes.openNamed", { name });
   if (info.kind === "image") {
     // Drawn in the note no larger than the note needs (a phone's photo is 12 to 48 megapixels,
     // and a note of them decoded each whole while scrolling); the viewer shows it whole.
@@ -226,7 +227,7 @@ export function drawMedia(dom: HTMLElement, info: NoteAttachment) {
     const show = () =>
       window.dispatchEvent(
         new CustomEvent<PictureShown>(PICTURE_EVENT, {
-          detail: { id: info.id, name: info.title ?? "Drawing", src: light.src, srcDark: dark.src, drawing: true },
+          detail: { id: info.id, name: info.title ?? t("notes.drawing"), src: light.src, srcDark: dark.src, drawing: true },
         }),
       );
     light.addEventListener("click", show);
@@ -238,7 +239,7 @@ export function drawMedia(dom: HTMLElement, info: NoteAttachment) {
     // to open. It is read again after every sync, and drawn as its grid once it can be.
     const box = document.createElement("span");
     box.className = "nf-table-unread";
-    box.textContent = "Table — can’t be shown here yet. It’s unchanged on your other devices.";
+    box.textContent = t("notes.tableUnread");
     dom.className = "nf-attachment is-table-unread";
     dom.title = "";
     dom.replaceChildren(box);
@@ -267,7 +268,7 @@ function attachmentView(node: PMNode) {
   // standing in for it ("Attachment") read as clutter, and stayed where a lookup failed.
   dom.textContent = "";
   dom.classList.add("is-pending");
-  dom.title = "Open it on an Apple device to change it";
+  dom.title = t("notes.changeOnApple");
   const id = node.attrs.id as string | null;
   // With no id (the note's formatting not read yet) there is nothing to look up: no frame.
   if (!id) dom.classList.replace("is-pending", "is-anon");
@@ -307,15 +308,15 @@ function attachmentView(node: PMNode) {
           openCellMenu?.({
             at: { x: e.clientX, y: e.clientY, alignRight: false },
             entries: [
-              { label: "Add Row Above", run: add(r) },
-              { label: "Add Row Below", run: add(r + 1) },
+              { label: t("notes.addRowAbove"), run: add(r) },
+              { label: t("notes.addRowBelow"), run: add(r + 1) },
               null,
-              { label: "Add Column Before", run: add(c, true) },
-              { label: "Add Column After", run: add(c + 1, true) },
+              { label: t("notes.addColumnBefore"), run: add(c, true) },
+              { label: t("notes.addColumnAfter"), run: add(c + 1, true) },
               null,
               // A table keeps at least one row and one column, as Notes does.
-              ...(cells.length > 1 ? [{ label: "Delete Row", danger: true, run: remove(r, false) }] : []),
-              ...((cells[0]?.length ?? 0) > 1 ? [{ label: "Delete Column", danger: true, run: remove(c, true) }] : []),
+              ...(cells.length > 1 ? [{ label: t("notes.deleteRow"), danger: true, run: remove(r, false) }] : []),
+              ...((cells[0]?.length ?? 0) > 1 ? [{ label: t("notes.deleteColumn"), danger: true, run: remove(c, true) }] : []),
             ],
           });
         });
@@ -919,7 +920,7 @@ export const NoteEditor = forwardRef<EditorHandle, Props>(function NoteEditor(
         role: "textbox",
         "aria-multiline": "true",
         "aria-label": label,
-        "aria-description": "Tab indents. Escape, then Tab, moves on.",
+        "aria-description": t("notes.editorHelp"),
         spellcheck: "true",
         ...(placeholder ? { "data-placeholder": placeholder } : {}),
       },

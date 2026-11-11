@@ -82,9 +82,9 @@ function holds(key: string, s: Summary | null, driveFree: string | null): string
  */
 function shortly(detail: string | null | undefined): string {
   const d = (detail ?? "").toLowerCase();
-  if (d.includes("busy")) return "iCloud busy, retrying";
-  if (d.includes("connection") || d.includes("offline") || d.includes("reach") || d.includes("took too long")) return "Offline, retrying";
-  return "Didn’t update";
+  if (d.includes("busy")) return t("launcher.busyRetrying");
+  if (d.includes("connection") || d.includes("offline") || d.includes("reach") || d.includes("took too long")) return t("launcher.offlineRetrying");
+  return t("launcher.didntUpdate");
 }
 
 function fresh(
@@ -93,9 +93,9 @@ function fresh(
 ): { text: string; full: string; state: "clean" | "working" | "trouble" | "idle" } {
   const said = (text: string, state: "clean" | "working" | "trouble" | "idle") => ({ text, full: text, state });
   if (!r) return said(syncing ? t("common.updating") : t("sync.notSyncedYet"), syncing ? "working" : "idle");
-  if (r.outcome === "failed") return { text: shortly(r.detail), full: r.detail ?? "Didn’t update", state: "trouble" };
-  if (r.outcome === "paused") return said(`${freshness(r.lastSyncedAt ?? null)}. Syncs when you approve`, "idle");
-  if (r.outcome === "preparing") return said("Apple is still preparing it", "idle");
+  if (r.outcome === "failed") return { text: shortly(r.detail), full: r.detail ?? t("launcher.didntUpdate"), state: "trouble" };
+  if (r.outcome === "paused") return said(t("launcher.syncsWhenApproved", { when: freshness(r.lastSyncedAt ?? null) }), "idle");
+  if (r.outcome === "preparing") return said(t("launcher.preparing"), "idle");
   if (syncing && !r.lastSyncedAt) return said(t("common.loading"), "working");
   if (!r.lastSyncedAt) return said(t("sync.notSyncedYet"), "idle");
   return said(freshness(r.lastSyncedAt), syncing ? "working" : "clean");

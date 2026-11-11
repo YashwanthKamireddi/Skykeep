@@ -2,7 +2,7 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { readFileSync, readdirSync } from "node:fs";
-import { t, setLanguage, activeLanguage, languageName, appName, LANGUAGES } from "../src/lib/i18n.ts";
+import { t, setLanguage, activeLanguage, languageName, appName, systemLanguage, LANGUAGES } from "../src/lib/i18n.ts";
 
 const locales = new URL("../src/locales/", import.meta.url);
 const read = (file) => JSON.parse(readFileSync(new URL(file, locales), "utf8"));
@@ -27,6 +27,35 @@ test("a key translates to Simplified Chinese when zh-CN is active", () => {
   assert.equal(t("settings.appearance"), "外观");
 });
 
+test("a key translates to German when de is active", () => {
+  setLanguage("de");
+  assert.equal(activeLanguage(), "de");
+  assert.equal(t("common.cancel"), "Abbrechen");
+  assert.equal(t("settings.title"), "Einstellungen");
+  assert.equal(t("sync.updatedMinAgo", { count: 5 }), "Vor 5 Min. aktualisiert");
+  assert.equal(appName("drivews"), "Drive");
+  assert.equal(appName("reminders"), "Erinnerungen");
+});
+
+test("German from Germany, Austria or Switzerland is German, and a language not offered is English", () => {
+  const real = Object.getOwnPropertyDescriptor(globalThis, "navigator");
+  const prefer = (...languages) =>
+    Object.defineProperty(globalThis, "navigator", { value: { languages, language: languages[0] }, configurable: true });
+  try {
+    for (const tag of ["de", "de-DE", "de-AT", "de-CH"]) {
+      prefer(tag, "en-US");
+      assert.equal(systemLanguage(), "de", tag);
+    }
+    prefer("fr-FR", "de-DE");
+    assert.equal(systemLanguage(), "de", "the first preference the interface speaks");
+    prefer("fr-FR");
+    assert.equal(systemLanguage(), "en");
+  } finally {
+    if (real) Object.defineProperty(globalThis, "navigator", real);
+    else delete globalThis.navigator;
+  }
+});
+
 test("a language asked for by name answers in it, whatever is active", () => {
   setLanguage("zh-CN");
   assert.equal(t("common.cancel", undefined, "en"), "Cancel");
@@ -49,6 +78,7 @@ test("parameters interpolate into template placeholders in English and Chinese",
 test("language name helper returns readable name", () => {
   assert.equal(languageName("en"), "English");
   assert.equal(languageName("zh-CN"), "简体中文");
+  assert.equal(languageName("de"), "Deutsch");
 });
 
 test("an app's name comes from its screen key or its service, and nothing else is an app", () => {

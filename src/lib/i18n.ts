@@ -1,5 +1,6 @@
 import { Fragment, createElement, useSyncExternalStore, type ReactNode } from "react";
 import en from "../locales/en.json" with { type: "json" };
+import de from "../locales/de.json" with { type: "json" };
 import zhCN from "../locales/zh-CN.json" with { type: "json" };
 
 /**
@@ -10,6 +11,7 @@ import zhCN from "../locales/zh-CN.json" with { type: "json" };
  */
 const LOCALES = {
   en: { name: "English", strings: en },
+  de: { name: "Deutsch", strings: de },
   "zh-CN": { name: "简体中文", strings: zhCN },
 } as const satisfies Record<string, { name: string; strings: object }>;
 
