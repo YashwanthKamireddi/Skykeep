@@ -1,97 +1,74 @@
-// The open-source licences the desktop app ships, written into the web build so Settings can
-// show them: the Rust crates built into the app (cargo-about, with about.toml's rules) and the
-// npm packages bundled into the window. Read from the lockfiles at every build, so the list is
-// never typed by hand and cannot fall behind a dependency change. A crate or package under a
-// licence about.toml does not accept, or with no licence text, fails the build rather than
-// ship unlisted.
+// `npm run licences`: writes src/licences.json, every open-source licence the desktop app ships,
+// for Settings › Open-Source Licences. The Rust crates built into the app come from cargo-about
+// (with about.toml's rules), the npm packages bundled into the window from package-lock.json,
+// each with its own licence file. Run when dependencies change and the result committed: the
+// build only reads the file, so Flatpak, COPR, the AUR and every CI build need no cargo-about,
+// and the release (tag.yml) and the local gate (check.sh) run this again and refuse a list that
+// differs. It fails, writing nothing, on a licence about.toml does not accept, a package with no
+// licence file, or a package in the window's bundle that the list does not name.
 import { execFile } from "node:child_process";
-import { createHash } from "node:crypto";
-import { existsSync, mkdirSync, readdirSync, readFileSync, rmSync, statSync, writeFileSync } from "node:fs";
+import { mkdtempSync, readdirSync, readFileSync, rmSync, statSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { promisify } from "node:util";
 
 const run = promisify(execFile);
-const VIRTUAL = "virtual:licences";
-const RESOLVED = "\0" + VIRTUAL;
+const root = join(dirname(fileURLToPath(import.meta.url)), "..");
+const OUT = join(root, "src", "licences.json");
+
+// Every target a desktop build is made for. One list for all of them, so the committed file is
+// the same whichever machine writes it; a crate only one of them uses is listed for all.
+const TARGETS = ["x86_64-unknown-linux-gnu", "aarch64-unknown-linux-gnu", "x86_64-pc-windows-msvc"];
 
 /** @typedef {{ id: string, name: string, text: string, users: string[] }} Licence */
 
+/** Plain code-point order, the same on every machine (localeCompare follows the locale). */
+const order = (a, b) => (a < b ? -1 : a > b ? 1 : 0);
+
+/** Texts as written, with one kind of line ending and no space around them. */
+const same = (text) => text.replace(/\r\n?/g, "\n").trim();
+
 /** about.toml's accepted licences, in its order: the order an either-or licence is chosen in. */
-function accepted(root) {
+function accepted() {
   const toml = readFileSync(join(root, "about.toml"), "utf8");
   const list = toml.match(/^accepted\s*=\s*\[([\s\S]*?)\]/m);
   if (!list) throw new Error("about.toml has no accepted list");
   return [...list[1].matchAll(/"([^"]+)"/g)].map((m) => m[1]);
 }
 
-/** The Rust target the app is built for: the one `tauri build` names, else this machine's. */
-async function target(root) {
-  if (process.env.TAURI_ENV_TARGET_TRIPLE) return process.env.TAURI_ENV_TARGET_TRIPLE;
-  const { stdout } = await run("rustc", ["-vV"], { cwd: root });
-  const host = stdout.match(/^host: (\S+)/m);
-  if (!host) throw new Error("rustc -vV named no host target");
-  return host[1];
-}
-
-/**
- * The app's crates and their licences, from cargo-about. Kept in node_modules/.cache under a
- * key of everything that decides the answer (the lockfile, every manifest, about.toml, the
- * target, cargo-about's version and this file): a fresh run reads every crate's licence files
- * and takes over half a minute, and run.sh builds the window on every start.
- */
-async function crates(root) {
-  let version;
+/** The app's crates and their licences, from cargo-about, Skykeep's own crates left out. */
+async function crates() {
   try {
-    version = (await run("cargo", ["about", "--version"], { cwd: root })).stdout.trim();
+    await run("cargo", ["about", "--version"], { cwd: root });
   } catch {
-    throw new Error("cargo-about is needed to write the app's licence notices: cargo install --locked cargo-about@0.9.3");
+    throw new Error("cargo-about is needed: cargo install --locked cargo-about@0.9.3");
   }
-  const triple = await target(root);
-  const manifests = [
-    join(root, "Cargo.toml"),
-    join(root, "src-tauri", "Cargo.toml"),
-    ...readdirSync(join(root, "crates"))
-      .map((c) => join(root, "crates", c, "Cargo.toml"))
-      .filter((f) => existsSync(f)),
-  ];
-  const hash = createHash("sha256").update(`${version}\n${triple}\n`);
-  for (const f of [fileURLToPath(import.meta.url), join(root, "Cargo.lock"), join(root, "about.toml"), ...manifests]) {
-    hash.update(readFileSync(f));
-  }
-  const dir = join(root, "node_modules", ".cache", "skykeep-licences");
-  const cached = join(dir, `${hash.digest("hex").slice(0, 32)}.json`);
-  if (existsSync(cached)) return JSON.parse(readFileSync(cached, "utf8"));
-
-  const out = join(tmpdir(), `skykeep-about-${process.pid}-${Date.now()}.json`);
+  const dir = mkdtempSync(join(tmpdir(), "skykeep-licences-"));
+  const out = join(dir, "about.json");
   try {
     await run(
       "cargo",
       ["about", "generate", "--format", "json", "--fail", "--locked", "-c", "about.toml",
-        "-m", "src-tauri/Cargo.toml", "--target", triple, "-o", out],
+        "-m", "src-tauri/Cargo.toml", ...TARGETS.flatMap((t) => ["--target", t]), "-o", out],
       { cwd: root, maxBuffer: 64 * 1024 * 1024 },
     );
+    const about = JSON.parse(readFileSync(out, "utf8"));
+    if (!Array.isArray(about.licenses)) throw new Error("cargo about wrote no licences");
+    /** @type {Licence[]} */
+    const list = [];
+    for (const l of about.licenses) {
+      // Skykeep's own crates (path dependencies, with no source) are the app itself, under its
+      // own GPL-3.0, not third-party work.
+      const users = l.used_by.filter((u) => u.crate.source != null).map((u) => `${u.crate.name} ${u.crate.version}`);
+      if (users.length > 0) list.push({ id: l.id, name: l.name, text: l.text, users });
+    }
+    return list;
   } catch (e) {
-    rmSync(out, { force: true });
     throw new Error(`cargo about could not list the app's crate licences:\n${e.stderr || e.message}`);
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
   }
-  const about = JSON.parse(readFileSync(out, "utf8"));
-  rmSync(out, { force: true });
-  if (!Array.isArray(about.licenses)) throw new Error("cargo about wrote no licences");
-  /** @type {Licence[]} */
-  const list = [];
-  for (const l of about.licenses) {
-    // Skykeep's own crates (path dependencies, with no source) are the app itself, under its
-    // own GPL-3.0, not third-party work.
-    const users = l.used_by.filter((u) => u.crate.source != null).map((u) => `${u.crate.name} ${u.crate.version}`);
-    if (users.length > 0) list.push({ id: l.id, name: l.name, text: l.text, users });
-  }
-  mkdirSync(dir, { recursive: true });
-  // Earlier answers are dropped: only the current one is ever read again.
-  for (const old of readdirSync(dir)) rmSync(join(dir, old), { force: true });
-  writeFileSync(cached, JSON.stringify(list));
-  return list;
 }
 
 /** The licence files at the top of a package, as npm and most authors name them. */
@@ -106,15 +83,20 @@ function licenceFiles(dir) {
  * development one, with its licence (an either-or licence taken as the first of about.toml's
  * accepted list it offers) and that licence's text from the package's own files.
  */
-function packages(root, allowed) {
+function packages(allowed) {
   const lock = JSON.parse(readFileSync(join(root, "package-lock.json"), "utf8"));
   const list = [];
   for (const [path, entry] of Object.entries(lock.packages ?? {})) {
     if (!path.startsWith("node_modules/") || entry.dev) continue;
     const dir = join(root, path);
-    // An optional package for another system is not installed here and not in this build.
-    if (entry.optional && !existsSync(dir)) continue;
-    const pkg = JSON.parse(readFileSync(join(dir, "package.json"), "utf8"));
+    let pkg;
+    try {
+      pkg = JSON.parse(readFileSync(join(dir, "package.json"), "utf8"));
+    } catch {
+      // An optional package for another system is not installed here and not in this build.
+      if (entry.optional) continue;
+      throw new Error(`${path} is not installed: run npm ci first`);
+    }
     const name = pkg.name ?? path.slice(path.lastIndexOf("node_modules/") + 13);
     const user = `${name} ${pkg.version}`;
     const expr = typeof pkg.license === "string" ? pkg.license : pkg.license?.type;
@@ -133,13 +115,8 @@ function packages(root, allowed) {
   return list;
 }
 
-/** Texts compared as written, apart from line endings and the space around them. */
-const same = (text) => text.replace(/\r\n/g, "\n").trim();
-
-async function collect(root) {
-  const allowed = accepted(root);
-  const rust = await crates(root);
-  const web = packages(root, allowed);
+/** Crates and packages, one entry for each licence text, in a fixed order. */
+function combine(rust, web) {
   const names = new Map(rust.map((l) => [l.id, l.name]));
   // The texts of one licence used by exactly the same crates are one entry, each text kept
   // once: ring carries its ISC notice in 21 source files, and listed apart they were 21 rows
@@ -147,7 +124,7 @@ async function collect(root) {
   const squash = (text) => text.replace(/\s+/g, " ").trim();
   const together = new Map();
   for (const l of rust) {
-    const users = [...l.users].sort((a, b) => a.localeCompare(b));
+    const users = [...l.users].sort(order);
     const key = `${l.id}\n${users.join("\n")}`;
     const found = together.get(key);
     if (!found) together.set(key, { ...l, users, texts: [l.text] });
@@ -155,24 +132,23 @@ async function collect(root) {
   }
   // One entry per licence text: crates and packages with the very same text (the same
   // copyright holder) share it, as cargo-about shares it between crates.
+  /** @type {Map<string, Licence>} */
   const byText = new Map();
-  for (const { texts, ...l } of together.values()) {
-    const text = texts.map((t) => same(t)).join("\n\n\n");
-    const key = `${l.id}\n${text}`;
+  const add = (id, name, text, users) => {
+    const key = `${id}\n${text}`;
     const found = byText.get(key);
-    if (found) found.users.push(...l.users);
-    else byText.set(key, { ...l, text });
+    if (found) found.users.push(...users);
+    else byText.set(key, { id, name, text, users: [...users] });
+  };
+  for (const { id, name, texts, users } of together.values()) {
+    add(id, name, texts.map(same).sort(order).join("\n\n\n"), users);
   }
-  for (const p of web) {
-    const key = `${p.id}\n${same(p.text)}`;
-    const found = byText.get(key);
-    if (found) found.users.push(p.user);
-    else byText.set(key, { id: p.id, name: names.get(p.id) ?? p.id, text: p.text, users: [p.user] });
-  }
+  for (const p of web) add(p.id, names.get(p.id) ?? p.id, same(p.text), [p.user]);
   const licences = [...byText.values()];
-  for (const l of licences) l.users = [...new Set(l.users)].sort((a, b) => a.localeCompare(b));
-  licences.sort((a, b) => a.name.localeCompare(b.name) || a.users[0].localeCompare(b.users[0]));
-  return { licences, npm: new Set(web.map((p) => p.name)) };
+  for (const l of licences) l.users = [...new Set(l.users)].sort(order);
+  licences.sort((a, b) => order(a.name, b.name) || order(a.users[0], b.users[0]) || order(a.text, b.text));
+  // Keys in one order too, so the file's text depends only on the licences.
+  return licences.map(({ id, name, users, text }) => ({ id, name, users, text }));
 }
 
 /** The package a bundled module comes from, by its path under node_modules. */
@@ -184,44 +160,49 @@ function packageOf(id) {
 }
 
 /**
- * The vite plugin: `import("virtual:licences")` is every licence the app ships. A production
- * build also checks that every package in the bundle is in the list, so one that reaches the
- * bundle some way package-lock.json does not show still fails the build.
+ * The window built in memory (vite.config.ts, nothing written), and every package in it named
+ * by the list: one that reaches the bundle some way package-lock.json does not show fails here.
  */
-export function licences() {
-  let root = process.cwd();
-  let building = false;
-  /** @type {Promise<{ licences: Licence[], npm: Set<string> }> | null} */
-  let pending = null;
-  const result = () => (pending ??= collect(root));
-  return {
-    name: "skykeep-licences",
-    configResolved(config) {
-      root = config.root;
-      building = config.command === "build";
-    },
-    // Started with the build, beside the bundling. The dev server reads them only when the
-    // licences are first opened, so `npm run dev` starts as fast as before.
-    buildStart() {
-      if (building) result().catch(() => {});
-    },
-    resolveId(id) {
-      return id === VIRTUAL ? RESOLVED : null;
-    },
-    async load(id) {
-      if (id !== RESOLVED) return null;
-      const { licences } = await result();
-      return `export default JSON.parse(${JSON.stringify(JSON.stringify(licences))});`;
-    },
-    async generateBundle(_options, bundle) {
-      const { npm } = await result();
-      for (const chunk of Object.values(bundle)) {
-        if (chunk.type !== "chunk") continue;
-        for (const id of Object.keys(chunk.modules)) {
-          const name = packageOf(id);
-          if (name && !npm.has(name)) this.error(`${name} is bundled but not in the licence notices`);
-        }
+async function checkBundle(npm) {
+  const { build } = await import("vite");
+  const result = await build({ root, logLevel: "error", build: { write: false } });
+  const outputs = Array.isArray(result) ? result : [result];
+  const missing = new Set();
+  for (const o of outputs) {
+    for (const chunk of o.output) {
+      if (chunk.type !== "chunk") continue;
+      for (const id of Object.keys(chunk.modules)) {
+        const name = packageOf(id);
+        if (name && !npm.has(name)) missing.add(name);
       }
-    },
-  };
+    }
+  }
+  if (missing.size > 0) throw new Error(`bundled but not in the licence list: ${[...missing].sort(order).join(", ")}`);
+}
+
+try {
+  const allowed = accepted();
+  const web = packages(allowed);
+  const licences = combine(await crates(), web);
+  const text = JSON.stringify(licences, null, 2) + "\n";
+  // The bundle is checked against the new list, then the old file is put back if it fails.
+  let before = null;
+  try {
+    before = readFileSync(OUT, "utf8");
+  } catch {
+    /* the first run */
+  }
+  writeFileSync(OUT, text);
+  try {
+    await checkBundle(new Set(web.map((p) => p.name)));
+  } catch (e) {
+    if (before === null) rmSync(OUT, { force: true });
+    else writeFileSync(OUT, before);
+    throw e;
+  }
+  const packagesShipped = new Set(licences.flatMap((l) => l.users)).size;
+  console.log(`src/licences.json: ${licences.length} licence texts, ${packagesShipped} crates and packages`);
+} catch (e) {
+  console.error(`npm run licences: ${e.message}`);
+  process.exitCode = 1;
 }

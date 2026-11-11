@@ -1,5 +1,5 @@
-// Settings → Open-Source Licences: the sheet lists every licence the build wrote (crates and
-// npm packages, scripts/licences.mjs), what is shipped under each, and unfolds a text on a
+// Settings → Open-Source Licences: the sheet lists every licence in src/licences.json (crates and
+// npm packages, from `npm run licences`), what is shipped under each, and unfolds a text on a
 // click, selectable; Escape and Done close it.
 import AxeBuilder from "@axe-core/playwright";
 import { engine } from "./engine.mjs";

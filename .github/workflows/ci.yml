@@ -129,11 +129,6 @@ jobs:
             const mm = (v) => v.split(".").slice(0, 2).join(".");
             console.log(`@tauri-apps/api ${npm}, tauri crate ${rust}`);
             if (mm(npm) !== mm(rust)) { console.error("Tauri npm package and crate differ: align them"); process.exit(1); }'
-      # The app's open-source licences are written into the window by its build
-      # (scripts/licences.mjs, through cargo-about); without it the build fails.
-      - uses: taiki-e/install-action@cfdb7ed4ccc7c7dce37759eae89dc5674b469b39 # v2.90.3
-        with:
-          tool: cargo-about@0.9.3
       - run: npx vite build
       - run: cargo clippy --workspace --all-targets --locked -- -D warnings
       # In a zone west of UTC with clock changes: in UTC a time read in the wrong zone reads
@@ -223,11 +218,6 @@ jobs:
           cache: npm
       - run: npm ci --no-audit --no-fund
       - run: npx tsc --noEmit
-      # The app's open-source licences are written into the window by its build
-      # (scripts/licences.mjs, through cargo-about); without it the build fails.
-      - uses: taiki-e/install-action@cfdb7ed4ccc7c7dce37759eae89dc5674b469b39 # v2.90.3
-        with:
-          tool: cargo-about@0.9.3
       - run: npx vite build
       - name: Model tests
         run: node --test .uiverify/*.test.mjs

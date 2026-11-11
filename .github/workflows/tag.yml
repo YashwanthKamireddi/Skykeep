@@ -31,7 +31,7 @@ concurrency:
 jobs:
   tag:
     runs-on: ubuntu-24.04
-    timeout-minutes: 5
+    timeout-minutes: 20  # the licence list reads every crate's licence files (a few minutes)
     permissions:
       contents: write
       actions: write
@@ -65,6 +65,28 @@ jobs:
           fi
           echo "sha=$SHA" >> "$GITHUB_OUTPUT"
           echo "tag=$tag" >> "$GITHUB_OUTPUT"
+      # The open-source licences the app shows (src/licences.json, written by `npm run licences`
+      # and committed) must be the ones this commit's lockfiles give. Checked here, not on pull
+      # requests, so a dependency update's pull request stays green until the list is rewritten.
+      - name: The commit being released
+        env:
+          SHA: ${{ steps.ready.outputs.sha }}
+        run: git checkout --detach "$SHA"
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: 22
+          cache: npm
+      - uses: taiki-e/install-action@cfdb7ed4ccc7c7dce37759eae89dc5674b469b39 # v2.90.3
+        with:
+          tool: cargo-about@0.9.3
+      - name: Licence list current
+        run: |
+          npm ci --no-audit --no-fund
+          npm run licences
+          if ! git diff --exit-code --stat src/licences.json; then
+            echo "::error::src/licences.json is out of date: run npm run licences and commit"
+            exit 1
+          fi
       - name: Tag, then start the release
         if: ${{ !inputs.dry_run }}
         env:

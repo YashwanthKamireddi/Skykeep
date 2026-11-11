@@ -56,9 +56,10 @@ Then:
 git clone https://github.com/YashwanthKamireddi/Skykeep.git
 cd Skykeep
 npm ci
-cargo install --locked cargo-about@0.9.3   # the build writes the app's open-source licences with it
 npx playwright install chromium webkit   # for the interface suites
 ```
+
+When you change dependencies (Cargo.lock or package-lock.json), run `npm run licences` (it needs `cargo install --locked cargo-about@0.9.3`) and commit `src/licences.json`: a release refuses a licence list that is out of date.
 
 On Windows, follow the [Tauri prerequisites](https://tauri.app/start/prerequisites/) and install libheif through vcpkg, exactly as [`.github/workflows/windows.yml`](workflows/windows.yml) does.
 

@@ -1,14 +1,18 @@
 /**
  * Open-Source Licences, from Settings: every licence the app ships, grouped by licence, each
  * text with what is shipped under it and the text itself unfolded on a click. The list is the
- * build's own (scripts/licences.mjs, from Cargo.lock and package-lock.json), never typed here,
- * and loaded only with this sheet: its texts are some 400 kB.
+ * one `npm run licences` wrote from Cargo.lock and package-lock.json (scripts/licences.mjs), never
+ * typed here, and loaded only with this sheet: its texts are some 400 kB.
  */
 import { useMemo, useRef, useState } from "react";
-import licences, { type Licence } from "virtual:licences";
+import list from "../licences.json";
 import { Portal } from "./Portal";
 import { Glyph } from "./Glyph";
 import { useModalFocus } from "../lib/focus";
+
+/** One licence text and everything shipped under it, each as "name version". */
+type Licence = { id: string; name: string; users: string[]; text: string };
+const licences: Licence[] = list;
 
 /** The licences under one name (MIT License, ISC License), each text once. */
 function byName(all: Licence[]): { name: string; texts: Licence[] }[] {
