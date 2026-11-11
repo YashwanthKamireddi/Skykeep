@@ -1256,20 +1256,27 @@ impl Account {
     /// Called before [`Account::sign_out`] when the person chooses Remove from Phone; the app
     /// clears its caches beside it.
     pub fn forget_account(&self) -> Result<(), EngineError> {
-        let account = {
+        let session = {
             let c = self.client.lock().map_err(failed)?;
             quince_sync::queue::asked_as(&c.service_params())
         };
-        // Closed first, so nothing writes into the folder as it goes.
-        self.library.lock().map_err(failed)?.take();
-        if let Some(account) = account {
-            let dir = self.dir.join("libraries").join(account);
-            match std::fs::remove_dir_all(&dir) {
-                Err(e) if e.kind() != std::io::ErrorKind::NotFound => return Err(failed(e)),
-                _ => {}
-            }
+        // Closed first, so nothing writes into the folder as it goes. Whose it is comes from the
+        // session, or else from the library open (a session already half gone still names its
+        // library); with neither, nothing can be said to be removed, and the person is told.
+        let open = self
+            .library
+            .lock()
+            .map_err(failed)?
+            .take()
+            .map(|(who, _)| who);
+        let account = session.or(open).ok_or_else(|| {
+            failed("Couldn't tell which account's copy to remove. Sign in again, then remove it.")
+        })?;
+        let dir = self.dir.join("libraries").join(account);
+        match std::fs::remove_dir_all(&dir) {
+            Err(e) if e.kind() != std::io::ErrorKind::NotFound => Err(failed(e)),
+            _ => Ok(()),
         }
-        Ok(())
     }
 
     /// Signs out here: the session forgotten on this phone, its secrets deleted.

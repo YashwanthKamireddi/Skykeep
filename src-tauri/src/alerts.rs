@@ -247,6 +247,17 @@ pub fn spawn(app: AppHandle) {
     tauri::async_runtime::spawn(async move {
         loop {
             let at = now();
+            // Only the signed-in account's reminders ring: after a sign-out (its copy kept) or
+            // while another account is signing in, the library open is not theirs to show.
+            // Nothing is taken as rung meanwhile, so the account's own alerts still come when
+            // it is back.
+            if !crate::same_account(&app).await {
+                tokio::select! {
+                    () = tokio::time::sleep(LONGEST_SLEEP) => {}
+                    () = CHANGED.notified() => {}
+                }
+                continue;
+            }
             let (ring, next, on) = {
                 let data = app.state::<Data>();
                 let mut library = data.0.lock().await;
@@ -404,6 +415,15 @@ pub fn spawn_events(app: AppHandle) {
             std::collections::HashMap::new();
         loop {
             let at = now();
+            // As reminders: only the signed-in account's events are said (CalDAV accounts are
+            // the account's too, kept in its library).
+            if !crate::same_account(&app).await {
+                tokio::select! {
+                    () = tokio::time::sleep(LONGEST_SLEEP) => {}
+                    () = CHANGED.notified() => {}
+                }
+                continue;
+            }
             let coming: Vec<quince_core::calendar::Event> = {
                 let data = app.state::<Data>();
                 let library = data.0.lock().await;

@@ -2019,6 +2019,9 @@ async fn auth_sign_out(keep: bool, app: tauri::AppHandle, auth: State<'_, Auth>)
     // notes the sign-out as owed and reads nothing until then); its trouble is told at the end.
     let signed_out = client.sign_out().map_err(|e| e.to_string());
     data_access::forget(&app);
+    // Hidden locks, and the photo links (the session's) go, whether the copy is kept or not:
+    // kept, Hidden stayed open for whoever used the computer next.
+    photos::forget_links();
     if !keep {
         let data = app.state::<Data>();
         let mut library = data.0.lock().await;
@@ -2027,7 +2030,6 @@ async fn auth_sign_out(keep: bool, app: tauri::AppHandle, auth: State<'_, Auth>)
         // The screens' readers let go of the file before it is deleted.
         data.0.forget_readers();
         let removed = remove_account(&mut library, &state_dir(&app));
-        photos::forget_links();
         drop(library);
         drop(client);
         let app = app.clone();

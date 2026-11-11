@@ -918,6 +918,21 @@ impl Client {
         )?)
     }
 
+    /// Somebody else signing in (Apple ended the last session, or it was never signed out):
+    /// the last account's trust token, cookies and client id go first, as at sign-out, so
+    /// nothing of it is sent with this sign-in and Apple never sees the two accounts tied
+    /// together. The same account typed again (any case, any spacing) keeps them, and with them
+    /// skips the code.
+    fn forget_other_account(&mut self, apple_id: &str) -> Result<()> {
+        let other = self.session.apple_id.as_deref().is_some_and(|before| {
+            session::account_fingerprint(before) != session::account_fingerprint(apple_id)
+        });
+        if other {
+            self.sign_out()?;
+        }
+        Ok(())
+    }
+
     /// Forget this account entirely.
     pub fn sign_out(&mut self) -> Result<()> {
         self.session = Session::default();
@@ -1174,6 +1189,7 @@ impl Client {
         password: &str,
         code: Code,
     ) -> Result<SignInOutcome> {
+        self.forget_other_account(apple_id)?;
         // What this account already owes, from beside the cookies rather than from the
         // keyring — so a machine with no keyring still remembers, which is where forgetting
         // would matter most. Per account, so signing in as somebody else inherits nothing.
@@ -2936,5 +2952,35 @@ mod sealed_jar_tests {
         let mut reopened = client(dir.path());
         assert!(!reopened.has_stored_session());
         assert!(!reopened.resume().await.unwrap());
+    }
+
+    /// Another Apple ID signing in starts clean: the last account's trust token, client id and
+    /// cookies are gone before anything is sent. The same Apple ID typed differently keeps them.
+    #[test]
+    fn another_apple_id_inherits_nothing_of_the_last() {
+        let dir = tempfile::tempdir().unwrap();
+        let mut c = holding_a_cookie(dir.path());
+        c.session.apple_id = Some("first@example.com".into());
+        c.session.trust_token = Some("trust".into());
+        c.persist().unwrap();
+        let id = c.session.client_id();
+
+        c.forget_other_account("  FIRST@example.com ").unwrap();
+        assert_eq!(
+            c.session.trust_token.as_deref(),
+            Some("trust"),
+            "the same account keeps its trust"
+        );
+        assert_eq!(c.session.client_id(), id);
+        assert!(cookies_file(dir.path()).exists());
+
+        c.forget_other_account("second@example.com").unwrap();
+        assert!(
+            c.session.trust_token.is_none(),
+            "another account starts without the last one's trust"
+        );
+        assert_ne!(c.session.client_id(), id, "nor its client id");
+        assert!(!cookies_file(dir.path()).exists(), "nor its cookies");
+        assert!(!client(dir.path()).has_stored_session());
     }
 }
