@@ -22,6 +22,7 @@ macro_rules! quiet {
 }
 
 pub mod diag;
+pub mod keep;
 pub mod pcs;
 pub mod releases;
 mod sealed;
@@ -30,6 +31,7 @@ pub mod srp;
 pub mod state;
 
 use base64::{engine::general_purpose::STANDARD as B64, Engine};
+pub use keep::Kept;
 use reqwest::header::{HeaderMap, HeaderName, HeaderValue};
 use reqwest::{Client as HttpClient, Response, StatusCode};
 use reqwest_cookie_store::CookieStoreMutex;
@@ -576,6 +578,8 @@ pub struct Client {
     phones: Vec<TrustedPhone>,
     /// What this run knows of Advanced Data Protection approvals (see [`pcs`]).
     pcs: pcs::Pcs,
+    /// What the passes' session checks remember between them (see [`keep`]).
+    keeping: keep::Keeping,
 }
 
 /// What became of the cookies kept on disk when the client started.
@@ -773,6 +777,7 @@ impl Client {
             cookies,
             phones: Vec::new(),
             pcs: pcs::Pcs::default(),
+            keeping: keep::Keeping::default(),
         })
     }
 

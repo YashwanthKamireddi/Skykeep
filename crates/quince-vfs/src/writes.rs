@@ -301,6 +301,150 @@ impl Writes {
             .filter(|(ino, p)| self.staging(*ino, &p.name).exists())
             .collect()
     }
+
+    /// What waits under `key`, as it stands. For a front end whose keys stay the same from one
+    /// run to the next (the phone's Files app keys each file by its document), unlike the
+    /// folder's inodes.
+    #[must_use]
+    pub fn get(&self, key: u64) -> Option<Pending> {
+        self.items
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
+            .get(&key)
+            .cloned()
+    }
+
+    /// Every key with something waiting to go.
+    #[must_use]
+    pub fn keys(&self) -> Vec<u64> {
+        let items = self
+            .items
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner);
+        let mut keys: Vec<u64> = items
+            .iter()
+            .filter(|(_, p)| p.dirty)
+            .map(|(k, _)| *k)
+            .collect();
+        keys.sort_unstable();
+        keys
+    }
+
+    /// Held to go, or changed where it is held (`change` is given what is there, if anything),
+    /// and written down at once: once this returns, a crash or a restart still sends it.
+    pub fn hold(&self, key: u64, change: impl FnOnce(Option<Pending>) -> Pending) -> Pending {
+        let now = {
+            let mut items = self
+                .items
+                .lock()
+                .unwrap_or_else(std::sync::PoisonError::into_inner);
+            let now = change(items.remove(&key));
+            items.insert(key, now.clone());
+            now
+        };
+        self.save();
+        now
+    }
+
+    /// No longer waiting (sent, or given up), written down, and its bytes let go of.
+    pub fn release(&self, key: u64) {
+        self.items
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
+            .remove(&key);
+        self.save();
+        self.drop_staging(key);
+    }
+
+    /// What the journal kept taken back under the same keys, for a front end whose keys are
+    /// stable (see [`Writes::get`]); the folder, whose inodes are not, uses
+    /// [`Writes::take_back`]. Answers how many files are waiting.
+    pub fn resume(&self) -> usize {
+        let kept = self.load();
+        let mut items = self
+            .items
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner);
+        for (key, pending) in kept {
+            items.entry(key).or_insert(pending);
+        }
+        items.values().filter(|p| p.dirty).count()
+    }
+}
+
+/// How sending one held file went ([`send_held`]).
+pub enum Held {
+    /// Nothing waits under that key.
+    Nothing,
+    /// An app still has it open: sent once it closes it.
+    Open,
+    /// At Apple. `settled`: nothing wrote to it while it went, and it waits no more; else what
+    /// was written meanwhile waits, to go as the next version of what was just sent.
+    Sent { sent: Box<Sent>, settled: bool },
+}
+
+/// One held file sent ([`Writes::hold`]): against the version of Apple's file its copy was
+/// taken from when it was opened (`Pending::replaces`), never the version the library has by
+/// the time it goes, so a change made on another device in between is kept and this one goes
+/// beside it as a conflicted copy (see [`send`]). Once settled, its bytes are moved to
+/// `keep_to` (the front end's own copy of the file, current now) or let go of.
+///
+/// # Errors
+/// When Apple cannot be reached or refuses: the file still waits, to be sent again.
+pub async fn send_held(
+    remote: &dyn Remote,
+    writes: &Writes,
+    key: u64,
+    folder: &DriveItem,
+    keep_to: Option<&Path>,
+) -> Result<Held, String> {
+    let Some(pending) = writes.get(key) else {
+        return Ok(Held::Nothing);
+    };
+    if pending.open > 0 {
+        return Ok(Held::Open);
+    }
+    let lane = writes.lane(&format!("{}/{}", pending.folder, pending.name));
+    let _turn = lane.lock().await;
+    let staged = writes.staging(key, &pending.name);
+    let stamp = |p: &Path| {
+        std::fs::metadata(p)
+            .ok()
+            .map(|m| (m.len(), m.modified().ok()))
+    };
+    let before = (stamp(&staged), pending.generation);
+    let sent = send(remote, folder, &staged, pending.replaces.as_ref(), None).await?;
+    // Let go of while it went (the account signed out): nothing more to keep.
+    let Some(now) = writes.get(key) else {
+        return Ok(Held::Sent {
+            sent: Box::new(sent),
+            settled: true,
+        });
+    };
+    let settled = now.open == 0 && (stamp(&staged), now.generation) == before;
+    if settled {
+        // A conflicted copy is another file than the one kept at `keep_to`: never put in its place.
+        if let Some(to) = keep_to.filter(|_| !sent.conflicted) {
+            if let Some(dir) = to.parent() {
+                let _ = std::fs::create_dir_all(dir);
+            }
+            let _ = std::fs::rename(&staged, to);
+        }
+        writes.release(key);
+    } else {
+        // Written again while it went: the next send replaces what just went, which is this
+        // phone's own. A conflicted copy is not the file the app has open, so what comes next
+        // is checked against the file by its name again, never written over it.
+        let item = (!sent.conflicted).then(|| sent.item.clone());
+        writes.hold(key, |p| Pending {
+            replaces: item,
+            ..p.unwrap_or(pending)
+        });
+    }
+    Ok(Held::Sent {
+        sent: Box::new(sent),
+        settled,
+    })
 }
 
 /// How a send ended: the file as Apple now has it, and whether it went as a conflicted copy.
@@ -660,6 +804,107 @@ mod send_tests {
         .unwrap();
         assert!(!sent.conflicted);
         assert_eq!(apple.log(), ["upload Passwords.kdbx"]);
+    }
+
+    /// A file held for the phone's Files app: opened at `base`, its bytes written.
+    fn held(writes: &Writes, key: u64, base: DriveItem, bytes: &[u8]) {
+        writes.hold(key, |_| Pending {
+            folder: "FOLDER::f".into(),
+            name: "Passwords.kdbx".into(),
+            replaces: Some(base),
+            open: 0,
+            dirty: true,
+            generation: 0,
+            modified: SystemTime::now(),
+            sender: false,
+            quiet_since: None,
+            sending: false,
+            failure: None,
+        });
+        let at = writes.staging(key, "Passwords.kdbx");
+        std::fs::create_dir_all(at.parent().unwrap()).unwrap();
+        std::fs::write(at, bytes).unwrap();
+    }
+
+    /// Android, 11 Nov: the folder refresh moved the library's item to another device's newer
+    /// version between the open and the send, and the send, taking its base from the library
+    /// then, wrote over that device's work. The base is the version opened: theirs is kept.
+    #[test]
+    fn a_held_file_is_sent_against_the_version_it_was_opened_at() {
+        let dir = tempfile::tempdir().unwrap();
+        let writes = Writes::new(dir.path()).unwrap();
+        held(&writes, 7, file("db", "v1"), b"ours");
+        // Saved on another device after the phone opened it.
+        let apple = Apple::with(vec![file("db", "v2")]);
+        let Held::Sent { sent, settled } =
+            run(send_held(&apple, &writes, 7, &folder(), None)).unwrap()
+        else {
+            panic!("not sent");
+        };
+        assert!(sent.conflicted && settled);
+        assert_eq!(
+            apple.files.lock().unwrap()[0].etag.as_deref(),
+            Some("v2"),
+            "theirs untouched"
+        );
+        assert!(writes.keys().is_empty(), "nothing waits once sent");
+    }
+
+    /// A save the phone held is still there after the app was killed: the journal gives it
+    /// back under its key, and it goes, its bytes moved to where the app keeps its copy.
+    #[test]
+    fn a_held_file_outlives_the_process_and_goes_once() {
+        let dir = tempfile::tempdir().unwrap();
+        held(
+            &Writes::new(dir.path()).unwrap(),
+            7,
+            file("db", "v1"),
+            b"saved offline",
+        );
+        // The process gone: a new journal over the same folder.
+        let writes = Writes::new(dir.path()).unwrap();
+        assert_eq!(writes.resume(), 1);
+        assert_eq!(
+            writes.get(7).unwrap().replaces.unwrap().etag.as_deref(),
+            Some("v1")
+        );
+        let apple = Apple::with(vec![file("db", "v1")]);
+        let copy = dir.path().join("copy/Passwords.kdbx");
+        let Held::Sent { sent, settled } =
+            run(send_held(&apple, &writes, 7, &folder(), Some(&copy))).unwrap()
+        else {
+            panic!("not sent");
+        };
+        assert!(settled && !sent.conflicted);
+        assert_eq!(apple.log(), ["replace FILE::db"], "in place, the same file");
+        assert_eq!(std::fs::read(&copy).unwrap(), b"saved offline");
+        assert!(matches!(
+            run(send_held(&apple, &writes, 7, &folder(), None)).unwrap(),
+            Held::Nothing
+        ));
+        assert_eq!(
+            Writes::new(dir.path()).unwrap().resume(),
+            0,
+            "the journal says so too"
+        );
+    }
+
+    /// An app that still has the file open: nothing goes until it closes it.
+    #[test]
+    fn a_held_file_still_open_waits() {
+        let dir = tempfile::tempdir().unwrap();
+        let writes = Writes::new(dir.path()).unwrap();
+        held(&writes, 7, file("db", "v1"), b"half");
+        writes.hold(7, |p| Pending {
+            open: 1,
+            ..p.unwrap()
+        });
+        let apple = Apple::with(vec![file("db", "v1")]);
+        assert!(matches!(
+            run(send_held(&apple, &writes, 7, &folder(), None)).unwrap(),
+            Held::Open
+        ));
+        assert!(apple.log().is_empty());
     }
 }
 

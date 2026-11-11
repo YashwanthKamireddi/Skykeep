@@ -4,7 +4,7 @@
 //! once, at the size shown, into the app's cache, from the link Apple gave (asked again when old).
 
 use crate::{failed, runtime, Account, EngineError};
-use quince_core::photos::{Kind, Source, View};
+use quince_core::photos::{Kind, PhotoLibrary, Source, View};
 use quince_icloud::photos::Links;
 use std::collections::HashMap;
 use std::sync::Mutex;
@@ -16,7 +16,7 @@ const LINK_LIFE: Duration = Duration::from_secs(45 * 60);
 /// Apple's download links by master id, with when they came.
 static LINKS: Mutex<Option<HashMap<String, (Links, Instant)>>> = Mutex::new(None);
 
-fn remember(links: HashMap<String, Links>) {
+pub(crate) fn remember(links: HashMap<String, Links>) {
     let mut held = LINKS
         .lock()
         .unwrap_or_else(std::sync::PoisonError::into_inner);
@@ -54,6 +54,37 @@ pub enum PView {
     Album {
         id: String,
     },
+    /// A shared album, by its zone: its photos are other people's too, and only looked at.
+    Shared {
+        zone: String,
+    },
+}
+
+/// A shared album, as the collections list shows it.
+#[derive(uniffi::Record)]
+pub struct PSharedAlbum {
+    pub zone: String,
+    pub title: Option<String>,
+    pub count: u32,
+    /// Its newest photo, for the album's picture.
+    pub cover: Option<String>,
+    /// Made by this account, rather than joined.
+    pub owned: bool,
+}
+
+/// Which photos the library's views show, as Photos' library switcher chooses.
+#[derive(uniffi::Enum, Clone, Copy, PartialEq, Eq)]
+pub enum PLibrary {
+    Both,
+    Personal,
+    Shared,
+}
+
+/// The library shown, and whether there is a Shared Library to choose at all.
+#[derive(uniffi::Record)]
+pub struct PLibraryChoice {
+    pub showing: PLibrary,
+    pub has_shared: bool,
 }
 
 /// A flag set on photos, as Photos sets them.
@@ -93,6 +124,9 @@ pub struct PItem {
     pub filename: Option<String>,
     pub size: Option<i64>,
     pub favorite: bool,
+    /// In a shared album: looked at and saved only, never changed from here (Apple's web
+    /// service lets an album's photos be read, not marked).
+    pub shared: bool,
 }
 
 /// An album.
@@ -127,11 +161,15 @@ pub enum PBackup {
 /// What a pass from Apple came to.
 #[derive(uniffi::Record)]
 pub struct PSync {
-    pub records: u32,
+    /// Something the screens show changed: the library, a shared album, the Shared Library.
+    pub changed: bool,
     /// Apple has more: the next pass carries on (a large library is read over several).
     pub more: bool,
     /// Apple is still preparing the library: nothing read yet.
     pub preparing: bool,
+    /// Advanced Data Protection holds Photos until the person approves on one of their
+    /// devices: nothing was asked of Apple, and nothing is retried before then.
+    pub paused: bool,
     pub photos: u32,
     /// Flag changes made here still on their way (Apple out of reach): sent on a later sync.
     pub waiting: u32,
@@ -152,7 +190,41 @@ fn source(v: PView) -> Source {
         PView::Panoramas => Source::View(View::Panoramas),
         PView::Portrait => Source::View(View::Portrait),
         PView::Album { id } => Source::Album(id),
+        PView::Shared { zone } => Source::Shared(zone),
     }
+}
+
+/// Where Apple keeps a photo, to ask it for the photo's pictures: the personal library, a
+/// Shared Library's zone, or a shared album.
+enum Place {
+    Library(Option<quince_icloud::shared_collections::Place>),
+    Album(quince_icloud::shared_collections::Place),
+}
+
+fn album_place(s: quince_core::shared::SharedPlace) -> quince_icloud::shared_collections::Place {
+    quince_icloud::shared_collections::Place {
+        database: if s.database == "shared" {
+            quince_icloud::cloudkit::Database::Shared
+        } else {
+            quince_icloud::cloudkit::Database::Private
+        },
+        zone: s.zone,
+        owner: s.owner,
+    }
+}
+
+/// A photo to look at — the library's own or a shared album's — and where Apple keeps it.
+fn any_photo(
+    l: &quince_core::Library,
+    id: &str,
+) -> Result<Option<(quince_core::photos::Photo, Place)>, String> {
+    if let Some(p) = l.photo(id).map_err(|e| e.to_string())? {
+        let place = quince_sync::photos::library_place(l, id)?;
+        return Ok(Some((p, Place::Library(place))));
+    }
+    Ok(l.shared_photo(id)
+        .map_err(|e| e.to_string())?
+        .map(|(p, s)| (p, Place::Album(album_place(s)))))
 }
 
 /// What a call to Apple's Photos needs: the client, CloudKit's address and the session's parameters.
@@ -160,7 +232,7 @@ type Context = (reqwest::Client, String, Vec<(String, String)>);
 
 impl Account {
     fn photos_context(&self) -> Result<Context, EngineError> {
-        let c = self.client.lock().map_err(failed)?;
+        let c = self.client();
         let root = c
             .session()
             .service_url("ckdatabasews")
@@ -175,27 +247,34 @@ impl Account {
     /// into the phone's, laid under whatever is still on its way, as the desktop does both.
     pub fn photos_sync(&self) -> Result<PSync, EngineError> {
         use quince_sync::photos::{self as shared, PHOTOS};
-        let (lock, account) = self.library()?;
-        let (http, root, params) = self.photos_context()?;
-        let (report, pass) = runtime()
-            .block_on(async {
-                // Sent first: Android may stop the app at any point, and what is queued waits
-                // safely in the library until a pass gets this far.
-                let report = quince_sync::queue::drain_as(&lock, PHOTOS, &PASS, &account, |p| {
-                    shared::send(&lock, &http, &root, params.clone(), p)
-                })
-                .await;
-                let _one = PASS.lock().await;
-                shared::refresh(&lock, &http, &root, params.clone())
-                    .await
-                    .map(|pass| (report, pass))
-            })
-            .map_err(failed)?;
+        // The session and whose library it is, read in one look; then the desktop's pass:
+        // readiness, a few pages a round, a whole walk once a day, then Shared Albums and the
+        // Shared Library (quince_sync::pass::photos).
+        let apple = self.apple("photos")?;
+        let lock = self.library_of(&apple)?;
+        // Sent first: Android may stop the app at any point, and what is queued waits safely in
+        // the library until a pass gets this far. Held while Advanced Data Protection waits for
+        // an approval, as on the desktop: Apple would refuse it, and nothing is retried on a timer.
+        let refused = match apple.cloudkit.as_deref() {
+            Some(root) if !apple.waiting.contains(&"photos") => {
+                runtime()
+                    .block_on(quince_sync::queue::drain_as(
+                        &lock,
+                        PHOTOS,
+                        &PASS,
+                        &apple.account,
+                        |p| shared::send(&lock, &apple.http, root, apple.params.clone(), p),
+                    ))
+                    .refused
+            }
+            _ => Vec::new(),
+        };
+        let pass = runtime().block_on(self.pass(quince_sync::pass::PHOTOS, &apple, &lock, &PASS));
+        let paused = crate::pass::settled(&pass, "Apple hasn't offered Photos for this account.")?;
         let waiting = runtime()
             .block_on(async { lock.lock().await.outbox_pending(PHOTOS) })
             .map_err(failed)?
             .len();
-        remember(pass.links);
         let photos = runtime()
             .block_on(async {
                 lock.lock()
@@ -206,12 +285,13 @@ impl Account {
             .ids
             .len();
         Ok(PSync {
-            records: u32::try_from(pass.records).unwrap_or(u32::MAX),
+            changed: pass.changed,
             more: pass.more,
-            preparing: pass.preparing,
+            preparing: pass.outcome == quince_sync::pass::Outcome::Preparing,
+            paused,
             photos: u32::try_from(photos).unwrap_or(u32::MAX),
             waiting: u32::try_from(waiting).unwrap_or(u32::MAX),
-            refused: report.refused.into_iter().map(|(_, why)| why).collect(),
+            refused: refused.into_iter().map(|(_, why)| why).collect(),
         })
     }
 
@@ -279,9 +359,10 @@ impl Account {
     pub fn photo_item(&self, id: String) -> Result<Option<PItem>, EngineError> {
         let (lock, _) = self.library()?;
         let found = runtime()
-            .block_on(async { lock.lock().await.photo(&id) })
+            .block_on(async { any_photo(&*lock.lock().await, &id) })
             .map_err(failed)?;
-        Ok(found.map(|p| PItem {
+        Ok(found.map(|(p, place)| PItem {
+            shared: matches!(place, Place::Album(_)),
             video: p.kind == Kind::Video,
             live: p.kind == Kind::Live,
             id: p.id,
@@ -311,6 +392,56 @@ impl Account {
             .collect())
     }
 
+    /// Every shared album this account made or was invited to, as the last sync found them,
+    /// each with its photo count and cover (the desktop's `photos_shared_albums`).
+    pub fn photo_shared_albums(&self) -> Result<Vec<PSharedAlbum>, EngineError> {
+        let (lock, _) = self.library()?;
+        Ok(runtime()
+            .block_on(async { lock.lock().await.shared_albums() })
+            .map_err(failed)?
+            .into_iter()
+            .map(|a| PSharedAlbum {
+                owned: a.owned(),
+                zone: a.zone,
+                title: a.title,
+                count: u32::try_from(a.count).unwrap_or(0),
+                cover: a.cover,
+            })
+            .collect())
+    }
+
+    /// Which library the views show, and whether there is a Shared Library to choose: the
+    /// switcher shows only when there is (the desktop's `photos_library`).
+    pub fn photo_library(&self) -> Result<PLibraryChoice, EngineError> {
+        let (lock, _) = self.library()?;
+        runtime().block_on(async {
+            let l = lock.lock().await;
+            Ok(PLibraryChoice {
+                showing: match l.photo_library().map_err(failed)? {
+                    PhotoLibrary::Both => PLibrary::Both,
+                    PhotoLibrary::Personal => PLibrary::Personal,
+                    PhotoLibrary::Shared => PLibrary::Shared,
+                },
+                has_shared: !l.shared_libraries().map_err(failed)?.is_empty(),
+            })
+        })
+    }
+
+    /// The library the views show from now on: kept in the library, as on the desktop.
+    pub fn photo_set_library(&self, which: PLibrary) -> Result<(), EngineError> {
+        let (lock, _) = self.library()?;
+        runtime().block_on(async {
+            lock.lock()
+                .await
+                .set_photo_library(match which {
+                    PLibrary::Both => PhotoLibrary::Both,
+                    PLibrary::Personal => PhotoLibrary::Personal,
+                    PLibrary::Shared => PhotoLibrary::Shared,
+                })
+                .map_err(failed)
+        })
+    }
+
     /// A photo or film from the phone (`key`: the phone's own id for it) backed up to iCloud
     /// Photos, as the desktop uploads one (`photos_upload::send`). Never twice: as soon as Apple
     /// names the photo it is making, the name is kept in the phone's library under `key`, and a
@@ -325,7 +456,7 @@ impl Account {
         use quince_icloud::photos_upload::{self as up, Refusal, Sending, Stage};
         let (lock, _) = self.library()?;
         let (http, ck, params, upload_root) = {
-            let c = self.client.lock().map_err(failed)?;
+            let c = self.client();
             let s = c.session();
             (
                 c.http().clone(),
@@ -479,8 +610,8 @@ impl Account {
             return Ok(true);
         }
         let (lock, _) = self.library()?;
-        let photo = runtime()
-            .block_on(async { lock.lock().await.photo(&id) })
+        let (photo, place) = runtime()
+            .block_on(async { any_photo(&*lock.lock().await, &id) })
             .map_err(failed)?
             .ok_or_else(|| failed("That photo is no longer in the library."))?;
         let (http, root, params) = self.photos_context()?;
@@ -507,11 +638,34 @@ impl Account {
                         .map_err(failed);
                 }
             }
-            let links =
-                quince_icloud::photos::links(&http, &root, params, None, &photo.master, &photo.id)
+            // Asked of the place Apple keeps it: the library, its Shared Library's zone, or
+            // the shared album it is in.
+            let links = match &place {
+                Place::Library(zone) => {
+                    quince_icloud::photos::links(
+                        &http,
+                        &root,
+                        params,
+                        zone.as_ref(),
+                        &photo.master,
+                        &photo.id,
+                    )
                     .await
-                    .map_err(failed)?
-                    .ok_or_else(|| failed("Apple no longer has that photo."))?;
+                }
+                Place::Album(album) => {
+                    quince_icloud::shared_collections::links(
+                        &http,
+                        &root,
+                        params,
+                        album,
+                        &photo.master,
+                        &photo.id,
+                    )
+                    .await
+                }
+            }
+            .map_err(failed)?
+            .ok_or_else(|| failed("Apple no longer has that photo."))?;
             remember(HashMap::from([(photo.master.clone(), links.clone())]));
             let Some(url) = pick(&links) else {
                 return Ok(false);

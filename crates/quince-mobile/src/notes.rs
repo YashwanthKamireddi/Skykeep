@@ -85,6 +85,9 @@ pub struct NSync {
     pub notes: u32,
     pub waiting: u32,
     pub refused: Vec<String>,
+    /// Advanced Data Protection holds Notes until the person approves on one of their
+    /// devices: nothing was asked of Apple, and nothing is retried before then.
+    pub paused: bool,
 }
 
 fn count(n: impl TryInto<u32>) -> u32 {
@@ -336,19 +339,31 @@ impl Account {
     /// The changes made here sent to Apple, oldest first, then Apple's Notes read and laid
     /// under whatever is still on its way, as the desktop does it.
     pub fn notes_sync(&self) -> Result<NSync, EngineError> {
-        let (lock, account) = self.library()?;
-        let (http, root, params) = self.notes_context()?;
+        // The session and whose library it is, read in one look (see reminders_sync).
+        let apple = self.apple("notes")?;
+        let lock = self.library_of(&apple)?;
         runtime().block_on(async {
-            let report = quince_sync::queue::drain_as(&lock, shared::NOTES, &PASS, &account, |p| {
-                shared::send(&lock, &http, &root, params.clone(), p)
-            })
-            .await;
-            {
-                let _pass = PASS.lock().await;
-                shared::refresh(&lock, &http, &root, params.clone())
+            let waits = apple.waiting.contains(&shared::NOTES);
+            // Held by Advanced Data Protection: nothing is sent until the approval (see
+            // reminders_sync).
+            let report = match apple.cloudkit.as_deref() {
+                Some(root) if !waits => {
+                    quince_sync::queue::drain_as(&lock, shared::NOTES, &PASS, &apple.account, |p| {
+                        shared::send(&lock, &apple.http, root, apple.params.clone(), p)
+                    })
                     .await
-                    .map_err(failed)?;
-            }
+                }
+                _ => quince_sync::queue::Report {
+                    outcome: quince_sync::queue::Outcome::Later,
+                    sent: false,
+                    refused: Vec::new(),
+                },
+            };
+            let pass = self
+                .pass(quince_sync::pass::NOTES, &apple, &lock, &PASS)
+                .await;
+            let paused =
+                crate::pass::settled(&pass, "Apple hasn't offered Notes for this account.")?;
             let l = lock.lock().await;
             let (all, _) = l.note_counts().map_err(failed)?;
             let folders = l
@@ -363,6 +378,7 @@ impl Account {
                 notes: count(all),
                 waiting: count(waiting),
                 refused: report.refused.into_iter().map(|(_, why)| why).collect(),
+                paused,
             })
         })
     }
@@ -373,7 +389,7 @@ type Apple = (reqwest::Client, String, Vec<(String, String)>);
 
 impl Account {
     fn notes_context(&self) -> Result<Apple, EngineError> {
-        let c = self.client.lock().map_err(failed)?;
+        let c = self.client();
         let root = c
             .session()
             .service_url("ckdatabasews")
@@ -384,12 +400,9 @@ impl Account {
     /// Apple's Notes read again after a folder change that reached Apple. Failing, it is not the
     /// change failing (it is made): the next sync brings the screen up to date.
     fn notes_reread(&self) -> Result<(), EngineError> {
-        let (lock, _) = self.library()?;
-        let (http, root, params) = self.notes_context()?;
-        let _ = runtime().block_on(async {
-            let _pass = PASS.lock().await;
-            shared::refresh(&lock, &http, &root, params).await
-        });
+        let apple = self.apple("notes")?;
+        let lock = self.library_of(&apple)?;
+        let _ = runtime().block_on(self.pass(quince_sync::pass::NOTES, &apple, &lock, &PASS));
         Ok(())
     }
 }

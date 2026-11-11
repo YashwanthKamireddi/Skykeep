@@ -110,7 +110,6 @@ fun DrivePage(engine: AccountInterface) {
   var query by rememberSaveable { mutableStateOf("") }
   var results by remember { mutableStateOf<List<DItem>>(emptyList()) }
   var problem by remember { mutableStateOf<String?>(null) }
-  var opening by remember { mutableStateOf<String?>(null) }
   var naming by remember { mutableStateOf<DItem?>(null) }
   var newFolder by remember { mutableStateOf(false) }
   /** Names on their way up: shown in the folder at once, until Apple lists them. */
@@ -149,13 +148,8 @@ fun DrivePage(engine: AccountInterface) {
   fun open(item: DItem) {
     if (item.folder) { query = ""; path.add(Crumb(item.id, item.name)); return }
     scope.launch {
-      opening = item.id
-      val file = DriveFiles.copyOf(context, item)
-      val ok = runCatching {
-        withContext(Dispatchers.IO) { if (DriveFiles.stale(file, item)) engine.driveDownload(item.id, file.path) }
-      }.onFailure { problem = reason(it, "${item.name} couldn't be downloaded.") }.isSuccess
-      opening = null
-      if (!ok) return@launch
+      // Handed to the app that opens it through iCloud Drive's own provider, which serves the
+      // file as that app reads it (a film plays, a long PDF opens, before it has all arrived).
       val uri = DocumentsContract.buildDocumentUri("${context.packageName}.drive", item.id)
       val view = Intent(Intent.ACTION_VIEW).setDataAndType(uri, DriveFiles.mimeOf(item))
         .addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION or Intent.FLAG_ACTIVITY_NEW_TASK)
@@ -179,7 +173,7 @@ fun DrivePage(engine: AccountInterface) {
             // Staged under its own name: the name is what iCloud Drive calls it.
             val staged = File(context.cacheDir, "drive-upload/${System.nanoTime()}/${DriveFiles.safeName(name)}").also { it.parentFile?.mkdirs() }
             context.contentResolver.openInputStream(uri)!!.use { input -> staged.outputStream().use { input.copyTo(it) } }
-            try { engine.driveWriteBack(folder, staged.path, null) } finally { staged.parentFile?.deleteRecursively() }
+            try { engine.driveWriteBack(folder, staged.path) } finally { staged.parentFile?.deleteRecursively() }
           }
         }.onFailure { problem = reason(it, "$name couldn't be uploaded.") }
         uploading -= folder to name
@@ -231,7 +225,7 @@ fun DrivePage(engine: AccountInterface) {
           GroupCard(pending.map { null to it } + shown.map { it to it.name }, inset = 56) { (item, name) ->
             if (item == null) UploadingRow(name)
             else DriveRow(
-              item, opening == item.id,
+              item,
               onOpen = { open(item) },
               onRename = { naming = item },
               onDelete = {
@@ -282,7 +276,7 @@ private fun Storage(used: ULong, total: ULong) {
 }
 
 @Composable
-private fun DriveRow(item: DItem, opening: Boolean, onOpen: () -> Unit, onRename: () -> Unit, onDelete: () -> Unit) {
+private fun DriveRow(item: DItem, onOpen: () -> Unit, onRename: () -> Unit, onDelete: () -> Unit) {
   val context = LocalContext.current
   var menu by remember { mutableStateOf(false) }
   Row(
@@ -304,7 +298,6 @@ private fun DriveRow(item: DItem, opening: Boolean, onOpen: () -> Unit, onRename
       ).joinToString(" · ").ifEmpty { null }
       detail?.let { Text(it, style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant) }
     }
-    if (opening) CircularProgressIndicator(Modifier.padding(horizontal = 12.dp).size(20.dp), strokeWidth = 2.dp)
     Box {
       IconButton(onClick = { menu = true }) { Icon(painterResource(R.drawable.ic_more), contentDescription = "More for ${item.name}", tint = MaterialTheme.colorScheme.onSurfaceVariant) }
       DropdownMenu(expanded = menu, onDismissRequest = { menu = false }) {

@@ -56,6 +56,9 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.SegmentedButton
+import androidx.compose.material3.SegmentedButtonDefaults
+import androidx.compose.material3.SingleChoiceSegmentedButtonRow
 import androidx.compose.material3.SnackbarDuration
 import androidx.compose.material3.SnackbarHost
 import androidx.compose.material3.SnackbarHostState
@@ -121,6 +124,9 @@ import uniffi.quince_mobile.EngineException
 import uniffi.quince_mobile.PAlbum
 import uniffi.quince_mobile.PFlag
 import uniffi.quince_mobile.PIndex
+import uniffi.quince_mobile.PLibrary
+import uniffi.quince_mobile.PLibraryChoice
+import uniffi.quince_mobile.PSharedAlbum
 import uniffi.quince_mobile.PSize
 import uniffi.quince_mobile.PView
 
@@ -181,9 +187,17 @@ private val PLACES = listOf(
   PhotoPlace("deleted", "Recently Deleted", R.drawable.ic_trash, PView.RecentlyDeleted),
 )
 
-private fun placeOf(key: String, albums: List<PAlbum>): PhotoPlace =
+private fun placeOf(key: String, albums: List<PAlbum>, shared: List<PSharedAlbum>): PhotoPlace =
   PLACES.firstOrNull { it.key == key }
-    ?: key.removePrefix("album:").let { id -> PhotoPlace(key, albums.firstOrNull { it.id == id }?.name ?: "Album", R.drawable.ic_albums, PView.Album(id)) }
+    ?: if (key.startsWith(SHARED)) key.removePrefix(SHARED).let { zone ->
+      PhotoPlace(key, shared.firstOrNull { it.zone == zone }?.title ?: "Shared Album", R.drawable.ic_albums, PView.Shared(zone))
+    } else key.removePrefix("album:").let { id -> PhotoPlace(key, albums.firstOrNull { it.id == id }?.name ?: "Album", R.drawable.ic_albums, PView.Album(id)) }
+
+/** A shared album's key: other people's photos too, looked at and shared from here, never changed. */
+private const val SHARED = "shared:"
+
+/** The library switcher's choices, in the desktop's words. */
+private val LIBRARIES = listOf(PLibrary.BOTH to "Both Libraries", PLibrary.PERSONAL to "Personal Library", PLibrary.SHARED to "Shared Library")
 
 /** One row of the grid: a month's heading, or a photo by its place in the index. */
 private sealed interface Cell {
@@ -274,6 +288,8 @@ fun PhotosPage(engine: AccountInterface) {
   var collections by rememberSaveable { mutableStateOf(false) }
   var hiddenOpen by remember { mutableStateOf(false) }
   var albums by remember { mutableStateOf<List<PAlbum>>(emptyList()) }
+  var shared by remember { mutableStateOf<List<PSharedAlbum>>(emptyList()) }
+  var library by remember { mutableStateOf<PLibraryChoice?>(null) }
   var index by remember { mutableStateOf<PIndex?>(null) }
   var open by rememberSaveable { mutableStateOf<Int?>(null) }
   var columns by rememberSaveable { mutableIntStateOf(4) }
@@ -282,7 +298,8 @@ fun PhotosPage(engine: AccountInterface) {
   val snackbar = remember { SnackbarHostState() }
   // Hidden never opens without the person proving it is them in this sitting.
   if (key == "hidden" && !hiddenOpen) key = "library"
-  val place = placeOf(key, albums)
+  val place = placeOf(key, albums, shared)
+  val readOnly = key.startsWith(SHARED)
 
   // Hidden, and Recently Deleted (which can hold hidden photos), stay out of the Recents
   // thumbnail and of screenshots while shown, a photo opened from them included.
@@ -317,6 +334,8 @@ fun PhotosPage(engine: AccountInterface) {
     withContext(Dispatchers.IO) {
       runCatching { engine.photoIndex(place.view) }.getOrNull()?.let { index = it }
       runCatching { engine.photoAlbums() }.getOrNull()?.let { albums = it.filter { a -> !a.folder } }
+      runCatching { engine.photoSharedAlbums() }.getOrNull()?.let { shared = it }
+      runCatching { engine.photoLibrary() }.getOrNull()?.let { library = it }
     }
   }
   LaunchedEffect(key) { if (key != "hidden") hiddenOpen = false; selected = emptySet() }
@@ -357,12 +376,20 @@ fun PhotosPage(engine: AccountInterface) {
   val idx = index
   open?.let { at ->
     if (idx != null && at in idx.ids.indices) {
-      Viewer(engine, idx, at, onClose = { open = null }, onFlag = { id, f, on, undo -> flag(listOf(id), f, on, undo) })
+      Viewer(engine, idx, at, readOnly, onClose = { open = null }, onFlag = { id, f, on, undo -> flag(listOf(id), f, on, undo) })
       return
     }
   }
   if (collections) {
-    Collections(engine, albums, onBack = { collections = false }, onOpen = ::go)
+    Collections(
+      engine, albums, shared, library, onBack = { collections = false }, onOpen = ::go,
+      onLibrary = { which ->
+        scope.launch {
+          withContext(Dispatchers.IO) { runCatching { engine.photoSetLibrary(which) } }
+          generation++
+        }
+      },
+    )
     return
   }
 
@@ -410,7 +437,7 @@ fun PhotosPage(engine: AccountInterface) {
         )
       }
       if (selected.isNotEmpty()) SelectionBar(
-        key, selected.size,
+        key, selected.size, readOnly,
         onShare = { val ids = selected.toList(); selected = emptySet(); scope.launch { share(context, engine, ids) } },
         onFavorite = { flag(selected.toList(), PFlag.FAVORITE, true) },
         onHide = { flag(selected.toList(), PFlag.HIDDEN, key != "hidden", if (key != "hidden") "Hidden" else "Shown again") },
@@ -542,10 +569,13 @@ private fun Thumb(engine: AccountInterface, id: String, px: Int, video: Boolean,
 
 /** What a selection can do, at the bottom: Share, Favorite, Hide (Show), Delete; Recover in Recently Deleted. */
 @Composable
-private fun SelectionBar(key: String, n: Int, onShare: () -> Unit, onFavorite: () -> Unit, onHide: () -> Unit, onDelete: () -> Unit, onRecover: () -> Unit) {
+private fun SelectionBar(key: String, n: Int, readOnly: Boolean, onShare: () -> Unit, onFavorite: () -> Unit, onHide: () -> Unit, onDelete: () -> Unit, onRecover: () -> Unit) {
   Surface(color = MaterialTheme.colorScheme.surfaceContainer) {
     Row(Modifier.fillMaxWidth().padding(horizontal = 8.dp, vertical = 4.dp), horizontalArrangement = Arrangement.SpaceEvenly) {
-      if (key == "deleted") {
+      if (readOnly) {
+        // A shared album's photos are shared from here, never changed.
+        IconButton(onClick = onShare) { Icon(painterResource(R.drawable.ic_share), contentDescription = "Share") }
+      } else if (key == "deleted") {
         TextButton(onClick = onRecover) { Text("Recover") }
         TextButton(onClick = onDelete) { Text(if (n == 1) "Delete Now" else "Delete $n Now", color = MaterialTheme.colorScheme.error) }
       } else {
@@ -558,15 +588,33 @@ private fun SelectionBar(key: String, n: Int, onShare: () -> Unit, onFavorite: (
   }
 }
 
-/** Collections: the places the desktop's sidebar lists, then the albums, each with its newest photo. */
+/**
+ * Collections: the places the desktop's sidebar lists, then the albums and the shared albums, each
+ * with its newest photo. With a Shared Library, which library the views show is chosen here, as
+ * the desktop's switcher chooses it.
+ */
 @Composable
-private fun Collections(engine: AccountInterface, albums: List<PAlbum>, onBack: () -> Unit, onOpen: (String) -> Unit) {
+private fun Collections(
+  engine: AccountInterface, albums: List<PAlbum>, shared: List<PSharedAlbum>, library: PLibraryChoice?,
+  onBack: () -> Unit, onOpen: (String) -> Unit, onLibrary: (PLibrary) -> Unit,
+) {
   BackHandler(onBack = onBack)
   val pairs = albums.chunked(2)
+  val sharedPairs = shared.chunked(2)
   LazyColumn(contentPadding = PaddingValues(start = 16.dp, end = 16.dp, bottom = 24.dp)) {
     item {
       IconButton(onClick = onBack, modifier = Modifier.offset(x = (-12).dp)) { Icon(painterResource(R.drawable.ic_back), contentDescription = "Library") }
       Text("Collections", style = MaterialTheme.typography.headlineLarge, modifier = Modifier.padding(start = 4.dp, bottom = 12.dp))
+    }
+    if (library?.hasShared == true) item {
+      SingleChoiceSegmentedButtonRow(Modifier.fillMaxWidth().padding(bottom = 16.dp)) {
+        LIBRARIES.forEachIndexed { i, (which, label) ->
+          SegmentedButton(
+            selected = library.showing == which, onClick = { onLibrary(which) },
+            shape = SegmentedButtonDefaults.itemShape(i, LIBRARIES.size),
+          ) { Text(label, maxLines = 1, overflow = TextOverflow.Ellipsis) }
+        }
+      }
     }
     item {
       GroupCard(PLACES.drop(1), inset = 56) { p ->
@@ -588,6 +636,32 @@ private fun Collections(engine: AccountInterface, albums: List<PAlbum>, onBack: 
         }
       }
     }
+    if (shared.isNotEmpty()) {
+      item { SectionLabel("Shared Albums") }
+      items(sharedPairs.size) { r ->
+        Row(horizontalArrangement = Arrangement.spacedBy(12.dp), modifier = Modifier.padding(bottom = 12.dp)) {
+          for (a in sharedPairs[r]) SharedAlbumTile(engine, a, Modifier.weight(1f)) { onOpen("$SHARED${a.zone}") }
+          if (sharedPairs[r].size == 1) Spacer(Modifier.weight(1f))
+        }
+      }
+    }
+  }
+}
+
+/** A shared album: its newest photo, its name and how many it holds, as icloud.com lists them. */
+@Composable
+private fun SharedAlbumTile(engine: AccountInterface, a: PSharedAlbum, modifier: Modifier, onClick: () -> Unit) {
+  val context = LocalContext.current
+  val cover by produceState<ImageBitmap?>(null, a.zone, a.cover) { value = a.cover?.let { thumbnail(context, engine, it, 360) } }
+  Column(modifier.clickable(onClick = onClick).semantics(mergeDescendants = true) {}) {
+    Box(Modifier.fillMaxWidth().aspectRatio(1f).clip(RoundedCornerShape(12.dp)).background(MaterialTheme.colorScheme.surfaceContainerHigh)) {
+      cover?.let { Image(it, contentDescription = null, contentScale = ContentScale.Crop, modifier = Modifier.fillMaxSize()) }
+    }
+    Text(a.title ?: "Shared Album", style = MaterialTheme.typography.bodyLarge, maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = Modifier.padding(top = 6.dp))
+    Text(
+      if (a.count == 1u) "1 item" else "${a.count} items",
+      style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant,
+    )
   }
 }
 
@@ -612,7 +686,7 @@ private fun AlbumTile(engine: AccountInterface, a: PAlbum, modifier: Modifier, o
  * bars; Share, Favorite and Delete (with Undo) at the bottom; a film plays where it is.
  */
 @Composable
-private fun Viewer(engine: AccountInterface, idx: PIndex, start: Int, onClose: () -> Unit, onFlag: (String, PFlag, Boolean, String?) -> Unit) {
+private fun Viewer(engine: AccountInterface, idx: PIndex, start: Int, readOnly: Boolean, onClose: () -> Unit, onFlag: (String, PFlag, Boolean, String?) -> Unit) {
   val context = LocalContext.current
   val scope = rememberCoroutineScope()
   BackHandler(onBack = onClose)
@@ -641,11 +715,14 @@ private fun Viewer(engine: AccountInterface, idx: PIndex, start: Int, onClose: (
         horizontalArrangement = Arrangement.SpaceBetween,
       ) {
         IconButton(onClick = { scope.launch { share(context, engine, listOf(id)) } }) { Icon(painterResource(R.drawable.ic_share), contentDescription = "Share", tint = Color.White) }
-        IconButton(onClick = { onFlag(id, PFlag.FAVORITE, !favorite, null) }) {
-          Icon(painterResource(if (favorite) R.drawable.ic_heart_fill else R.drawable.ic_heart), contentDescription = if (favorite) "Unfavorite" else "Favorite", tint = Color.White)
-        }
-        IconButton(onClick = { onFlag(id, PFlag.DELETED, true, "Moved to Recently Deleted"); if (idx.ids.size <= 1) onClose() }) {
-          Icon(painterResource(R.drawable.ic_trash), contentDescription = "Delete", tint = Color.White)
+        // A shared album's photo is looked at and shared, never changed from here.
+        if (!readOnly) {
+          IconButton(onClick = { onFlag(id, PFlag.FAVORITE, !favorite, null) }) {
+            Icon(painterResource(if (favorite) R.drawable.ic_heart_fill else R.drawable.ic_heart), contentDescription = if (favorite) "Unfavorite" else "Favorite", tint = Color.White)
+          }
+          IconButton(onClick = { onFlag(id, PFlag.DELETED, true, "Moved to Recently Deleted"); if (idx.ids.size <= 1) onClose() }) {
+            Icon(painterResource(R.drawable.ic_trash), contentDescription = "Delete", tint = Color.White)
+          }
         }
       }
     }

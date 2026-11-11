@@ -17,6 +17,7 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import io.github.yashwanthkamireddi.skykeep.sync.SessionEnded
 import io.github.yashwanthkamireddi.skykeep.ui.MainScreens
 import io.github.yashwanthkamireddi.skykeep.ui.Setup
 import io.github.yashwanthkamireddi.skykeep.ui.Welcome
@@ -56,8 +57,14 @@ class MainActivity : ComponentActivity() {
               a to a.hasSession()
             }
             engine = a
+            // Opened from "Sign in to Skykeep again": Apple ended the session, so sign-in is
+            // where the person is going, whatever is kept.
+            // (An old notification tapped after signing in again opens the library as usual.)
+            val signInAsked = intent?.getBooleanExtra(SessionEnded.SIGN_IN, false) == true &&
+              withContext(Dispatchers.IO) { a.accountTag() }?.let { SessionEnded.ended(applicationContext, it) } == true
             stage = when {
               !kept -> if (welcomed(applicationContext)) Stage.SignIn else Stage.Welcome
+              signInAsked -> Stage.SignIn
               // Signed in, but the phone not set up yet (no account here, or no access).
               phoneAccount(applicationContext) == null || !allowed(applicationContext) -> Stage.Setup
               else -> Stage.Main
@@ -77,11 +84,18 @@ class MainActivity : ComponentActivity() {
                 }
               }
             }
+            // Drive saves an earlier run held and had not sent yet go now.
+            if (kept) io.github.yashwanthkamireddi.skykeep.sync.DriveWrites.resume(applicationContext)
           }
           when (stage) {
             Stage.Starting -> Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) { CircularProgressIndicator() }
             Stage.Welcome -> Welcome { markWelcomed(applicationContext); stage = Stage.SignIn }
-            Stage.SignIn -> SignInScreen(engine!!) { stage = Stage.Setup }
+            Stage.SignIn -> SignInScreen(engine!!) {
+              // Signed in again: background syncing goes on (Setup gives the account its work
+              // back) and "Sign in again" is taken down.
+              SessionEnded.clear(applicationContext)
+              stage = Stage.Setup
+            }
             Stage.Setup -> Setup { stage = Stage.Main }
             Stage.Main -> MainScreens(engine!!) { stage = Stage.SignIn }
           }

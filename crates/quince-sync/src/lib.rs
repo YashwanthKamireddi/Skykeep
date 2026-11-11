@@ -2,6 +2,7 @@
 
 pub mod library_lock;
 pub mod notes;
+pub mod pass;
 pub mod photos;
 pub mod queue;
 pub mod reminders;
