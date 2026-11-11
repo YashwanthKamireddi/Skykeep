@@ -2,19 +2,44 @@ name: Something isn't working
 description: A bug, a crash, or something that looks wrong.
 labels: ["bug"]
 body:
+  - type: markdown
+    attributes:
+      value: |
+        Questions and "is this a bug?" go to [Discussions → Q&A](https://github.com/YashwanthKamireddi/Skykeep/discussions/categories/q-a). Security problems go to a [private report](https://github.com/YashwanthKamireddi/Skykeep/security/advisories/new), never an issue.
+
+        Please don't post anything from your iCloud: no names, email addresses, phone numbers, note text, file names or your Apple Account. Crop or blur screenshots.
   - type: textarea
     id: what
     attributes:
       label: What happened
-      description: What you did, what you expected, and what you saw instead. A screenshot or a short recording helps a lot.
+      description: What you did, what you expected, and what you saw instead. Steps that make it happen again help most. A screenshot or short recording helps too.
+    validations:
+      required: true
+  - type: dropdown
+    id: app
+    attributes:
+      label: Which app
+      multiple: true
+      options:
+        - Notes
+        - Reminders
+        - Calendar
+        - Contacts
+        - iCloud Drive
+        - Photos
+        - Sign-in or account
+        - Sync in general
+        - Folders in the file manager or File Explorer
+        - Settings, install or updates
+        - Something else
     validations:
       required: true
   - type: input
     id: version
     attributes:
       label: Skykeep version
-      description: Settings → About → Version.
-      placeholder: "0.1.10"
+      description: "Desktop: at the bottom of Settings. Android: Settings, under About."
+      placeholder: "0.1.20"
     validations:
       required: true
   - type: dropdown
@@ -32,14 +57,15 @@ body:
         - .rpm
         - Fedora COPR
         - AUR or Omarchy
-        - Built from source
+        - Desktop, built from source
+        - Android, built from source
     validations:
       required: true
   - type: input
     id: system
     attributes:
       label: System
-      description: Your OS and version, and on Linux your desktop (GNOME, KDE, Hyprland…).
+      description: Your OS and version. On Linux, your desktop too (GNOME, KDE, Hyprland…). On Android, the phone and Android version.
       placeholder: "Fedora 43, KDE Plasma 6.5"
     validations:
       required: true
@@ -53,5 +79,8 @@ body:
     id: log
     attributes:
       label: Log (optional)
-      description: Start Skykeep from a terminal with SKYKEEP_LOG=1 and paste what it prints around the problem. It never includes your password or your data, but read it over before posting.
+      description: |
+        Desktop: Settings → Save Diagnostic Report (version, system and each service's last sync) is a good start. For sign-in or sync problems, quit Skykeep, start it with `SKYKEEP_LOG=1 skykeep` (PowerShell: `$env:SKYKEEP_LOG=1`, then `skykeep.exe`), make the problem happen, and attach `diagnostics.log`. Skykeep prints where it is when it starts.
+        Android: `adb logcat -s Skykeep` while the problem happens.
+        Both logs leave out passwords, tokens, ids and your data, but read yours before posting and remove anything you'd rather not share.
       render: text

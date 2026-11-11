@@ -2,6 +2,10 @@ name: An idea
 description: Something Skykeep should do, or do better.
 labels: ["enhancement"]
 body:
+  - type: markdown
+    attributes:
+      value: |
+        Not sure yet, or want to talk it through first? [Discussions → Ideas](https://github.com/YashwanthKamireddi/Skykeep/discussions/categories/ideas) is a good place to start.
   - type: textarea
     id: idea
     attributes:
@@ -9,8 +13,19 @@ body:
       description: What you want to do, and how you do it on your iPhone, iPad or Mac today if you can.
     validations:
       required: true
+  - type: dropdown
+    id: platform
+    attributes:
+      label: Where
+      multiple: true
+      options:
+        - Linux
+        - Windows
+        - Android
+    validations:
+      required: true
   - type: input
     id: system
     attributes:
       label: System
-      description: Windows or Linux, and on Linux your desktop.
+      description: On Linux, your distribution and desktop. Optional.
