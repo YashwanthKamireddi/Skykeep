@@ -253,6 +253,8 @@
   --sk-orange-strong: #7f4c00;
   --sk-green: #1f8034;
   --sk-amber: #f2b33d;
+  /* The amber as a mark on its own (a Favourite's star): 4.4:1 on white, where the fill is 1.7:1. */
+  --sk-amber-strong: #9a6700;
 
   /* A sheet's curve. Decisive out, no bounce. */
   --ease: cubic-bezier(0.32, 0.72, 0, 1);
@@ -292,7 +294,7 @@
     --field-edge-hover: rgba(238, 242, 247, 0.28);
     --danger: #ff6b6b;
     --note-c1: #bf5af2; --note-c2: #ff375f; --note-c3: #ff9f0a; --note-c4: #63e6e2; --note-c5: #0a84ff;
-    --sk-blue-strong: #2f9bff; --sk-red: #ff6b70; --sk-orange-strong: #f0a23a;
+    --sk-blue-strong: #2f9bff; --sk-red: #ff6b70; --sk-orange-strong: #f0a23a; --sk-amber-strong: #f2b33d;
     --tool-drop: 0 2px 10px rgba(0, 0, 0, 0.4);
     --shadow-sheet: 0 18px 50px rgba(0, 0, 0, 0.55), 0 1px 3px rgba(0, 0, 0, 0.4);
     --shadow-field: inset 0 1px 1px rgba(0, 0, 0, 0.25);
@@ -320,7 +322,7 @@
     --field-edge-hover: rgba(238, 242, 247, 0.28);
     --danger: #ff6b6b;
     --note-c1: #bf5af2; --note-c2: #ff375f; --note-c3: #ff9f0a; --note-c4: #63e6e2; --note-c5: #0a84ff;
-    --sk-blue-strong: #2f9bff; --sk-red: #ff6b70; --sk-orange-strong: #f0a23a;
+    --sk-blue-strong: #2f9bff; --sk-red: #ff6b70; --sk-orange-strong: #f0a23a; --sk-amber-strong: #f2b33d;
     --tool-drop: 0 2px 10px rgba(0, 0, 0, 0.4);
     --shadow-sheet: 0 18px 50px rgba(0, 0, 0, 0.55), 0 1px 3px rgba(0, 0, 0, 0.4);
     --shadow-field: inset 0 1px 1px rgba(0, 0, 0, 0.25);

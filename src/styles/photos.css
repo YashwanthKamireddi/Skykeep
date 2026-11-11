@@ -496,7 +496,7 @@
   cursor: default;
   transition: color 120ms ease;
 }
-.px-star.is-on { color: var(--sk-amber); }
+.px-star.is-on { color: var(--sk-amber-strong); }
 .px-star:hover:not(:disabled) { background: color-mix(in srgb, var(--text) 7%, transparent); }
 .px-star:active:not(:disabled) { transform: scale(0.88); }
 .px-star:focus-visible { outline: var(--focus-ring); outline-offset: -2px; }
