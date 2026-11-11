@@ -15,8 +15,14 @@ android {
     applicationId = "io.github.yashwanthkamireddi.skykeep"
     minSdk = 29
     targetSdk = 36
-    versionCode = 1
-    versionName = "1.0"
+    // One version for every Skykeep: the desktop's (src-tauri/tauri.conf.json), so a release tag
+    // names the same version on each. The code Android compares is that version as a number,
+    // 0.1.21 as 1021 (major, minor, patch in thousands), never smaller for a later release.
+    val release = groovy.json.JsonSlurper().parse(rootProject.file("../src-tauri/tauri.conf.json")) as Map<*, *>
+    val version = release["version"] as String
+    val (major, minor, patch) = version.split('.').map { it.takeWhile(Char::isDigit).toInt() }
+    versionName = version
+    versionCode = major * 1_000_000 + minor * 1_000 + patch
     testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
     // The account type and sync authorities, from the app's id, for the XML that can't read it.
     resValue("string", "account_type", "$applicationId.account")
@@ -30,6 +36,9 @@ android {
       isMinifyEnabled = true
       isShrinkResources = true
       proguardFiles(getDefaultProguardFile("proguard-android-optimize.txt"), "proguard-rules.pro")
+      // Phones only: every Android phone sold for years is arm64. The x86_64 engine (10 MB) is
+      // the emulator's, kept in debug builds; in the release APK it was 40% of the download.
+      ndk { abiFilters += listOf("arm64-v8a") }
     }
     // The release build exactly (shrunk by R8), signed with the debug key and installed beside
     // the real app under its own id: what is shipped is run and checked on a phone without
@@ -42,6 +51,8 @@ android {
       for (s in listOf("reminders", "notes", "photos")) resValue("string", "authority_$s", "$id.$s")
       signingConfig = signingConfigs.getByName("debug")
       matchingFallbacks += listOf("release")
+      // Run on the emulator too, so both engines, where the release keeps only the phones' one.
+      ndk { abiFilters.clear(); abiFilters += listOf("arm64-v8a", "x86_64") }
     }
   }
   compileOptions {
