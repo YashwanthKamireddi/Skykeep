@@ -1832,10 +1832,21 @@
 .side-toggle {
   position: absolute;
   z-index: 35;
-  top: 16px;
-  left: 20px;
+  /* A round glass button, as the toolbar's own controls are (kit.css .toolbar-group), centred
+     on the first line beside it: a pane's title (Notes, Reminders, Contacts) or a toolbar of
+     32px groups (Calendar, Photos, below). */
+  top: 14px;
+  left: 16px;
+  width: var(--h-tool);
+  height: var(--h-tool);
+  border-radius: 50%;
+  background: var(--tool-bg);
+  box-shadow: var(--tool-lift);
   color: var(--text-2);
 }
+.side-toggle:hover:not(:disabled) { background: var(--tool-bg); color: var(--text); }
+.side-toggle:active:not(:disabled) { background: var(--fill-press); }
+.library.is-solo:is([data-app="calendar"], [data-app="photos"]) > .side-toggle { top: 18px; }
 .side-toggle:focus-visible { outline: var(--focus-ring); }
 .library.is-solo :is(.cx-side, .dx-side) { padding-top: 52px; }
 @media (min-width: 1001px) { .library.is-solo :is(.notes-folders, .contacts-lists) { padding-top: 52px; } }
@@ -1860,11 +1871,11 @@
 }
 .library.is-solo.side-hidden:not(.side-folded, .side-peek) .notes-folders-edge { display: none; }
 /* The first row beside it steps right of the button. */
-.library.is-solo.side-hidden:not(.side-folded, .side-peek) :is(.notes-list-head, .contacts-head, .rx-head, .drive-bar, .cx-bar, .px-bar) { padding-left: 44px; }
+.library.is-solo.side-hidden:not(.side-folded, .side-peek) :is(.notes-list-head, .contacts-head, .rx-head, .drive-bar, .cx-bar, .px-bar) { padding-left: 52px; }
 /* Drive folds its sidebar away in a narrow window: the same step there. Calendar's bar fills a
    narrow window's first line to the pixel, so there the button gives way and its More menu
    brings the calendars instead (F9 still does). */
-@media (max-width: 720px) { .library.is-solo .dx .drive-bar { padding-left: 44px; } }
+@media (max-width: 720px) { .library.is-solo .dx .drive-bar { padding-left: 52px; } }
 .library.is-solo[data-app="calendar"].side-folded > .side-toggle { display: none; }
 
 /* Brought over the content where the window's width folded it: a card on the window's left,
