@@ -15,8 +15,10 @@ import { reveal, takeWaiting, type Reveal } from "../lib/reveal";
 
 /*
  * Each app is its own chunk, so the window opens on the code for the app it shows, not all
- * five — Notes' editor alone is a few hundred kilobytes. The rest are fetched as soon as the
- * window is up, before anyone could reach them, so switching never waits on a load.
+ * seven — Notes' editor alone is a few hundred kilobytes. Each app is its own window now and a
+ * window only ever shows its own (`choose` opens any other in its window), so the others are
+ * never fetched here: fetched 300 ms after opening, as they were when one window switched
+ * between apps, each window parsed and held about 700 KB it could never show (audit H9).
  */
 /**
  * An app's code, fetched once. Once it is here, the screen is drawn in the same frame as the
@@ -374,15 +376,6 @@ export function Library({ onSignOut, onShown }: { onSignOut: (keep: boolean) => 
   useEffect(() => {
     if (noScreen) drawn();
   }, [noScreen, drawn]);
-
-  // The other apps' code, fetched while nothing else is happening.
-  useEffect(() => {
-    if (!ready) return undefined;
-    const t = window.setTimeout(() => {
-      for (const app of Object.values(apps)) void app.fetch().catch(() => {});
-    }, 300);
-    return () => window.clearTimeout(t);
-  }, [ready]);
 
   // The screens opened so far, in the order they were first opened.
   const keptRef = useRef<string[]>([]);

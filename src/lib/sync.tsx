@@ -53,6 +53,19 @@ const Context = createContext<Sync | null>(null);
 /** The least time between refreshes brought on by coming back to the window. */
 export const RETURN_THROTTLE_MS = 30_000;
 
+/**
+ * The service this window is the app for (`?app=notes`), or null in Skykeep's own window. An
+ * app's window opening or coming to the front asks for its own service only: it asked for all
+ * six, so opening Notes fetched Photos, Drive and Calendar's whole months too, once per window
+ * and again on every return (desktop audit M1). Skykeep's window, which shows every service's
+ * state, still asks for all of them.
+ */
+const OWN_SERVICE = (() => {
+  if (typeof window === "undefined") return null;
+  const app = new URLSearchParams(window.location.search).get("app");
+  return app && ["notes", "reminders", "calendar", "contacts", "drivews", "photos"].includes(app) ? app : null;
+})();
+
 export function SyncProvider({ children }: { children: ReactNode }) {
   const [report, setReport] = useState<Refresh | null>(null);
   const [syncing, setSyncing] = useState(false);
@@ -141,8 +154,11 @@ export function SyncProvider({ children }: { children: ReactNode }) {
       told = Array.isArray(part?.changed);
       // The backend's event brings the whole picture; this keeps the answer on screen even
       // where no event arrives, by folding this service's own report into the last one.
+      // A reply with no report in it leaves the last one as it was.
       setReport((was) =>
-        was
+        !Array.isArray(part?.services)
+          ? was
+          : was
           ? {
               ...was,
               services: [
@@ -164,6 +180,7 @@ export function SyncProvider({ children }: { children: ReactNode }) {
 
   useEffect(() => {
     let cancelled = false;
+    const pass = () => (OWN_SERVICE ? refreshService(OWN_SERVICE) : refresh());
 
     // Show the freshness the library already knows before asking Apple anything, so the
     // window is never blank while the first pass runs.
@@ -178,7 +195,7 @@ export function SyncProvider({ children }: { children: ReactNode }) {
       // Opening the window is itself a request for current data, so a pass always runs.
       // Showing the stored freshness first means the wait happens behind real content.
       .finally(() => {
-        if (!cancelled) void refresh();
+        if (!cancelled) void pass();
       });
 
     // Background passes finish without anyone asking, and every open screen has to notice.
@@ -200,7 +217,7 @@ export function SyncProvider({ children }: { children: ReactNode }) {
       if (document.visibilityState === "hidden") return;
       if (Date.now() - lastFocusPass < RETURN_THROTTLE_MS) return;
       lastFocusPass = Date.now();
-      void refresh();
+      void pass();
     };
     window.addEventListener("focus", onReturn);
     document.addEventListener("visibilitychange", onReturn);
@@ -211,7 +228,7 @@ export function SyncProvider({ children }: { children: ReactNode }) {
       window.removeEventListener("focus", onReturn);
       document.removeEventListener("visibilitychange", onReturn);
     };
-  }, [refresh, bump]);
+  }, [refresh, refreshService, bump]);
 
   const value = useMemo(
     () => ({ report, syncing, revision, revisions, refresh, error, refreshService, updating, serviceErrors, passStartedAt, wholeRevisions, subscribe }),
