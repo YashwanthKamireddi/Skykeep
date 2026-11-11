@@ -85,8 +85,8 @@ instead of its whole list.
 
 ## Writing
 
-Writes to Notes, Reminders, Contacts and Calendar go through the **outbox**, a queue in the
-same library as the records it changes.
+Writes to Notes, Reminders, Contacts, Calendar and Photos' flags go through the **outbox**, a
+queue in the same library as the records it changes.
 
 1. **Record.** A command calls a `record_*` function (`quince_sync::notes::record_note_save`,
    `quince_sync::reminders::record_reminder_tick`, the contact and calendar ones in
@@ -118,12 +118,18 @@ Each kind of change has its own payload type, its own `lay` (how it shows locall
 both record and replay) and its own `send`. A Nextcloud or CalDAV account gets an outbox queue
 of its own (`src-tauri/src/dav.rs`), so a server that is down holds up only its own changes.
 
+**Photos** favourites, hiding, deletes, recovers and deletes for good go through the outbox
+too (`quince_sync::photos::record_flags`, `send`), on the desktop's worker and at the start of
+each Android Photos sync. One change carries up to `AT_ONCE` (200) photos, one CloudKit
+request, so a large selection is a few changes, and a send cut off part way is narrowed
+(`outbox_narrow`) to what Apple has not yet taken. A change undone before it is sent is taken
+back off the queue. A photo deleted for good leaves every view at once but is kept whole in
+`photos_aside` until Apple confirms (then forgotten) or refuses (then put back).
+
 Other writes are shown at once but are not queued:
 
-- **Photos** favourites, hiding and deletes (`quince_sync::photos::set_flags`) change the
-  library first, are sent in batches to each photo's own zone, and are put back if Apple
-  refuses. Captions, ratings, keywords and dates (`src-tauri/src/photos.rs`) are sent directly
-  and stored from Apple's answer.
+- **Photos** captions, ratings, keywords and dates (`src-tauri/src/photos.rs`) are sent
+  directly and stored from Apple's answer.
 - **Drive** operations from the app (rename, move, new folder, delete) are sent directly, then
   the folder is listed again. `DriveView.tsx` shows the change at once and puts the row back
   if the command fails.

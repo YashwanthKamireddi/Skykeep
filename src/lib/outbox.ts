@@ -6,7 +6,7 @@ import { api, type OutboxStatus, type RefusedChange } from "./ipc";
 const CHANGED = "quince://outbox-changed";
 const REFUSED = "quince://outbox-refused";
 
-export type OutboxService = "notes" | "reminders" | "contacts" | "calendar";
+export type OutboxService = "notes" | "reminders" | "contacts" | "calendar" | "photos";
 
 /**
  * The network came back (the webview's own `online` event): what waits is sent now, not on the
@@ -29,6 +29,7 @@ export function changeWords(r: Pick<RefusedChange, "service" | "kind">): string 
     reminders: { create: "a new reminder", edit: "a change to a reminder", delete: "a reminder's deletion", done: "a tick", advance: "a tick" },
     contacts: { save: "a change to a contact", delete: "a contact's deletion", merge: "a merge of duplicate cards", address: "a change to a contact's address" },
     calendar: { save: "a change to an event", delete: "an event's deletion" },
+    photos: { favorite: "a change to Favorites", hidden: "a change to Hidden", deleted: "a delete or recover", expunged: "a delete for good" },
   };
   return words[r.service]?.[r.kind] ?? null;
 }

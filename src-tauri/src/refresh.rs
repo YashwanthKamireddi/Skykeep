@@ -1027,7 +1027,7 @@ async fn shared_albums_pass(ctx: &Context, root: &str, data: &LibraryLock) -> bo
 /// or that was ended goes with its photos — but only when Apple's list of them was read: a
 /// list that failed lets nothing go. Answers whether anything changed.
 async fn shared_library_pass(ctx: &Context, root: &str, data: &LibraryLock) -> bool {
-    use quince_icloud::photos::{apply, fetch_in, service_of, shared_libraries, PASS_ROUNDS};
+    use quince_icloud::photos::{fetch_in, service_of, shared_libraries, PASS_ROUNDS};
     let found = match shared_libraries(&ctx.http, root, ctx.params.clone()).await {
         Ok(found) => found,
         Err(e) => {
@@ -1091,7 +1091,10 @@ async fn shared_library_pass(ctx: &Context, root: &str, data: &LibraryLock) -> b
             if !same_account(&library) {
                 return changed;
             }
-            match tokio::task::block_in_place(|| apply(&mut library, fetched)) {
+            // The flag changes still on their way laid back over it, as over the personal library.
+            match tokio::task::block_in_place(|| {
+                quince_sync::photos::apply_shared_library(&mut library, fetched)
+            }) {
                 Ok((n, links)) => {
                     changed |= n > 0;
                     crate::photos::remember(links);

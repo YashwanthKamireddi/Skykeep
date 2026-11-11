@@ -52,6 +52,8 @@ import { PAGE, PhotoList, PhotoStore } from "./photos/list";
 import { Periods, monthName, type Level, type Place } from "./photos/Periods";
 import { same } from "../lib/same";
 import { carryPicture } from "../lib/dragPicture";
+import { useOutbox } from "../lib/outbox";
+import { Unsent } from "../components/Unsent";
 
 /** The library switcher's choices, named as Photos names them. */
 const LIBRARIES = [
@@ -859,6 +861,8 @@ const Month = memo(function Month({
 
 export function PhotosView() {
   const revision = useRevision("photos");
+  /** Flag changes on their way to Apple, and those it turned down (kept, to send again). */
+  const outbox = useOutbox("photos");
   const arriving = useArriving("photos");
   // Apple still preparing the library: said as it is, in place of "you have none".
   const { preparing } = useServiceState("photos");
@@ -1171,7 +1175,8 @@ export function PhotosView() {
   const due = seen.current;
   useEffect(() => {
     read().catch((e) => setError(messageOf(e)));
-  }, [read, due]);
+    // `outbox.tick`: a change sent, or turned down and put back, changes what the library holds.
+  }, [read, due, outbox.tick]);
 
   // Grouped by month, as the library reads — or, zoomed in close, by day, as Photos' Days do;
   // an album is one grid in its own order. Each group knows its month, for the month picker and
@@ -3439,6 +3444,7 @@ export function PhotosView() {
       </aside>
 
       <section className="px-main" aria-label={sharedPage ? "Shared Albums" : albumsPage ? "Albums" : title} data-page={albumsPage || sharedPage ? "albums" : undefined}>
+        <Unsent refused={outbox.refused} what="a change to photos" onResend={(r) => void outbox.resend(r)} onDiscard={(r) => void outbox.discard(r)} />
         {sharedPage && (
           <SharedAlbums
             onError={(m) => setError(m)}

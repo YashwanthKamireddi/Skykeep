@@ -15,8 +15,10 @@ window or a platform.
 - **`notes`, `reminders`**: each kind of change as `record_*` (local change and queue entry in
   one transaction), `lay` (its local effect), `replay` (lay everything still waiting over a
   pass), plus `apply`, `refresh` and `send`.
-- **`photos`**: the paged library pass, and `set_flags` (shown at once, sent in batches, put
-  back if refused).
+- **`photos`**: the paged library pass (`apply` lays waiting flag changes over each round), and
+  the flags through the queue: `record_flags` (up to `AT_ONCE` photos a change; an unsent one
+  undone is taken back), `lay`, `replay`, and `send` / `send_with` (what Apple took kept, the
+  rest narrowed and retried or put back; a delete for good kept aside until Apple confirms).
 - **`quiet!`**: messages printed in debug builds only, never with personal data.
 
 Contacts and Calendar sends still live in the desktop app (`src-tauri/src/outbox.rs`). On
@@ -27,6 +29,6 @@ Depends on `quince-core` and `quince-icloud`. Used by `quince-app` and `quince-m
 ## Tests
 
 ```sh
-cargo nextest run -p quince-sync         # the lock's own tests
+cargo nextest run -p quince-sync         # the lock, and Photos' flags against a pretend Apple
 cargo nextest run -p quince-app outbox   # the queue, against a pretend Apple
 ```

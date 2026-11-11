@@ -31,18 +31,28 @@ class PhotosProvider : ContentProvider() {
   override fun update(u: Uri, v: ContentValues?, s: String?, a: Array<out String>?) = 0
 }
 
-/** Android asking for Photos: a pass of Apple's library; a large one is read over several. */
+/**
+ * Android asking for Photos: the favourites, hides and deletes made here sent to Apple, oldest
+ * first, then a pass of Apple's library laid under whatever is still on its way; a large library
+ * is read over several.
+ */
 private class PhotosAdapter(context: Context) : AbstractThreadedSyncAdapter(context, true) {
   override fun onPerformSync(a: Account, e: Bundle, authority: String, p: ContentProviderClient, r: SyncResult) {
     val engine = io.github.yashwanthkamireddi.skykeep.Engine.account(context)
     if (refuseOthers(context, engine, a, authority)) return
     try {
       val done = engine.photosSync()
-      val said = when {
-        done.preparing -> "Apple is still preparing your library"
-        done.more -> "${done.photos} photos so far, more on the next sync"
-        else -> "${done.photos} photos"
-      }
+      val said = buildList {
+        add(when {
+          done.preparing -> "Apple is still preparing your library"
+          done.more -> "${done.photos} photos so far, more on the next sync"
+          else -> "${done.photos} photos"
+        })
+        if (done.waiting > 0u) add("${done.waiting} changes to send again")
+        if (done.refused.isNotEmpty()) add("${done.refused.size} not taken by iCloud: ${done.refused.first()}")
+      }.joinToString(" · ")
+      // Changes still waiting: Android tries again later, with its own backoff.
+      if (done.waiting > 0u) r.stats.numIoExceptions++
       Outcome.record(context, authority, true, said)
       // New photos taken here, when backup is on: sent after the library is read.
       PhotoBackup.run(context)

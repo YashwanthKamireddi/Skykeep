@@ -881,9 +881,7 @@ pub async fn set_flag(
     let client = client_in(http, ckdatabasews_root, params, place);
     let zone = zone_in(&client, place).await;
     if flag == Flag::Expunged && on {
-        return expunge_checked(&client, &zone, asset)
-            .await
-            .map_err(crate::Error::Refused);
+        return expunge_checked(&client, &zone, asset).await;
     }
     let name = match flag {
         Flag::Favorite => "isFavorite",
@@ -906,24 +904,25 @@ pub async fn set_flag(
 /// Recently Deleted, checked against Apple's record now, not this computer's copy, and written
 /// over exactly that version. Recovered on another device since this window last looked, it
 /// is kept: the plain update resent the delete over that recovery when its change tag moved.
-async fn expunge_checked(
-    client: &ZoneClient<'_>,
-    zone: &str,
-    asset: &str,
-) -> std::result::Result<Value, String> {
+/// Apple holding no such photo at all is [`crate::Error::NotFound`]: gone already, as asked
+/// (by an earlier send of this same delete, or on another device).
+async fn expunge_checked(client: &ZoneClient<'_>, zone: &str, asset: &str) -> Result<Value> {
     let zone = zone.to_string();
     let current = client
         .lookup_record(&zone, asset)
-        .await
-        .map_err(|e| e.to_string())?
-        .ok_or("That photo is no longer in iCloud.")?;
+        .await?
+        .ok_or(crate::Error::NotFound)?;
     if field::int(&current, "isDeleted") != Some(1) {
-        return Err("This photo was recovered on another device, so it was kept.".into());
+        return Err(crate::Error::Refused(
+            "This photo was recovered on another device, so it was kept.".into(),
+        ));
     }
     let tag = current
         .get("recordChangeTag")
         .and_then(Value::as_str)
-        .ok_or("Apple did not say which version of the photo it holds.")?;
+        .ok_or_else(|| {
+            crate::Error::Protocol("Apple did not say which version of the photo it holds.".into())
+        })?;
     client
         .update_record_exact(
             &zone,
@@ -934,16 +933,17 @@ async fn expunge_checked(
         )
         .await
         .map_err(|e| match e {
-            crate::Error::Conflict => {
-                "This photo changed on another device just now, so it was kept.".to_string()
-            }
-            other => other.to_string(),
+            crate::Error::Conflict => crate::Error::Refused(
+                "This photo changed on another device just now, so it was kept.".into(),
+            ),
+            other => other,
         })
 }
 
 /// One flag on many photos at once, as icloud.com sends a selection: batched, each photo
 /// standing alone. `assets` are `(record name, change tag)`. Answers each photo's outcome in
-/// the order given — the asset as it now is, or why not.
+/// the order given: the asset as it now is, or why not, as the error it was, so one Apple could
+/// not be asked about is never taken for one it refused.
 pub async fn set_flags(
     http: &reqwest::Client,
     ckdatabasews_root: &str,
@@ -952,7 +952,7 @@ pub async fn set_flags(
     assets: &[(String, Option<String>)],
     flag: Flag,
     on: bool,
-) -> Result<Vec<std::result::Result<Value, String>>> {
+) -> Result<Vec<Result<Value>>> {
     let client = client_in(http, ckdatabasews_root, params, place);
     let zone = zone_in(&client, place).await;
     if flag == Flag::Expunged && on {
@@ -2175,7 +2175,7 @@ mod tests {
         .await
         .unwrap();
         assert!(
-            matches!(&answers[0], Err(e) if e.contains("recovered on another device")),
+            matches!(&answers[0], Err(e) if e.to_string().contains("recovered on another device")),
             "{answers:?}"
         );
         assert!(answers[1].is_ok(), "{answers:?}");

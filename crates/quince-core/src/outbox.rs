@@ -100,6 +100,18 @@ impl Library {
         Ok(n == 1)
     }
 
+    /// What is left of a change once Apple has answered part of it — a batch where some records
+    /// were taken and others were not — rewritten where it stands, whether or not it was sent:
+    /// only ever to less of the same change, so nothing that may be at Apple is lost, and a
+    /// send again (or a refusal said) is of what Apple has not taken. Whether it was waiting.
+    pub fn outbox_narrow(&mut self, id: i64, payload: &str) -> Result<bool> {
+        let n = self.conn.execute(
+            "UPDATE outbox SET payload = ?2 WHERE id = ?1 AND refused_at IS NULL",
+            params![id, payload],
+        )?;
+        Ok(n == 1)
+    }
+
     /// What is waiting (not refused) for one record of one kind, oldest first.
     pub fn outbox_waiting(&self, service: &str, record: &str, kind: &str) -> Result<Vec<Pending>> {
         let mut stmt = self.conn.prepare(&format!(

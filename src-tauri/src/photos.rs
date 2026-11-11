@@ -1740,106 +1740,45 @@ async fn album_of(data: &State<'_, Data>, id: &str) -> UiResult<quince_core::pho
         .ok_or_else(|| "That album is no longer there.".into())
 }
 
-/// Favorite, Hide, Delete (to Recently Deleted), Recover, or — from Recently Deleted only —
-/// delete for good, as icloud.com does it: the asset's one field updated against its change tag. The library takes Apple's
-/// answer at once, so every view shows it without waiting for the next pass.
+/// Favorite, Hide, Delete (to Recently Deleted), Recover, or (from Recently Deleted only)
+/// delete for good, on one photo: [`photos_set_flag`] of it alone. Answers the photo as it now
+/// is, or (deleted for good, gone from view) as it was.
 #[tauri::command]
 pub async fn photo_set_flag(
     id: String,
     flag: quince_icloud::photos::Flag,
     on: bool,
-    auth: State<'_, Auth>,
     data: State<'_, Data>,
 ) -> UiResult<Photo> {
-    let _one = crate::PHOTOS_PASS.lock().await;
-    let photo = data
+    let was = data
         .0
         .lock()
         .await
         .photo(&id)
         .map_err(|e| e.to_string())?
         .ok_or("That photo is no longer in the library.")?;
-    // Deleting for good is only ever from Recently Deleted, and only ever on: there is no
-    // taking it back, so nothing else may reach it.
-    if flag == quince_icloud::photos::Flag::Expunged && (!on || !photo.deleted) {
-        return Err("Only a photo in Recently Deleted can be deleted for good.".into());
-    }
-    let place = quince_sync::photos::library_place(&*data.0.lock().await, &id)?;
-    let (http, root, params) = crate::cloudkit_context(&auth).await?;
-    let answer = quince_icloud::photos::set_flag(
-        &http,
-        &root,
-        params,
-        place.as_ref(),
-        &id,
-        photo.change_tag.as_deref(),
-        flag,
-        on,
-    )
-    .await
-    .map_err(|e| e.to_string())?;
-    let mut updated = photo;
-    match flag {
-        quince_icloud::photos::Flag::Favorite => updated.favorite = on,
-        quince_icloud::photos::Flag::Hidden => updated.hidden = on,
-        quince_icloud::photos::Flag::Deleted => {
-            updated.deleted = on;
-            updated.deleted_at = on.then(|| jiff::Timestamp::now().as_second());
-            // Apple's own date for when it goes for good, or its thirty days until it says.
-            updated.expunge_at = on.then(|| {
-                answer
-                    .pointer("/fields/dateExpunged/value")
-                    .and_then(serde_json::Value::as_i64)
-                    .map_or(jiff::Timestamp::now().as_second() + 30 * 86_400, |ms| {
-                        ms / 1000
-                    })
-            });
-        }
-        quince_icloud::photos::Flag::Expunged => {
-            data.0
-                .lock()
-                .await
-                .forget_photos(std::slice::from_ref(&id))
-                .map_err(|e| e.to_string())?;
-            return Ok(updated);
-        }
-    }
-    updated.change_tag = answer
-        .get("recordChangeTag")
-        .and_then(serde_json::Value::as_str)
-        .map(str::to_string)
-        .or(updated.change_tag);
-    data.0
-        .lock()
-        .await
-        .put_photos(std::slice::from_ref(&updated))
-        .map_err(|e| e.to_string())?;
-    Ok(updated)
+    let now = photos_set_flag(vec![id], flag, on, data).await?;
+    Ok(now.into_iter().next().unwrap_or(was))
 }
 
-/// One flag on many photos — a selection deleted, recovered, hidden, favorited, or deleted
-/// for good from Recently Deleted — as Photos does it: the library changes first, so every view
-/// (and a sync pass reading it) shows it at once, then Apple is told in batches; whatever Apple
-/// refuses is put back as it was. Answers the photos as they now are, and an error naming how
-/// many could not be changed, if any.
+/// One flag on many photos (a selection deleted, recovered, hidden, favorited, or deleted for
+/// good from Recently Deleted) as Photos does it: recorded and shown at once in every view, and
+/// sent to Apple behind by the outbox worker, in batches, each library's photos to its own
+/// zone; whatever Apple refuses is put back and kept to be sent again or let go
+/// (quince_sync::photos, the phone's own code). Answers the photos as they now are.
 #[tauri::command]
 pub async fn photos_set_flag(
     ids: Vec<String>,
     flag: quince_icloud::photos::Flag,
     on: bool,
-    auth: State<'_, Auth>,
     data: State<'_, Data>,
 ) -> UiResult<Vec<Photo>> {
-    let (http, root, params) = crate::cloudkit_context(&auth).await?;
-    quince_sync::photos::set_flags(
-        &data.0,
-        &crate::PHOTOS_PASS,
-        (&http, &root, params),
-        ids,
-        flag,
-        on,
-    )
-    .await
+    let now = {
+        let mut library = data.0.lock().await;
+        quince_sync::photos::record_flags(&mut library, &ids, flag, on)?
+    };
+    crate::outbox::kick();
+    Ok(now)
 }
 
 /// A photo's title and caption, as typed in its Info: Apple's answer taken at once. Empty clears one.
