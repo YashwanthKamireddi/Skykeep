@@ -4,6 +4,9 @@
 #   windows — packs the Chocolatey package and installs, checks and uninstalls it; installs the
 #             Scoop manifest, starts Skykeep from it, checks Scoop's checkver and autoupdate
 #             find the release, and uninstalls it. Keeps the .nupkg and the manifest.
+#   chocolatey-publish — only when asked: pushes that .nupkg, as it was packed, from a job of
+#             its own that installs nothing (the API key never shares a machine with the
+#             community packages and the Scoop installer the checks run).
 #   copr    — on each Fedora, makes the source RPM with .copr/Makefile exactly as COPR does,
 #             rebuilds it with rpmbuild, and installs and runs the package in a clean container
 #             of that Fedora (packaging/linux-compat/check.sh).
@@ -73,11 +76,22 @@ jobs:
           "$old -> $env:VERSION, installer sha256 $hash"
           git diff --stat
 
-      - name: Chocolatey — pack, install, check, uninstall
+      - name: Chocolatey — pack
         shell: pwsh
         run: |
           choco pack packaging/chocolatey/skykeep.nuspec --outputdirectory out
           if ($LASTEXITCODE) { throw "choco pack failed" }
+      # Kept as packed, before anything from the community feed or Scoop runs on this machine:
+      # what chocolatey-publish pushes.
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: chocolatey-nupkg-${{ env.VERSION }}
+          path: out/skykeep.${{ env.VERSION }}.nupkg
+          if-no-files-found: error
+
+      - name: Chocolatey — install, check, uninstall
+        shell: pwsh
+        run: |
           # The package from this run; its dependency (webview2-runtime) from the community feed.
           choco install skykeep --source "$PWD\out;https://community.chocolatey.org/api/v2/" -y --no-progress
           if ($LASTEXITCODE) { throw "choco install failed ($LASTEXITCODE)" }
@@ -99,32 +113,6 @@ jobs:
             Where-Object DisplayName -eq 'Microsoft Edge WebView2 Runtime'
           if (-not $wv) { throw "uninstalling skykeep took WebView2 with it" }
           "WebView2 $($wv[0].DisplayVersion) is still installed"
-
-      # Only the package this run just installed and uninstalled, and only when asked. The
-      # first versions wait for a human moderator on community.chocolatey.org.
-      - name: Chocolatey — publish
-        if: inputs.publish
-        shell: pwsh
-        env:
-          CHOCOLATEY_API_KEY: ${{ secrets.CHOCOLATEY_API_KEY }}
-        run: |
-          if (-not $env:CHOCOLATEY_API_KEY) { throw "the CHOCOLATEY_API_KEY secret is not set" }
-          # Until a moderator approves its first version, the community repository refuses every
-          # other push (403), and every release said it failed. With no version of it approved
-          # yet, this one is kept for later and said so; once one is, a refusal is a failure.
-          $approved = $null
-          try {
-            $approved = Invoke-RestMethod "https://community.chocolatey.org/api/v2/FindPackagesById()?id='skykeep'"
-          } catch {
-            "couldn't ask the community repository ($($_.Exception.Message)); pushing anyway"
-            $approved = 'unknown'
-          }
-          if (-not $approved) {
-            "::notice::skykeep's first version is still in Chocolatey moderation: $env:VERSION is not pushed yet (re-run this job once it is approved)"
-            exit 0
-          }
-          choco push "out\skykeep.$env:VERSION.nupkg" --source https://push.chocolatey.org/ --api-key $env:CHOCOLATEY_API_KEY
-          if ($LASTEXITCODE) { throw "choco push failed ($LASTEXITCODE)" }
 
       - name: Scoop — install, start, checkver and autoupdate, uninstall
         shell: pwsh
@@ -187,6 +175,43 @@ jobs:
             packaging/chocolatey/
             packaging/scoop/skykeep.json
           if-no-files-found: error
+
+  # Only the package the windows job packed and then installed, checked and uninstalled, and
+  # only when asked. A job of its own: it checks out nothing and installs nothing, so the API key
+  # is never on a machine where a community package or the Scoop installer has run. The first
+  # versions wait for a human moderator on community.chocolatey.org.
+  chocolatey-publish:
+    needs: windows
+    if: inputs.publish
+    runs-on: windows-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          name: chocolatey-nupkg-${{ env.VERSION }}
+          path: out
+      - name: Chocolatey — publish
+        shell: pwsh
+        env:
+          CHOCOLATEY_API_KEY: ${{ secrets.CHOCOLATEY_API_KEY }}
+        run: |
+          if (-not $env:CHOCOLATEY_API_KEY) { throw "the CHOCOLATEY_API_KEY secret is not set" }
+          # Until a moderator approves its first version, the community repository refuses every
+          # other push (403), and every release said it failed. With no version of it approved
+          # yet, this one is kept for later and said so; once one is, a refusal is a failure.
+          $approved = $null
+          try {
+            $approved = Invoke-RestMethod "https://community.chocolatey.org/api/v2/FindPackagesById()?id='skykeep'"
+          } catch {
+            "couldn't ask the community repository ($($_.Exception.Message)); pushing anyway"
+            $approved = 'unknown'
+          }
+          if (-not $approved) {
+            "::notice::skykeep's first version is still in Chocolatey moderation: $env:VERSION is not pushed yet (re-run this job once it is approved)"
+            exit 0
+          }
+          choco push "out\skykeep.$env:VERSION.nupkg" --source https://push.chocolatey.org/ --api-key $env:CHOCOLATEY_API_KEY
+          if ($LASTEXITCODE) { throw "choco push failed ($LASTEXITCODE)" }
 
   # A HEIC made for check.sh, as linux-compat.yml makes it: Fedora's heif-enc has no HEVC
   # encoder.
