@@ -194,6 +194,12 @@ impl Account {
         })
     }
 
+    /// Whether iCloud Photos takes a file of this name and size (Send to iPhone sends it to
+    /// Photos when it does, to iCloud Drive when it doesn't, as the desktop decides).
+    pub fn photo_accepts(&self, name: String, size: u64) -> bool {
+        quince_icloud::photos_upload::refusal(&name, size).is_none()
+    }
+
     /// Favorite, Hide, Delete, Recover or (from Recently Deleted) delete for good, on these
     /// photos: shown at once, sent to Apple in batches, and any Apple refuses put back; the
     /// desktop's exact code. Answers how many changed; an error names how many could not.

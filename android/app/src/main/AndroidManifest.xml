@@ -39,6 +39,26 @@
             </intent-filter>
         </activity>
 
+        <!-- Send to iPhone: in every app's Share sheet, for any file. -->
+        <activity
+            android:name=".ui.ShareActivity"
+            android:exported="true"
+            android:label="@string/send_to_iphone"
+            android:theme="@style/Theme.Skykeep.Share"
+            android:excludeFromRecents="true"
+            android:taskAffinity="">
+            <intent-filter>
+                <action android:name="android.intent.action.SEND" />
+                <category android:name="android.intent.category.DEFAULT" />
+                <data android:mimeType="*/*" />
+            </intent-filter>
+            <intent-filter>
+                <action android:name="android.intent.action.SEND_MULTIPLE" />
+                <category android:name="android.intent.category.DEFAULT" />
+                <data android:mimeType="*/*" />
+            </intent-filter>
+        </activity>
+
         <!-- The Skykeep account in Settings › Accounts. -->
         <service android:name=".sync.AuthenticatorService" android:exported="true">
             <intent-filter>

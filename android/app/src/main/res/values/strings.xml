@@ -1,3 +1,5 @@
 <resources>
     <string name="app_name">Skykeep</string>
+    <!-- The Share sheet entry: what it does, as the desktop's right-click menu says it. -->
+    <string name="send_to_iphone">Send to iPhone</string>
 </resources>
