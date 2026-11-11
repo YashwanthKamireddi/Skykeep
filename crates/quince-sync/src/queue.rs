@@ -219,3 +219,37 @@ pub fn asked_as(params: &[(String, String)]) -> Option<String> {
         .find(|(k, _)| k == "dsid")
         .map(|(_, dsid)| account_tag(dsid))
 }
+
+/// The words a queued change held, for a person deciding what to do with it: the note's text,
+/// the reminder's title, the event's title, the person's or list's name.
+pub fn content_of(p: &Pending) -> String {
+    use crate::calendar::{service_shown, CALENDAR};
+    use crate::contacts::{CARD_LISTS, CONTACTS, LIST_DELETE, LIST_SAVE};
+    use crate::notes::NOTES;
+    use crate::reminders::REMINDERS;
+    let v: serde_json::Value = serde_json::from_str(&p.payload).unwrap_or_default();
+    let s = |ptr: &str| v.pointer(ptr).and_then(|x| x.as_str()).map(str::to_string);
+    match (service_shown(&p.service), p.kind.as_str()) {
+        (NOTES, "delete") => s("/title"),
+        (NOTES, "create" | "save") => s("/body"),
+        (REMINDERS, "create") => s("/title"),
+        (REMINDERS, "edit") => s("/title").or_else(|| s("/notes")),
+        (REMINDERS, "delete") => s("/reminder/title"),
+        (CALENDAR, _) => s("/event/title"),
+        (CONTACTS, "address" | CARD_LISTS | LIST_SAVE | LIST_DELETE) => s("/name"),
+        (CONTACTS, _) => {
+            let name: Vec<String> = [
+                "/contact/firstName",
+                "/contact/lastName",
+                "/contact/company",
+            ]
+            .iter()
+            .filter_map(|ptr| s(ptr))
+            .filter(|x| !x.trim().is_empty())
+            .collect();
+            Some(name.join(" "))
+        }
+        _ => None,
+    }
+    .unwrap_or_default()
+}

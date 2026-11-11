@@ -22,7 +22,9 @@ import org.junit.Rule
 import org.junit.Test
 import org.junit.runner.RunWith
 import uniffi.quince_mobile.CList
-import uniffi.quince_mobile.ChangeOutcome
+import uniffi.quince_mobile.PhoneCard
+import uniffi.quince_mobile.SendState
+import uniffi.quince_mobile.Settled
 import uniffi.quince_mobile.Method
 import uniffi.quince_mobile.Person
 
@@ -56,7 +58,7 @@ class GroupsSyncTest {
     guid = guid, etag = etag, firstName = first, middleName = null, lastName = null, company = null, isCompany = false,
     birthday = null, notes = null, methods = listOf(Method("phone", "MOBILE", "+1 555 0$guid")), photo = null,
     prefix = null, suffix = null, nickname = null, phoneticFirstName = null, phoneticLastName = null,
-    jobTitle = null, department = null, groups = groups,
+    jobTitle = null, department = null, groups = groups, addresses = null,
   )
 
   private val lists = listOf(CList("L-FAMILY", "Family", "g1"), CList("L-WORK", "Work", "g1"))
@@ -96,11 +98,15 @@ class GroupsSyncTest {
       put(Data.RAW_CONTACT_ID, rawId("1")); put(Data.MIMETYPE, GroupMembership.CONTENT_ITEM_TYPE); put(GroupMembership.GROUP_ROW_ID, work)
     })
     cr.delete(Data.CONTENT_URI, "${Data.RAW_CONTACT_ID}=? AND ${Data.MIMETYPE}=?", arrayOf(rawId("2").toString(), GroupMembership.CONTENT_ITEM_TYPE))
-    val sent = ContactsSync.send(cr, account, confirmed = false) { list -> list.map { ChangeOutcome.Saved } }
-    val edit = sent.members[work]
-    assertTrue("label edits are collected: ${sent.members}", edit != null)
-    assertEquals(listOf("1"), edit!!.first)
-    assertEquals(listOf("2"), edit.second)
-    assertTrue("nothing collected for an unchanged label", sent.members[family] == null)
+    var handed: List<PhoneCard> = emptyList()
+    ContactsSync.send(cr, account, confirmed = false) { cards, _ -> handed = cards; cards.map { Settled(it.guid, SendState.Sent) } }
+    val byGuid = handed.associateBy { it.guid }
+    // Each card goes with the labels it is in now and was in when read: the engine sends the
+    // difference, laid over each list as iCloud has it.
+    assertEquals(setOf("L-FAMILY", "L-WORK"), byGuid["1"]!!.person!!.groups.toSet())
+    assertEquals(listOf("L-FAMILY"), byGuid["1"]!!.base!!.groups)
+    assertEquals(emptyList<String>(), byGuid["2"]!!.person!!.groups)
+    assertEquals(listOf("L-WORK"), byGuid["2"]!!.base!!.groups)
+    assertTrue("labels themselves unchanged", family != work)
   }
 }

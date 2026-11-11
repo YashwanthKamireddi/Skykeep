@@ -20,22 +20,28 @@ import android.provider.ContactsContract.Data
 import android.provider.ContactsContract.RawContacts
 import org.json.JSONArray
 import org.json.JSONObject
+import uniffi.quince_mobile.Address
 import uniffi.quince_mobile.ChangeKind
-import uniffi.quince_mobile.ChangeOutcome
-import uniffi.quince_mobile.ContactChange
 import uniffi.quince_mobile.Method
 import uniffi.quince_mobile.Person
+import uniffi.quince_mobile.PhoneCard
+import uniffi.quince_mobile.PhoneList
 import uniffi.quince_mobile.PhotoEdit
 import uniffi.quince_mobile.PhotoRef
+import uniffi.quince_mobile.SendState
+import uniffi.quince_mobile.Settled
 
 /**
  * iCloud's address book and Android's Contacts, both ways, one card a raw contact under the
  * Skykeep account, found again by Apple's id (SOURCE_ID).
  *
  * Each sync sends first, then reads. Sending: what Android marks changed on the phone (DIRTY),
- * new (no SOURCE_ID yet) or deleted (DELETED) goes to iCloud through the engine, an edit as only
- * what changed from the card as last synced — its base, kept in SYNC2 — so a change made on an
- * iPhone meanwhile is kept. Reading: each card rewritten only when its etag (SYNC1) changed, and
+ * new (no SOURCE_ID yet) or deleted (DELETED) is handed to the engine's outbox — the desktop's
+ * own queue and sending code — as the card is now against the card as last synced (its base,
+ * kept in SYNC2), so only what changed here is written and a change made on an iPhone meanwhile
+ * is kept. A row stays marked changed until the engine says its changes went or were refused.
+ * Reading: the book is read only when iCloud says it changed (or a row needs writing again);
+ * each card is rewritten only when its etag (SYNC1) changed, and
  * never one still waiting to be sent, so an edit made here is never written over before it
  * reaches iCloud. A card gone from iCloud is removed here — unless iCloud suddenly lists far fewer
  * than this phone has, which is held until the person confirms (the circuit breaker).
@@ -48,11 +54,7 @@ object ContactsSync {
   )
 
   /** `held`: changes the circuit breaker kept back, waiting for the person to confirm. */
-  /** `members`: each label's row id to the contacts added to it and taken out of it here. */
-  data class Sent(
-    val sent: Int, val failed: Int, val later: Int, val reason: String?, val held: Int,
-    val members: Map<Long, Pair<List<String>, List<String>>> = emptyMap(),
-  )
+  data class Sent(val sent: Int, val failed: Int, val later: Int, val reason: String?, val held: Int)
 
   /**
    * More than this many cards gone in one sync — and more than a tenth of the book — is held: an
@@ -74,13 +76,14 @@ object ContactsSync {
 
   /**
    * How a card's rows are written here (kept in SYNC3). A row in an older format is written again
-   * from iCloud on the next sync, whatever its etag: 5 = with its lists (Android's labels);
+   * from iCloud on the next sync, whatever its etag: 6 = addresses part by part (street, city…)
+   * and a birthday without a year as Android's --MM-DD; 5 = with its lists (Android's labels);
    * 4 = with the rest of the name and work
    * (prefix, suffix, nickname, phonetic names, job title, department); 3 = with its picture; 2 = Apple's standard
    * labels as Android's own types, a number with no label as Other (1 wrote labels as custom
    * text, none as "phone").
    */
-  private const val FORMAT = "5"
+  private const val FORMAT = "6"
 
   /** The most pictures' bytes in one batch: half of what one binder call can carry. */
   const val BATCH_BYTES = 500_000
@@ -96,18 +99,49 @@ object ContactsSync {
   fun sync(cr: ContentResolver, account: Account, people: List<Person>, allowMassRemoval: Boolean, photo: (PhotoRef) -> ByteArray?): Result =
     synchronized(this) { download(cr, account, people, allowMassRemoval, photo) }
 
-  /** The phone's changes sent through `save` (the engine), then marked done here. */
-  fun send(cr: ContentResolver, account: Account, confirmed: Boolean, save: (List<ContactChange>) -> List<ChangeOutcome>): Sent =
-    synchronized(this) { upload(cr, account, confirmed, save) }
+  /**
+   * The phone's changes handed to `send` (the engine's outbox, which sends them as the desktop
+   * does): labels made, renamed or deleted, then cards. Each row is let go of once the engine
+   * says its changes went or were refused; one still waiting stays marked changed, and is handed
+   * over again on the next sync as it is then.
+   */
+  fun send(
+    cr: ContentResolver, account: Account, confirmed: Boolean,
+    send: (List<PhoneCard>, List<PhoneList>) -> List<Settled>,
+  ): Sent = synchronized(this) { upload(cr, account, confirmed, send) }
+
+  /**
+   * Whether the next read must be of the whole book, whatever Apple's tokens say: nothing on the
+   * phone yet, or a card the phone holds that must be written again from iCloud — one sent or
+   * refused (its etag cleared), or one written in an older format.
+   */
+  fun needsRead(cr: ContentResolver, account: Account): Boolean {
+    var rows = 0
+    var stale = false
+    cr.query(
+      RawContacts.CONTENT_URI.asAdapter(account), arrayOf(RawContacts.SYNC1, RawContacts.SYNC3, RawContacts.DIRTY, RawContacts.DELETED, RawContacts.SOURCE_ID),
+      "${RawContacts.ACCOUNT_TYPE}=? AND ${RawContacts.ACCOUNT_NAME}=?", arrayOf(account.type, account.name), null,
+    )?.use { c ->
+      while (c.moveToNext()) {
+        rows++
+        val waiting = c.getInt(2) != 0 || c.getInt(3) != 0
+        if (!waiting && c.getString(4) != null && (c.isNull(0) || c.getString(1) != FORMAT)) stale = true
+      }
+    }
+    return rows == 0 || stale
+  }
 
   // --- Sending ---------------------------------------------------------------------------------
 
-  private data class Change(val rawId: Long, val change: ContactChange)
+  private data class Change(val rawId: Long, val change: PhoneCard)
 
   private fun upload(
     cr: ContentResolver, account: Account, confirmed: Boolean,
-    save: (List<ContactChange>) -> List<ChangeOutcome>,
+    send: (List<PhoneCard>, List<PhoneList>) -> List<Settled>,
   ): Sent {
+    // Labels first: one made here is given its id now, so a card added to it names it.
+    val lists = GroupsSync.changes(cr, account)
+    val listIds = GroupsSync.guids(cr, account)
     val changes = ArrayList<Change>()
     val dropped = ArrayList<Long>()
     // Marked changed but with no base — the card as last synced — so what changed can't be told
@@ -131,14 +165,14 @@ object ContactsSync {
           deleted && source == null -> dropped += rawId
           // Made here and deleted before iCloud said it had it: deleted there too, if it got
           // there (the engine finds no card and takes it as done otherwise).
-          deleted && made -> changes += Change(rawId, ContactChange(ChangeKind.DELETE, source!!, null, null, null))
+          deleted && made -> changes += Change(rawId, PhoneCard(ChangeKind.DELETE, source!!, null, null, null))
           // Made here, its first send not answered yet (unreachable, refused for now, or the
-          // process gone between choosing its id and sending): sent again as the same new card.
-          // Without its mark it read as a card this phone knew nothing of, and was rewritten
-          // from iCloud, which didn't have it: deleted.
-          made -> changes += Change(rawId, ContactChange(ChangeKind.CREATE, source!!, readPerson(cr, rawId, source, null), null, photoEdit(cr, rawId, null)))
+          // process gone between choosing its id and sending): handed over again as the same new
+          // card. Without its mark it read as a card this phone knew nothing of, and was
+          // rewritten from iCloud, which didn't have it: deleted.
+          made -> changes += Change(rawId, PhoneCard(ChangeKind.CREATE, source!!, readPerson(cr, rawId, source, null, listIds), null, photoEdit(cr, rawId, null)))
           base == null && source != null -> unknown += rawId
-          deleted -> changes += Change(rawId, ContactChange(ChangeKind.DELETE, source!!, null, base, null))
+          deleted -> changes += Change(rawId, PhoneCard(ChangeKind.DELETE, source!!, null, base, null))
           source == null -> {
             // New on this phone: its id chosen now and kept, so a send repeated after a lost
             // answer finds the card made rather than making a second.
@@ -148,70 +182,60 @@ object ContactsSync {
               android.content.ContentValues().apply { put(RawContacts.SOURCE_ID, guid); put(RawContacts.SYNC2, MADE_HERE) },
               "${RawContacts._ID}=?", arrayOf(rawId.toString()),
             )
-            changes += Change(rawId, ContactChange(ChangeKind.CREATE, guid, readPerson(cr, rawId, guid, null), null, photoEdit(cr, rawId, null)))
+            changes += Change(rawId, PhoneCard(ChangeKind.CREATE, guid, readPerson(cr, rawId, guid, null, listIds), null, photoEdit(cr, rawId, null)))
           }
           else -> changes += Change(
-            rawId, ContactChange(ChangeKind.UPDATE, source, readPerson(cr, rawId, source, base), base, photoEdit(cr, rawId, base)),
+            rawId, PhoneCard(ChangeKind.UPDATE, source, readPerson(cr, rawId, source, base, listIds), base, photoEdit(cr, rawId, base)),
           )
         }
       }
     }
     for (id in dropped) removeRow(cr, account, id)
     for (id in unknown) restore(cr, account, id)
-    if (changes.isEmpty()) return Sent(0, 0, 0, null, 0)
+    if (changes.isEmpty() && lists.isEmpty()) return Sent(0, 0, 0, null, 0)
     // The circuit breaker, sending: more than MASS_REMOVAL changes and more than a tenth of the
     // book at once is held until the person confirms — a fault must never rewrite a whole book.
     val book = count(cr, account)
     if (!confirmed && changes.size > MASS_REMOVAL && changes.size * 10 > book) {
       return Sent(0, 0, 0, null, changes.size)
     }
-    // Which labels each changed card joined or left here, by the labels' rows: read before the
-    // cards are settled, kept for the cards iCloud took (a card it refused is in no list).
-    val rowOfList = GroupsSync.guids(cr, account).entries.associate { (row, guid) -> guid to row }
-    val joined = changes.associate { c ->
-      val now = if (c.change.kind == ChangeKind.DELETE) emptySet() else memberRows(cr, c.rawId)
-      val was = c.change.base?.groups?.mapNotNull { rowOfList[it] }?.toSet() ?: emptySet()
-      c.rawId to ((now - was) to (was - now))
-    }
-    val members = HashMap<Long, Pair<MutableList<String>, MutableList<String>>>()
-    fun member(rawId: Long, guid: String) {
-      if (changes.first { it.rawId == rawId }.change.kind == ChangeKind.DELETE) return
-      val (added, left) = joined[rawId] ?: return
-      for (g in added) members.getOrPut(g) { mutableListOf<String>() to mutableListOf() }.first += guid
-      for (g in left) members.getOrPut(g) { mutableListOf<String>() to mutableListOf() }.second += guid
-    }
-    val outcomes = save(changes.map { it.change })
+    val states = send(changes.map { it.change }, lists.map { it.second }).associateBy { it.guid }
+    GroupsSync.settle(cr, account, lists, states)
     var sent = 0; var failed = 0; var later = 0; var reason: String? = null
-    for ((i, c) in changes.withIndex()) {
-      when (val o = outcomes.getOrNull(i)) {
-        is ChangeOutcome.Saved -> {
+    for (c in changes) {
+      when (val s = states[c.change.guid]?.state) {
+        is SendState.Sent -> {
           sent++
-          member(c.rawId, c.change.guid)
-          if (c.change.kind == ChangeKind.DELETE) removeRow(cr, account, c.rawId) else settled(cr, account, c.rawId, null)
+          if (c.change.kind == ChangeKind.DELETE) removeRow(cr, account, c.rawId) else settled(cr, account, c.rawId)
         }
-        is ChangeOutcome.Recreated -> { sent++; member(c.rawId, o.guid); settled(cr, account, c.rawId, o.guid) }
-        is ChangeOutcome.Failed -> {
-          reason = o.reason
-          // Sent again on a later sync, as it is; refused, it is left as it is here and said once.
-          if (o.later) later++ else { failed++; settled(cr, account, c.rawId, null, kept = o.reason) }
-        }
-        null -> later++
+        // Kept by the engine, in order, and handed over again next time: the row stays changed.
+        is SendState.Waiting, null -> later++
+        // Kept by the engine for Try Again or Discard (Settings, Not Sent); here the row is let
+        // go of, and the next read shows iCloud's own.
+        is SendState.Refused -> { reason = s.reason; failed++; settled(cr, account, c.rawId, kept = s.reason) }
       }
     }
-    return Sent(sent, failed, later, reason, 0, members)
+    return Sent(sent, failed, later, reason, 0)
   }
 
-  /** The label rows a card is in on the phone. */
-  private fun memberRows(cr: ContentResolver, rawId: Long): Set<Long> =
+  /** The labels a card is in on the phone, by their lists' ids. */
+  private fun memberGuids(cr: ContentResolver, rawId: Long, listIds: Map<Long, String>): List<String> =
     cr.query(
       Data.CONTENT_URI, arrayOf(GroupMembership.GROUP_ROW_ID),
       "${Data.RAW_CONTACT_ID}=? AND ${Data.MIMETYPE}=?", arrayOf(rawId.toString(), GroupMembership.CONTENT_ITEM_TYPE), null,
-    )?.use { c -> buildSet { while (c.moveToNext()) if (!c.isNull(0)) add(c.getLong(0)) } } ?: emptySet()
+    )?.use { c -> buildList { while (c.moveToNext()) if (!c.isNull(0)) listIds[c.getLong(0)]?.let(::add) } }?.distinct() ?: emptyList()
 
   private fun count(cr: ContentResolver, account: Account): Int =
     cr.query(
       RawContacts.CONTENT_URI.asAdapter(account), arrayOf(RawContacts._ID),
       "${RawContacts.ACCOUNT_TYPE}=? AND ${RawContacts.ACCOUNT_NAME}=?", arrayOf(account.type, account.name), null,
+    )?.use { it.count } ?: 0
+
+  /** The account's cards on the phone (not those deleted here and waiting to go). */
+  fun cards(cr: ContentResolver, account: Account): Int =
+    cr.query(
+      RawContacts.CONTENT_URI.asAdapter(account), arrayOf(RawContacts._ID),
+      "${RawContacts.ACCOUNT_TYPE}=? AND ${RawContacts.ACCOUNT_NAME}=? AND ${RawContacts.DELETED}=0", arrayOf(account.type, account.name), null,
     )?.use { it.count } ?: 0
 
   /** Not sent, not waiting: undeleted, and rewritten from iCloud whole on the reading pass. */
@@ -232,14 +256,13 @@ object ContactsSync {
    * refusal's reason is kept (SYNC4) for as long as iCloud doesn't have the card, so the app says
    * so every time rather than once.
    */
-  private fun settled(cr: ContentResolver, account: Account, rawId: Long, newGuid: String?, kept: String? = null) {
+  private fun settled(cr: ContentResolver, account: Account, rawId: Long, kept: String? = null) {
     cr.update(
       RawContacts.CONTENT_URI.asAdapter(account),
       android.content.ContentValues().apply {
         put(RawContacts.DIRTY, 0)
         putNull(RawContacts.SYNC1)
         if (kept != null) put(RawContacts.SYNC4, kept) else putNull(RawContacts.SYNC4)
-        newGuid?.let { put(RawContacts.SOURCE_ID, it) }
       },
       "${RawContacts._ID}=?", arrayOf(rawId.toString()),
     )
@@ -311,6 +334,20 @@ object ContactsSync {
     ops.chunked(300).forEach { cr.applyBatch(ContactsContract.AUTHORITY, ArrayList(it)) }
   }
 
+  /**
+   * The picture of the card with Apple's id `guid`, as this phone already holds it, if it has
+   * one: the person's own card's is the account's picture. Read from the phone, never asked of
+   * Apple.
+   */
+  fun pictureOf(cr: ContentResolver, account: Account, guid: String): ByteArray? {
+    val rawId = cr.query(
+      RawContacts.CONTENT_URI.asAdapter(account), arrayOf(RawContacts._ID),
+      "${RawContacts.ACCOUNT_TYPE}=? AND ${RawContacts.ACCOUNT_NAME}=? AND ${RawContacts.SOURCE_ID}=? AND ${RawContacts.DELETED}=0",
+      arrayOf(account.type, account.name, guid), null,
+    )?.use { if (it.moveToFirst()) it.getLong(0) else null } ?: return null
+    return picture(cr, rawId)
+  }
+
   /** The card's picture at its full size (Android's display photo), else the small one. */
   private fun picture(cr: ContentResolver, rawId: Long): ByteArray? {
     val display = Uri.withAppendedPath(
@@ -324,17 +361,18 @@ object ContactsSync {
     )?.use { c -> if (c.moveToFirst()) c.getBlob(0) else null }
   }
 
-  private fun readPerson(cr: ContentResolver, rawId: Long, guid: String, base: Person?): Person {
+  private fun readPerson(cr: ContentResolver, rawId: Long, guid: String, base: Person?, listIds: Map<Long, String>): Person {
     var first: String? = null; var middle: String? = null; var last: String? = null
     var company: String? = null; var notes: String? = null; var birthday: String? = null
     var prefix: String? = null; var suffix: String? = null; var nickname: String? = null
     var phoneticFirst: String? = null; var phoneticLast: String? = null
     var jobTitle: String? = null; var department: String? = null
     val methods = ArrayList<Method>()
+    val addresses = readAddresses(cr, rawId, base)
     cr.query(
       Data.CONTENT_URI,
       arrayOf(Data.MIMETYPE, Data.DATA1, Data.DATA2, Data.DATA3, Data.DATA5, Data.DATA4, Data.DATA6, Data.DATA7, Data.DATA9),
-      "${Data.RAW_CONTACT_ID}=?", arrayOf(rawId.toString()), null,
+      "${Data.RAW_CONTACT_ID}=?", arrayOf(rawId.toString()), "${Data._ID} ASC",
     )?.use { c ->
       while (c.moveToNext()) {
         val mime = c.getString(0)
@@ -352,7 +390,8 @@ object ContactsSync {
           Note.CONTENT_ITEM_TYPE -> notes = text(1)
           Event.CONTENT_ITEM_TYPE -> if (c.getInt(2) == Event.TYPE_BIRTHDAY) birthday = text(1)
           // Android's own type (Mobile, Home, Work…) or, for TYPE_CUSTOM, the label typed.
-          Phone.CONTENT_ITEM_TYPE, Email.CONTENT_ITEM_TYPE, Website.CONTENT_ITEM_TYPE, StructuredPostal.CONTENT_ITEM_TYPE ->
+          // Addresses are read part by part (readAddresses), not as a line here.
+          Phone.CONTENT_ITEM_TYPE, Email.CONTENT_ITEM_TYPE, Website.CONTENT_ITEM_TYPE ->
             text(1)?.let { value ->
               val kind = KIND.getValue(mime)
               val type = c.getInt(2)
@@ -368,8 +407,44 @@ object ContactsSync {
       methods = methods, photo = base?.photo,
       prefix = prefix, suffix = suffix, nickname = nickname,
       phoneticFirstName = phoneticFirst, phoneticLastName = phoneticLast,
-      jobTitle = jobTitle, department = department, groups = base?.groups ?: emptyList(),
+      jobTitle = jobTitle, department = department, groups = memberGuids(cr, rawId, listIds),
+      addresses = addresses,
     )
+  }
+
+  /**
+   * A card's addresses as the phone holds them, part by part, in the order they were written
+   * (so each lines up with the base's in the same place). A PO box, which iCloud has no part for,
+   * goes on the street's last line. The label goes back as the base spelled it when the phone
+   * shows the same one, as [appleLabel] does for numbers.
+   */
+  private fun readAddresses(cr: ContentResolver, rawId: Long, base: Person?): List<Address> {
+    val out = ArrayList<Address>()
+    cr.query(
+      Data.CONTENT_URI,
+      arrayOf(
+        StructuredPostal.STREET, StructuredPostal.POBOX, StructuredPostal.NEIGHBORHOOD, StructuredPostal.CITY,
+        StructuredPostal.REGION, StructuredPostal.POSTCODE, StructuredPostal.COUNTRY, StructuredPostal.TYPE,
+        StructuredPostal.LABEL, StructuredPostal.FORMATTED_ADDRESS,
+      ),
+      "${Data.RAW_CONTACT_ID}=? AND ${Data.MIMETYPE}=?", arrayOf(rawId.toString(), StructuredPostal.CONTENT_ITEM_TYPE), "${Data._ID} ASC",
+    )?.use { c ->
+      while (c.moveToNext()) {
+        fun text(i: Int) = c.getString(i)?.trim()?.takeIf { it.isNotEmpty() }
+        val street = listOfNotNull(text(0), text(1)).joinToString("\n").ifEmpty { null }
+        val type = c.getInt(7)
+        val shownLabel = if (type == CUSTOM) text(8) else TYPES[StructuredPostal.CONTENT_ITEM_TYPE]?.entries?.firstOrNull { it.value == type }?.key
+        val was = base?.addresses?.getOrNull(out.size)
+        val label = if (was != null && shown(was.label) == (key(shownLabel) ?: "OTHER")) was.label else shownLabel
+        val a = Address(
+          label = label, street = street, subLocality = text(2), city = text(3),
+          subAdministrativeArea = null, state = text(4), postalCode = text(5), country = text(6),
+          countryCode = null, formatted = text(9) ?: "",
+        )
+        if (listOf(a.street, a.subLocality, a.city, a.state, a.postalCode, a.country).any { it != null }) out += a
+      }
+    }
+    return out
   }
 
   /**
@@ -383,8 +458,7 @@ object ContactsSync {
   private const val CUSTOM = 0
 
   private val KIND = mapOf(
-    Phone.CONTENT_ITEM_TYPE to "phone", Email.CONTENT_ITEM_TYPE to "email",
-    Website.CONTENT_ITEM_TYPE to "url", StructuredPostal.CONTENT_ITEM_TYPE to "address",
+    Phone.CONTENT_ITEM_TYPE to "phone", Email.CONTENT_ITEM_TYPE to "email", Website.CONTENT_ITEM_TYPE to "url",
   )
 
   /**
@@ -570,14 +644,30 @@ object ContactsSync {
       val valueColumn = when (mime) {
         Phone.CONTENT_ITEM_TYPE -> Phone.NUMBER
         Email.CONTENT_ITEM_TYPE -> Email.ADDRESS
-        Website.CONTENT_ITEM_TYPE -> Website.URL
-        else -> StructuredPostal.FORMATTED_ADDRESS
+        else -> Website.URL
       }
       // Apple's standard labels as Android's own types; anything else as its own text.
       out += row(mime).withValue(valueColumn, m.value).apply {
         if (type != null) withValue(Data.DATA2, type)
         else withValue(Data.DATA2, CUSTOM).withValue(Data.DATA3, plain(m.label) ?: m.kind)
       }
+    }
+    // Addresses part by part, so a part changed here goes back to iCloud as that part alone
+    // (readAddresses), with the whole as Apple lays it out for the line Android shows.
+    for (a in p.addresses.orEmpty()) {
+      val type = TYPES[StructuredPostal.CONTENT_ITEM_TYPE]?.get(shown(a.label))
+      out += row(StructuredPostal.CONTENT_ITEM_TYPE)
+        .withValue(StructuredPostal.STREET, a.street)
+        .withValue(StructuredPostal.NEIGHBORHOOD, a.subLocality)
+        .withValue(StructuredPostal.CITY, a.city)
+        .withValue(StructuredPostal.REGION, a.state)
+        .withValue(StructuredPostal.POSTCODE, a.postalCode)
+        .withValue(StructuredPostal.COUNTRY, a.country)
+        .withValue(StructuredPostal.FORMATTED_ADDRESS, a.formatted.ifBlank { null })
+        .apply {
+          if (type != null) withValue(Data.DATA2, type)
+          else withValue(Data.DATA2, CUSTOM).withValue(Data.DATA3, plain(a.label) ?: "address")
+        }
     }
     return out
   }
@@ -595,7 +685,30 @@ object ContactsSync {
     put("methods", JSONArray().apply {
       for (m in p.methods) put(JSONObject().apply { put("kind", m.kind); put("label", m.label); put("value", m.value) })
     })
+    p.addresses?.let { list ->
+      put("addresses", JSONArray().apply {
+        for (a in list) put(JSONObject().apply {
+          put("label", a.label); put("street", a.street); put("subLocality", a.subLocality); put("city", a.city)
+          put("subAdministrativeArea", a.subAdministrativeArea); put("state", a.state); put("postalCode", a.postalCode)
+          put("country", a.country); put("countryCode", a.countryCode); put("formatted", a.formatted)
+        })
+      })
+    }
   }.toString()
+
+  /** A base's addresses; none in a base kept before addresses were (they are then left alone). */
+  private fun addressesFromJson(o: JSONObject): List<Address>? {
+    val list = o.optJSONArray("addresses") ?: return null
+    return (0 until list.length()).map { i ->
+      val a = list.getJSONObject(i)
+      fun str(k: String) = if (a.isNull(k)) null else a.optString(k)
+      Address(
+        label = str("label"), street = str("street"), subLocality = str("subLocality"), city = str("city"),
+        subAdministrativeArea = str("subAdministrativeArea"), state = str("state"), postalCode = str("postalCode"),
+        country = str("country"), countryCode = str("countryCode"), formatted = str("formatted") ?: "",
+      )
+    }
+  }
 
   fun personFromJson(s: String): Person? = runCatching {
     val o = JSONObject(s)
@@ -615,6 +728,7 @@ object ContactsSync {
         val m = ms.getJSONObject(i)
         Method(m.getString("kind"), if (m.isNull("label")) null else m.optString("label"), m.getString("value"))
       },
+      addresses = addressesFromJson(o),
     )
   }.getOrNull()
 }

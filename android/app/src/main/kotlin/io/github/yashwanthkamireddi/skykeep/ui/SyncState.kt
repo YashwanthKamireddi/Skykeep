@@ -31,6 +31,15 @@ fun syncNow(account: Account) {
   for (authority in AUTHORITIES) ContentResolver.requestSync(account, authority, now)
 }
 
+/** One service's sync, now: a change sent again from Settings goes at once. */
+fun syncOne(account: Account, authority: String) {
+  val now = Bundle().apply {
+    putBoolean(ContentResolver.SYNC_EXTRAS_MANUAL, true)
+    putBoolean(ContentResolver.SYNC_EXTRAS_EXPEDITED, true)
+  }
+  ContentResolver.requestSync(account, authority, now)
+}
+
 /** What the screens show about syncing, as it is now. */
 data class SyncView(
   /** A sync is running, or one asked for here hasn't answered yet. */

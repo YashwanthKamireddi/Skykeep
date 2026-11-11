@@ -208,27 +208,14 @@ private fun Home(
   onSync: () -> Unit, onOpen: (Page) -> Unit, onTab: (Tab) -> Unit,
 ) {
   val context = LocalContext.current
-  val id = remember { runCatching { engine.appleId() }.getOrNull() }
   val online = rememberOnline()
   // "2 minutes ago" stays true while Home is open: the time moves on each minute.
   val now by produceState(System.currentTimeMillis()) {
     while (true) { kotlinx.coroutines.delay(60_000); value = System.currentTimeMillis() }
   }
-  Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(14.dp)) {
-    Box(
-      Modifier.size(44.dp).background(MaterialTheme.colorScheme.primaryContainer, CircleShape),
-      contentAlignment = Alignment.Center,
-    ) {
-      Text(
-        (id?.firstOrNull() ?: 'i').uppercase(),
-        style = MaterialTheme.typography.titleLarge,
-        color = MaterialTheme.colorScheme.onPrimaryContainer,
-      )
-    }
-    Column(Modifier.weight(1f)) {
-      Text("iCloud", style = MaterialTheme.typography.titleMedium)
-      id?.let { Text(it, style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant, maxLines = 1, overflow = TextOverflow.Ellipsis) }
-    }
+  // Read again after each sync: the session (name, address) is open by then, and Contacts
+  // brings the person's own card and its picture.
+  AccountRow(engine, account, key = sync.last.values.maxOfOrNull { it?.at ?: 0L }) {
     IconButton(onClick = onSync, enabled = account != null && !sync.busy && online) {
       Icon(painterResource(R.drawable.ic_sync), contentDescription = "Sync now")
     }
@@ -262,6 +249,17 @@ private fun Home(
     }
   }
   DataProtection(engine, sync.last, onApproved = onSync)
+  // Changes iCloud didn't accept wait in Settings for the person to decide; said here once, calmly,
+  // and read again after each sync.
+  val notSent = rememberNotSent(engine, sync.last.values.maxOfOrNull { it?.at ?: 0L })
+  if (notSent.isNotEmpty()) {
+    Notice(
+      if (notSent.size == 1) "1 change wasn't accepted by iCloud. It's kept for you in Settings."
+      else "${notSent.size} changes weren't accepted by iCloud. They're kept for you in Settings.",
+    ) {
+      TextButton(onClick = { onOpen(Page.Settings) }) { Text("Review") }
+    }
+  }
   // Phone makers' battery savers pause apps that aren't opened often, and a sync with them. Said
   // only when it has happened: nothing synced cleanly for two days, though Skykeep has synced
   // before.
@@ -534,6 +532,9 @@ private fun SettingsPage(engine: uniffi.quince_mobile.AccountInterface, account:
   val context = LocalContext.current
   val scope = rememberCoroutineScope()
   Text("Settings", style = MaterialTheme.typography.headlineLarge)
+  Surface(color = MaterialTheme.colorScheme.surfaceContainer, shape = MaterialTheme.shapes.large) {
+    Box(Modifier.fillMaxWidth().padding(16.dp)) { AccountRow(engine, account) }
+  }
   // Off unless turned on; from that moment on, never the whole camera roll at once.
   var backup by remember { mutableStateOf(io.github.yashwanthkamireddi.skykeep.sync.PhotoBackup.on(context)) }
   // The photos to read, and where each was taken: without ACCESS_MEDIA_LOCATION Android hands
@@ -581,6 +582,7 @@ private fun SettingsPage(engine: uniffi.quince_mobile.AccountInterface, account:
     "Android picks the exact moment, to save battery. A change made on this phone is sent at once, whatever this is set to.",
     style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.padding(horizontal = 4.dp),
   )
+  NotSentSection(engine, account)
   SectionLabel("Privacy")
   Surface(color = MaterialTheme.colorScheme.surfaceContainer, shape = MaterialTheme.shapes.large) {
     Text(

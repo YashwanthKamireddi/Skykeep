@@ -21,18 +21,18 @@
 //! every pass lays the waiting changes over what it read (see [`replay`]).
 
 use crate::{cloudkit_context, Auth, Data};
+#[cfg(test)]
 use quince_core::calendar::Event;
-use quince_core::contacts::{Card, Contact, ContactDetails, PostalAddress};
+#[cfg(test)]
+use quince_core::contacts::Contact;
 use quince_core::outbox::Pending;
 #[cfg(test)]
 use quince_core::reminders::Reminder;
 use quince_core::Library;
-use quince_icloud::calendar::{EventRepeat, Scope};
-use quince_icloud::contacts::address::{self as postal, AddressEdit};
 #[cfg(test)]
 use quince_icloud::reminders::ReminderEdit;
 use quince_icloud::Error;
-use serde::{Deserialize, Serialize};
+use serde::Serialize;
 use std::time::Duration;
 use tauri::{AppHandle, Emitter, Manager, State};
 #[cfg(test)]
@@ -48,6 +48,21 @@ pub fn kick() {
 
 #[cfg(test)]
 use quince_icloud::ckdocument::Run;
+/// Calendar's changes: recorded, laid and sent by the code the phone's engine runs too
+/// (crates/quince-sync). Another calendar account's (CalDAV) are sent by dav.rs.
+pub use quince_sync::calendar::{
+    account_queue, record_event_delete, record_event_save, save_base, EventDelete, EventSave,
+    CALENDAR,
+};
+use quince_sync::calendar::{service_shown, ACCOUNT_QUEUE};
+/// Contacts' changes: recorded, laid and sent by the code the phone's engine runs too
+/// (crates/quince-sync). A merge of duplicates is the desktop's own (contacts_merge.rs).
+#[cfg(test)]
+use quince_sync::contacts::record_contact_save;
+use quince_sync::contacts::Book;
+pub use quince_sync::contacts::{
+    record_card_save, record_contact_address, record_contact_delete, CONTACTS,
+};
 /// Notes' changes: recorded, laid, sent and refreshed by the code the phone's engine runs too
 /// (crates/quince-sync).
 pub use quince_sync::notes::{
@@ -59,9 +74,10 @@ use quince_sync::notes::{send as send_note, NoteDelete, NoteMove, NoteSave};
 /// Photos' flag changes (Favorite, Hide, Delete, Recover, Delete for good): recorded, laid and
 /// sent by the code the phone's engine runs too (crates/quince-sync).
 pub use quince_sync::photos::PHOTOS;
+use quince_sync::queue::content_of;
 #[cfg(test)]
 use quince_sync::queue::{drain, transient};
-use quince_sync::queue::{drain_as, json, last_word, unreadable, Outcome, Report};
+use quince_sync::queue::{drain_as, Outcome, Report};
 #[cfg(test)]
 use quince_sync::reminders::{
     record_reminder_advance, replay as replay_reminders, send as send_reminder, Advance, Done, Edit,
@@ -72,393 +88,6 @@ pub use quince_sync::reminders::{
     record_reminder_create, record_reminder_delete, record_reminder_edit, record_reminder_tick,
     Create, REMINDERS,
 };
-pub const CONTACTS: &str = "contacts";
-pub const CALENDAR: &str = "calendar";
-
-/// Where a calendar account's queue is named: one each, so a server that is down holds up only
-/// its own changes, never iCloud's or another account's.
-const ACCOUNT_QUEUE: &str = "caldav:";
-
-/// The queue of the calendar account `id`.
-pub fn account_queue(id: &str) -> String {
-    format!("{ACCOUNT_QUEUE}{id}")
-}
-
-/// The queue a change to this calendar waits in.
-fn queue_of(calendar_guid: &str) -> String {
-    quince_core::dav::account_of(calendar_guid).map_or_else(|| CALENDAR.to_string(), account_queue)
-}
-
-/// What a queue is to the window, which knows a change as the Calendar's whichever account it
-/// goes to.
-fn service_shown(service: &str) -> &str {
-    if service.starts_with(ACCOUNT_QUEUE) {
-        CALENDAR
-    } else {
-        service
-    }
-}
-
-/// A card saved here: as the form left it, and as it opened (`None` for a new card).
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
-pub struct ContactSave {
-    pub contact: Contact,
-    pub base: Option<Contact>,
-    pub create: bool,
-    /// The rest of the name and work, from a form that shows them; `None` (a change queued
-    /// before there was one) leaves Apple's.
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub details: Option<ContactDetails>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub base_details: Option<ContactDetails>,
-}
-
-/// A card's addresses edited here: the edits, and the list the form opened them from. Sent,
-/// they are laid over Apple's addresses as they stand then (`contacts::address::edit`), so a
-/// send that already landed lands again as no change. `name` is who the card is, for a notice.
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
-pub struct ContactAddress {
-    pub base: Vec<PostalAddress>,
-    pub edits: Vec<AddressEdit>,
-    #[serde(default)]
-    pub name: String,
-}
-
-/// A card deleted here, as it was.
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
-pub struct ContactDelete {
-    pub contact: Contact,
-}
-
-/// An event made or saved here: as the person left it, and as it was before (`None` for a new
-/// one) — what a conflict is merged against, and where a move is made from.
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
-pub struct EventSave {
-    pub event: Event,
-    pub base: Option<Event>,
-    pub create: bool,
-    /// Alerts set to exactly these; `None` leaves Apple's.
-    pub alerts: Option<Vec<i64>>,
-    /// Whether the repeat is set (to `repeat`, `None` for never) or left as Apple holds it.
-    pub repeat_changed: bool,
-    pub repeat: Option<EventRepeat>,
-    /// For one occurrence of a repeating event: which events the change is for.
-    pub scope: Option<Scope>,
-}
-
-impl EventSave {
-    /// A later save of the same event, not yet sent, laid over this one: one save, from the
-    /// event as this one began from it.
-    fn then(self, later: Self) -> Self {
-        Self {
-            event: later.event,
-            base: self.base,
-            create: self.create,
-            alerts: later.alerts.or(self.alerts),
-            repeat_changed: self.repeat_changed || later.repeat_changed,
-            repeat: if later.repeat_changed {
-                later.repeat
-            } else {
-                self.repeat
-            },
-            scope: later.scope,
-        }
-    }
-}
-
-/// An event deleted here — with its scope, for one of a repeating series.
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
-pub struct EventDelete {
-    pub event: Event,
-    pub scope: Option<Scope>,
-}
-
-// --- Recording: the command's half. Each records the change and lays it over the library as
-// one transaction, so a crash leaves both or neither.
-
-/// A card saved here — made (no id yet: one is given now) or edited. Answers its id. The
-/// shape a save had before the form showed the rest of the name and work: kept for the tests
-/// that queue one, as a window from before would have.
-#[cfg(test)]
-pub fn record_contact_save(
-    library: &mut Library,
-    contact: &Contact,
-    base: Option<Contact>,
-) -> quince_core::Result<String> {
-    record_save(library, contact, None, base.map(|b| (b, None)))
-}
-
-/// [`record_contact_save`] for a whole card: the rest of its name and work go too.
-pub fn record_card_save(
-    library: &mut Library,
-    card: &Card,
-    base: Option<Card>,
-) -> quince_core::Result<String> {
-    record_save(
-        library,
-        &card.contact,
-        Some(&card.details),
-        base.map(|b| (b.contact, Some(b.details))),
-    )
-}
-
-fn record_save(
-    library: &mut Library,
-    contact: &Contact,
-    details: Option<&ContactDetails>,
-    base: Option<(Contact, Option<ContactDetails>)>,
-) -> quince_core::Result<String> {
-    let create = contact.guid.is_empty();
-    let mut contact = contact.clone();
-    if create {
-        contact.guid = quince_icloud::contacts::new_contact_id();
-        contact.etag = None;
-    }
-    let guid = contact.guid.clone();
-    let details = details.cloned();
-    library.atomically(|l| {
-        let waiting = last_word(l, CONTACTS, &guid, "save")?.and_then(|p| {
-            serde_json::from_str::<ContactSave>(&p.payload)
-                .ok()
-                .map(|s| (p, s))
-        });
-        match waiting {
-            Some((p, before)) if p.tries == 0 => {
-                // One save, from the card as the form first opened it (or still a create).
-                let save = ContactSave {
-                    contact: contact.clone(),
-                    base: before.base,
-                    create: before.create,
-                    details: details.clone().or(before.details),
-                    base_details: before.base_details,
-                };
-                if !l.outbox_amend(p.id, &json(&save)?)? {
-                    l.outbox_append(CONTACTS, &guid, "save", &json(&save)?)?;
-                }
-            }
-            Some((_, before)) => {
-                // Behind one that may have landed: an edit of the card that one sends.
-                let save = ContactSave {
-                    contact: contact.clone(),
-                    base: Some(before.contact),
-                    create: false,
-                    base_details: before.details.clone(),
-                    details: details.clone().or(before.details),
-                };
-                l.outbox_append(CONTACTS, &guid, "save", &json(&save)?)?;
-            }
-            None => {
-                let (base, base_details) = match (&base, create) {
-                    (Some((b, d)), false) => (Some(b.clone()), d.clone()),
-                    _ => (None, None),
-                };
-                let save = ContactSave {
-                    contact: contact.clone(),
-                    base,
-                    create,
-                    details: details.clone(),
-                    base_details,
-                };
-                l.outbox_append(CONTACTS, &guid, "save", &json(&save)?)?;
-            }
-        }
-        lay_contact_save(l, &contact, details.as_ref())?;
-        Ok(guid.clone())
-    })
-}
-
-fn lay_contact_save(
-    l: &mut Library,
-    contact: &Contact,
-    details: Option<&ContactDetails>,
-) -> quince_core::Result<()> {
-    l.put_contact(contact)?;
-    if let Some(d) = details {
-        l.put_contact_details(&[(contact.guid.clone(), d.clone())], false)?;
-    }
-    Ok(())
-}
-
-/// A card deleted here: gone at once, deleted at Apple behind.
-pub fn record_contact_delete(library: &mut Library, contact: &Contact) -> quince_core::Result<()> {
-    library.atomically(|l| {
-        let d = ContactDelete {
-            contact: contact.clone(),
-        };
-        l.outbox_append(CONTACTS, &contact.guid, "delete", &json(&d)?)?;
-        l.forget_contact(&contact.guid)
-    })
-}
-
-/// A card's addresses edited: shown at once, sent behind — after the card itself, when it was
-/// made here and waits too, since the queue keeps the order changes were made in. Answers
-/// the list as it now shows.
-pub fn record_contact_address(
-    library: &mut Library,
-    guid: &str,
-    base: Vec<PostalAddress>,
-    edits: Vec<AddressEdit>,
-) -> quince_core::Result<Vec<PostalAddress>> {
-    library.atomically(|l| {
-        let current = l.contact_addresses(guid)?;
-        let after = postal::laid_over(&current, &base, &edits)
-            .map_err(|e| quince_core::Error::Io(std::io::Error::other(e.to_string())))?;
-        let name = l
-            .contacts(None)?
-            .into_iter()
-            .find(|c| c.guid == guid)
-            .map(|c| c.display_name())
-            .unwrap_or_default();
-        let change = ContactAddress { base, edits, name };
-        l.outbox_append(CONTACTS, guid, "address", &json(&change)?)?;
-        l.set_contact_addresses(guid, &after)?;
-        Ok(after)
-    })
-}
-
-fn lay_contact_address(l: &mut Library, guid: &str, a: &ContactAddress) -> quince_core::Result<()> {
-    // A card deleted here, or gone at Apple, has nowhere to show them.
-    if !l.contacts(None)?.iter().any(|c| c.guid == guid) {
-        return Ok(());
-    }
-    let current = l.contact_addresses(guid)?;
-    if let Ok(after) = postal::laid_over(&current, &a.base, &a.edits) {
-        l.set_contact_addresses(guid, &after)?;
-    }
-    Ok(())
-}
-
-/// An event made or saved here: shown at once, sent behind. Saves not yet sent and still the
-/// last word on the event, for the same events of a series, are one save; one already on its
-/// way is followed by the next, made from what it sends.
-pub fn record_event_save(library: &mut Library, save: EventSave) -> quince_core::Result<()> {
-    let guid = save.event.guid.clone();
-    let queue = queue_of(&save.event.calendar_guid);
-    library.atomically(|l| {
-        let waiting = last_word(l, &queue, &guid, "save")?.and_then(|p| {
-            serde_json::from_str::<EventSave>(&p.payload)
-                .ok()
-                .map(|s| (p, s))
-        });
-        let (save, whole) = match waiting {
-            Some((p, before)) if p.tries == 0 && before.scope == save.scope => {
-                let merged = before.then(save);
-                if !l.outbox_amend(p.id, &json(&merged)?)? {
-                    l.outbox_append(&queue, &guid, "save", &json(&merged)?)?;
-                }
-                // Over the one it joins, which the library already shows: what the form
-                // holds now is the whole of it, a field put back as it was included.
-                (merged, true)
-            }
-            Some((_, before)) => {
-                let after = EventSave {
-                    base: Some(before.event),
-                    create: false,
-                    ..save
-                };
-                l.outbox_append(&queue, &guid, "save", &json(&after)?)?;
-                (after, false)
-            }
-            None => {
-                l.outbox_append(&queue, &guid, "save", &json(&save)?)?;
-                (save, false)
-            }
-        };
-        lay_event(l, &save, !whole)
-    })
-}
-
-/// A save laid over the library. `merging`, as the send will settle it: a field this save left
-/// as its base had it shows the library's — another device's change, from a pass that landed
-/// after the save was made — rather than the older value the save carried. Not merging, the
-/// save is shown whole.
-fn lay_event(l: &mut Library, s: &EventSave, merging: bool) -> quince_core::Result<()> {
-    if !l
-        .calendars()?
-        .iter()
-        .any(|c| c.guid == s.event.calendar_guid)
-    {
-        return Ok(());
-    }
-    let current = l.event(&s.event.guid)?;
-    let mut event = match (&s.base, &current) {
-        (Some(base), Some(current)) if merging => {
-            quince_icloud::calendar::merge_edit(base, &s.event, current)
-        }
-        _ => s.event.clone(),
-    };
-    // Apple's tag for it stays what the library last heard of Apple's own version.
-    event.etag = current.and_then(|e| e.etag);
-    l.put_events(&[event])
-}
-
-/// What a save of event `guid` is made from: the event as the form opened it, when it says —
-/// not the library's copy at save time, which a pass may have brought another device's change
-/// into while the form was open. A create, or a window that sends none, has the library's.
-pub fn save_base(guid: &str, opened: Option<Event>, stored: Option<Event>) -> Option<Event> {
-    match opened {
-        Some(opened) if opened.guid == guid => Some(opened),
-        _ => stored,
-    }
-}
-
-/// The tag a save is sent with: its base's, the version it was made from — never the library's
-/// newest. Sent against a newer one, Apple took a save made from an older version whole, and
-/// another device's change to a field it left alone was lost; against its base's, Apple answers
-/// that it has changed, and the save is merged with what Apple holds.
-fn sent_etag(s: &EventSave) -> Option<String> {
-    match &s.base {
-        Some(base) => base.etag.clone(),
-        None => s.event.etag.clone(),
-    }
-}
-
-/// An event deleted here — the one day, those after it, or the whole series.
-pub fn record_event_delete(
-    library: &mut Library,
-    event: &Event,
-    scope: Option<Scope>,
-) -> quince_core::Result<()> {
-    library.atomically(|l| {
-        let d = EventDelete {
-            event: event.clone(),
-            scope,
-        };
-        l.outbox_append(
-            &queue_of(&event.calendar_guid),
-            &event.guid,
-            "delete",
-            &json(&d)?,
-        )?;
-        lay_event_delete(l, &d)
-    })
-}
-
-fn lay_event_delete(l: &mut Library, d: &EventDelete) -> quince_core::Result<()> {
-    use quince_icloud::calendar::series_of;
-    // What goes at Apple goes here: the whole series for all of it, this day and those after
-    // for this-and-future — not just the one day.
-    let series = series_of(&d.event.guid).to_string();
-    let gone: Vec<String> = match d.scope {
-        Some(Scope::All | Scope::Future) => {
-            let mut gone = Vec::new();
-            for (g, _) in l.events_starting_between(i64::MIN / 2, i64::MAX / 2)? {
-                if series_of(&g) != series {
-                    continue;
-                }
-                let keep = d.scope == Some(Scope::Future)
-                    && l.event(&g)?
-                        .is_some_and(|e| e.starts_at < d.event.starts_at);
-                if !keep {
-                    gone.push(g);
-                }
-            }
-            gone
-        }
-        _ => vec![d.event.guid.clone()],
-    };
-    l.forget_events(&gone)
-}
 
 /// Lay one waiting change over the library.
 fn lay(l: &mut Library, p: &Pending) -> quince_core::Result<()> {
@@ -471,36 +100,17 @@ fn lay(l: &mut Library, p: &Pending) -> quince_core::Result<()> {
     if p.service == PHOTOS {
         return quince_sync::photos::lay(l, p);
     }
-    match (service_shown(&p.service), p.kind.as_str()) {
-        (CONTACTS, "save") => {
-            if let Ok(s) = serde_json::from_str::<ContactSave>(&p.payload) {
-                lay_contact_save(l, &s.contact, s.details.as_ref())?;
-            }
-        }
-        (CONTACTS, "merge") => {
+    match service_shown(&p.service) {
+        CONTACTS if p.kind == "merge" => {
             if let Ok(m) = serde_json::from_str::<crate::contacts_merge::ContactMerge>(&p.payload) {
                 crate::contacts_merge::lay(l, &m)?;
             }
+            Ok(())
         }
-        (CONTACTS, "delete") => l.forget_contact(&p.record)?,
-        (CONTACTS, "address") => {
-            if let Ok(a) = serde_json::from_str::<ContactAddress>(&p.payload) {
-                lay_contact_address(l, &p.record, &a)?;
-            }
-        }
-        (CALENDAR, "save") => {
-            if let Ok(s) = serde_json::from_str::<EventSave>(&p.payload) {
-                lay_event(l, &s, true)?;
-            }
-        }
-        (CALENDAR, "delete") => {
-            if let Ok(d) = serde_json::from_str::<EventDelete>(&p.payload) {
-                lay_event_delete(l, &d)?;
-            }
-        }
-        _ => {}
+        CONTACTS => quince_sync::contacts::lay(l, p),
+        CALENDAR => quince_sync::calendar::lay(l, p),
+        _ => Ok(()),
     }
-    Ok(())
 }
 
 /// Lay every change still waiting for `service` over what a sync pass just stored, in the
@@ -788,81 +398,9 @@ async fn drain_contacts(app: &AppHandle) -> Outcome {
     report.outcome
 }
 
-/// The address book a run of queued contact changes is sent from: read once for the run, not
-/// once for each change — every read is the whole book, every card in it. A card the run has
-/// written since is read again before it is written again (the copy here is from before); so
-/// is the book when the last write's answer left no tokens to carry on with (see
-/// [`quince_icloud::contacts::Ledger`]); and a write Apple says was made against an old book
-/// is sent once more from a fresh read.
-#[derive(Default)]
-struct Book {
-    read: Option<std::sync::Arc<BookRead>>,
-    written: std::collections::HashSet<String>,
-}
-
-/// One read of the book: each card as Apple wrote it, by id.
-struct BookRead {
-    cards: std::collections::HashMap<String, serde_json::Value>,
-}
-
-impl Book {
-    /// The book to send a change to `record` from, read now if the run has none it can use —
-    /// none read yet, `record` written since, or no live tokens left to write with; and
-    /// whether it was read just now. A read hands its tokens to `ledger`.
-    async fn for_record(
-        book: &std::sync::Mutex<Self>,
-        ledger: &quince_icloud::contacts::Ledger,
-        http: &reqwest::Client,
-        root: &str,
-        params: &[(String, String)],
-        record: &str,
-    ) -> Result<(std::sync::Arc<BookRead>, bool), Error> {
-        let kept = {
-            let b = book
-                .lock()
-                .unwrap_or_else(std::sync::PoisonError::into_inner);
-            b.read
-                .clone()
-                .filter(|_| !b.written.contains(record) && ledger.has_tokens())
-        };
-        if let Some(read) = kept {
-            return Ok((read, false));
-        }
-        let (cards, tokens) =
-            quince_icloud::contacts::cards_with_tokens(http, root, params.to_vec()).await?;
-        ledger.hold(tokens);
-        let cards = cards
-            .into_iter()
-            .filter_map(|card| {
-                let id = card.get("contactId")?.as_str()?.to_string();
-                Some((id, card))
-            })
-            .collect();
-        let mut b = book
-            .lock()
-            .unwrap_or_else(std::sync::PoisonError::into_inner);
-        let read = std::sync::Arc::new(BookRead { cards });
-        b.read = Some(std::sync::Arc::clone(&read));
-        b.written.clear();
-        Ok((read, true))
-    }
-
-    /// `record` written: its copy in the read is old now.
-    fn wrote(book: &std::sync::Mutex<Self>, record: &str) {
-        book.lock()
-            .unwrap_or_else(std::sync::PoisonError::into_inner)
-            .written
-            .insert(record.to_string());
-    }
-
-    /// The read let go of: written past it in ways it cannot track (a merge).
-    fn forget(book: &std::sync::Mutex<Self>) {
-        book.lock()
-            .unwrap_or_else(std::sync::PoisonError::into_inner)
-            .read = None;
-    }
-}
-
+/// One queued change to Contacts sent: a merge of duplicates by the desktop's own code, which
+/// writes and deletes cards of its own, read by itself; everything else by the code the phone
+/// sends with (quince_sync::contacts::send), from the run's one read of the book.
 async fn send_contact(
     library: &crate::library_lock::LibraryLock,
     http: &reqwest::Client,
@@ -872,102 +410,11 @@ async fn send_contact(
     book: &std::sync::Mutex<Book>,
     ledger: &quince_icloud::contacts::Ledger,
 ) -> Result<(), Error> {
-    use quince_icloud::contacts as c;
     if p.kind == "merge" {
-        // A merge writes and deletes cards of its own, read by itself.
         Book::forget(book);
         return crate::contacts_merge::send(library, http, root, params, ledger, &p).await;
     }
-    if p.kind == "address" {
-        let a: ContactAddress = serde_json::from_str(&p.payload).map_err(|e| unreadable(&e))?;
-        Book::wrote(book, &p.record);
-        // It reads the card and its tokens itself: the run's tokens are spent by its write.
-        let edited = c::address::edit(http, root, params, &p.record, &a.base, &a.edits).await;
-        ledger.spend();
-        return edited.map(|_| ());
-    }
-    let (read, fresh) = Book::for_record(book, ledger, http, root, &params, &p.record).await?;
-    let sent = send_contact_from(http, root, params.clone(), &p, &read, ledger).await;
-    if matches!(sent, Err(Error::Conflict)) && !fresh {
-        // Made against a book read earlier in the run, which Apple says is old now: from a
-        // fresh read, once.
-        Book::forget(book);
-        let (read, _) = Book::for_record(book, ledger, http, root, &params, &p.record).await?;
-        let again = send_contact_from(http, root, params, &p, &read, ledger).await;
-        Book::wrote(book, &p.record);
-        return again;
-    }
-    Book::wrote(book, &p.record);
-    sent
-}
-
-/// One queued card change sent, from `read`: Apple's card as it was read, with the tokens
-/// `ledger` holds.
-async fn send_contact_from(
-    http: &reqwest::Client,
-    root: &str,
-    params: Vec<(String, String)>,
-    p: &Pending,
-    read: &BookRead,
-    ledger: &quince_icloud::contacts::Ledger,
-) -> Result<(), Error> {
-    use quince_icloud::contacts as c;
-    let card = read.cards.get(&p.record);
-    if p.kind == "delete" {
-        // Gone already — deleted elsewhere, or by an earlier send of this one. Otherwise
-        // against the version read: changed since, Apple refuses it as a conflict.
-        let Some(card) = card else {
-            return Ok(());
-        };
-        return c::merge::delete_card(http, root, params, ledger, card).await;
-    }
-    let s: ContactSave = serde_json::from_str(&p.payload).map_err(|e| unreadable(&e))?;
-    if let Some(details) = &s.details {
-        let whole = |contact: &Contact, details: &ContactDetails| Card {
-            contact: contact.clone(),
-            details: details.clone(),
-        };
-        let mine = whole(&s.contact, details);
-        if s.create {
-            // Already made — an earlier send of this one — is done.
-            if card.is_some() {
-                return Ok(());
-            }
-            return c::create_card_named(http, root, params, ledger, &p.record, &mine).await;
-        }
-        // A base from before the form showed these has none: compared with Apple's own, so
-        // only what this form changed is written.
-        let base_details = match &s.base_details {
-            Some(d) => Some(d.clone()),
-            None => card.map(|v| {
-                c::parse_cards(&serde_json::json!({ "contacts": [v] }))
-                    .pop()
-                    .map(|c| c.details)
-                    .unwrap_or_default()
-            }),
-        };
-        let base = s
-            .base
-            .as_ref()
-            .map(|b| whole(b, &base_details.clone().unwrap_or_default()));
-        return c::update_card(http, root, params, ledger, &mine, card, base.as_ref()).await;
-    }
-    if s.create {
-        if card.is_some() {
-            return Ok(());
-        }
-        return c::create_named(http, root, params, ledger, &p.record, &s.contact).await;
-    }
-    c::update_from(
-        http,
-        root,
-        params,
-        ledger,
-        &s.contact,
-        card,
-        s.base.as_ref(),
-    )
-    .await
+    quince_sync::contacts::send(http, root, params, p, book, ledger).await
 }
 
 /// What two queues of one service come to together.
@@ -1045,6 +492,9 @@ async fn drain_calendar(app: &AppHandle) -> Outcome {
     report.outcome
 }
 
+/// One queued change to an iCloud calendar sent (quince_sync::calendar::send), and what Apple
+/// holds stored — its tag the next write is made against — with what still waits behind it laid
+/// back over.
 async fn send_event(
     library: &crate::library_lock::LibraryLock,
     http: &reqwest::Client,
@@ -1052,85 +502,16 @@ async fn send_event(
     params: Vec<(String, String)>,
     p: Pending,
 ) -> Result<(), Error> {
-    use quince_icloud::calendar::CalendarClient;
-    use quince_icloud::sync::{calendar_ctag, save_event_merging, store_events};
-    match p.kind.as_str() {
-        "save" => {
-            let s: EventSave = serde_json::from_str(&p.payload).map_err(|e| unreadable(&e))?;
-            let (event, ctag, from) = {
-                let l = library.lock().await;
-                let mut event = s.event.clone();
-                event.etag = sent_etag(&s);
-                let ctag = calendar_ctag(&l, &event.calendar_guid);
-                // Saved to another calendar than it was in: a move, from there.
-                let from = s
-                    .base
-                    .as_ref()
-                    .map(|b| b.calendar_guid.clone())
-                    .filter(|old| *old != event.calendar_guid)
-                    .map(|old| {
-                        let tag = calendar_ctag(&l, &old);
-                        (old, tag)
-                    });
-                (event, ctag, from)
-            };
-            // A create sent again — its answer lost — merges against itself: no change.
-            let base = s.base.clone().or_else(|| s.create.then(|| s.event.clone()));
-            let kept = save_event_merging(
-                http,
-                root,
-                params,
-                ctag.as_deref(),
-                &event,
-                base.as_ref(),
-                s.alerts.as_deref(),
-                s.repeat_changed.then_some(s.repeat.as_ref()),
-                s.scope,
-                from.as_ref()
-                    .map(|(old, tag)| (old.as_str(), tag.as_deref())),
-            )
-            .await?;
-            // What Apple holds is stored — its tag the next write is made against — and what
-            // still waits behind it laid back over.
-            let mut l = library.lock().await;
-            l.atomically(|l| {
-                store_events(l, kept)?;
-                replay_except(l, CALENDAR, p.id)?;
-                Ok::<_, Error>(())
-            })
-        }
-        "delete" => {
-            let d: EventDelete = serde_json::from_str(&p.payload).map_err(|e| unreadable(&e))?;
-            let mut event = d.event.clone();
-            let ctag = calendar_ctag(&*library.lock().await, &event.calendar_guid);
-            let client = CalendarClient::new(http, root, params);
-            match client
-                .delete_event_scoped(&event, ctag.as_deref(), d.scope)
-                .await
-            {
-                Err(Error::Conflict) => {
-                    // Changed at Apple since it was read: deleted all the same, as asked, against
-                    // Apple's newest version — or done already, if it is gone.
-                    let Some(theirs) = client.current_event(&event).await? else {
-                        return Ok(());
-                    };
-                    event.etag = theirs.etag;
-                    let ctag = client
-                        .current_ctag(&event.calendar_guid)
-                        .await
-                        .ok()
-                        .flatten();
-                    client
-                        .delete_event_scoped(&event, ctag.as_deref(), d.scope)
-                        .await
-                }
-                other => other,
-            }
-        }
-        other => Err(Error::Refused(format!(
-            "Skykeep does not know how to send “{other}”."
-        ))),
+    let kept = quince_sync::calendar::send(library, http, root, params, &p).await?;
+    if p.kind != "save" {
+        return Ok(());
     }
+    let mut l = library.lock().await;
+    l.atomically(|l| {
+        quince_icloud::sync::store_events(l, kept)?;
+        replay_except(l, CALENDAR, p.id)?;
+        Ok::<_, Error>(())
+    })
 }
 
 // --- Waking the sender when the network returns.
@@ -1273,35 +654,6 @@ pub struct RefusedView {
 pub struct Status {
     waiting: Vec<WaitingView>,
     refused: Vec<RefusedView>,
-}
-
-/// The words a refused change held.
-fn content_of(p: &Pending) -> String {
-    let v: serde_json::Value = serde_json::from_str(&p.payload).unwrap_or_default();
-    let s = |ptr: &str| v.pointer(ptr).and_then(|x| x.as_str()).map(str::to_string);
-    match (service_shown(&p.service), p.kind.as_str()) {
-        (NOTES, "delete") => s("/title"),
-        (NOTES, "create" | "save") => s("/body"),
-        (REMINDERS, "create") => s("/title"),
-        (REMINDERS, "edit") => s("/title").or_else(|| s("/notes")),
-        (REMINDERS, "delete") => s("/reminder/title"),
-        (CALENDAR, _) => s("/event/title"),
-        (CONTACTS, "address") => s("/name"),
-        (CONTACTS, _) => {
-            let name: Vec<String> = [
-                "/contact/firstName",
-                "/contact/lastName",
-                "/contact/company",
-            ]
-            .iter()
-            .filter_map(|ptr| s(ptr))
-            .filter(|x| !x.trim().is_empty())
-            .collect();
-            Some(name.join(" "))
-        }
-        _ => None,
-    }
-    .unwrap_or_default()
 }
 
 pub fn status(library: &Library) -> quince_core::Result<Status> {
@@ -1944,126 +1296,6 @@ mod tests {
         );
     }
 
-    /// Contacts: a new card gets its id here, shows at once, and edits before it is sent stay
-    /// one create; a pass that does not have it yet keeps it.
-    #[test]
-    fn a_new_card_shows_at_once_and_stays_one_create() {
-        let mut lib = Library::in_memory().unwrap();
-        lib.put_contacts(&[person("X", "Old")]).unwrap();
-        let guid = record_contact_save(&mut lib, &person("", "Asha"), None).unwrap();
-        assert!(!guid.is_empty());
-        record_contact_save(
-            &mut lib,
-            &person(&guid, "Asha Rao"),
-            Some(person(&guid, "Asha")),
-        )
-        .unwrap();
-        let p = lib.outbox_pending(CONTACTS).unwrap();
-        assert_eq!(p.len(), 1);
-        let s: ContactSave = serde_json::from_str(&p[0].payload).unwrap();
-        assert!(s.create && s.base.is_none());
-        assert_eq!(s.contact.first_name.as_deref(), Some("Asha Rao"));
-
-        // An edit to an existing card keeps the form's base.
-        record_contact_save(&mut lib, &person("X", "New"), Some(person("X", "Old"))).unwrap();
-        // A pass that read the book before either.
-        lib.put_contacts(&[person("X", "Old")]).unwrap();
-        replay(&mut lib, CONTACTS).unwrap();
-        let names: Vec<(String, Option<String>)> = lib
-            .contacts(None)
-            .unwrap()
-            .into_iter()
-            .map(|c| (c.guid, c.first_name))
-            .collect();
-        assert!(names.contains(&(guid.clone(), Some("Asha Rao".into()))));
-        assert!(names.contains(&("X".into(), Some("New".into()))));
-    }
-
-    fn address(city: &str) -> PostalAddress {
-        PostalAddress {
-            label: Some("HOME".into()),
-            street: Some("1 Example Road".into()),
-            city: Some(city.into()),
-            country: Some("India".into()),
-            ..PostalAddress::default()
-        }
-    }
-
-    /// Contacts: an address added to a card made here, before Apple has the card, shows at
-    /// once and waits behind the card's own create, in order; a pass that has neither yet
-    /// keeps both on screen. Nothing is sent to Apple until the card is.
-    #[test]
-    fn an_address_on_a_new_card_waits_behind_its_create() {
-        let mut lib = Library::in_memory().unwrap();
-        let guid = record_contact_save(&mut lib, &person("", "Asha"), None).unwrap();
-        let add = vec![AddressEdit::Add {
-            address: address("Pune"),
-        }];
-        let shown = record_contact_address(&mut lib, &guid, vec![], add.clone()).unwrap();
-        assert_eq!(shown.len(), 1);
-        assert_eq!(lib.contact_addresses(&guid).unwrap(), shown);
-
-        let p = lib.outbox_pending(CONTACTS).unwrap();
-        let kinds: Vec<&str> = p.iter().map(|p| p.kind.as_str()).collect();
-        assert_eq!(kinds, ["save", "address"], "the card goes first");
-        let a: ContactAddress = serde_json::from_str(&p[1].payload).unwrap();
-        assert_eq!((a.base.len(), a.edits.clone()), (0, add));
-        assert_eq!(a.name, "Asha");
-
-        // A pass from before either: the book without the card. Both are laid back.
-        lib.put_contacts(&[]).unwrap();
-        replay(&mut lib, CONTACTS).unwrap();
-        assert_eq!(lib.contact_addresses(&guid).unwrap(), shown);
-
-        // The notice for a refusal names the person.
-        assert_eq!(content_of(&p[1]), "Asha");
-    }
-
-    /// An address edit on a card Apple has is laid over each pass: a part the phone changed
-    /// meanwhile stays, the part edited here wins, and laying it again changes nothing.
-    #[test]
-    fn an_address_edit_lays_over_each_pass_once() {
-        let mut lib = Library::in_memory().unwrap();
-        lib.put_contacts(&[person("X", "Ravi")]).unwrap();
-        lib.set_contact_addresses("X", &[address("Pune")]).unwrap();
-        let edit = vec![AddressEdit::SetField {
-            index: 0,
-            field: "city".into(),
-            value: Some("Mumbai".into()),
-        }];
-        record_contact_address(&mut lib, "X", vec![address("Pune")], edit).unwrap();
-        // The phone added a postcode meanwhile; a pass brings Apple's older city with it.
-        let mut phone = address("Pune");
-        phone.postal_code = Some("411001".into());
-        lib.set_contact_addresses("X", &[phone]).unwrap();
-        replay(&mut lib, CONTACTS).unwrap();
-        replay(&mut lib, CONTACTS).unwrap();
-        let now = lib.contact_addresses("X").unwrap();
-        assert_eq!(now.len(), 1);
-        assert_eq!(now[0].city.as_deref(), Some("Mumbai"));
-        assert_eq!(now[0].postal_code.as_deref(), Some("411001"));
-    }
-
-    /// An address edit for a card deleted here before it went: nothing to show it on, and
-    /// the replay leaves no orphaned address behind.
-    #[test]
-    fn an_address_for_a_deleted_card_is_not_laid() {
-        let mut lib = Library::in_memory().unwrap();
-        lib.put_contacts(&[person("X", "Ravi")]).unwrap();
-        record_contact_address(
-            &mut lib,
-            "X",
-            vec![],
-            vec![AddressEdit::Add {
-                address: address("Pune"),
-            }],
-        )
-        .unwrap();
-        record_contact_delete(&mut lib, &person("X", "Ravi")).unwrap();
-        replay(&mut lib, CONTACTS).unwrap();
-        assert!(lib.contact_addresses("X").unwrap().is_empty());
-    }
-
     /// Sent twice — the app died after Apple took it, before the queue heard — a change does
     /// what it did once: the create finds its own name and makes nothing more.
     #[test]
@@ -2533,146 +1765,6 @@ mod tests {
         });
     }
 
-    /// Contacts: a card deleted shows gone at once and stays gone over a pass that still has
-    /// it; edited then deleted, both go, in that order.
-    #[test]
-    fn a_deleted_card_stays_gone_over_a_pass() {
-        let mut lib = Library::in_memory().unwrap();
-        lib.put_contacts(&[person("X", "Asha"), person("Y", "Ravi")])
-            .unwrap();
-        record_contact_save(&mut lib, &person("X", "Asha R"), Some(person("X", "Asha"))).unwrap();
-        let x = person("X", "Asha R");
-        record_contact_delete(&mut lib, &x).unwrap();
-        let names = |lib: &Library| -> Vec<String> {
-            lib.contacts(None)
-                .unwrap()
-                .into_iter()
-                .map(|c| c.guid)
-                .collect()
-        };
-        assert_eq!(names(&lib), vec!["Y".to_string()]);
-        assert_eq!(
-            kinds(&lib, CONTACTS),
-            vec![("X".into(), "save".into()), ("X".into(), "delete".into())]
-        );
-        lib.put_contacts(&[person("X", "Asha"), person("Y", "Ravi")])
-            .unwrap();
-        replay(&mut lib, CONTACTS).unwrap();
-        assert_eq!(
-            names(&lib),
-            vec!["Y".to_string()],
-            "the pass does not bring it back"
-        );
-    }
-
-    /// Calendar: a new event shows at once under the id it will have; edits before it is sent
-    /// stay one create, from nothing; an edit on its way is followed, from what it sends; a
-    /// pass from before is laid over; deletes take the days they were asked to.
-    #[test]
-    fn event_changes_show_at_once_coalesce_and_survive_a_pass() {
-        let mut lib = Library::in_memory().unwrap();
-        calendars(&mut lib);
-        let save = |event: Event, base: Option<Event>, create: bool| EventSave {
-            event,
-            base,
-            create,
-            alerts: None,
-            repeat_changed: false,
-            repeat: None,
-            scope: None,
-        };
-        let mut fresh = event("NEW", "Lunch", 2_000_000);
-        fresh.etag = None;
-        record_event_save(&mut lib, save(fresh.clone(), None, true)).unwrap();
-        assert_eq!(
-            lib.event("NEW").unwrap().unwrap().title,
-            "Lunch",
-            "shown at once"
-        );
-        let mut renamed = fresh.clone();
-        renamed.title = "Lunch with Asha".into();
-        record_event_save(
-            &mut lib,
-            EventSave {
-                alerts: Some(vec![15]),
-                ..save(renamed, None, false)
-            },
-        )
-        .unwrap();
-        let p = lib.outbox_pending(CALENDAR).unwrap();
-        assert_eq!(p.len(), 1, "one create");
-        let s: EventSave = serde_json::from_str(&p[0].payload).unwrap();
-        assert!(s.create && s.base.is_none());
-        assert_eq!(
-            (s.event.title.as_str(), s.alerts),
-            ("Lunch with Asha", Some(vec![15]))
-        );
-
-        // On its way: the next edit follows, made from what it sends.
-        lib.outbox_take(CALENDAR).unwrap();
-        let mut later = s.event.clone();
-        later.location = Some("Cafe".into());
-        record_event_save(&mut lib, save(later, None, false)).unwrap();
-        let p = lib.outbox_pending(CALENDAR).unwrap();
-        let s2: EventSave = serde_json::from_str(&p[1].payload).unwrap();
-        assert!(!s2.create);
-        assert_eq!(s2.base.unwrap().title, "Lunch with Asha");
-
-        // A repeating series, and deletes of its days.
-        let series: Vec<Event> = (0..4)
-            .map(|i| event(&format!("S__{i}"), "Standup", 3_000_000 + i * 86_400))
-            .collect();
-        lib.put_events(&series).unwrap();
-        lib.put_events(&[event("E", "Dentist", 1_000_000)]).unwrap();
-        record_event_delete(&mut lib, &series[2], Some(Scope::Future)).unwrap();
-        let left = |lib: &Library| -> Vec<String> {
-            let mut v: Vec<String> = lib
-                .events_starting_between(0, i64::MAX / 2)
-                .unwrap()
-                .into_iter()
-                .map(|(g, _)| g)
-                .collect();
-            v.sort();
-            v
-        };
-        assert_eq!(
-            left(&lib),
-            vec!["E", "NEW", "S__0", "S__1"],
-            "this day and those after"
-        );
-        let mut moved = lib.event("E").unwrap().unwrap();
-        moved.calendar_guid = "home".into();
-        let base = lib.event("E").unwrap();
-        record_event_save(&mut lib, save(moved, base, false)).unwrap();
-        assert_eq!(
-            lib.event("E").unwrap().unwrap().etag.as_deref(),
-            Some("apple"),
-            "Apple's tag kept"
-        );
-
-        // A pass from before all of it.
-        let mut stale = series.clone();
-        stale.push(event("E", "Dentist", 1_000_000));
-        lib.put_events(&stale).unwrap();
-        lib.forget_events(&["NEW".into()]).unwrap();
-        replay(&mut lib, CALENDAR).unwrap();
-        assert_eq!(left(&lib), vec!["E", "NEW", "S__0", "S__1"]);
-        let new = lib.event("NEW").unwrap().unwrap();
-        assert_eq!(
-            (new.title.as_str(), new.location.as_deref()),
-            ("Lunch with Asha", Some("Cafe"))
-        );
-        assert_eq!(lib.event("E").unwrap().unwrap().calendar_guid, "home");
-        assert_eq!(
-            kinds(&lib, CALENDAR)
-                .into_iter()
-                .map(|(_, k)| k)
-                .collect::<Vec<_>>(),
-            vec!["save", "save", "delete", "save"],
-            "in the order made"
-        );
-    }
-
     /// The sender wakes when the network comes back — once per return, not on every report of
     /// "still online" — and when told to by the window.
     #[test]
@@ -2816,355 +1908,6 @@ mod tests {
         assert!(matches!(report.outcome, Outcome::Later));
         assert_eq!(sent.load(std::sync::atomic::Ordering::SeqCst), 1);
         assert_eq!(lib.lock().await.outbox_pending(REMINDERS).unwrap().len(), 1);
-    }
-
-    /// Three cards edited offline go in one run from one read of the address book — each read
-    /// is the whole book — not two reads for each card, while Apple answers each write with
-    /// the tokens for the next; a card edited twice is read again before its second write, its
-    /// copy from before the first being old.
-    #[tokio::test]
-    async fn queued_card_edits_are_sent_from_one_read_of_the_book() {
-        use wiremock::matchers::{method, path, path_regex};
-        use wiremock::{Mock, MockServer, ResponseTemplate};
-        let server = MockServer::start().await;
-        let card = |id: &str| serde_json::json!({ "contactId": id, "firstName": id, "etag": "e" });
-        Mock::given(method("GET"))
-            .and(path("/co/startup"))
-            .respond_with(ResponseTemplate::new(200).set_body_json(serde_json::json!({
-                "syncToken": "S", "prefToken": "P",
-                "contacts": [card("A"), card("B"), card("C")]
-            })))
-            .mount(&server)
-            .await;
-        let answered = std::sync::atomic::AtomicU64::new(0);
-        Mock::given(path_regex(r".*/co/contacts/card$"))
-            .respond_with(move |_: &wiremock::Request| {
-                let n = answered.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
-                ResponseTemplate::new(200).set_body_json(serde_json::json!({
-                    "contacts": [], "syncToken": format!("S{n}"), "prefToken": "P",
-                }))
-            })
-            .mount(&server)
-            .await;
-
-        let mut l = library();
-        for (id, name) in [("A", "Ada"), ("B", "Bea"), ("C", "Cy")] {
-            let was = person(id, id);
-            l.put_contacts(std::slice::from_ref(&was)).unwrap();
-            record_contact_save(&mut l, &person(id, name), Some(was)).unwrap();
-        }
-        // Behind a save of A that is on its way: a second edit of A, sent after it.
-        l.outbox_take(CONTACTS).unwrap();
-        record_contact_save(&mut l, &person("A", "Ada L"), Some(person("A", "Ada"))).unwrap();
-        l.set_state(crate::ACCOUNT_KEY, "me").unwrap();
-        let lib = crate::library_lock::LibraryLock::new(l, None);
-        let http = reqwest::Client::new();
-        let book = std::sync::Mutex::new(Book::default());
-        let ledger = quince_icloud::contacts::Ledger::new();
-        let root = server.uri();
-        let report = drain_as(&lib, CONTACTS, &Mutex::new(()), "me", |p| {
-            send_contact(&lib, &http, &root, Vec::new(), p, &book, &ledger)
-        })
-        .await;
-        assert!(report.refused.is_empty(), "{:?}", report.refused);
-        assert!(lib
-            .lock()
-            .await
-            .outbox_pending(CONTACTS)
-            .unwrap()
-            .is_empty());
-        let asked = server.received_requests().await.unwrap();
-        let reads = asked
-            .iter()
-            .filter(|r| r.url.path() == "/co/startup")
-            .count();
-        let writes = asked
-            .iter()
-            .filter(|r| r.url.path().ends_with("/co/contacts/card"))
-            .count();
-        assert_eq!(writes, 4);
-        assert_eq!(
-            reads, 2,
-            "one read for the run, and A's again before its second write"
-        );
-    }
-
-    /// A pretend Apple that holds one event: a save sent with its current tag is taken, one sent
-    /// with any other is answered "changed since" (412), as Apple's calendar does.
-    mod apple_calendar {
-        use super::*;
-        use std::sync::{Arc, Mutex as StdMutex};
-        use wiremock::matchers::{method, path_regex};
-        use wiremock::{Mock, MockServer, Request, Respond, ResponseTemplate};
-
-        fn apple_json(e: &Event, etag: &str) -> serde_json::Value {
-            serde_json::json!({
-                "guid": e.guid, "pGuid": e.calendar_guid, "title": e.title,
-                "location": e.location, "tz": "Asia/Kolkata",
-                "startDate": [20260914, 2026, 9, 14, 9, 30, 570],
-                "endDate": [20260914, 2026, 9, 14, 10, 30, 630],
-                "etag": etag
-            })
-        }
-
-        /// Apple's copy and its tag number; each save taken makes a new tag.
-        #[derive(Clone)]
-        struct Held(Arc<StdMutex<(Event, u32)>>);
-
-        impl Held {
-            fn tag(&self) -> String {
-                format!("v{}", self.0.lock().unwrap().1)
-            }
-            fn event(&self) -> Event {
-                self.0.lock().unwrap().0.clone()
-            }
-        }
-
-        struct Detail(Held);
-        impl Respond for Detail {
-            fn respond(&self, _: &Request) -> ResponseTemplate {
-                let body =
-                    serde_json::json!({ "Event": [apple_json(&self.0.event(), &self.0.tag())] });
-                ResponseTemplate::new(200).set_body_json(body)
-            }
-        }
-
-        struct Save(Held);
-        impl Respond for Save {
-            fn respond(&self, r: &Request) -> ResponseTemplate {
-                let body: serde_json::Value = serde_json::from_slice(&r.body).unwrap();
-                let sent = body["Event"]["etag"].as_str().map(str::to_owned);
-                if sent.as_deref() != Some(self.0.tag().as_str()) {
-                    return ResponseTemplate::new(412);
-                }
-                let mut held = self.0 .0.lock().unwrap();
-                held.0.title = body["Event"]["title"].as_str().unwrap_or_default().into();
-                held.0.location = body["Event"]["location"].as_str().map(str::to_owned);
-                held.1 += 1;
-                let tag = format!("v{}", held.1);
-                ResponseTemplate::new(200)
-                    .set_body_json(serde_json::json!({ "Event": [apple_json(&held.0, &tag)] }))
-            }
-        }
-
-        async fn apple(holds: &Event, tag: u32) -> (MockServer, Held) {
-            let held = Held(Arc::new(StdMutex::new((holds.clone(), tag))));
-            let server = MockServer::start().await;
-            Mock::given(method("GET"))
-                .and(path_regex(r".*/ca/eventdetail/.*"))
-                .respond_with(Detail(held.clone()))
-                .mount(&server)
-                .await;
-            Mock::given(method("GET"))
-                .and(path_regex(r".*/ca/collectiondetail/.*"))
-                .respond_with(ResponseTemplate::new(200).set_body_json(
-                    serde_json::json!({ "Collection": [{ "guid": "work", "ctag": "c2" }] }),
-                ))
-                .mount(&server)
-                .await;
-            Mock::given(method("POST"))
-                .and(path_regex(r".*/ca/events/.*"))
-                .respond_with(Save(held.clone()))
-                .mount(&server)
-                .await;
-            (server, held)
-        }
-
-        fn dentist() -> Event {
-            Event {
-                guid: "E".into(),
-                calendar_guid: "work".into(),
-                title: "Dentist".into(),
-                location: Some("Room 1".into()),
-                starts_at: 1_789_358_400,
-                ends_at: 1_789_362_000,
-                timezone: Some("Asia/Kolkata".into()),
-                etag: Some("v1".into()),
-                ..Default::default()
-            }
-        }
-
-        fn edit_of(base: &Event) -> EventSave {
-            let mut mine = base.clone();
-            mine.title = "Dentist — bring forms".into();
-            EventSave {
-                event: mine,
-                base: Some(base.clone()),
-                create: false,
-                alerts: None,
-                repeat_changed: false,
-                repeat: None,
-                scope: None,
-            }
-        }
-
-        fn in_room_2(opened: &Event) -> Event {
-            let mut phone = opened.clone();
-            phone.location = Some("Room 2".into());
-            phone.etag = Some("v2".into());
-            phone
-        }
-
-        async fn send_waiting(lib: &crate::library_lock::LibraryLock, root: &str) {
-            let http = reqwest::Client::new();
-            let report = drain(lib, CALENDAR, &Mutex::new(()), |p| {
-                send_event(lib, &http, root, Vec::new(), p)
-            })
-            .await;
-            assert!(report.refused.is_empty(), "{:?}", report.refused);
-            assert!(lib
-                .lock()
-                .await
-                .outbox_pending(CALENDAR)
-                .unwrap()
-                .is_empty());
-        }
-
-        fn title_and_room(e: &Event) -> (&str, Option<&str>) {
-            (e.title.as_str(), e.location.as_deref())
-        }
-
-        /// Edited here offline; meanwhile the iPhone moved it to another room and a pass
-        /// brought that in. Both changes survive — shown at once, and at Apple once sent: the
-        /// save goes against the version it was made from, Apple answers "changed", and it is
-        /// merged. Sent with the library's newest tag, Apple took it whole and the room went
-        /// back.
-        #[tokio::test]
-        async fn an_offline_edit_and_a_newer_change_elsewhere_both_survive() {
-            let mut lib = Library::in_memory().unwrap();
-            calendars(&mut lib);
-            let opened = dentist();
-            lib.put_events(std::slice::from_ref(&opened)).unwrap();
-            record_event_save(&mut lib, edit_of(&opened)).unwrap();
-
-            // The iPhone's change, brought by a pass, with what waits laid back over it.
-            let phone = in_room_2(&opened);
-            lib.put_events(std::slice::from_ref(&phone)).unwrap();
-            replay(&mut lib, CALENDAR).unwrap();
-            assert_eq!(
-                title_and_room(&lib.event("E").unwrap().unwrap()),
-                ("Dentist — bring forms", Some("Room 2")),
-                "both shown before it is sent"
-            );
-
-            let (server, held) = apple(&phone, 2).await;
-            let lib = crate::library_lock::LibraryLock::new(lib, None);
-            send_waiting(&lib, &server.uri()).await;
-            assert_eq!(
-                title_and_room(&held.event()),
-                ("Dentist — bring forms", Some("Room 2")),
-                "both kept at Apple"
-            );
-            let posts = server
-                .received_requests()
-                .await
-                .unwrap()
-                .into_iter()
-                .filter(|r| r.method == reqwest::Method::POST)
-                .count();
-            assert_eq!(posts, 2, "refused as stale, then merged and taken");
-            let stored = lib.lock().await.event("E").unwrap().unwrap();
-            assert_eq!(stored.location.as_deref(), Some("Room 2"));
-            assert_eq!(
-                stored.etag.as_deref(),
-                Some("v3"),
-                "Apple's newest tag stored"
-            );
-        }
-
-        /// The form was open while a pass landed with the iPhone's change: the save is made
-        /// from the event as the form opened it, not the library's newer copy, so the room
-        /// the form never showed is not put back.
-        #[tokio::test]
-        async fn a_form_open_while_a_pass_lands_does_not_overwrite_it() {
-            let mut lib = Library::in_memory().unwrap();
-            calendars(&mut lib);
-            let opened = dentist();
-            lib.put_events(std::slice::from_ref(&opened)).unwrap();
-
-            // The pass, while the form is open.
-            let phone = in_room_2(&opened);
-            lib.put_events(std::slice::from_ref(&phone)).unwrap();
-
-            // Saved from the form: its fields as opened, the title changed.
-            let stored = lib.event("E").unwrap();
-            let base = save_base("E", Some(opened.clone()), stored.clone());
-            assert_eq!(
-                base.as_ref(),
-                Some(&opened),
-                "the form's base, not the library's"
-            );
-            assert_eq!(
-                save_base("E", None, stored.clone()),
-                stored,
-                "none sent: the library's"
-            );
-            let other = Event {
-                guid: "OTHER".into(),
-                ..dentist()
-            };
-            assert_eq!(
-                save_base("E", Some(other), stored.clone()),
-                stored,
-                "another event's base is never taken"
-            );
-            record_event_save(
-                &mut lib,
-                EventSave {
-                    base,
-                    ..edit_of(&opened)
-                },
-            )
-            .unwrap();
-            let shown = lib.event("E").unwrap().unwrap();
-            assert_eq!(
-                title_and_room(&shown),
-                ("Dentist — bring forms", Some("Room 2")),
-                "the phone's room still shown"
-            );
-            assert_eq!(
-                shown.etag.as_deref(),
-                Some("v2"),
-                "the library's tag is Apple's"
-            );
-
-            let (server, held) = apple(&phone, 2).await;
-            let lib = crate::library_lock::LibraryLock::new(lib, None);
-            send_waiting(&lib, &server.uri()).await;
-            assert_eq!(
-                title_and_room(&held.event()),
-                ("Dentist — bring forms", Some("Room 2"))
-            );
-        }
-
-        /// A second save made while the first is on its way follows it, made from what the
-        /// first sends: once the first has landed, the second still goes, merged over it.
-        #[tokio::test]
-        async fn a_save_behind_one_that_landed_still_goes() {
-            let mut lib = Library::in_memory().unwrap();
-            calendars(&mut lib);
-            let opened = dentist();
-            lib.put_events(std::slice::from_ref(&opened)).unwrap();
-            record_event_save(&mut lib, edit_of(&opened)).unwrap();
-            lib.outbox_take(CALENDAR).unwrap();
-            let mut later = lib.event("E").unwrap().unwrap();
-            later.location = Some("Room 9".into());
-            record_event_save(
-                &mut lib,
-                EventSave {
-                    event: later,
-                    ..edit_of(&opened)
-                },
-            )
-            .unwrap();
-            let (server, held) = apple(&opened, 1).await;
-            let lib = crate::library_lock::LibraryLock::new(lib, None);
-            send_waiting(&lib, &server.uri()).await;
-            assert_eq!(
-                title_and_room(&held.event()),
-                ("Dentist — bring forms", Some("Room 9"))
-            );
-        }
     }
 }
 

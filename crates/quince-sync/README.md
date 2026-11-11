@@ -15,6 +15,12 @@ window or a platform.
 - **`notes`, `reminders`**: each kind of change as `record_*` (local change and queue entry in
   one transaction), `lay` (its local effect), `replay` (lay everything still waiting over a
   pass), plus `apply` and `send`.
+- **`contacts`, `calendar`**: the same for cards (saves, deletes, addresses part by part,
+  list membership, lists) and events: `record_*` and `lay` for the desktop, which shows a change
+  in its library; `queue_phone_*` for the phone, whose own providers already show it and which
+  hands over a row's state on every pass (asked again unchanged, nothing new is queued); and one
+  `send` for both. `contacts::Book` is a run's one read of the address book. The desktop keeps
+  only its merge of duplicates and its CalDAV accounts' sends.
 - **`photos`**: one round of the library stored (`apply` lays waiting flag changes over it), and
   the flags through the queue: `record_flags` (up to `AT_ONCE` photos a change; an unsent one
   undone is taken back), `lay`, `replay`, and `send` / `send_with` (what Apple took kept, the
@@ -26,16 +32,14 @@ window or a platform.
   fetch and apply; `photos` with readiness, Shared Albums and the Shared Library (each laid
   under waiting flag changes too). `Hooks` is what each platform does beside it (download
   links, an approval let go).
+- **`queue::content_of`**: what a queued change held, in words, for the refused list.
 - **`quiet!`**: messages printed in debug builds only, never with personal data.
-
-Contacts and Calendar sends still live in the desktop app (`src-tauri/src/outbox.rs`). On
-Android those two go through Android's own providers instead.
 
 Depends on `quince-core` and `quince-icloud`. Used by `quince-app` and `quince-mobile`.
 
 ## Tests
 
 ```sh
-cargo nextest run -p quince-sync         # the lock, the pass, and Photos' flags against a pretend Apple
-cargo nextest run -p quince-app outbox   # the queue, against a pretend Apple
+cargo nextest run -p quince-sync         # the lock, the pass, and each service's changes against a pretend Apple
+cargo nextest run -p quince-app outbox   # the desktop's worker and its queue
 ```

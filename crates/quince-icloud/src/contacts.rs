@@ -687,6 +687,17 @@ pub async fn cards_with_tokens(
     root: &str,
     params: Vec<(String, String)>,
 ) -> Result<(Vec<Value>, Tokens)> {
+    let (cards, _, tokens) = cards_and_lists_with_tokens(http, root, params).await?;
+    Ok((cards, tokens))
+}
+
+/// [`cards_with_tokens`] with the lists too, from the same read: a run that changes lists as
+/// well as cards sends both from one read of the book.
+pub async fn cards_and_lists_with_tokens(
+    http: &reqwest::Client,
+    root: &str,
+    params: Vec<(String, String)>,
+) -> Result<(Vec<Value>, Vec<ContactList>, Tokens)> {
     let body = startup(http, root, params).await?;
     let token = |key: &str| {
         body.get(key)
@@ -703,7 +714,7 @@ pub async fn cards_with_tokens(
         .and_then(Value::as_array)
         .cloned()
         .unwrap_or_default();
-    Ok((cards, tokens))
+    Ok((cards, parse_lists(&body), tokens))
 }
 
 /// [`card_written`] for a card without the rest of its name and work: those stay as Apple
@@ -1445,11 +1456,26 @@ pub async fn create_list(
     name: &str,
     members: &[String],
 ) -> Result<String> {
+    let guid = uuid::Uuid::new_v4().to_string().to_uppercase();
+    create_list_named(http, root, params, ledger, &guid, name, members).await?;
+    Ok(guid)
+}
+
+/// [`create_list`] under an id chosen beforehand, so a create sent again after a lost answer
+/// is the same list: the caller checks the book for it first.
+pub async fn create_list_named(
+    http: &reqwest::Client,
+    root: &str,
+    params: Vec<(String, String)>,
+    ledger: &Ledger,
+    guid: &str,
+    name: &str,
+    members: &[String],
+) -> Result<()> {
     let name = name.trim();
     if name.is_empty() {
         return Err(Error::Refused("A list needs a name.".into()));
     }
-    let guid = uuid::Uuid::new_v4().to_string().to_uppercase();
     write_list(
         http,
         root,
@@ -1459,7 +1485,7 @@ pub async fn create_list(
         serde_json::json!({ "groupId": guid, "name": name, "contactIds": members }),
     )
     .await?;
-    Ok(guid)
+    Ok(())
 }
 
 /// Rename a list, or change who is in it: the whole list, sent back with its etag.
