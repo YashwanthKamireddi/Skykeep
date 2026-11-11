@@ -533,6 +533,9 @@
 .px-up-title { margin: 0; font-size: var(--t-15, 15px); font-weight: 700; }
 .px-up-rows { flex: 1; min-height: 0; margin: 0; padding: 0 8px 12px; list-style: none; overflow-y: auto; }
 .px-up-row { display: flex; align-items: center; gap: 10px; padding: 8px; border-radius: 10px; }
+/* An import of thousands lists thousands of rows: those out of sight are neither laid out nor
+   painted (each is 44px of picture and 8px of padding either side). */
+.px-up-row { content-visibility: auto; contain-intrinsic-size: auto 60px; }
 .px-up-thumb { flex: none; width: 44px; height: 44px; border-radius: 6px; object-fit: cover; background: color-mix(in srgb, var(--text) 8%, transparent); }
 .px-up-text { flex: 1; min-width: 0; display: flex; flex-direction: column; }
 .px-up-name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: var(--t-13); }

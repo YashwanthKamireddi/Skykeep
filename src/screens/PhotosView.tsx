@@ -33,7 +33,7 @@ import { SearchField } from "../components/SearchField";
 import { PaneTitle } from "../components/PaneTitle";
 import { useArriving, useRevision, useServiceState } from "../lib/sync";
 import { dismissToast, toast, toastSaved, useErrorToast, useToastClearance } from "../components/Toast";
-import { UploadPanel } from "./photos/UploadPanel";
+import { UploadPanel, UploadStore } from "./photos/UploadPanel";
 import { RowMenu, type MenuEntry } from "../components/RowMenu";
 import { Portal } from "../components/Portal";
 import { useModalFocus } from "../lib/focus";
@@ -51,6 +51,7 @@ import { Picker } from "../components/Picker";
 import { PAGE, PhotoList, PhotoStore } from "./photos/list";
 import { Periods, monthName, type Level, type Place } from "./photos/Periods";
 import { same } from "../lib/same";
+import { composing } from "../lib/keys";
 import { carryPicture } from "../lib/dragPicture";
 
 /** The library switcher's choices, named as Photos names them. */
@@ -178,6 +179,9 @@ const SHOWN = 54;
 const GAP = 2;
 const REACH = 30;
 function Filmstrip({ photos, at, onPick }: { photos: PhotoList; at: number; onPick: (index: number) => void }) {
+  // Its slips' photos as they land: the screen no longer draws again for every page (see
+  // PhotosView's store subscription), so the strip watches the store itself.
+  useSyncExternalStore(photos.store.subscribe, () => photos.store.version);
   // Enough either side to fill the window's width and more, so a slip is always built (and its
   // picture decoded) before it can be seen: built at the edge of the screen, slips came in
   // blank and filled in as each step was taken.
@@ -543,7 +547,11 @@ function idsOf(items: Item[]): Set<string> {
  * month again — every one was handed the whole selection — 166 ms on a 20,000-photo library.
  */
 function sameMonth(a: MonthProps, b: MonthProps): boolean {
-  if (a.label !== b.label || a.view !== b.view || a.month !== b.month || a.items !== b.items || a.list !== b.list || a.deleted !== b.deleted || a.eager !== b.eager || a.across !== b.across
+  // A new read of the library is a new list, but a month whose photos and places in it are the
+  // same (its items kept, see PhotosView's months) draws the same from it: each read once drew
+  // every built month again, for a change somewhere else or none at all.
+  if (a.list !== b.list && (a.items !== b.items || a.list.store !== b.list.store)) return false;
+  if (a.label !== b.label || a.view !== b.view || a.month !== b.month || a.items !== b.items || a.deleted !== b.deleted || a.eager !== b.eager || a.across !== b.across
     || a.fit !== b.fit || a.cell !== b.cell || a.act !== b.act) return false;
   if (a.chosen !== b.chosen) {
     // Only the photos whose selection changed are looked at (worked out once per change, not
@@ -759,53 +767,67 @@ const Month = memo(function Month({
   // rows a frame; gone far again before it was built, its building waits until it comes back —
   // a fling to the foot of the library builds the months it lands on, not every month it
   // passed on the way (they queued first, and the screen it landed on waited behind them).
+  //
+  // Watched through the observer every month shares (lib/near), and for the month's whole life:
+  // one IntersectionObserver per month, made again whenever a sync read the library, was about
+  // five hundred observers torn down and made again (three thousand by day), and every one of
+  // them answered at once. A new read of its photos is taken up by the effect below instead.
+  const itemsNow = useRef(items);
+  itemsNow.current = items;
+  const listNow = useRef(list);
+  listNow.current = list;
+  const close = useRef(false);
+  const build = useRef<() => void>(() => {});
   useEffect(() => {
     const el = ref.current;
     let gone = false;
     let queued = false;
-    let close = false;
     const start = () => {
-      if (queued || builtNow.current >= items.length) return;
+      if (queued || builtNow.current >= itemsNow.current.length) return;
       queued = true;
       buildSoon(() => {
         if (gone) return true;
-        if (!close) {
+        if (!close.current) {
           queued = false;
           return true;
         }
+        const length = itemsNow.current.length;
         const rows = Math.max(2, Math.round(BUILD_TILES / step.current));
-        const next = Math.min(items.length, builtNow.current + rows * step.current);
+        const next = Math.min(length, builtNow.current + rows * step.current);
         builtNow.current = next;
         setBuilt(next);
-        if (next >= items.length) queued = false;
-        return next >= items.length;
+        if (next >= length) queued = false;
+        return next >= length;
       });
     };
-    if (!el || typeof IntersectionObserver === "undefined" || !items.length) {
-      close = true;
+    build.current = start;
+    if (!el) {
+      close.current = true;
       start();
       return () => {
         gone = true;
       };
     }
-    const watch = new IntersectionObserver(
-      (entries) => {
-        // The latest of what came in one go: a layout that moved it out and back within a
-        // frame comes as two entries, and the first alone left it out — half built for good.
-        close = entries[entries.length - 1].isIntersecting;
-        if (!close) return;
-        setNear(true);
-        void list.need(items[0].index, items[items.length - 1].index);
-        start();
-      },
-      { root: el.closest(".px-scroll"), rootMargin: "4000px 0px" },
-    );
-    watch.observe(el);
+    const stop = watchNear(el, el.closest(".px-scroll"), "4000px 0px", (on) => {
+      close.current = on;
+      if (!on) return;
+      setNear(true);
+      const now = itemsNow.current;
+      if (now.length) void listNow.current.need(now[0].index, now[now.length - 1].index);
+      start();
+    });
     return () => {
       gone = true;
-      watch.disconnect();
+      stop();
     };
-  }, [list, items]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, []);
+  // Its photos read again (a sync moved, added or took some away) while it is near: the new
+  // ones asked for, and built on from where it was.
+  useEffect(() => {
+    if (!close.current || !items.length) return;
+    void list.need(items[0].index, items[items.length - 1].index);
+    build.current();
+  }, [list, items]);
   // Built part way when the zoom changed, or its photos part way here: what shows stays on whole
   // rows, and the rest is the block below. Once its grid is showing, it keeps showing: a photo
   // not here yet (one just arrived, fetched as it is drawn) holds its cell as a plain box, and
@@ -895,7 +917,6 @@ export function PhotosView() {
    */
   const store = useMemo(() => new PhotoStore(), []);
   const [photos, setPhotos] = useState<PhotoList | null>(null);
-  useSyncExternalStore(store.subscribe, () => store.version);
   /**
    * A burst opened from its chosen photo, as Photos' "View all": the viewer goes through the
    * burst's photos in the order they were shot, counted "3 of 64", until Done (or the viewer
@@ -937,6 +958,20 @@ export function PhotosView() {
       return !f;
     });
   const [open, setOpen] = useState<number | null>(null);
+  /*
+   * What this screen itself draws from the store: the photo open in the viewer and the two
+   * beside it (decoded ahead). The months subscribe for their own photos, and the film strip
+   * for its own. Subscribed to the store's whole version, the whole screen (header, sidebar,
+   * toolbar, every month's comparison) drew again for every page that landed while scrolling,
+   * several times a second, in the scroll's own frames.
+   */
+  const seenOpen = useRef<(Photo | undefined)[]>([]);
+  useSyncExternalStore(store.subscribe, () => {
+    if (open === null || !photos) return seenOpen.current.length ? (seenOpen.current = []) : seenOpen.current;
+    const now = [photos.at(open - 1), photos.at(open), photos.at(open + 1)];
+    const was = seenOpen.current;
+    return was.length === 3 && was.every((p, i) => p === now[i]) ? was : (seenOpen.current = now);
+  });
   const [info, setInfo] = useState(false);
   /** A slideshow playing: what it shows, and where it begins. */
   const [show, setShow] = useState<{ ids: string[]; start: number } | null>(null);
@@ -953,7 +988,8 @@ export function PhotosView() {
     anchor.current = at >= 0 ? at : null;
     anchorList.current = photos;
   }
-  const [uploads, setUploads] = useState<Map<string, UploadEvent>>(new Map());
+  // The uploads under way, laid in once a frame and drawn by their panel alone (UploadStore).
+  const uploads = useMemo(() => new UploadStore(), []);
   /**
    * A batch of photos from another device landing in the view (see read): which, how many of
    * them are videos, and when the last of them landed. Said under the title until the pictures
@@ -1049,9 +1085,7 @@ export function PhotosView() {
     for (const [id, at] of ownIds.current) if (now - at > 120_000) ownIds.current.delete(id);
   };
   /** The files being sent from here, by name: each lands in the library as a photo of that name. */
-  const uploadsNow = useRef(uploads);
-  uploadsNow.current = uploads;
-  const ownNames = () => new Set([...uploadsNow.current.values()].filter((u) => u.state !== "failed" && u.state !== "cancelled").map((u) => u.name));
+  const ownNames = () => new Set(uploads.list().filter((u) => u.state !== "failed" && u.state !== "cancelled").map((u) => u.name));
   /** The tile at the top of the view as a read with new photos was drawn, kept there (see below). */
   const anchorAt = useRef<{ id: string; top: number; list: PhotoList } | null>(null);
   const read = useCallback(async () => {
@@ -1177,7 +1211,22 @@ export function PhotosView() {
   // an album is one grid in its own order. Each group knows its month, for the month picker and
   // the line under the title.
   const byDay = zoom >= DAYS_FROM;
+  // Each month's items as last drawn, by its key: kept when a read leaves its photos and their
+  // places the same, so the month draws nothing again for it (see sameMonth).
+  const lastItems = useRef(new Map<string, Item[]>());
   const months = useMemo(() => {
+    const out = groupMonths();
+    const was = lastItems.current;
+    const now = new Map<string, Item[]>();
+    for (const m of out) {
+      const old = was.get(m.key);
+      if (old && old.length === m.items.length && old.every((x, i) => x.id === m.items[i].id && x.index === m.items[i].index)) m.items = old;
+      now.set(m.key, m.items);
+    }
+    lastItems.current = now;
+    return out;
+  }, [photos, drawn, byDay]); // eslint-disable-line react-hooks/exhaustive-deps
+  function groupMonths() {
     const out: { key: string; label: string; month: string; items: Item[] }[] = [];
     // An album keeps its own order, and Recently Deleted is in the order things were deleted:
     // grouped by the month they were taken, the same month came back again and again. Both are
@@ -1229,7 +1278,7 @@ export function PhotosView() {
       }
     });
     return out;
-  }, [photos, drawn, byDay]);
+  }
 
   const shown = open !== null ? photos?.at(open) ?? null : null;
   /**
@@ -1769,6 +1818,11 @@ export function PhotosView() {
       if (!live.current) return;
       // Keys typed into a field — the caption — are words, not commands.
       if ((e.target as HTMLElement | null)?.closest?.("input:not([type=range]), textarea, [contenteditable]")) return;
+      // A sheet or menu over the viewer (Adjust Date, the Delete confirm, a ⋯ menu) has the keys:
+      // F, H, Delete and the arrows pressed there favorited, hid or deleted the photo behind it.
+      // The viewer is itself a dialog, so only one other than it counts.
+      if ((e.target as HTMLElement | null)?.closest?.(".row-menu, [role=alertdialog], [role=dialog]:not(.px-viewer)")) return;
+      if (document.querySelector('[aria-modal="true"], .row-menu')) return;
       // The zoom slider's own arrows move it; every other key still works with it focused.
       if ((e.target as HTMLElement | null)?.matches?.("input[type=range]") && e.key.startsWith("Arrow")) return;
       if (e.key === "ArrowRight") step(1);
@@ -2507,6 +2561,8 @@ export function PhotosView() {
       placeholder="Untitled Album"
       onChange={(e) => setNaming((n) => (n ? { ...n, draft: e.target.value } : n))}
       onKeyDown={(e) => {
+        // A name still being composed (an input method's candidate) is not finished by its Enter.
+        if (composing(e)) return void e.stopPropagation();
         if (e.key === "Enter") finishNaming();
         else if (e.key === "Escape") {
           namedOnce.current = true;
@@ -2531,6 +2587,7 @@ export function PhotosView() {
     el.style.height = `${el.scrollHeight}px`;
   };
   const wordKeys = (e: React.KeyboardEvent<HTMLInputElement | HTMLTextAreaElement>, was: string | null | undefined) => {
+    if (composing(e)) return;
     if (e.key === "Enter" && (e.currentTarget.tagName === "INPUT" || !e.shiftKey)) {
       e.preventDefault();
       e.currentTarget.blur();
@@ -2674,11 +2731,7 @@ export function PhotosView() {
       // "planned" says a batch is all listed; it rides on its first file's id, and kept, it
       // took that file's place — the first photo of each batch went missing from the panel.
       if (u.state === "planned") return;
-      setUploads((was) => {
-        const before = was.get(u.id);
-        if (before && (before.state === "done" || before.state === "failed" || before.state === "cancelled")) return was;
-        return new Map(was).set(u.id, u);
-      });
+      uploads.add(u);
     })
       .then((unlisten) => {
         const quietly = () => {
@@ -2697,7 +2750,7 @@ export function PhotosView() {
       stop?.();
     };
   }, []);
-  const dismissUploads = useCallback(() => setUploads(new Map()), []);
+  const dismissUploads = useCallback(() => uploads.clear(), [uploads]);
 
   const add = useCallback(async (paths: string[]) => {
     if (paths.length === 0) return;
@@ -3688,6 +3741,7 @@ export function PhotosView() {
             onChange={setQuery}
             onClear={endSearch}
             onKeyDown={(e) => {
+              if (composing(e)) return;
               if (e.key === "Escape") {
                 e.preventDefault();
                 e.stopPropagation();
@@ -4337,6 +4391,8 @@ export function PhotosView() {
                           placeholder="Add a Keyword"
                           maxLength={100}
                           onKeyDown={(e) => {
+                            // Enter and comma while composing pick a candidate, not a keyword.
+                            if (composing(e)) return;
                             const word = e.currentTarget.value.trim();
                             if ((e.key === "Enter" || e.key === ",") && word) {
                               e.preventDefault();
@@ -4379,7 +4435,7 @@ export function PhotosView() {
           <DownloadOptions photos={options} onPick={(w) => void downloadAs(options.map((p) => p.id), w)} onClose={() => setOptions(null)} />
         </Portal>
       )}
-      <UploadPanel uploads={[...uploads.values()]} onDismiss={dismissUploads} cancel={api.photosUploadCancel} />
+      <UploadPanel store={uploads} onDismiss={dismissUploads} cancel={api.photosUploadCancel} />
     </div>
   );
 }
@@ -4444,6 +4500,7 @@ export function UnlockSheet({ onCancel, onUnlocked }: { onCancel: () => void; on
             void go();
           }}
           onKeyDown={(e) => {
+            if (composing(e)) return;
             if (e.key === "Escape") {
               e.stopPropagation();
               onCancel();

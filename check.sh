@@ -138,6 +138,8 @@ pooled "accessibility"    node .uiverify/a11y.mjs
 pooled "keyboard only"    node .uiverify/keyboard.mjs
 pooled "somewhere else"   node .uiverify/elsewhere.mjs
 pooled "writing a note"   node .uiverify/notes-compose.mjs
+pooled "photos screen quiet" node .uiverify/photos-screen-quiet.mjs
+pooled "webkit: photos screen quiet" env ENGINE=webkit node .uiverify/photos-screen-quiet.mjs
 pooled "deleting a note"  node .uiverify/notes-trash.mjs
 pooled "pinning a note"   node .uiverify/notes-pin.mjs
 pooled "a long note"      node .uiverify/notes-long.mjs

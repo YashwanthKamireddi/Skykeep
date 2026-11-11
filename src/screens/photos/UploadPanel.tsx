@@ -5,12 +5,64 @@
  * clean finish goes by itself after a moment.
  */
 import { Progress, Spinner } from "../../components/Spinner";
-import { useEffect, useRef, useState } from "react";
+import { memo, useEffect, useRef, useState, useSyncExternalStore } from "react";
 import { convertFileSrc } from "@tauri-apps/api/core";
 import { Check, CloudAlert, CloudUpload, Info, X } from "lucide-react";
 import type { UploadEvent } from "../../lib/ipc";
 
 const ended = (u: UploadEvent) => u.state === "done" || u.state === "failed" || u.state === "cancelled";
+
+/**
+ * The uploads as their events come, laid in once a frame. Each event used to copy the whole map
+ * and draw the whole Photos screen again: an import of ten thousand files was ten thousand
+ * events, each copying a map as large as everything before it (quadratic) and redrawing the
+ * 4,000-line screen, in every frame of the import. Now events wait in `pending` until the next
+ * frame, the map changes in place, and only the panel, which subscribes here, draws again.
+ */
+export class UploadStore {
+  private all = new Map<string, UploadEvent>();
+  private pending = new Map<string, UploadEvent>();
+  private frame = 0;
+  private listeners = new Set<() => void>();
+  /** Every upload, in the order each first came: what the panel draws, one array a frame. */
+  private shown: UploadEvent[] = [];
+
+  subscribe = (listener: () => void) => {
+    this.listeners.add(listener);
+    return () => void this.listeners.delete(listener);
+  };
+  list = (): UploadEvent[] => {
+    this.settle();
+    return this.shown;
+  };
+  /** One event; a finished upload never goes back, as events can pass each other. */
+  add(u: UploadEvent) {
+    const before = this.pending.get(u.id) ?? this.all.get(u.id);
+    if (before && ended(before)) return;
+    this.pending.set(u.id, u);
+    // A window put away gets no frames; whatever reads the uploads settles them first (list).
+    if (!this.frame)
+      this.frame = requestAnimationFrame(() => {
+        this.frame = 0;
+        if (this.settle()) this.listeners.forEach((l) => l());
+      });
+  }
+  clear() {
+    this.pending.clear();
+    if (this.all.size === 0) return;
+    this.all.clear();
+    this.shown = [];
+    this.listeners.forEach((l) => l());
+  }
+  /** What came since the last frame laid in; whether anything did. */
+  private settle(): boolean {
+    if (this.pending.size === 0) return false;
+    for (const [id, u] of this.pending) this.all.set(id, u);
+    this.pending.clear();
+    this.shown = [...this.all.values()];
+    return true;
+  }
+}
 
 const bytes = (n: number) => {
   if (n < 1024) return `${n} B`;
@@ -38,15 +90,55 @@ function Thumb({ id }: { id: string }) {
   );
 }
 
+/**
+ * One file's row. Drawn again only when its own event changed: with every row drawn again each
+ * frame, an import of thousands spent its frames on rows that had not moved.
+ */
+const Row = memo(function Row({ u, cancel }: { u: UploadEvent; cancel: (ids: string[], batch?: string) => Promise<void> }) {
+  return (
+    <li className={`px-up-row is-${u.state}`}>
+      <Thumb id={u.id} />
+      <span className="px-up-text">
+        <span className="px-up-name">{u.name}</span>
+        <span className="px-up-sub">
+          {u.state === "failed"
+            ? u.error ?? "Not uploaded."
+            : u.state === "cancelled"
+              ? "Stopped"
+              : u.state === "done"
+                ? bytes(u.total)
+                : u.state === "verifying"
+                  ? "Processing…"
+                  : `${bytes(u.sent)} of ${bytes(u.total)}`}
+        </span>
+      </span>
+      <span className="px-up-end">
+        {u.state === "waiting" && (
+          <>
+            <span className="px-up-pending">Pending</span>
+            <button className="icon-button small round px-up-stop" aria-label={`Stop ${u.name}`} title="Stop" onClick={() => void cancel([u.id])}>
+              <X size={11} strokeWidth={3} aria-hidden="true" />
+            </button>
+          </>
+        )}
+        {(u.state === "sending" || u.state === "verifying") && <Spinner label="Uploading" />}
+        {u.state === "done" && <Check className="px-up-ok" size={15} strokeWidth={2.4} aria-label="Uploaded" />}
+        {u.state === "failed" && <Info className="px-up-why" size={15} strokeWidth={2} aria-label={u.error ?? "Not uploaded"} />}
+      </span>
+    </li>
+  );
+});
+
 export function UploadPanel({
-  uploads,
+  store,
   cancel,
   onDismiss,
 }: {
-  uploads: UploadEvent[];
+  store: UploadStore;
   cancel: (ids: string[], batch?: string) => Promise<void>;
   onDismiss: () => void;
 }) {
+  const uploads = useSyncExternalStore(store.subscribe, store.list);
   const files = uploads.filter((u) => !u.folder && u.state !== "planned");
   const active = files.some((u) => !ended(u));
   const failed = files.filter((u) => u.state === "failed");
@@ -114,36 +206,7 @@ export function UploadPanel({
       </div>
       <ul className="px-up-rows">
         {(active ? files : [...failed, ...files.filter((u) => u.state !== "failed")]).map((u) => (
-          <li key={u.id} className={`px-up-row is-${u.state}`}>
-            <Thumb id={u.id} />
-            <span className="px-up-text">
-              <span className="px-up-name">{u.name}</span>
-              <span className="px-up-sub">
-                {u.state === "failed"
-                  ? u.error ?? "Not uploaded."
-                  : u.state === "cancelled"
-                    ? "Stopped"
-                    : u.state === "done"
-                      ? bytes(u.total)
-                      : u.state === "verifying"
-                        ? "Processing…"
-                        : `${bytes(u.sent)} of ${bytes(u.total)}`}
-              </span>
-            </span>
-            <span className="px-up-end">
-              {u.state === "waiting" && (
-                <>
-                  <span className="px-up-pending">Pending</span>
-                  <button className="icon-button small round px-up-stop" aria-label={`Stop ${u.name}`} title="Stop" onClick={() => void cancel([u.id])}>
-                    <X size={11} strokeWidth={3} aria-hidden="true" />
-                  </button>
-                </>
-              )}
-              {(u.state === "sending" || u.state === "verifying") && <Spinner label="Uploading" />}
-              {u.state === "done" && <Check className="px-up-ok" size={15} strokeWidth={2.4} aria-label="Uploaded" />}
-              {u.state === "failed" && <Info className="px-up-why" size={15} strokeWidth={2} aria-label={u.error ?? "Not uploaded"} />}
-            </span>
-          </li>
+          <Row key={u.id} u={u} cancel={cancel} />
         ))}
       </ul>
     </aside>
