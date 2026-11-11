@@ -117,6 +117,18 @@ Using Advanced Data Protection? Turn on **Access iCloud Data on the Web** first 
 ## Questions
 
 <details>
+<summary>How do I use iCloud and Apple Notes on Linux?</summary>
+
+Install Skykeep (see [Install](#install)) and sign in with your Apple Account. Apple makes no iCloud app for Linux; Skykeep gives you Notes, Reminders, Calendar, Contacts, iCloud Drive and Photos as native apps there, kept on your computer and in sync with your iPhone. iCloud Drive and Photos also appear as folders in your file manager.
+</details>
+
+<details>
+<summary>Can I use Apple Notes and Reminders on Windows?</summary>
+
+Yes. Apple's own iCloud for Windows has no Notes or Reminders app; Skykeep has both, with checklists, tables, smart lists and alerts, alongside Calendar, Contacts, iCloud Drive and Photos. Get it from the Microsoft Store, Chocolatey, Scoop or the installer on the [releases page](https://github.com/YashwanthKamireddi/Skykeep/releases/latest).
+</details>
+
+<details>
 <summary>Is Skykeep made by Apple?</summary>
 
 No. It's an independent, open-source app that works with iCloud. Apple, iCloud and iPhone are trademarks of Apple Inc.
