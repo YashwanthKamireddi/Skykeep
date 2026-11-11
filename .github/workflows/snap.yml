@@ -91,7 +91,7 @@ jobs:
         timeout-minutes: 20
         run: |
           sudo snap install --dangerous "${{ steps.build.outputs.snap }}"
-          sudo apt-get install -y xvfb dbus-x11 >/dev/null
+          sudo apt-get -o Acquire::Retries=5 install -y xvfb dbus-x11 >/dev/null
           # Snaps start only inside a user session's scope, as on a desktop; a runner step sits
           # in a system service's cgroup, so start one for this user and run inside it.
           sudo loginctl enable-linger "$USER"
