@@ -46,6 +46,17 @@ step "nothing stray is published" bash -c '! git ls-files | grep -vxE -f <(grep 
 step "workflows lint" actionlint -shellcheck=
 # The Flatpak builds offline: every package the lockfiles name must be in its sources.
 step "flatpak sources current" python3 packaging/flatpak/sources-current.py
+# The open-source licences the app shows (src/licences.json) are the ones the lockfiles give now.
+# Writing them needs cargo-about; without it this says so and passes, and the release checks.
+licences_current() {
+  if ! cargo about --version >/dev/null 2>&1; then
+    echo "cargo-about is not installed, so the licence list was not checked (cargo install --locked cargo-about@0.9.3)"
+    return 0
+  fi
+  npm run --silent licences && git diff --exit-code --stat src/licences.json \
+    || { echo "src/licences.json is out of date: run npm run licences and commit"; return 1; }
+}
+step "licence list current" licences_current
 
 
 # Every suite CI runs is one this gate runs too, so a suite renamed or removed here can't
@@ -119,6 +130,8 @@ pooled "launcher status"    node .uiverify/launcher-status.mjs
 pooled "webkit: launcher status" env ENGINE=webkit node .uiverify/launcher-status.mjs
 pooled "webkit: notes add link" env ENGINE=webkit node .uiverify/notes-add-link.mjs
 pooled "updates"          node .uiverify/updates.mjs
+pooled "licences"         node .uiverify/licences.mjs
+pooled "webkit: licences" env ENGINE=webkit node .uiverify/licences.mjs
 pooled "ui renders"       node .uiverify/shots.mjs
 pooled "nav behaviour"    node .uiverify/assert.mjs
 pooled "accessibility"    node .uiverify/a11y.mjs

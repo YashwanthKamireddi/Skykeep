@@ -542,6 +542,36 @@ textarea.field { padding-block: 5px; resize: vertical; }
   background: var(--fill); box-shadow: inset 0 calc(-1 * var(--hairline)) 0 var(--separator);
 }
 
+/* Open-Source Licences (Settings): the Keyboard Shortcuts sheet's form, a quiet heading for
+   each licence over what is shipped under each of its texts. A row unfolds its text in place,
+   set as written (line breaks kept) in a recessed box, and can be selected and copied. */
+.licences-sheet { width: min(620px, 94vw); max-height: min(640px, 88vh); background: var(--bg); }
+.licences-intro { margin: 0; color: var(--text-2); font-size: var(--t-13); line-height: 1.45; }
+/* Only the list scrolls: the title, the line under it and Done keep their height. */
+.licences-sheet > :not(.licences-list) { flex: none; }
+.licences-list { flex: 1 1 auto; min-height: 0; overflow-y: auto; margin: 0 -22px; padding: 2px 22px 4px; }
+.licences-list:focus-visible { outline: var(--focus-ring); outline-offset: -2px; }
+.licences-list section { padding-bottom: 14px; }
+.licences-list h3 { margin: 0 0 4px; font-size: var(--t-13); font-weight: 700; color: var(--text); }
+.licences-list ul { margin: 0; padding: 0; list-style: none; }
+.licences-list li + li { border-top: var(--hairline) solid var(--separator); }
+.licences-row {
+  display: flex; align-items: flex-start; gap: 6px; width: 100%; padding: 5px 0;
+  border: 0; border-radius: 6px; background: none; color: var(--text-2);
+  font: inherit; font-size: var(--t-13); line-height: 1.4; text-align: left; cursor: pointer;
+}
+.licences-row:hover, .licences-row[aria-expanded="true"] { color: var(--text); }
+.licences-row:focus-visible { outline: var(--focus-ring); outline-offset: 1px; }
+.licences-chevron { flex: none; margin-top: 1px; color: var(--text-3); }
+.licences-row[aria-expanded="true"] .licences-chevron { transform: rotate(90deg); }
+.licences-users { min-width: 0; overflow-wrap: anywhere; }
+.licences-text {
+  margin: 2px 0 10px 22px; padding: 10px 12px; border-radius: 8px; background: var(--fill);
+  color: var(--text); font-family: ui-monospace, "SF Mono", "JetBrains Mono", monospace;
+  font-size: var(--t-11); line-height: 1.5; white-space: pre-wrap; overflow-wrap: anywhere;
+  -webkit-user-select: text; user-select: text; cursor: text;
+}
+
 /* ---- small controls ---------------------------------------------------------------------- */
 
 /* A segmented control: one recessed track, a raised cap over the chosen segment. */
