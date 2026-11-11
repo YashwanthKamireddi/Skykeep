@@ -68,7 +68,7 @@ class SyncScaleTest {
     photo = if (n % 50 == 0) uniffi.quince_mobile.PhotoRef(url = "test:$n", crop = null, key = "k$n") else null,
     prefix = null, suffix = null, nickname = null, phoneticFirstName = null, phoneticLastName = null,
     jobTitle = if (n % 3 == 0) "Engineer" else null, department = null,
-    groups = emptyList(),
+    groups = emptyList(), addresses = null,
   )
 
   /** A picture as the engine hands one over: a small JPEG. */
@@ -142,7 +142,7 @@ class SyncScaleTest {
       Ev(
         guid = "SCALE-EV-$n", calendarGuid = "scale-cal", title = "Event $n", location = null,
         startsAt = starts, endsAt = starts + 1800, allDay = n % 50 == 0, timezone = if (n % 50 == 0) null else "UTC",
-        notes = null, etag = "e1",
+        notes = null, url = null, etag = "e1",
       )
     }
     val window = CalendarWindow(listOf(Cal("scale-cal", "Scale test", "#1E88E5", true)), events)

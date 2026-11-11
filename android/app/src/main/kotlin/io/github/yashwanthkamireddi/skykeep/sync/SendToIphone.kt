@@ -80,7 +80,7 @@ object SendToIphone {
     fun info(persisted: Boolean) = JobInfo.Builder(jobId(batch.name), ComponentName(context, SendJob::class.java))
       .setUserInitiated(true)
       .setRequiredNetworkType(JobInfo.NETWORK_TYPE_ANY)
-      .setEstimatedNetworkBytes(JobInfo.NETWORK_BYTES_UNKNOWN, bytes)
+      .setEstimatedNetworkBytes(JobInfo.NETWORK_BYTES_UNKNOWN.toLong(), bytes)
       .setPersisted(persisted)
       .setExtras(PersistableBundle().apply { putString("batch", batch.name); putString("tag", tag) })
       .build()

@@ -135,7 +135,7 @@ impl Account {
         let account = {
             let c = self.client();
             quince_sync::queue::asked_as(&c.service_params())
-                .ok_or_else(|| failed("Sign in to see your reminders."))?
+                .ok_or_else(|| failed("Sign in to iCloud first."))?
         };
         let mut open = self
             .library
@@ -187,12 +187,17 @@ impl Account {
 
 #[uniffi::export]
 impl Account {
-    /// Changes made on the phone in the engine's library (notes, reminders, photos) not yet at
-    /// Apple, waiting or refused: said before signing out, beside the phone's own contacts and
-    /// calendars, so nothing unsent goes without the person knowing.
+    /// Changes made on the phone not yet at Apple, said before signing out so nothing unsent goes
+    /// without the person knowing: every one waiting or refused in the engine's queue, except
+    /// Contacts' and Calendar's still waiting — their rows are still marked changed in Android's
+    /// providers, and the app counts those itself (counted here too, each would be said twice).
     pub fn unsent_changes(&self) -> Result<u32, EngineError> {
-        self.with_library(|l| l.outbox_count())
-            .map(|n| u32::try_from(n).unwrap_or(u32::MAX))
+        use quince_sync::{calendar::CALENDAR, contacts::CONTACTS};
+        self.with_library(|l| {
+            let in_rows = l.outbox_pending(CONTACTS)?.len() + l.outbox_pending(CALENDAR)?.len();
+            Ok(l.outbox_count()?.saturating_sub(in_rows))
+        })
+        .map(|n| u32::try_from(n).unwrap_or(u32::MAX))
     }
 
     /// The reminder lists, in Apple's order, with how many are open in each.

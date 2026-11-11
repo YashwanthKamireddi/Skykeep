@@ -91,9 +91,9 @@ internal fun calendarPass(context: Context, engine: uniffi.quince_mobile.Account
   val (from, to) = CalendarSync.span()
   val tz = java.util.TimeZone.getDefault().id
   val confirmed = Outcome.massRemovalConfirmed(context, authority)
-  val sent = CalendarSync.send(context.contentResolver, a, confirmed) { engine.saveEvents(it, from, to, tz) }
+  val (sent, kept) = CalendarSync.send(context.contentResolver, a, confirmed) { engine.calendarSend(it) }
   val window = engine.calendarWindow(from, to, tz)
-  val done = CalendarSync.sync(context.contentResolver, a, window, from, to, confirmed)
+  val done = CalendarSync.sync(context.contentResolver, a, window, from, to, confirmed, kept)
   val said = buildList {
     add("${done.calendars} calendars, ${window.events.size} events · ${done.added} added, ${done.updated} updated, ${done.removed} removed")
     if (sent.sent > 0) add("${sent.sent} sent to iCloud")
@@ -116,37 +116,46 @@ internal fun calendarPass(context: Context, engine: uniffi.quince_mobile.Account
 /**
  * Contacts: what changed on the phone sent to iCloud first, then iCloud's address book read and
  * written in, so an edit made here is in iCloud before the book is read, and never written over.
+ * The book is read only when iCloud says it changed since the last read written in, or when the
+ * phone has rows to write again (ContactsSync.needsRead).
  */
 internal fun contactsPass(context: Context, engine: uniffi.quince_mobile.AccountInterface, a: Account, authority: String): Pass = try {
   // One confirmation covers both ways: the changes held from sending and the removals held.
   val confirmed = Outcome.massRemovalConfirmed(context, authority)
-  val sent = ContactsSync.send(context.contentResolver, a, confirmed) { engine.saveContacts(it) }
-  // Labels made, renamed or deleted here, and members added or removed, sent after the cards
-  // (a new card's id is iCloud's by then); then the book read once: lists, then people.
-  GroupsSync.send(context.contentResolver, a, sent.members) { engine.saveLists(it) }
-  val book = engine.addressBook()
-  GroupsSync.download(context.contentResolver, a, book.lists)
-  val people = book.people
-  // A picture at Android's display size; one still too large for a batch (a big PNG kept for
-  // its transparency) is asked for again at half the size, never left out.
-  val done = ContactsSync.sync(context.contentResolver, a, people, confirmed) { ref ->
-    runCatching {
-      engine.contactPhoto(ref, ContactsSync.PHOTO_PX).let {
-        if (it.size <= ContactsSync.BATCH_BYTES) it else engine.contactPhoto(ref, ContactsSync.PHOTO_PX / 2u)
+  // Labels and cards, through the engine's outbox: one read of the book for all of them.
+  val sent = ContactsSync.send(context.contentResolver, a, confirmed) { cards, lists -> engine.contactsSend(cards, lists) }
+  val full = confirmed || ContactsSync.needsRead(context.contentResolver, a)
+  // Null when iCloud's book hasn't changed since it was last written in: nothing to write.
+  val done = when (val read = engine.contactsRead(full)) {
+    is uniffi.quince_mobile.BookRead.Unchanged -> null
+    is uniffi.quince_mobile.BookRead.Read -> {
+      GroupsSync.download(context.contentResolver, a, read.book.lists)
+      // A picture at Android's display size; one still too large for a batch (a big PNG kept
+      // for its transparency) is asked for again at half the size, never left out.
+      val written = ContactsSync.sync(context.contentResolver, a, read.book.people, confirmed) { ref ->
+        runCatching {
+          engine.contactPhoto(ref, ContactsSync.PHOTO_PX).let {
+            if (it.size <= ContactsSync.BATCH_BYTES) it else engine.contactPhoto(ref, ContactsSync.PHOTO_PX / 2u)
+          }
+        }.getOrNull()
       }
-    }.getOrNull()
+      // Written in: the next pass reads the book again only once iCloud says it changed.
+      engine.contactsKept(read.token)
+      written
+    }
   }
   val said = buildList {
-    add("${people.size} contacts · ${done.added} added, ${done.updated} updated, ${done.removed} removed")
+    val people = ContactsSync.cards(context.contentResolver, a)
+    add(if (done == null) "$people contacts · unchanged" else "$people contacts · ${done.added} added, ${done.updated} updated, ${done.removed} removed")
     if (sent.sent > 0) add("${sent.sent} sent to iCloud")
     if (sent.later > 0) add("${sent.later} to send again")
     if (sent.failed > 0) add("${sent.failed} not taken by iCloud: ${sent.reason}")
     if (sent.held > 0) add("${sent.held} changes on this phone held until you confirm")
-    if (done.held > 0) add("${done.held} no longer in iCloud, kept on this phone until you confirm")
+    if ((done?.held ?: 0) > 0) add("${done?.held} no longer in iCloud, kept on this phone until you confirm")
   }.joinToString(" · ")
   // The sync worked: Apple answered. What it refused stays on this phone, said separately.
   val (here, why) = ContactsSync.onlyHere(context.contentResolver, a)
-  Outcome.record(context, authority, true, said, held = done.held + sent.held, onlyHere = here, why = why)
+  Outcome.record(context, authority, true, said, held = (done?.held ?: 0) + sent.held, onlyHere = here, why = why)
   if (sent.later > 0) Pass.Again else Pass.Done
 } catch (x: Exception) {
   if (!x.fromEngine()) throw x

@@ -18,9 +18,10 @@ import org.json.JSONObject
 import uniffi.quince_mobile.Cal
 import uniffi.quince_mobile.CalendarWindow
 import uniffi.quince_mobile.ChangeKind
-import uniffi.quince_mobile.ChangeOutcome
+import uniffi.quince_mobile.CalendarSent
 import uniffi.quince_mobile.Ev
-import uniffi.quince_mobile.EventChange
+import uniffi.quince_mobile.PhoneEvent
+import uniffi.quince_mobile.SendState
 import uniffi.quince_mobile.RepeatRead
 import uniffi.quince_mobile.readRepeat
 
@@ -31,9 +32,11 @@ import uniffi.quince_mobile.readRepeat
  * again the same way.
  *
  * Each sync sends first, then reads. Sending: what Android marks changed (DIRTY), new (no
- * `_SYNC_ID`) or deleted goes to iCloud through the engine — an edit as only what changed from the
- * event as last synced (its base, in SYNC_DATA2), one occurrence of a repeat changed alone, as
- * "This Event" on an iPhone. Reading: an event rewritten only when its etag (SYNC_DATA1) changed,
+ * `_SYNC_ID`) or deleted is handed to the engine's outbox — the desktop's own queue and sending
+ * code — as it is now against the event as last synced (its base, in SYNC_DATA2): sent by its id
+ * however far from today, only what changed here written, one occurrence of a repeat changed
+ * alone, as "This Event" on an iPhone. A row stays marked changed until the engine says it went
+ * or was refused, and takes Apple's answer as its new base. Reading: an event rewritten only when its etag (SYNC_DATA1) changed,
  * never one still waiting to be sent, and removed when gone from iCloud — events outside the span
  * are left alone, since nothing was read about them. Every event iCloud sends is matched against
  * all of the account's, wherever they start: matched only within the span, one that began before
@@ -47,11 +50,14 @@ object CalendarSync {
   /** The circuit breaker: more than this many events at once, and a tenth of them, waits. */
   private const val MASS = 25
 
-  /** How rows are written here (SYNC_DATA3): an older one is rewritten from iCloud on the next sync. */
-
   /** An event made on this phone and not yet known to be in iCloud (SYNC_DATA5). */
   private const val MADE_HERE = "made-here"
-  private const val FORMAT = "2"
+
+  /**
+   * How rows are written here (SYNC_DATA3): an older one is rewritten from iCloud on the next
+   * sync. 3 = the base keeps the event's link (url), so an edit here leaves it as iCloud has it.
+   */
+  private const val FORMAT = "3"
 
   /** The span read: a month back and a year ahead, both days included, in the phone's zone. */
   fun span(today: LocalDate = LocalDate.now()): Pair<String, String> =
@@ -63,17 +69,30 @@ object CalendarSync {
     .appendQueryParameter(Calendars.ACCOUNT_TYPE, a.type)
     .build()
 
-  fun sync(cr: ContentResolver, account: Account, window: CalendarWindow, from: String, to: String, confirmed: Boolean): Result =
-    synchronized(this) { download(cr, account, window, from, to, confirmed) }
+  /**
+   * iCloud's calendars and the span's events written here, with `kept` — Apple's own version of
+   * each event this sync sent — written too wherever it falls, so an event edited far from today
+   * takes Apple's version as its base as one inside the span does.
+   */
+  fun sync(cr: ContentResolver, account: Account, window: CalendarWindow, from: String, to: String, confirmed: Boolean, kept: List<Ev> = emptyList()): Result =
+    synchronized(this) {
+      val read = window.events.map { it.guid }.toSet()
+      download(cr, account, window.copy(events = window.events + kept.filter { it.guid !in read }), from, to, confirmed)
+    }
 
-  fun send(cr: ContentResolver, account: Account, confirmed: Boolean, save: (List<EventChange>) -> List<ChangeOutcome>): Sent =
-    synchronized(this) { upload(cr, account, confirmed, save) }
+  /**
+   * The phone's changes handed to `send` (the engine's outbox, which sends them as the desktop
+   * does: by id, against the version each was made from). Each row is let go of once the engine
+   * says it went or was refused; one still waiting stays marked changed.
+   */
+  fun send(cr: ContentResolver, account: Account, confirmed: Boolean, send: (List<PhoneEvent>) -> CalendarSent): Pair<Sent, List<Ev>> =
+    synchronized(this) { upload(cr, account, confirmed, send) }
 
   // --- Sending ---------------------------------------------------------------------------------
 
-  private data class Change(val rowId: Long, val change: EventChange)
+  private data class Change(val rowId: Long, val change: PhoneEvent)
 
-  private fun upload(cr: ContentResolver, account: Account, confirmed: Boolean, save: (List<EventChange>) -> List<ChangeOutcome>): Sent {
+  private fun upload(cr: ContentResolver, account: Account, confirmed: Boolean, send: (List<PhoneEvent>) -> CalendarSent): Pair<Sent, List<Ev>> {
     // Android's calendar row id → Apple's calendar id.
     val guidOf = HashMap<Long, String>()
     cr.query(
@@ -98,7 +117,10 @@ object CalendarSync {
       while (c.moveToNext()) {
         val rowId = c.getLong(0)
         val sync = c.getString(1)
-        val base = c.getString(2)?.let(::evFromJson)
+        val baseJson = c.getString(2)
+        val base = baseJson?.let(::evFromJson)
+        // A base kept before links were has none to say: the engine reads Apple's first.
+        val baseHasUrl = baseJson == null || runCatching { JSONObject(baseJson).has("url") }.getOrDefault(false)
         val deleted = c.getInt(3) != 0
         val made = c.getString(14) == MADE_HERE
         val calendar = guidOf[c.getLong(4)]
@@ -106,8 +128,11 @@ object CalendarSync {
           guid = guid, calendarGuid = calendar ?: "", title = c.getString(5) ?: "",
           location = c.getString(6)?.takeIf { it.isNotBlank() }, startsAt = 0, endsAt = 0,
           allDay = c.getInt(11) != 0, timezone = c.getString(12), notes = c.getString(7)?.takeIf { it.isNotBlank() },
-          etag = base?.etag,
+          // The link has no place on the phone: as the base had it.
+          url = base?.url, etag = base?.etag,
         ).let { e -> times(e, c.getLong(8), if (c.isNull(9)) null else c.getLong(9), c.getString(10)) }
+        fun change(kind: ChangeKind, guid: String, event: Ev?, was: Ev?, repeat: uniffi.quince_mobile.Repeat? = null) =
+          Change(rowId, PhoneEvent(kind, guid, event, was, repeat, baseHasUrl))
         /** A new event sent as `guid`: its repeat read the way the engine reads an .ics rule. */
         fun create(guid: String) {
           val read = c.getString(13)?.takeIf { it.isNotBlank() }?.let { rule ->
@@ -117,20 +142,20 @@ object CalendarSync {
           if (read is RepeatRead.Refused) {
             refused += rowId to "${read.reason} Change its repeat to one iCloud can keep, and it will be sent."
           } else {
-            changes += Change(rowId, EventChange(ChangeKind.CREATE, guid, ev(guid), null, (read as? RepeatRead.Repeats)?.repeat))
+            changes += change(ChangeKind.CREATE, guid, ev(guid), null, (read as? RepeatRead.Repeats)?.repeat)
           }
         }
         when {
           deleted && sync == null -> dropped += rowId
           // Made here and deleted before iCloud said it had it: deleted there too, if it got there.
-          deleted && made -> changes += Change(rowId, EventChange(ChangeKind.DELETE, sync!!, null, null, null))
-          // Made here, its first send not answered yet: sent again as the same new event. Without
-          // its mark it read as an event this phone knew nothing of, was rewritten from iCloud,
-          // which didn't have it, and was deleted.
+          deleted && made -> changes += change(ChangeKind.DELETE, sync!!, ev(sync), null)
+          // Made here, its first send not answered yet: handed over again as the same new event.
+          // Without its mark it read as an event this phone knew nothing of, was rewritten from
+          // iCloud, which didn't have it, and was deleted.
           made && sync != null && calendar != null -> create(sync)
           // Changed with no base (an event written before bases were kept): never sent; read again.
           base == null && sync != null -> unknown += rowId
-          deleted -> changes += Change(rowId, EventChange(ChangeKind.DELETE, sync!!, null, base, null))
+          deleted -> changes += change(ChangeKind.DELETE, sync!!, null, base)
           calendar == null -> refused += rowId to "This event's calendar isn't an iCloud calendar."
           sync == null -> {
             // New here: its id chosen now and kept, and marked as made here until iCloud has it,
@@ -143,35 +168,35 @@ object CalendarSync {
             )
             create(guid)
           }
-          else -> changes += Change(rowId, EventChange(ChangeKind.UPDATE, sync, ev(sync), base, null))
+          else -> changes += change(ChangeKind.UPDATE, sync, ev(sync), base)
         }
       }
     }
     for (id in dropped) removeRow(cr, account, id)
     for (id in unknown) restore(cr, account, id)
-    for ((id, why) in refused) settled(cr, account, id, null, kept = why)
+    for ((id, why) in refused) settled(cr, account, id, kept = why)
     val refusedReason = refused.firstOrNull()?.second
-    if (changes.isEmpty()) return Sent(0, refused.size, 0, refusedReason, 0)
+    if (changes.isEmpty()) return Sent(0, refused.size, 0, refusedReason, 0) to emptyList()
     if (!confirmed && changes.size > MASS && changes.size * 10 > count(cr, account)) {
-      return Sent(0, refused.size, 0, refusedReason, changes.size)
+      return Sent(0, refused.size, 0, refusedReason, changes.size) to emptyList()
     }
-    val outcomes = save(changes.map { it.change })
+    val out = send(changes.map { it.change })
+    val states = out.settled.associateBy { it.guid }
     var sent = 0; var failed = refused.size; var later = 0; var reason = refusedReason
-    for ((i, c) in changes.withIndex()) {
-      when (val o = outcomes.getOrNull(i)) {
-        is ChangeOutcome.Saved -> {
+    for (c in changes) {
+      when (val s = states[c.change.guid]?.state) {
+        is SendState.Sent -> {
           sent++
-          if (c.change.kind == ChangeKind.DELETE) removeRow(cr, account, c.rowId) else settled(cr, account, c.rowId, null)
+          if (c.change.kind == ChangeKind.DELETE) removeRow(cr, account, c.rowId) else settled(cr, account, c.rowId)
         }
-        is ChangeOutcome.Recreated -> { sent++; settled(cr, account, c.rowId, o.guid) }
-        is ChangeOutcome.Failed -> {
-          reason = o.reason
-          if (o.later) later++ else { failed++; settled(cr, account, c.rowId, null, kept = o.reason) }
-        }
-        null -> later++
+        // Kept by the engine, in order, and handed over again next time: the row stays changed.
+        is SendState.Waiting, null -> later++
+        // Kept by the engine for Try Again or Discard (Settings, Not Sent); here the row is let
+        // go of, and the next read shows iCloud's own.
+        is SendState.Refused -> { reason = s.reason; failed++; settled(cr, account, c.rowId, kept = s.reason) }
       }
     }
-    return Sent(sent, failed, later, reason, 0)
+    return Sent(sent, failed, later, reason, 0) to out.kept
   }
 
   /**
@@ -208,14 +233,13 @@ object CalendarSync {
    * long as iCloud doesn't have it, so the app says so every time rather than once; a row written
    * from iCloud, or sent, has none.
    */
-  private fun settled(cr: ContentResolver, account: Account, rowId: Long, newGuid: String?, kept: String? = null) {
+  private fun settled(cr: ContentResolver, account: Account, rowId: Long, kept: String? = null) {
     cr.update(
       Events.CONTENT_URI.asAdapter(account),
       ContentValues().apply {
         put(Events.DIRTY, 0)
         putNull(Events.SYNC_DATA1)
         if (kept != null) put(Events.SYNC_DATA4, kept) else putNull(Events.SYNC_DATA4)
-        newGuid?.let { put(Events._SYNC_ID, it) }
       },
       "${Events._ID}=?", arrayOf(rowId.toString()),
     )
@@ -391,6 +415,8 @@ object CalendarSync {
     put("guid", e.guid); put("calendar", e.calendarGuid); put("title", e.title); put("location", e.location)
     put("starts", e.startsAt); put("ends", e.endsAt); put("allDay", e.allDay); put("tz", e.timezone)
     put("notes", e.notes); put("etag", e.etag)
+    // Always present, null included (org.json drops a null): its presence says the link is known.
+    put("url", e.url ?: JSONObject.NULL)
   }.toString()
 
   private fun evFromJson(s: String): Ev? = runCatching {
@@ -399,7 +425,7 @@ object CalendarSync {
     Ev(
       guid = o.getString("guid"), calendarGuid = o.getString("calendar"), title = o.optString("title"),
       location = str("location"), startsAt = o.getLong("starts"), endsAt = o.getLong("ends"),
-      allDay = o.optBoolean("allDay"), timezone = str("tz"), notes = str("notes"), etag = str("etag"),
+      allDay = o.optBoolean("allDay"), timezone = str("tz"), notes = str("notes"), url = str("url"), etag = str("etag"),
     )
   }.getOrNull()
 }

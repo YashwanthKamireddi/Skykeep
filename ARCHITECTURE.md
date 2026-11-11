@@ -19,7 +19,8 @@ event names (`quince://synced`) and some comments. Don't rename them.
    │                                                 │
    └──────────────────────┬──────────────────────────┘
                           ▼
- quince-sync    library lock, change queue; Notes, Reminders, Photos: record, lay, send, refresh
+ quince-sync    library lock, change queue; Notes, Reminders, Contacts, Calendar, Photos:
+                record, lay, send, refresh
  quince-vfs     Drive and Photos as folders (FUSE, Cloud Files); Drive write-back
  quince-icloud  each Apple service: request, parse, encode, apply into the library
  quince-core    the library: SQLite schema and migrations, search, outbox table, export
@@ -89,8 +90,8 @@ Writes to Notes, Reminders, Contacts, Calendar and Photos' flags go through the 
 queue in the same library as the records it changes.
 
 1. **Record.** A command calls a `record_*` function (`quince_sync::notes::record_note_save`,
-   `quince_sync::reminders::record_reminder_tick`, the contact and calendar ones in
-   `src-tauri/src/outbox.rs`). In one `atomically` transaction it changes the local rows and
+   `quince_sync::reminders::record_reminder_tick`, `quince_sync::contacts::record_card_save`,
+   `quince_sync::calendar::record_event_save`). In one `atomically` transaction it changes the local rows and
    calls `Library::outbox_push`. The command returns and every view shows the change, online
    or not. `outbox_push` replaces an unsent change of the same kind on the same record, so only
    the last word on a field is sent.
@@ -212,10 +213,17 @@ code.
 
 How each service lands on the phone:
 
-- **Contacts and Calendar** are written into Android's own providers by sync adapters
-  (`sync/ContactsSync.kt`, `GroupsSync.kt`, `CalendarSync.kt`). Each sync sends first, then
-  reads. The base of each record is kept in the provider's sync columns, so a phone edit is
-  sent as a merge against it.
+- **Contacts and Calendar** live in Android's own providers, written by sync adapters
+  (`sync/ContactsSync.kt`, `GroupsSync.kt`, `CalendarSync.kt`), and are sent by the desktop's
+  own code. Each sync hands every row Android marks changed to the engine as it is now, against
+  its base (the record as last read from Apple, kept in the provider's sync columns);
+  `quince-mobile` queues it in the engine's outbox (`quince_sync::contacts::queue_phone_card`
+  and its kin, which queue nothing new for a row asked again unchanged) and drains it with
+  `drain_as` and the shared `send`. The row is let go of only once its changes went or were
+  refused; refusals are kept, as on the desktop, in Settings' Not Sent with Try Again and
+  Discard (`Account::outbox_refused`). Contacts is then read only when Apple's tokens say the
+  book changed; Calendar's span is read, and Apple's answer for each sent event is written
+  into its row wherever it falls.
 - **Notes, Reminders and Photos** live in the engine's library and use the desktop's own
   `quince-sync` code. Their adapters (`NotesSync.kt`, `RemindersSync.kt`, `PhotosSync.kt`)
   store nothing; they give Android a schedule and run an engine pass.
@@ -254,8 +262,8 @@ How each service lands on the phone:
 |---|---|---|---|---|---|---|
 | Notes | `notes.rs`, `topotext.rs` (CRDT), `ckdocument.rs`, `table.rs`, `notes_attach.rs`, `notes_locked.rs` | `notes.rs` | `notes.rs` | `notes_cmds.rs`, `main.rs` | `NotesView.tsx`, `notes/` | `sync/NotesSync.kt`, `ui/Notes.kt` |
 | Reminders | `reminders.rs`, `reminders_details.rs`, `reminders_more.rs` | `reminders.rs`, `alarms.rs` | `reminders.rs` | `reminders_cmds.rs`, `alerts.rs` | `RemindersView.tsx` | `sync/RemindersSync.kt`, `sync/ReminderAlerts.kt`, `ui/Reminders.kt` |
-| Calendar | `calendar.rs`, `sync.rs`, `rrule.rs`, `calendar_feeds.rs`, `occasions.rs`, `caldav.rs`, `ical_edit.rs` | `calendar.rs`, `dav.rs` | none | `main.rs` (`calendar_*`), `dav.rs`, `outbox.rs` | `calendar/` | `sync/CalendarSync.kt` |
-| Contacts | `contacts.rs`, `contacts_address.rs`, `contacts_merge.rs` | `contacts.rs`, `contacts_labels.rs`, `contacts_merge.rs` | none | `contacts_cmds.rs`, `contacts_merge.rs`, `outbox.rs` | `ContactsView.tsx`, `contacts/` | `sync/ContactsSync.kt`, `sync/GroupsSync.kt` |
+| Calendar | `calendar.rs`, `sync.rs`, `rrule.rs`, `calendar_feeds.rs`, `occasions.rs`, `caldav.rs`, `ical_edit.rs` | `calendar.rs`, `dav.rs` | `calendar.rs` | `main.rs` (`calendar_*`), `dav.rs`, `outbox.rs` | `calendar/` | `sync/CalendarSync.kt`, `ui/NotSent.kt` |
+| Contacts | `contacts.rs`, `contacts_address.rs`, `contacts_merge.rs` | `contacts.rs`, `contacts_labels.rs`, `contacts_merge.rs` | `contacts.rs` | `contacts_cmds.rs`, `contacts_merge.rs`, `outbox.rs` | `ContactsView.tsx`, `contacts/` | `sync/ContactsSync.kt`, `sync/GroupsSync.kt`, `ui/NotSent.kt` |
 | Drive | `drive.rs`, `drive_changes.rs` | `drive.rs` | none (`quince-vfs`) | `mount.rs`, `drive_watch.rs`, `folder_download.rs` | `DriveView.tsx` | `sync/DriveProvider.kt`, `sync/DriveFiles.kt`, `ui/Drive.kt` |
 | Photos | `photos.rs`, `photos_upload.rs`, `shared_albums.rs`, `shared_collections.rs` | `photos.rs`, `shared.rs`, `backup.rs` | `photos.rs` | `photos.rs`, `photo_cache.rs`, `mount_photos.rs`, `backup.rs`, `video.rs` | `PhotosView.tsx`, `photos/` | `sync/PhotosSync.kt`, `sync/PhotoBackup.kt`, `ui/Photos.kt` |
 

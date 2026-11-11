@@ -22,8 +22,9 @@ import org.junit.Before
 import org.junit.Rule
 import org.junit.Test
 import org.junit.runner.RunWith
-import uniffi.quince_mobile.ChangeOutcome
-import uniffi.quince_mobile.ContactChange
+import uniffi.quince_mobile.PhoneCard
+import uniffi.quince_mobile.SendState
+import uniffi.quince_mobile.Settled
 import uniffi.quince_mobile.Method
 import uniffi.quince_mobile.Person
 import uniffi.quince_mobile.PhotoEdit
@@ -72,13 +73,13 @@ class PhotoSyncTest {
     photo = PhotoRef(url = "test:blue", crop = null, key = "blue"),
     prefix = "Countess", suffix = null, nickname = "Ada", phoneticFirstName = null, phoneticLastName = null,
     jobTitle = "Mathematician", department = "Analytical Engine",
-    groups = emptyList(),
+    groups = emptyList(), addresses = null,
   )
 
   /** The phone's changes as the sync would send them, each answered Saved. */
-  private fun sent(): List<ContactChange> {
-    var changes: List<ContactChange> = emptyList()
-    ContactsSync.send(cr, account, confirmed = false) { list -> changes = list; list.map { ChangeOutcome.Saved } }
+  private fun sent(): List<PhoneCard> {
+    var changes: List<PhoneCard> = emptyList()
+    ContactsSync.send(cr, account, confirmed = false) { cards, _ -> changes = cards; cards.map { Settled(it.guid, SendState.Sent) } }
     return changes
   }
 

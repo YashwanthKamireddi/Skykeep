@@ -8,8 +8,9 @@ import android.net.Uri
 import android.provider.ContactsContract
 import android.provider.ContactsContract.Groups
 import uniffi.quince_mobile.CList
-import uniffi.quince_mobile.ListChange
-import uniffi.quince_mobile.ListOutcome
+import uniffi.quince_mobile.PhoneList
+import uniffi.quince_mobile.SendState
+import uniffi.quince_mobile.Settled
 
 /**
  * iCloud's contacts lists as the Contacts app's labels, both ways. A list is a group row (its
@@ -27,15 +28,15 @@ object GroupsSync {
     .appendQueryParameter(Groups.ACCOUNT_TYPE, a.type)
     .build()
 
-  private data class Row(val id: Long, val guid: String?, val title: String?, val dirty: Boolean, val deleted: Boolean)
+  private data class Row(val id: Long, val guid: String?, val title: String?, val dirty: Boolean, val deleted: Boolean, val mark: String?)
 
   private fun rows(cr: ContentResolver, account: Account): List<Row> =
     cr.query(
       Groups.CONTENT_URI.asAdapter(account),
-      arrayOf(Groups._ID, Groups.SOURCE_ID, Groups.TITLE, Groups.DIRTY, Groups.DELETED),
+      arrayOf(Groups._ID, Groups.SOURCE_ID, Groups.TITLE, Groups.DIRTY, Groups.DELETED, Groups.SYNC1),
       "${Groups.ACCOUNT_TYPE}=? AND ${Groups.ACCOUNT_NAME}=?", arrayOf(account.type, account.name), null,
     )?.use { c ->
-      buildList { while (c.moveToNext()) add(Row(c.getLong(0), c.getString(1), c.getString(2), c.getInt(3) != 0, c.getInt(4) != 0)) }
+      buildList { while (c.moveToNext()) add(Row(c.getLong(0), c.getString(1), c.getString(2), c.getInt(3) != 0, c.getInt(4) != 0, c.getString(5))) }
     } ?: emptyList()
 
   /** Each label's row id to its list's id, for reading a contact's memberships. */
@@ -72,61 +73,62 @@ object GroupsSync {
   }
 
   /**
-   * The phone's changes to labels sent through `save` (the engine): labels made, renamed and
-   * deleted here, then the members added and removed (`members`: list id to added and removed
-   * contacts, from ContactsSync's send). A label made here is sent before any member added to
-   * it, under the id iCloud gives it.
+   * The phone's changes to labels, for the engine's outbox: made (given its list's id now, so a
+   * send repeated after a lost answer is the same list, and a card added to it can name it),
+   * renamed, or deleted. Who is in a label goes with each card (ContactsSync), not here. A label
+   * made and deleted here before it was ever sent is simply gone.
    */
-  fun send(
-    cr: ContentResolver, account: Account, members: Map<Long, Pair<List<String>, List<String>>>,
-    save: (List<ListChange>) -> List<ListOutcome>,
-  ): Int {
-    val rows = rows(cr, account)
-    val made = rows.filter { it.guid == null && !it.deleted && !it.title.isNullOrBlank() }
-    val gone = rows.filter { it.deleted }
-    val renamed = rows.filter { it.guid != null && it.dirty && !it.deleted }
-    for (r in gone.filter { it.guid == null }) remove(cr, account, r.id)
-
-    val changes = ArrayList<Pair<Row, ListChange>>()
-    for (r in made) {
-      val (add, _) = members[r.id] ?: (emptyList<String>() to emptyList())
-      changes += r to ListChange.Create(r.title!!, add)
-    }
-    for (r in renamed) changes += r to ListChange.Rename(r.guid!!, r.title ?: "")
-    for (r in gone.filter { it.guid != null }) changes += r to ListChange.Delete(r.guid!!)
-    for ((rowId, edit) in members) {
-      val r = rows.firstOrNull { it.id == rowId } ?: continue
-      val guid = r.guid ?: continue // made here: its members went with its creation
-      if (r.deleted || (edit.first.isEmpty() && edit.second.isEmpty())) continue
-      changes += r to ListChange.Members(guid, edit.first, edit.second)
-    }
-    if (changes.isEmpty()) return 0
-    val outcomes = save(changes.map { it.second })
-    var sent = 0
-    for ((i, pair) in changes.withIndex()) {
-      val (r, change) = pair
-      when (val o = outcomes.getOrNull(i)) {
-        is ListOutcome.Saved -> {
-          sent++
-          if (change is ListChange.Delete) remove(cr, account, r.id) else settle(cr, account, r.id, o.guid)
+  fun changes(cr: ContentResolver, account: Account): List<Pair<Long, PhoneList>> {
+    val out = ArrayList<Pair<Long, PhoneList>>()
+    for (r in rows(cr, account)) {
+      val made = r.mark == MADE_HERE
+      when {
+        r.deleted && r.guid == null -> remove(cr, account, r.id)
+        r.deleted -> out += r.id to PhoneList.Delete(r.guid!!, r.title ?: "")
+        r.guid == null && !r.title.isNullOrBlank() -> {
+          val guid = java.util.UUID.randomUUID().toString().uppercase()
+          cr.update(
+            Groups.CONTENT_URI.asAdapter(account),
+            ContentValues().apply { put(Groups.SOURCE_ID, guid); put(Groups.SYNC1, MADE_HERE) },
+            "${Groups._ID}=?", arrayOf(r.id.toString()),
+          )
+          out += r.id to PhoneList.Create(guid, r.title)
         }
-        // Deleted in iCloud meanwhile: the label goes, as the next read would take it away.
-        is ListOutcome.Gone -> remove(cr, account, r.id)
-        // Refused for good: left as it is here, no longer waiting. Apple's comes back on read.
-        is ListOutcome.Failed -> if (!o.later) settle(cr, account, r.id, null)
-        null -> {}
+        // Made here, not yet known to be in iCloud: made again under the same id.
+        made && r.guid != null -> out += r.id to PhoneList.Create(r.guid, r.title ?: "")
+        r.dirty && r.guid != null -> out += r.id to PhoneList.Rename(r.guid, r.title ?: "")
       }
     }
-    return sent
+    return out
   }
 
-  private fun settle(cr: ContentResolver, account: Account, id: Long, guid: String?) {
-    cr.update(
-      Groups.CONTENT_URI.asAdapter(account),
-      ContentValues().apply { put(Groups.DIRTY, 0); guid?.let { put(Groups.SOURCE_ID, it) } },
-      "${Groups._ID}=?", arrayOf(id.toString()),
-    )
+  /**
+   * Each label handed over, let go of once the engine says it went or was refused: one deleted
+   * goes; one made or renamed is no longer waiting, and the next read writes iCloud's own over it
+   * (a list iCloud turned down is then gone, its change kept in Settings' Not Sent).
+   */
+  fun settle(cr: ContentResolver, account: Account, changes: List<Pair<Long, PhoneList>>, settled: Map<String, Settled>) {
+    for ((row, change) in changes) {
+      val guid = when (change) {
+        is PhoneList.Create -> change.guid
+        is PhoneList.Rename -> change.guid
+        is PhoneList.Delete -> change.guid
+      }
+      when (settled[guid]?.state) {
+        is SendState.Sent, is SendState.Refused ->
+          if (change is PhoneList.Delete) remove(cr, account, row)
+          else cr.update(
+            Groups.CONTENT_URI.asAdapter(account),
+            ContentValues().apply { put(Groups.DIRTY, 0); putNull(Groups.SYNC1) },
+            "${Groups._ID}=?", arrayOf(row.toString()),
+          )
+        is SendState.Waiting, null -> {}
+      }
+    }
   }
+
+  /** A label made on this phone and not yet known to be in iCloud (SYNC1). */
+  private const val MADE_HERE = "made-here"
 
   private fun remove(cr: ContentResolver, account: Account, id: Long) {
     cr.delete(Groups.CONTENT_URI.asAdapter(account), "${Groups._ID}=?", arrayOf(id.toString()))
