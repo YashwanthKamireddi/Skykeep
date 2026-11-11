@@ -422,9 +422,16 @@ impl Library {
         Ok(rows.collect::<std::result::Result<_, _>>()?)
     }
 
-    /// A view's photos, newest first.
+    /// A view's photos, newest first, with Hidden locked (see [`Library::photos_shown`]).
     pub fn photos(&self, view: View) -> Result<Vec<Photo>> {
-        let (filter, order) = self.view_query_in(view)?;
+        self.photos_shown(view, false)
+    }
+
+    /// A view's photos, newest first. Until Hidden is unlocked (`hidden_open`) a hidden photo
+    /// shows in no view but Hidden itself — Recently Deleted included, as Photos keeps a hidden
+    /// photo that was deleted behind the same lock. Hidden itself is the app's to lock.
+    pub fn photos_shown(&self, view: View, hidden_open: bool) -> Result<Vec<Photo>> {
+        let (filter, order) = self.view_query_in(view, hidden_open)?;
         let bursts = if view == View::RecentlyDeleted {
             "1"
         } else {
@@ -509,16 +516,17 @@ impl Library {
     }
 
     /// Which photos a view holds of the library chosen (`photo_library`), and in what order.
-    fn view_query_in(&self, view: View) -> Result<(String, &'static str)> {
-        let (filter, order) = Self::view_query(view);
+    fn view_query_in(&self, view: View, hidden_open: bool) -> Result<(String, &'static str)> {
+        let (filter, order) = Self::view_query(view, hidden_open);
         Ok((
             format!("{filter} AND {}", self.photo_library()?.clause()),
             order,
         ))
     }
 
-    /// Which photos a view holds, and in what order.
-    fn view_query(view: View) -> (&'static str, &'static str) {
+    /// Which photos a view holds, and in what order: a hidden photo in Recently Deleted only
+    /// with Hidden unlocked (`hidden_open`).
+    fn view_query(view: View, hidden_open: bool) -> (&'static str, &'static str) {
         match view {
             View::Library => ("deleted = 0 AND hidden = 0", "taken_at DESC"),
             View::Favorites => (
@@ -554,7 +562,14 @@ impl Library {
                 "deleted = 0 AND hidden = 0 AND rating > 0",
                 "rating DESC, taken_at DESC",
             ),
-            View::RecentlyDeleted => ("deleted = 1", "COALESCE(deleted_at, taken_at) DESC"),
+            View::RecentlyDeleted => (
+                if hidden_open {
+                    "deleted = 1"
+                } else {
+                    "deleted = 1 AND hidden = 0"
+                },
+                "COALESCE(deleted_at, taken_at) DESC",
+            ),
         }
     }
 
@@ -592,11 +607,18 @@ impl Library {
         Ok(found)
     }
 
-    /// How many photos each view holds.
+    /// How many photos each view holds, with Hidden locked (see
+    /// [`Library::photo_counts_shown`]).
     pub fn photo_counts(&self) -> Result<Vec<(View, i64)>> {
+        self.photo_counts_shown(false)
+    }
+
+    /// How many photos each view holds, as [`Library::photos_shown`] shows them: Recently
+    /// Deleted's count leaves its hidden photos out until Hidden is unlocked (`hidden_open`).
+    pub fn photo_counts_shown(&self, hidden_open: bool) -> Result<Vec<(View, i64)>> {
         // One library of two: the kept counts are of both, so these are counted.
         if self.photo_library()? != PhotoLibrary::Both {
-            return self.counted(true);
+            return self.counted(true, hidden_open);
         }
         // Kept by the photos' own triggers (migration 50): read, never counted. Less, for the
         // views that show a burst once, the burst's other photos — counted over the bursts'
@@ -608,9 +630,19 @@ impl Library {
         for view in COUNTED {
             let n: i64 = kept.query_row([view_key(view)], |r| r.get(0))?;
             let extra: i64 = if view == View::RecentlyDeleted {
-                0
+                // The kept count holds every deleted photo; locked, the hidden ones are not
+                // shown, so not counted (read over the (deleted, hidden) index: a few rows).
+                if hidden_open {
+                    0
+                } else {
+                    self.conn
+                        .prepare_cached(
+                            "SELECT COUNT(*) FROM photos WHERE deleted = 1 AND hidden = 1",
+                        )?
+                        .query_row([], |r| r.get(0))?
+                }
             } else {
-                let (filter, _) = Self::view_query(view);
+                let (filter, _) = Self::view_query(view, hidden_open);
                 self.conn
                     .prepare_cached(&format!(
                         "SELECT COUNT(*) FROM photos INDEXED BY photos_by_burst
@@ -624,14 +656,14 @@ impl Library {
     }
 
     /// How many photos each view holds, each counted over the library: what the kept counts
-    /// ([`Library::photo_counts`]) must always agree with.
-    pub fn photo_counts_counted(&self) -> Result<Vec<(View, i64)>> {
-        self.counted(false)
+    /// ([`Library::photo_counts_shown`]) must always agree with, Hidden locked or open.
+    pub fn photo_counts_counted(&self, hidden_open: bool) -> Result<Vec<(View, i64)>> {
+        self.counted(false, hidden_open)
     }
 
     /// Each view counted over the library: of both libraries, or (`chosen`) of the one the
     /// views show.
-    fn counted(&self, chosen: bool) -> Result<Vec<(View, i64)>> {
+    fn counted(&self, chosen: bool, hidden_open: bool) -> Result<Vec<(View, i64)>> {
         let mut out = Vec::new();
         for view in [
             View::Library,
@@ -647,9 +679,9 @@ impl Library {
             // Counted where the rows are: a library of twenty thousand is not read seven times
             // over to say how many each view holds.
             let filter = if chosen {
-                self.view_query_in(view)?.0
+                self.view_query_in(view, hidden_open)?.0
             } else {
-                Self::view_query(view).0.to_string()
+                Self::view_query(view, hidden_open).0.to_string()
             };
             let bursts = if view == View::RecentlyDeleted {
                 "1"
@@ -1106,7 +1138,12 @@ struct Query {
 }
 
 impl Library {
-    fn source_query(&self, source: &Source, order: Option<Order>) -> Result<Query> {
+    fn source_query(
+        &self,
+        source: &Source,
+        order: Option<Order>,
+        hidden_open: bool,
+    ) -> Result<Query> {
         const TAKEN: &str = "taken_at";
         const ADDED: &str = "COALESCE(added_at, taken_at)";
         let plain = |filter: String, order: String, key, params, keyset| Query {
@@ -1120,7 +1157,7 @@ impl Library {
         };
         Ok(match source {
             Source::View(view) => {
-                let (filter, own) = self.view_query_in(*view)?;
+                let (filter, own) = self.view_query_in(*view, hidden_open)?;
                 let bursts = if *view == View::RecentlyDeleted {
                     "1"
                 } else {
@@ -1179,8 +1216,21 @@ impl Library {
         })
     }
 
-    /// Every photo a source shows, as a grid lays them out (see [`PhotoIndex`]).
+    /// Every photo a source shows, as a grid lays them out (see [`PhotoIndex`]), with Hidden
+    /// locked (see [`Library::photo_index_shown`]).
     pub fn photo_index(&self, source: &Source, order: Option<Order>) -> Result<PhotoIndex> {
+        self.photo_index_shown(source, order, false)
+    }
+
+    /// Every photo a source shows, as a grid lays them out (see [`PhotoIndex`]): Recently
+    /// Deleted's hidden photos only with Hidden unlocked (`hidden_open`), as
+    /// [`Library::photos_shown`] has them.
+    pub fn photo_index_shown(
+        &self,
+        source: &Source,
+        order: Option<Order>,
+        hidden_open: bool,
+    ) -> Result<PhotoIndex> {
         if let Source::Shared(zone) = source {
             let mut out = PhotoIndex::default();
             for p in self.shared_album_photos(zone)? {
@@ -1192,7 +1242,7 @@ impl Library {
             }
             return Ok(out);
         }
-        let q = self.source_query(source, order)?;
+        let q = self.source_query(source, order, hidden_open)?;
         let mut stmt = self.conn.prepare(&format!(
             "SELECT {p}id, {key}, {p}kind, {p}favorite, {p}rating, {p}taken_at FROM {from}
              WHERE {filter} ORDER BY {order}",
@@ -1222,13 +1272,26 @@ impl Library {
     /// `limit` photos of a source, in the order its index has them: from its first, or from
     /// just after the photo `after` names. Carried on from that photo's place in the order
     /// (keyset) — never by counting past every photo before it, which a page near the end of a
-    /// million cost a second.
+    /// million cost a second. With Hidden locked (see [`Library::photo_page_shown`]).
     pub fn photo_page(
         &self,
         source: &Source,
         order: Option<Order>,
         after: Option<&After>,
         limit: usize,
+    ) -> Result<Vec<Photo>> {
+        self.photo_page_shown(source, order, after, limit, false)
+    }
+
+    /// A page of a source as [`Library::photo_page`]: Recently Deleted's hidden photos only
+    /// with Hidden unlocked (`hidden_open`), as [`Library::photo_index_shown`] has them.
+    pub fn photo_page_shown(
+        &self,
+        source: &Source,
+        order: Option<Order>,
+        after: Option<&After>,
+        limit: usize,
+        hidden_open: bool,
     ) -> Result<Vec<Photo>> {
         // A shared album is small, and walked to the photo named, as an album is.
         if let Source::Shared(zone) = source {
@@ -1240,7 +1303,7 @@ impl Library {
             });
             return Ok(all.into_iter().skip(from).take(limit.min(5_000)).collect());
         }
-        let q = self.source_query(source, order)?;
+        let q = self.source_query(source, order, hidden_open)?;
         let columns = COLUMNS
             .split(", ")
             .map(|c| format!("{}{}", q.pre, c.trim()))
@@ -1293,16 +1356,37 @@ impl Library {
     /// being looked at (`first`) first — as the little a picture is made from, newest first in
     /// each: `limit` at a time, from just after `after`, and where to carry on from. A page at a
     /// time, each a short read: the whole library held as photos was 665 MB at a million.
+    /// With Hidden locked (see [`Library::grid_shapes_shown`]).
     pub fn grid_shapes(
         &self,
         first: Option<View>,
         after: Option<&GridAfter>,
         limit: usize,
     ) -> Result<(Vec<PhotoShape>, Option<GridAfter>)> {
+        self.grid_shapes_shown(first, after, limit, false)
+    }
+
+    /// The photos a grid can show, as [`Library::grid_shapes`]: Hidden's, and the hidden ones
+    /// in Recently Deleted, only with Hidden unlocked (`hidden_open`), so nothing of Hidden is
+    /// made into a picture on disk while it is locked.
+    pub fn grid_shapes_shown(
+        &self,
+        first: Option<View>,
+        after: Option<&GridAfter>,
+        limit: usize,
+        hidden_open: bool,
+    ) -> Result<(Vec<PhotoShape>, Option<GridAfter>)> {
+        // Locked, Hidden's stage is kept (a cursor names its stage by place) but holds nothing.
         let mut stages = vec![
             format!("deleted = 0 AND hidden = 0 AND {ONE_PER_BURST}"),
-            format!("deleted = 0 AND hidden = 1 AND {ONE_PER_BURST}"),
-            "deleted = 1".to_string(),
+            if hidden_open {
+                format!("deleted = 0 AND hidden = 1 AND {ONE_PER_BURST}")
+            } else {
+                "0".to_string()
+            },
+            Self::view_query(View::RecentlyDeleted, hidden_open)
+                .0
+                .to_string(),
         ];
         match first {
             Some(View::Hidden) => stages.swap(0, 1),
@@ -1444,7 +1528,7 @@ impl Library {
 
     fn months_worked_out(&self) -> Result<Vec<PhotoMonth>> {
         use jiff::{civil::Date, Span, Timestamp};
-        let (filter, _) = self.view_query_in(View::Library)?;
+        let (filter, _) = self.view_query_in(View::Library, false)?;
         let shown = format!("{filter} AND {ONE_PER_BURST} AND taken_at >= ?1 AND taken_at < ?2");
         let (first, last): (Option<i64>, Option<i64>) = self.conn.query_row(
             &format!("SELECT MIN(taken_at), MAX(taken_at) FROM photos WHERE {filter}"),
@@ -1938,6 +2022,105 @@ pub(crate) mod tests {
         gone.deleted = true;
         lib.put_photos(&[gone]).unwrap();
         assert_eq!(lib.photos(View::Library).unwrap().len(), 5);
+    }
+
+    /// A hidden photo that was deleted stays behind Hidden's lock: Recently Deleted's list,
+    /// grid index, pages, count and the pictures made ahead all leave it out until Hidden is
+    /// unlocked, and the plain calls are the locked ones.
+    #[test]
+    fn recently_deleted_keeps_hidden_photos_locked() {
+        let mut lib = Library::in_memory().unwrap();
+        let mut gone = photo("gone", 10);
+        gone.deleted = true;
+        let mut secret = photo("secret", 20);
+        secret.deleted = true;
+        secret.hidden = true;
+        let mut kept_hidden = photo("kept", 30);
+        kept_hidden.hidden = true;
+        lib.put_photos(&[photo("a", 5), gone, secret, kept_hidden])
+            .unwrap();
+        let deleted = Source::View(View::RecentlyDeleted);
+        let listed = |open: bool| -> Vec<String> {
+            lib.photos_shown(View::RecentlyDeleted, open)
+                .unwrap()
+                .into_iter()
+                .map(|p| p.id)
+                .collect()
+        };
+        let indexed = |open: bool| lib.photo_index_shown(&deleted, None, open).unwrap().ids;
+        let paged = |open: bool| -> Vec<String> {
+            lib.photo_page_shown(&deleted, None, None, 100, open)
+                .unwrap()
+                .into_iter()
+                .map(|p| p.id)
+                .collect()
+        };
+        let counted_in = |lib: &Library, open: bool| {
+            lib.photo_counts_shown(open)
+                .unwrap()
+                .into_iter()
+                .find(|(v, _)| *v == View::RecentlyDeleted)
+                .unwrap()
+                .1
+        };
+        assert_eq!(listed(false), ["gone"]);
+        assert_eq!(indexed(false), ["gone"]);
+        assert_eq!(paged(false), ["gone"]);
+        let counted = |open: bool| counted_in(&lib, open);
+        assert_eq!(counted(false), 1);
+        assert_eq!(listed(true), ["secret", "gone"]);
+        assert_eq!(indexed(true), ["secret", "gone"]);
+        assert_eq!(paged(true), ["secret", "gone"]);
+        assert_eq!(counted(true), 2);
+        // The plain calls Android and the launcher use are the locked ones.
+        let plain: Vec<String> = lib
+            .photos(View::RecentlyDeleted)
+            .unwrap()
+            .into_iter()
+            .map(|p| p.id)
+            .collect();
+        assert_eq!(plain, ["gone"]);
+        assert_eq!(lib.photo_index(&deleted, None).unwrap().ids, ["gone"]);
+        let plain_count = lib
+            .photo_counts()
+            .unwrap()
+            .into_iter()
+            .find(|(v, _)| *v == View::RecentlyDeleted)
+            .unwrap()
+            .1;
+        assert_eq!(plain_count, counted(false));
+        // Counted per library chosen, the same.
+        lib.set_photo_library(PhotoLibrary::Personal).unwrap();
+        assert_eq!(counted_in(&lib, false), 1);
+        assert_eq!(counted_in(&lib, true), 2);
+        lib.set_photo_library(PhotoLibrary::Both).unwrap();
+        // The pictures made ahead: nothing hidden while locked, whichever view comes first.
+        let shapes = |first: Option<View>, open: bool| -> Vec<String> {
+            let mut ids = Vec::new();
+            let mut after = None;
+            loop {
+                let (page, next) = lib
+                    .grid_shapes_shown(first, after.as_ref(), 1, open)
+                    .unwrap();
+                ids.extend(page.into_iter().map(|s| s.id));
+                match next {
+                    Some(n) => after = Some(n),
+                    None => break,
+                }
+            }
+            ids.sort();
+            ids
+        };
+        for first in [None, Some(View::Hidden), Some(View::RecentlyDeleted)] {
+            assert_eq!(shapes(first, false), ["a", "gone"], "{first:?}");
+            assert_eq!(
+                shapes(first, true),
+                ["a", "gone", "kept", "secret"],
+                "{first:?}"
+            );
+        }
+        let (plain, _) = lib.grid_shapes(None, None, 100).unwrap();
+        assert_eq!(plain.len(), 2);
     }
 
     /// Each view is the right photos, newest first; Recently Deleted holds only the deleted.
@@ -2495,11 +2678,13 @@ mod scale_tests {
     fn kept_counts_are_always_the_counted_ones() {
         let mut lib = Library::in_memory().unwrap();
         let agree = |lib: &Library, when: &str| {
-            assert_eq!(
-                lib.photo_counts().unwrap(),
-                lib.photo_counts_counted().unwrap(),
-                "{when}"
-            );
+            for open in [false, true] {
+                assert_eq!(
+                    lib.photo_counts_shown(open).unwrap(),
+                    lib.photo_counts_counted(open).unwrap(),
+                    "{when}, Hidden open: {open}"
+                );
+            }
         };
         agree(&lib, "empty");
         let mut all: Vec<Photo> = (0..40).map(|i| photo(&format!("p{i:02}"), i)).collect();
@@ -2525,6 +2710,7 @@ mod scale_tests {
             (1usize, "favorite"),
             (2, "hidden"),
             (3, "deleted"),
+            (2, "hidden deleted"),
             (12, "burst pick deleted"),
             (5, "kind"),
             (7, "subtype"),
@@ -2534,7 +2720,7 @@ mod scale_tests {
             match change {
                 "favorite" => p.favorite = true,
                 "hidden" => p.hidden = true,
-                "deleted" | "burst pick deleted" => p.deleted = true,
+                "deleted" | "burst pick deleted" | "hidden deleted" => p.deleted = true,
                 "kind" => p.kind = Kind::Image,
                 "subtype" => p.subtype = 0,
                 _ => p.rating = 5,

@@ -147,30 +147,18 @@ jobs:
           }
           "WiX: $((Get-ChildItem $dir).Count) files"
       - name: Build the installers
-        # The build machine's paths are never written into the program. A release also signs
-        # the installers for the in-app updater (createUpdaterArtifacts: a .sig beside each);
-        # the key is the release's alone, so any other build makes the installers only.
+        # The build machine's paths are never written into the program. Never signed for the
+        # updater here: the signing key is kept out of every build (anything the build runs
+        # could read it), and the `sign` job below signs a release's installers, apart.
         shell: bash
         env:
           RUSTFLAGS: --remap-path-prefix=${{ github.workspace }}=skykeep -C target-feature=+crt-static
-          UPDATER: ${{ inputs.updater && 'yes' || '' }}
-          TAURI_SIGNING_PRIVATE_KEY: ${{ inputs.updater && secrets.TAURI_SIGNING_PRIVATE_KEY || '' }}
-          TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ inputs.updater && secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD || '' }}
         run: |
           # The thumbnail provider first: the installers take it from target/release, beside
           # skykeep.exe (packaging/windows/bundle-windows.json; given here, not in
           # tauri.conf.json, so a plain build on Windows never needs the DLL made first).
           cargo build --release -p quince-thumbs --locked
-          if [ -n "$UPDATER" ]; then
-            if [ -z "$TAURI_SIGNING_PRIVATE_KEY" ]; then
-              echo "::error::a release needs the TAURI_SIGNING_PRIVATE_KEY secret to sign its updates"
-              exit 1
-            fi
-            npx tauri build --config packaging/windows/bundle-windows.json --config '{"bundle":{"createUpdaterArtifacts":true}}'
-            ls target/release/bundle/nsis/*-setup.exe.sig target/release/bundle/msi/*.msi.sig
-          else
-            npx tauri build --config packaging/windows/bundle-windows.json
-          fi
+          npx tauri build --config packaging/windows/bundle-windows.json
           # The provider is in the installers: a missing DLL is a broken feature, not a quiet one.
           ls target/release/quince_thumbs.dll
       - name: The program needs no Visual C++ Redistributable
@@ -195,10 +183,22 @@ jobs:
           path: |
             target/release/bundle/msi/*.msi
             target/release/bundle/nsis/*.exe
-            target/release/bundle/msi/*.msi.sig
-            target/release/bundle/nsis/*.exe.sig
             target/release/bundle/SHA256SUMS-windows.txt
           if-no-files-found: error
+
+  # A release: the .msi and the .exe signed for the in-app updater, each .sig beside its
+  # installer in the same artifact, by a job that runs nothing of the build's (sign-updater.yml).
+  sign:
+    needs: build
+    if: ${{ inputs.updater }}
+    uses: ./.github/workflows/sign-updater.yml
+    with:
+      artifact: skykeep-windows
+      files: "msi/*.msi nsis/*-setup.exe"
+      ref: ${{ inputs.ref }}
+    secrets:
+      TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+      TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
 
   # Every interface suite in Microsoft Edge — the engine WebView2 is — with Windows' own fonts,
   # and every screen photographed light and dark, to be looked at.
@@ -251,9 +251,10 @@ jobs:
           if-no-files-found: ignore
 
   smoke:
-    needs: build
+    # After the signatures, when there are any: the artifact is uploaded again with them.
+    needs: [build, sign]
     # Whenever an installer was built — a quick build included, its tests skipped.
-    if: ${{ !cancelled() && needs.build.result == 'success' }}
+    if: ${{ !cancelled() && needs.build.result == 'success' && (needs.sign.result == 'success' || needs.sign.result == 'skipped') }}
     runs-on: windows-latest
     timeout-minutes: 20
     steps:

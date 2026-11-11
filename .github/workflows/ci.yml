@@ -85,6 +85,19 @@ jobs:
           tar -xzf gl.tgz gitleaks
           ./gitleaks git --no-banner --redact .
 
+  # Every Rust dependency against deny.toml (cargo-deny): RustSec advisories (vulnerabilities,
+  # unsound or unmaintained crates, yanked versions), licences, duplicate versions, and that
+  # every crate comes from crates.io. Reads Cargo.lock and the advisory database; builds nothing.
+  supply-chain:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: taiki-e/install-action@cfdb7ed4ccc7c7dce37759eae89dc5674b469b39 # v2.90.3
+        with:
+          tool: cargo-deny@0.20.2
+      - run: cargo deny --locked check advisories bans licenses sources
+
   # On x86_64 and on 64-bit ARM: Apple Silicon Macs run Linux (Asahi, Omarchy) on aarch64.
   rust:
     strategy:

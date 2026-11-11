@@ -1406,7 +1406,11 @@ pub use quince_sync::queue::ACCOUNT_KEY;
 
 /// What of an account lives in the data folder beside the session: its library, and every
 /// cache and queue made from it. Moved as one when another account signs in.
-const ACCOUNT_FILES: [&str; 13] = [
+///
+/// Calendar subscriptions (`subscriptions.json`, `subscriptions/`) are not here: they are
+/// public files this computer was asked to fetch, nothing of Apple's or the account's (see
+/// `calendar_unsubscribe`), and stay with the computer as its settings do.
+const ACCOUNT_FILES: [&str; 16] = [
     "library.db",
     "library.db-wal",
     "library.db-shm",
@@ -1421,6 +1425,13 @@ const ACCOUNT_FILES: [&str; 13] = [
     "faces",
     // A reminder's pictures: one account's, set aside and removed with the rest of it.
     "reminder-media",
+    // The unfinished Drive downloads (`download_journal`): the account's file names and ids,
+    // offered again to whoever signs in next if left here.
+    "downloads",
+    // Files saved into the Drive and Photos folders on Windows, copied here while they are
+    // sent, and the receipts of photos already sent (mount::start).
+    "drive-sending",
+    "photos-sending",
 ];
 
 /// Where the accounts not signed in are kept, each under its own tag.
@@ -8468,6 +8479,53 @@ mod start_tests {
     #[test]
     fn an_accounts_reminder_pictures_go_with_it() {
         assert!(ACCOUNT_FILES.contains(&"reminder-media"));
+    }
+
+    /// An unfinished Drive download is the account's: the next account signed in is never
+    /// offered it (its file names), it comes back with its own account, and Remove copy takes
+    /// it — as it does what was being sent from the Drive and Photos folders.
+    #[test]
+    fn unfinished_downloads_and_sends_go_with_their_account() {
+        use crate::folder_download::{Journal, Record};
+        let dir = tempfile::tempdir().unwrap();
+        let dir = dir.path();
+        let mut lib = Library::open(dir).unwrap();
+        lib.set_state(ACCOUNT_KEY, "a").unwrap();
+        let journal = || Journal::new(dir.join("downloads"));
+        let record = Record {
+            key: "0123456789abcdef0123456789abcdef".into(),
+            title: "A's tax return.pdf".into(),
+            items: Vec::new(),
+            placed: Vec::new(),
+            started_at: 1,
+        };
+        journal().save(&record).unwrap();
+        for sending in ["drive-sending", "photos-sending"] {
+            std::fs::create_dir_all(dir.join(sending)).unwrap();
+            std::fs::write(dir.join(sending).join("sent-1-2"), b"A's").unwrap();
+        }
+
+        // B signs in: nothing of A's downloads is offered, nothing of A's sends is here.
+        switch_library(&mut lib, dir, "a", &dir.join(SET_ASIDE).join("b")).unwrap();
+        assert!(
+            journal().unfinished().is_empty(),
+            "B is offered A's download"
+        );
+        assert!(!dir.join("drive-sending").exists());
+        assert!(!dir.join("photos-sending").exists());
+        lib.set_state(ACCOUNT_KEY, "b").unwrap();
+
+        // A again: its download is offered again, its sends back where they were.
+        switch_library(&mut lib, dir, "b", &dir.join(SET_ASIDE).join("a")).unwrap();
+        assert_eq!(journal().unfinished(), [record]);
+        assert!(dir.join("photos-sending").join("sent-1-2").exists());
+
+        // Remove copy: gone from this computer.
+        remove_account(&mut lib, dir).unwrap();
+        assert!(journal().unfinished().is_empty());
+        assert!(!dir.join("downloads").exists());
+        assert!(!dir.join("drive-sending").exists());
+        assert!(!dir.join("photos-sending").exists());
     }
 
     /// The packages say what the binary needs, so an older system is refused at install with

@@ -11,7 +11,9 @@
 # and the AppImage carries them, as it carried Ubuntu 24.04's before.
 #
 # Called by release.yml (signed for the updater) and linux-compat.yml (with the check's probe,
-# built on the same base so it runs on 22.04 too).
+# built on the same base so it runs on 22.04 too). For the updater the AppImage is built
+# without the signing key in reach and signed after, by sign-updater.yml: nothing the build runs
+# (npm scripts, build.rs, proc macros) can read the key.
 name: AppImage
 
 on:
@@ -47,8 +49,11 @@ jobs:
   build:
     runs-on: ubuntu-24.04
     timeout-minutes: 75
+    # Pinned by digest (the multi-arch index of ubuntu:22.04 as of 11 Nov 2026), so the base
+    # cannot change under a tag. To move it on: the Docker-Content-Digest header of
+    # registry-1.docker.io/v2/library/ubuntu/manifests/22.04 (or `docker buildx imagetools inspect`).
     container:
-      image: ubuntu:22.04
+      image: ubuntu:22.04@sha256:076e7bf82319619f28dd0aa9c02ab34b055ad37100395b4f49a2ffba04fb5e11
     defaults:
       run:
         shell: bash
@@ -116,23 +121,11 @@ jobs:
       - name: Build the AppImage
         # The build machine's paths are never written into the program. linuxdeploy, which
         # Tauri runs, is an AppImage itself; a container has no FUSE, so it unpacks itself.
+        # Never signed here, a release's included: the `sign` job below signs it, apart.
         env:
           RUSTFLAGS: --remap-path-prefix=${{ github.workspace }}=skykeep
           APPIMAGE_EXTRACT_AND_RUN: "1"
-          UPDATER: ${{ inputs.updater }}
-          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
-          TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
-        run: |
-          if [ "$UPDATER" = true ]; then
-            if [ -z "$TAURI_SIGNING_PRIVATE_KEY" ]; then
-              echo "::error::a release needs the TAURI_SIGNING_PRIVATE_KEY secret to sign its updates"
-              exit 1
-            fi
-            npx tauri build --bundles appimage --config '{"bundle":{"createUpdaterArtifacts":true}}'
-            ls target/release/bundle/appimage/*.AppImage.sig
-          else
-            npx tauri build --bundles appimage
-          fi
+        run: npx tauri build --bundles appimage
       - name: Nothing in it needs more than Ubuntu 22.04 has
         # Every ELF file's version needs (objdump -p, "Version References"), against 22.04's
         # glibc 2.35 and libstdc++ (GCC 12's: GLIBCXX 3.4.30, CXXABI 1.3.13).
@@ -175,6 +168,18 @@ jobs:
           name: ${{ inputs.artifact }}
           path: |
             target/release/bundle/appimage/*.AppImage
-            target/release/bundle/appimage/*.AppImage.sig
             target/release/bundle/appimage/distro_check
           if-no-files-found: error
+
+  # A release: the AppImage signed for the in-app updater, its .sig beside it in the same
+  # artifact, by a job that runs nothing of the build's.
+  sign:
+    needs: build
+    if: inputs.updater
+    uses: ./.github/workflows/sign-updater.yml
+    with:
+      artifact: ${{ inputs.artifact }}
+      files: "*.AppImage"
+    secrets:
+      TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+      TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
