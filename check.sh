@@ -192,6 +192,8 @@ pooled "calendar keys"   node .uiverify/calendar-keys.mjs
 pooled "reminders instant" node .uiverify/reminders-instant.mjs
 pooled "app window quiet" node .uiverify/app-window-quiet.mjs
 pooled "webkit: app window quiet" env ENGINE=webkit node .uiverify/app-window-quiet.mjs
+pooled "reminders current" node .uiverify/reminders-current.mjs
+pooled "webkit: reminders current" env ENGINE=webkit node .uiverify/reminders-current.mjs
 pooled "calendar instant"  node .uiverify/calendar-instant.mjs
 pooled "notes instant"     node .uiverify/notes-instant.mjs
 pooled "drive sort"        node .uiverify/drive-sort.mjs

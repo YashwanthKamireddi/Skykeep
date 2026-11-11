@@ -43,7 +43,7 @@ import { useArriving, useShownRevision } from "../lib/sync";
 import { Picker } from "../components/Picker";
 import { RowMenu } from "../components/RowMenu";
 import { Glyph, emblemGlyph, type GlyphName } from "../components/Glyph";
-import { dateText, timeText } from "../lib/when";
+import { dateText, dayOf, timeText, useClock } from "../lib/when";
 import { parseReminder, understood, type QuickReminder } from "./reminderQuick.ts";
 import { useReveal } from "../lib/reveal";
 import { instantIn, wallIn, zoneName, type Wall } from "./calendar/model";
@@ -535,6 +535,11 @@ export function RemindersView() {
   const mainRef = useRef<HTMLElement | null>(null);
   const itemIds = useMemo(() => items.map((r) => r.guid), [items]);
   useArrivals(mainRef, itemIds, `${JSON.stringify(selection)}\u0000${showDone}\u0000${sought.trim()}`, outbox.waiting.size > 0 || itemIds.some((g) => g.startsWith(STAND_IN)));
+  // When each timed reminder here falls due, and the time moved on to each of them and to each
+  // midnight (lib/when): a row is told only when its label or its red can change.
+  const dueMoments = useMemo(() => items.flatMap((r) => (r.dueAt !== null && !r.allDay ? [r.dueAt * 1000] : [])), [items]);
+  const clock = useClock(dueMoments);
+  const today = dayOf(clock);
   /** Each read is numbered: one overtaken by a later pick is dropped, never drawn late. */
   const reads = useRef(0);
   const readItems = useCallback(async (): Promise<Reminder[]> => {
@@ -1703,7 +1708,7 @@ export function RemindersView() {
         dated: false,
         rows,
       }));
-  }, [threaded, inList, selection, listById, listSections, searching]);
+  }, [threaded, inList, selection, listById, listSections, searching, clock]);
 
   const countOf = (guid: string) => counts?.lists.find(([g]) => g === guid)?.[1] ?? 0;
   const openList = inList ? (lists.find((l) => l.guid === listGuid) ?? null) : null;
@@ -2132,6 +2137,7 @@ export function RemindersView() {
                     reminder={reminder}
                     depth={depth}
                     dated={section.dated}
+                    clock={reminder.dueAt === null || reminder.completedAt ? "" : `${today}:${reminder.dueAt * 1000 <= clock ? 1 : 0}`}
                     isOpen={isOpen}
                     marks={marks.get(reminder.guid)}
                     tags={isOpen && detailOf?.guid === reminder.guid ? detailOf.tags : (tagsOf.get(reminder.guid) ?? NO_TAGS)}
@@ -2370,6 +2376,8 @@ type ReminderRowProps = {
   depth: number;
   /** Under a heading that already says the day, so the row says only the time. */
   dated: boolean;
+  /** Moves when this row's due label or its red can change: at midnight, and as it falls due. */
+  clock: string;
   isOpen: boolean;
   marks: ReminderMarks | undefined;
   tags: string[];
@@ -2501,6 +2509,18 @@ const ReminderRow = memo(function ReminderRow({
       ? zonedClock(reminder.timezone, reminder.dueAt)
       : null;
   const chips = rowMarks && (rowMarks.location || rowMarks.messaging || rowMarks.url) ? rowMarks : null;
+  // The title field is the reminder's for its life, and takes a new title from a sync only
+  // while nobody is in it. Keyed on the title, a phone's edit landing while this one was being
+  // typed made a new field under the cursor and the words typed were gone (desktop audit M3).
+  const titleRef = useRef<HTMLInputElement | null>(null);
+  /** The title the field was last given, to tell typing from a field only visited. */
+  const titleShown = useRef(reminder.title);
+  useEffect(() => {
+    const field = titleRef.current;
+    if (!field || document.activeElement === field) return;
+    field.value = reminder.title;
+    titleShown.current = reminder.title;
+  }, [reminder.title]);
   return (
     <li
       className={`rx-row${reminder.completedAt ? " is-done" : ""}${leaving ? " is-leaving" : ""}${
@@ -2614,11 +2634,21 @@ const ReminderRow = memo(function ReminderRow({
           )}
           <input
             className="rx-title"
+            ref={titleRef}
             defaultValue={reminder.title}
-            key={`${reminder.guid}-${reminder.title}`}
             aria-label={`Rename ${reminder.title}`}
-            
-            onBlur={(e) => void act.current.rename(reminder, e.target.value)}
+            onBlur={(e) => {
+              const typed = e.target.value;
+              // Visited, nothing typed: it shows the title as it is now, which a sync may have
+              // changed meanwhile, rather than send the old one back over it.
+              if (typed === titleShown.current) {
+                e.target.value = reminder.title;
+                titleShown.current = reminder.title;
+                return;
+              }
+              titleShown.current = typed;
+              void act.current.rename(reminder, typed);
+            }}
             onKeyDown={(e) => {
               if (composing(e)) return;
               // As in Reminders on a Mac: Return finishes it and starts the next,

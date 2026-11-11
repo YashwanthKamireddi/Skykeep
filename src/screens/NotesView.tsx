@@ -30,6 +30,7 @@ import { Arriving } from "../components/EmptyState";
 import { useArriving, useRevision, useShownRevision } from "../lib/sync";
 import { Picker } from "../components/Picker";
 import { holdTyping } from "../lib/updates";
+import { dayOf, useClock } from "../lib/when";
 import { composing as imeComposing } from "../lib/keys";
 import { keepSame, same } from "../lib/same";
 import { useChosen, useIsChosen, type Chosen } from "../lib/chosen";
@@ -271,6 +272,13 @@ export function NotesView() {
   const [renamingFolder, setRenamingFolder] = useState<string | null>(null);
   const [folder, setFolder] = useState<string>(ALL);
   const [notes, setNotes] = useState<Note[]>([]);
+  // The list as shown, worked out again when the notes, the order or the day change ("Today" and
+  // "Yesterday" move at midnight, desktop audit M4). The order the rows are in is read off the
+  // list once and kept: Up and Down, and the note opened after a delete, walk it rather than
+  // a sort with a collator over every note on each press (desktop audit H7).
+  const today = dayOf(useClock());
+  const sections = useMemo(() => groupNotes(notes, new Date(), listOrder), [notes, listOrder, today]);
+  const shownOrder = useMemo(() => sections.flatMap((g) => g.notes.map((n) => n.guid)), [sections]);
   const [openGuid, setOpenGuid] = useState<string | null>(null);
   /** `openGuid` as last drawn, for work that finishes later — a save landing — to tell whether
    *  the note it was for is still the one on screen. */
@@ -1007,12 +1015,12 @@ export function NotesView() {
     const gone = open.guid;
     // The note below opens in its place, or the one above at the end, as in Notes: the order
     // is the list's as shown, pinned notes first.
-    const order = groupNotes(notes, new Date(), listOrder).flatMap((g) => g.notes.map((n) => n.guid));
+    const order = shownOrder;
     const at = order.indexOf(gone);
     const next = order[at + 1] ?? order[at - 1] ?? null;
     setOpenGuid(next);
     await write(() => api.noteDelete(gone), (rows) => rows.filter((n) => n.guid !== gone));
-  }, [open, write, notes, confirm, listOrder]);
+  }, [open, write, shownOrder, confirm]);
 
   /** Out of Recently Deleted and back into Notes — Apple's "Notes" folder where there is one. */
   const recover = useCallback(async () => {
@@ -1231,7 +1239,7 @@ export function NotesView() {
   /** Up and Down through the list as it is shown, pinned notes first. */
   const step = useCallback(
     (by: 1 | -1) => {
-      const order = groupNotes(notes, new Date(), listOrder).flatMap((g) => g.notes.map((n) => n.guid));
+      const order = shownOrder;
       if (order.length === 0) return;
       const at = openGuid ? order.indexOf(openGuid) : -1;
       const next = at < 0 ? order[0] : order[Math.max(0, Math.min(order.length - 1, at + by))];
@@ -1239,7 +1247,7 @@ export function NotesView() {
       if (next !== openGuid) void selectNote(next);
       focusRow(next);
     },
-    [notes, openGuid, selectNote, listOrder]
+    [shownOrder, openGuid, selectNote]
   );
 
   /** Into the search field: this folder (Ctrl+F) or every folder (Ctrl+Shift+F). */
@@ -1365,7 +1373,6 @@ export function NotesView() {
   // Another folder is another list, and a narrow window shows that list, not a note from the last.
   useEffect(() => setDetail(false), [folder]);
 
-  const sections = useMemo(() => groupNotes(notes, new Date(), listOrder), [notes, listOrder]);
   /** What a search is looking for, marked in the results and in the note opened from them. */
   const foundWords = useMemo(() => (seeking ? queryWords(sought) : []), [seeking, sought]);
   /** The folders as nested, worked out when they change rather than on every key typed. */
