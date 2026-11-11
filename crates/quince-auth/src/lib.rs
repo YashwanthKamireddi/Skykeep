@@ -910,8 +910,9 @@ impl Client {
     /// Forget this account entirely.
     pub fn sign_out(&mut self) -> Result<()> {
         self.session = Session::default();
-        // The next account starts at iCloud.com, and the regional domains close again.
-        self.switch_servers(None)?;
+        // The next account starts at iCloud.com, and the regional domains close again. Its
+        // trouble is told after the store is cleared, never instead of clearing it.
+        let switched = self.switch_servers(None);
         self.data_access_forget();
         if let Ok(mut jar) = self.jar.lock() {
             jar.clear();
@@ -921,7 +922,7 @@ impl Client {
             .persisted
             .lock()
             .unwrap_or_else(std::sync::PoisonError::into_inner) = Persisted::default();
-        self.store.clear()
+        self.store.clear().and(switched)
     }
 
     // ---- headers --------------------------------------------------------------------
@@ -973,6 +974,14 @@ impl Client {
     /// product promises. `Ok(false)` means Apple rejected it and a full sign-in is needed;
     /// that is an expected outcome (roughly every 60 days), not a failure.
     pub async fn resume(&mut self) -> Result<bool> {
+        // A sign-out the keyring was locked for is never undone by resuming: its entries are
+        // erased now if it answers, and until they are, `try_load` (below, and at startup)
+        // reads nothing stored. A session signed in since lives in memory and stays.
+        if self.store.sign_out_pending() {
+            if let Err(e) = self.store.finish_sign_out() {
+                quiet!("quince: keyring: sign-out still waiting on it: {e:?}");
+            }
+        }
         // A keyring that would not answer at startup is asked again; still locked, that is
         // what is said — never "signed out", which led to a sign-in replacing what it holds.
         if self.keyring_error.is_some() {
@@ -2865,5 +2874,31 @@ mod sealed_jar_tests {
         c.sign_out().unwrap();
         assert!(!cookies_file(dir.path()).exists());
         assert!(!dir.path().join("cookie-key").exists());
+    }
+
+    /// Signed out with the keyring refusing, the cookies still go, and neither reopening nor
+    /// resuming brings back the session the keyring kept.
+    #[tokio::test]
+    async fn a_locked_keyring_at_sign_out_never_resumes() {
+        let dir = tempfile::tempdir().unwrap();
+        let mut c = holding_a_cookie(dir.path());
+        c.session.session_token = Some("token".into());
+        c.persist().unwrap();
+        // The key's entry cannot be deleted, as with a locked keyring.
+        let key = dir.path().join("cookie-key");
+        std::fs::remove_file(&key).unwrap();
+        std::fs::create_dir(&key).unwrap();
+        std::fs::write(key.join("x"), b"x").unwrap();
+        c.sign_out().unwrap();
+        assert!(!cookies_file(dir.path()).exists());
+        // What the keyring kept, as if never erased.
+        std::fs::write(
+            dir.path().join("session.json"),
+            r#"{"session_token":"token"}"#,
+        )
+        .unwrap();
+        let mut reopened = client(dir.path());
+        assert!(!reopened.has_stored_session());
+        assert!(!reopened.resume().await.unwrap());
     }
 }
