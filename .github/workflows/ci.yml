@@ -99,7 +99,48 @@ jobs:
       - run: cargo deny --locked check advisories bans licenses sources
 
   # On x86_64 and on 64-bit ARM: Apple Silicon Macs run Linux (Asahi, Omarchy) on aarch64.
+  # What a pull request touches decides how much runs: a translation alone (src/locales/*.json,
+  # nothing else) is checked by the type checker and the language test in a minute; anything else,
+  # and every push to main, runs everything below.
+  scope:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    permissions:
+      contents: read
+      pull-requests: read
+    outputs:
+      full: ${{ steps.files.outputs.full }}
+    steps:
+      - id: files
+        env:
+          GH_TOKEN: ${{ github.token }}
+          PR: ${{ github.event.pull_request.number }}
+        run: |
+          full=true
+          if [ -n "$PR" ]; then
+            files=$(gh api --paginate "repos/$GITHUB_REPOSITORY/pulls/$PR/files" --jq '.[].filename')
+            if [ -n "$files" ] && ! grep -qvE '^src/locales/[^/]+\.json$' <<< "$files"; then full=false; fi
+          fi
+          echo "full=$full" | tee -a "$GITHUB_OUTPUT"
+
+  languages:
+    needs: scope
+    if: needs.scope.outputs.full != 'true'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci --no-audit --no-fund
+      - run: npx tsc --noEmit
+      - run: node --test .uiverify/i18n.test.mjs
+
   rust:
+    needs: scope
+    if: needs.scope.outputs.full == 'true'
     strategy:
       fail-fast: false
       matrix:
@@ -182,6 +223,8 @@ jobs:
   # emulator signed in to iCloud: they run locally (`am instrument`, never Gradle's connected
   # tasks, which uninstall the app).
   android:
+    needs: scope
+    if: needs.scope.outputs.full == 'true'
     runs-on: ubuntu-24.04
     timeout-minutes: 50
     steps:
@@ -224,6 +267,8 @@ jobs:
           done
 
   web:
+    needs: scope
+    if: needs.scope.outputs.full == 'true'
     runs-on: ubuntu-24.04
     timeout-minutes: 25  # the interface suites grew past 15 minutes; a warm run takes ~16
     steps:
