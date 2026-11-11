@@ -157,6 +157,8 @@ export type UpdateStatus = {
 };
 
 export const SYNCED = "quince://synced";
+/** Skykeep is about to quit, sign out or close this window: save what is typed, then answer. */
+export const FLUSH = "quince://flush";
 /** An alert was clicked: open Reminders, where that reminder is. */
 export const OPEN_REMINDER = "quince://open-reminder";
 /** A lapsed session signed itself back in only as far as Apple's code. */
@@ -222,6 +224,8 @@ export const api = {
   updateAutoSet: (on: boolean) => invoke<void>("update_auto_set", { on }),
   /** This window is being typed in, or no longer is: a restart to update waits for it. */
   updateTyping: (typing: boolean) => invoke<void>("update_typing", { typing }),
+  /** This window has written down what was still being typed, as `FLUSH` asked (lib/flush). */
+  windowFlushed: (id: number) => invoke<void>("window_flushed", { id }),
   /** A refused change, sent again. */
   outboxResend: (id: number) => invoke<void>("outbox_resend", { id }),
   /** A refused change let go of: Apple's version stands. */

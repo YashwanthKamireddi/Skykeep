@@ -15,6 +15,7 @@ import { followClick } from "./lib/follow";
 import { markEngine } from "./lib/engine";
 import { slideThumbs } from "./lib/thumb";
 import { carryDragsInPage } from "./lib/drag";
+import { answerFlushes } from "./lib/flush";
 
 // Before the first paint, so the window opens in the appearance chosen.
 markEngine();
@@ -26,6 +27,8 @@ fadeSheetsIn();
 slideThumbs();
 // On Windows a drag inside the window is carried by the mouse (lib/drag.ts).
 carryDragsInPage();
+// Quit, sign-out and a close with no tray ask every window to save what is typed first.
+answerFlushes();
 
 /*
  * Every link goes the one way out: through `followClick` (lib/follow.ts), which checks what

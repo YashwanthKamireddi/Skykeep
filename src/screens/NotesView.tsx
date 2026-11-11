@@ -31,6 +31,7 @@ import { useArriving, useRevision, useShownRevision } from "../lib/sync";
 import { Picker } from "../components/Picker";
 import { holdTyping } from "../lib/updates";
 import { dayOf, useClock } from "../lib/when";
+import { onFlush } from "../lib/flush";
 import { composing as imeComposing } from "../lib/keys";
 import { keepSame, same } from "../lib/same";
 import { useChosen, useIsChosen, type Chosen } from "../lib/chosen";
@@ -858,15 +859,20 @@ export function NotesView() {
    * create saved onto it afterwards.
    */
   const creating = useRef(false);
+  /** The create in flight, so a save asked for meanwhile (quit, sign-out) can wait it out. */
+  const createRun = useRef<Promise<void>>(Promise.resolve());
   const commitComposing = useCallback(async () => {
     const draft = composingRef.current;
-    if (!draft || creating.current) return;
+    if (creating.current) return createRun.current;
+    if (!draft) return;
     if (!draft.body.trim()) {
       // Nothing was ever typed. There is nothing to keep, so nothing is sent.
       setComposing(null);
       return;
     }
     creating.current = true;
+    let done = () => {};
+    createRun.current = new Promise<void>((r) => (done = r));
     setBusy(true);
     setError(null);
     try {
@@ -905,6 +911,7 @@ export function NotesView() {
     } finally {
       creating.current = false;
       setBusy(false);
+      done();
     }
   }, [setComposing]);
 
@@ -915,6 +922,38 @@ export function NotesView() {
     const timer = window.setTimeout(() => void commitComposing(), 900);
     return () => window.clearTimeout(timer);
   }, [composing, commitComposing]);
+
+  /**
+   * Everything typed, written down now rather than after the pause: the words still in the
+   * editor's report delay, a note being composed made real, and the open note's edit saved.
+   * Asked when the window loses the focus or is hidden, and by the backend before Skykeep quits,
+   * signs out or closes a window for good (lib/flush). None of those ran React's cleanup, so
+   * the last second of typing was lost (desktop audit C1). A new note with nothing typed in it
+   * stays being composed: only leaving it on purpose lets it go.
+   */
+  const saveNow = useCallback(async () => {
+    editorRef.current?.flushChange();
+    if (composingRef.current?.body.trim() || creating.current) await commitComposing();
+    await flush();
+  }, [commitComposing, flush]);
+  const saveNowRef = useRef(saveNow);
+  saveNowRef.current = saveNow;
+  useEffect(() => {
+    const now = () => void saveNowRef.current();
+    const hidden = () => {
+      if (document.visibilityState === "hidden") now();
+    };
+    window.addEventListener("blur", now);
+    window.addEventListener("pagehide", now);
+    document.addEventListener("visibilitychange", hidden);
+    const stop = onFlush(() => saveNowRef.current());
+    return () => {
+      window.removeEventListener("blur", now);
+      window.removeEventListener("pagehide", now);
+      document.removeEventListener("visibilitychange", hidden);
+      stop();
+    };
+  }, []);
 
   /** Finish composing before doing anything that would otherwise abandon it mid-thought. */
   const selectNote = useCallback(

@@ -2024,6 +2024,15 @@ async fn account_unsent(app: tauri::AppHandle, data: State<'_, Data>) -> UiResul
 /// account is removed from this computer. Either way nothing is deleted from iCloud.
 #[tauri::command]
 async fn auth_sign_out(keep: bool, app: tauri::AppHandle, auth: State<'_, Auth>) -> UiResult<()> {
+    // What is still being typed in any window is written down first, while the library is the
+    // account's and the windows are there to answer: `close_all` below destroys the app
+    // windows, and a note's last second of typing went with them (desktop audit C1).
+    let windows = app.clone();
+    tauri::async_runtime::spawn_blocking(move || {
+        apps::flush_windows(&windows, &apps::every_window(&windows));
+    })
+    .await
+    .ok();
     // The folders go with the session they were served by — before the auth lock is taken,
     // since what they are still answering may be waiting on it.
     LIVE.store(false, Ordering::SeqCst);
@@ -6448,7 +6457,28 @@ static LAUNCHED_AS_APP: AtomicBool = AtomicBool::new(false);
 /// in libheif, main thread in exit). Nothing needs that teardown: every change is in the
 /// library the moment it is made (SQLite commits as it goes), and what waits to be sent is
 /// written down as it waits.
-fn shutdown(app: &tauri::AppHandle, code: i32) -> ! {
+///
+/// Each window is asked first to write down what is still being typed, and waited for up to
+/// `apps::FLUSH_WITHIN`: a note's last second of typing lived only in its page, and `_exit`
+/// ended it unsaved (desktop audit C1). The wait runs on a thread of its own, so this returns
+/// at once: called on the main thread, as the tray's menu is on Windows, waiting there would
+/// have kept the pages' answers (which come through the main loop) from ever arriving.
+fn shutdown(app: &tauri::AppHandle, code: i32) {
+    let leaving = app.clone();
+    let spawned = std::thread::Builder::new()
+        .name("quit".into())
+        .spawn(move || {
+            apps::flush_windows(&leaving, &apps::every_window(&leaving));
+            end(&leaving, code)
+        });
+    if spawned.is_err() {
+        end(app, code);
+    }
+}
+
+/// The process ended now, past any asking: what `shutdown` does once the windows have
+/// answered, and what the event loop's own end does, when no window is left to ask.
+fn end(app: &tauri::AppHandle, code: i32) -> ! {
     wind_down(app);
     // SAFETY: ends the process at once; nothing after it runs.
     unsafe { libc::_exit(code) }
@@ -7085,6 +7115,19 @@ fn main() {
             // gone unused for a while, so six put-away windows do not sit on memory.
             if let tauri::WindowEvent::CloseRequested { api, .. } = event {
                 if !tray_reachable(window.app_handle()) {
+                    // Closed for real, so the page is asked to write down what is typed in it
+                    // first, off the main thread (its answer comes through the main loop), and
+                    // the window destroyed once it has or the wait is up. Let close at once, a
+                    // note's last second of typing went with it (desktop audit C1).
+                    api.prevent_close();
+                    let app = window.app_handle().clone();
+                    let label = window.label().to_string();
+                    std::thread::spawn(move || {
+                        apps::flush_windows(&app, std::slice::from_ref(&label));
+                        if let Some(w) = app.get_webview_window(&label) {
+                            w.destroy().ok();
+                        }
+                    });
                     return;
                 }
                 if window.label() == "main" {
@@ -7470,6 +7513,7 @@ fn main() {
             updates::update_later,
             updates::update_auto_set,
             updates::update_typing,
+            apps::window_flushed,
             auth_status,
             auth_resume,
             auth_sign_in,
@@ -7708,7 +7752,7 @@ fn main() {
             // The iCloud Drive folder goes with the app: left mounted, it would answer
             // nothing ("Transport endpoint is not connected").
             if let tauri::RunEvent::Exit = event {
-                shutdown(_app, 0);
+                end(_app, 0);
             }
         });
 }
