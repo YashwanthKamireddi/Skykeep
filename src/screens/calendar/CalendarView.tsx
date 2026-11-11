@@ -722,6 +722,11 @@ export function CalendarView() {
     setDue((was) => same(was, Array.isArray(reminders) ? reminders.filter((r) => !r.completedAt).map(onItsDay) : []));
     setLoaded(true);
   }, [range, over]);
+  // The read for the range on screen now: called after a write's await, `read` itself was the
+  // one from when the write began, and a month stepped into meanwhile was drawn over with the
+  // old month's events, numbered newest (desktop audit H3).
+  const readNow = useRef(read);
+  readNow.current = read;
 
   useEffect(() => {
     let cancelled = false;
@@ -812,18 +817,18 @@ export function CalendarView() {
       try {
         await run();
         release();
-        await read();
+        await readNow.current();
         return true;
       } catch (e) {
         release();
         setError(messageOf(e));
-        read().catch(() => {});
+        readNow.current().catch(() => {});
         return false;
       } finally {
         release();
       }
     },
-    [read, hold]
+    [hold]
   );
 
   /** Calendars made, renamed, recoloured and removed — shown at once, put back if Apple refuses. */
@@ -1127,14 +1132,14 @@ export function CalendarView() {
   };
   const refreshSub = (id: string) => {
     calendarFeedsApi.refresh(id).then(
-      (s) => { toast(`\u201c${s.title}\u201d is up to date`); void read(); },
+      (s) => { toast(`\u201c${s.title}\u201d is up to date`); void readNow.current(); },
       (e) => setError(messageOf(e)),
     );
   };
   const refreshAccount = (a: DavAccount) => {
     davApi.refresh(a.id).then(
-      () => { toast(`\u201c${a.title}\u201d is up to date`); void read(); },
-      (e) => { setError(messageOf(e)); void read(); },
+      () => { toast(`\u201c${a.title}\u201d is up to date`); void readNow.current(); },
+      (e) => { setError(messageOf(e)); void readNow.current(); },
     );
   };
   const removeAccount = (a: DavAccount) => {

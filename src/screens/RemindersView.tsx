@@ -665,13 +665,13 @@ export function RemindersView() {
         await before;
         await run();
         release();
-        return await readItems();
+        return await readItemsRef.current();
       } catch (e) {
         release();
         // Not in the library at all — deleted on another device and synced away. Nothing to
         // say about it: the list is read again and the row goes, as on the phone.
         if (messageOf(e) !== REMINDER_GONE) setError(messageOf(e));
-        readItems().catch(() => {});
+        readItemsRef.current().catch(() => {});
         return null;
       } finally {
         done();
@@ -679,7 +679,7 @@ export function RemindersView() {
         release();
       }
     },
-    [readItems, hold],
+    [hold],
   );
 
   /**
@@ -1020,7 +1020,7 @@ export function RemindersView() {
     } catch (e) {
       setError(messageOf(e));
     }
-    await readItems().catch(() => {});
+    await readItemsRef.current().catch(() => {});
   };
   const renameSection = async (section: ReminderSection, title: string) => {
     if (!REMINDER_DETAIL_WRITES || !title.trim() || title.trim() === section.title) return;
@@ -1030,7 +1030,7 @@ export function RemindersView() {
     } catch (e) {
       setError(messageOf(e));
     }
-    await readItems().catch(() => {});
+    await readItemsRef.current().catch(() => {});
   };
 
   /** Deleting asks first: there is no bringing a reminder back from here. */
@@ -1251,7 +1251,7 @@ export function RemindersView() {
       try {
         await run();
         await readLists();
-        await readItems();
+        await readItemsRef.current();
       } catch (e) {
         setError(messageOf(e));
       } finally {
@@ -1445,7 +1445,7 @@ export function RemindersView() {
         if (q?.priority) await api.reminderEdit(made, listGuid, { priority: q.priority }).catch((e) => setError(messageOf(e)));
         if (q?.repeat) await api.reminderSetRepeat(made, listGuid, q.repeat).catch((e) => setError(messageOf(e)));
       }
-      await readItems();
+      await readItemsRef.current();
     } catch (err) {
       setItems((rows) => rows.filter((r) => r.guid !== standIn));
       setInsertAfter((was) => (was?.guid === standIn ? null : was));

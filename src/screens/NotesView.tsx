@@ -414,6 +414,11 @@ export function NotesView() {
    * to Apple and the list is re-read. A refusal re-reads, which puts the note back, and says
    * why.
    */
+  // The read for what is on screen now, not when the write began: `read` closes over the
+  // folder and search, and a write's read after its await used the old ones. Moving to another
+  // folder while a pin was on its way drew the old folder's notes over the new (audit H3).
+  const readNow = useRef(read);
+  readNow.current = read;
   const write = useCallback(
     async (run: () => Promise<void>, predict?: (rows: Note[]) => Note[]) => {
       setBusy(true);
@@ -424,19 +429,19 @@ export function NotesView() {
       try {
         await run();
         release();
-        await read();
+        await readNow.current();
         return true;
       } catch (e) {
         release();
         setError(messageOf(e));
-        read().catch(() => {});
+        readNow.current().catch(() => {});
         return false;
       } finally {
         release();
         setBusy(false);
       }
     },
-    [read, hold]
+    [hold]
   );
 
   /** Mirrors `composing` for effects that must not re-run when it changes. */
@@ -860,7 +865,7 @@ export function NotesView() {
       } as Note, ...ns]);
       setOpenGuid(guid);
       setComposing(null);
-      await read();
+      await readNow.current();
     } catch (e) {
       // The write failed, not the typing — it stays on screen to try again.
       setError(messageOf(e));
@@ -868,7 +873,7 @@ export function NotesView() {
       creating.current = false;
       setBusy(false);
     }
-  }, [read, setComposing]);
+  }, [setComposing]);
 
   // The same pause-then-save rhythm as an existing note, up until there is a real note to
   // hand it to.
@@ -919,7 +924,7 @@ export function NotesView() {
     setFolders((fs) => [...fs, { guid: standIn, title: "New Folder", sortOrder: 0, parentGuid: parent } as NoteFolder]);
     try {
       const guid = await api.noteFolderCreate("New Folder", parent);
-      await read();
+      await readNow.current();
       setRenamingFolder(guid);
     } catch (e) {
       setFolders((fs) => fs.filter((f) => f.guid !== standIn));
@@ -933,10 +938,10 @@ export function NotesView() {
     setFolders((fs) => fs.map((x) => (x.guid === f.guid ? { ...x, title: name } : x)));
     try {
       await api.noteFolderRename(f.guid, name);
-      await read();
+      await readNow.current();
     } catch (e) {
       setError(messageOf(e));
-      read().catch(() => {});
+      readNow.current().catch(() => {});
     }
   };
   const deleteFolder = async (f: NoteFolder) => {
@@ -953,10 +958,10 @@ export function NotesView() {
     if (folder === f.guid) setFolder(ALL);
     try {
       await api.noteFolderDelete(f.guid);
-      await read();
+      await readNow.current();
     } catch (e) {
       setError(messageOf(e));
-      read().catch(() => {});
+      readNow.current().catch(() => {});
     }
   };
 
@@ -1100,7 +1105,7 @@ export function NotesView() {
         const [nextBody, nextRuns] = await Promise.all([api.noteBody(guid), api.noteRuns(guid)]);
         if (nextBody !== null) setLoadedBody({ guid, text: nextBody });
         setLoadedRuns({ guid, runs: Array.isArray(nextRuns) ? nextRuns : [] });
-        await read();
+        await readNow.current();
       } catch (e) {
         setError(messageOf(e));
       } finally {
