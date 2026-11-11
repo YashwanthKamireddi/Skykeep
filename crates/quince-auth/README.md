@@ -6,6 +6,9 @@ Skykeep makes is built here.
 - **`Client`** is one account's session: `new(dir)`, `sign_in`, the two-factor calls,
   `resume`, `reopen` (when the app opens, decides between the library, a code and sign-in,
   offline included), and `http()`, `session()` and `service_params()` for the service crates.
+- **Before every sync pass** (`keep.rs`): `ensure_session` runs the heartbeat and, when Apple
+  says the session lapsed, the resume, and says where it stands (`Kept`). Apple is asked at
+  most once a minute, and not again once it has ended the session, until a new sign-in.
 - **SRP and two-factor** (`srp.rs`, `lib.rs`) are Apple's sign-in done natively, with no
   webview. `state.rs` holds the password only until Apple accepts it.
 - **Session storage** (`session.rs`, `sealed.rs`): the trust token and keys go to the system
