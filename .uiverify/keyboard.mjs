@@ -126,9 +126,17 @@ const focused = (page) =>
     await page.keyboard.press("Tab");
     seen.push(await focused(page));
   }
+  // Sign in is disabled — out of the Tab order — until both fields are filled, so it is
+  // reached by Tab from the password once they are. (Matching the sheet's heading, which
+  // once read "Sign in with…", let this pass without ever reaching the button.)
+  await page.fill('input[aria-label="Apple Account"]', "you@icloud.com");
+  await page.fill('input[aria-label="Password"]', "secret");
+  await page.focus('input[aria-label="Password"]');
+  await page.keyboard.press("Tab");
+  const button = await page.evaluate(() => document.activeElement?.matches('button[type="submit"]') ? document.activeElement.textContent.trim() : "");
   check("sign-in reaches Apple Account, Password, Sign in by Tab",
-    seen.includes("Apple Account") && seen.includes("Password") && seen.some((s) => /Sign in/.test(s)),
-    seen.join(" → "));
+    seen.includes("Apple Account") && seen.includes("Password") && button === "Sign in",
+    `${seen.join(" → ")}; then ${button || "not the button"}`);
 
   // A visible focus ring is the whole point of keyboard focus.
   await page.focus('input[aria-label="Apple Account"]');
