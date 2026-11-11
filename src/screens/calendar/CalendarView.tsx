@@ -38,6 +38,7 @@ import { askForSidebar } from "../../components/SidePane";
 import {
   addDays,
   addDaysIn,
+  endAfter,
   allZones,
   clock,
   dateOf,
@@ -3751,7 +3752,7 @@ function EventPopover({
             label="Ends"
             zone={zoneOf(draft)}
             onChange={(end) =>
-              set({ endsAt: draft.allDay ? seconds(addDays(midnight(dateOf(end)), 1)) : Math.max(end, draft.startsAt + 300) })
+              set({ endsAt: draft.allDay ? seconds(addDays(midnight(dateOf(end)), 1)) : endAfter(zoneOf(draft), draft.startsAt, end) })
             }
           />
         </div>
