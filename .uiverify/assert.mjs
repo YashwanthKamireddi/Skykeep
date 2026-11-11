@@ -737,7 +737,7 @@ let failures = 0;
   const open = (await page.locator(".disclosure").innerText()).toLowerCase();
   const says = {
     "that it is unofficial": /unofficial|not affiliated/.test(open),
-    "that Apple can change it": /without notice|stop working|kept in step as icloud evolves/.test(open),
+    "that Apple can change it": /without notice|stop working|can change at any time/.test(open),
     "where the copy is kept": /local\/share|dev\.quince\.client/.test(open),
     "that the password stays here": /never leaves this computer/.test(open),
     "what no client can read": /end.to.end|encrypted end/.test(open),

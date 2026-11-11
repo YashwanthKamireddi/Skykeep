@@ -106,6 +106,12 @@ sudo snap install skykeep && sudo snap connect skykeep:password-manager-service
 The Snap's second command lets it keep you signed in through your keyring. On Ubuntu the AppImage needs `libfuse2t64` once (`libfuse2` on 22.04). Fedora and openSUSE leave out the decoder for iPhone photos (HEIC) for patent reasons: on Fedora, enable RPM Fusion and `sudo dnf install libheif-freeworld`; on openSUSE, add Packman and install `libheif1`. For Drive and Photos as folders on Arch, also `sudo pacman -S fuse3`.
 </details>
 
+## Official downloads
+
+Skykeep is published only through the links above: GitHub Releases, the Microsoft Store, the Snap Store, Chocolatey, the [Scoop bucket](https://github.com/YashwanthKamireddi/scoop-bucket) and the COPR `yashonfed/skykeep`. The AUR packages `skykeep` and `skykeep-bin` are kept by a community packager and built from these releases. Flathub and winget join this list once they are live. On Android, the APK will be on GitHub Releases. Its signing-certificate SHA-256 fingerprint: to be published with the first Android release, so you can check the copy you install.
+
+A copy from anywhere else is not from this project. Never type your Apple Account password into one you can't trace back here.
+
 ## Sign in
 
 1. Open Skykeep and sign in with your Apple Account.
@@ -149,7 +155,9 @@ Notes, Reminders, Drive and Photos open only to a full sign-in with two-factor, 
 <details>
 <summary>Is it safe to use with my Apple Account?</summary>
 
-Skykeep signs in the same way icloud.com does, with your password and two-factor code, and talks only to Apple. It is not an Apple-approved app: Apple offers no official way for other apps to reach Notes, Reminders, Drive or Photos, so Skykeep uses the same web services icloud.com uses, as long-standing open-source tools like icloudpd do. Apple can change those services at any time, and may now and then ask you to sign in again or approve on your iPhone. Skykeep has no servers of its own and its code is public, so you can check exactly what it sends.
+Skykeep signs in the same way icloud.com does, with your password and two-factor code, and your iCloud goes only between your computer and Apple. Besides Apple, it connects only to the calendars you subscribe to, the Nextcloud or CalDAV accounts you add, and, in a copy from the Windows installer (Chocolatey's too), the `.msi` or the AppImage, GitHub's release servers to check for new versions of Skykeep. Settings, under What Skykeep Talks To, lists every address your copy can reach.
+
+It is not an Apple-approved app: Apple offers no official way for other apps to reach Notes, Reminders, Drive or Photos, so Skykeep uses the same web services icloud.com uses, as long-standing open-source tools like icloudpd do. Apple can change those services at any time, and may now and then ask you to sign in again or approve on your iPhone. Apple's iCloud terms are between you and Apple. Skykeep has no servers of its own and its code is public, so you can check exactly what it sends and where.
 </details>
 
 <details>
@@ -162,4 +170,8 @@ Quit Skykeep and start it with `SKYKEEP_LOG=1 skykeep` (Windows PowerShell: `$en
 
 Bug reports, packaging for your distro, design ideas and code are all welcome. [CONTRIBUTING.md](.github/CONTRIBUTING.md) has the setup and a map of the code, and [Discussions](https://github.com/YashwanthKamireddi/Skykeep/discussions) is the place for questions and ideas. Security problems go to a [private report](https://github.com/YashwanthKamireddi/Skykeep/security/advisories/new).
 
-Copyright (C) 2026 Yashwanth Kamireddi. [GPL-3.0](LICENSE): if you share a copy or a changed version, keep this notice and the same licence. Not affiliated with or endorsed by Apple Inc.
+## Name and logo
+
+The GPL-3.0 covers Skykeep's code, not its name or logo. As section 7(e) of the licence allows, it grants no rights to use them: a changed version you share with others needs a name and icon of its own, so nobody mistakes it for this project. Saying that your version is based on Skykeep is fine.
+
+Copyright (C) 2026 Yashwanth Kamireddi. [GPL-3.0](LICENSE): if you share a copy or a changed version, keep this notice and the same licence. It comes with no warranty. Not affiliated with or endorsed by Apple Inc. Apple, iCloud and iPhone are trademarks of Apple Inc., registered in the U.S. and other countries and regions.

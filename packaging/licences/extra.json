@@ -1,0 +1,19 @@
+{
+  "about": "C libraries built into a desktop build that are not crates or npm packages, so neither cargo-about nor package-lock.json can name them. scripts/licences.mjs adds each entry to src/licences.json (Settings > Open-Source Licences): its notice, then the licence text from the file named (a path from the repository's root). The Windows build links libheif statically with vcpkg's default features (.github/workflows/windows.yml), which bring libde265 to decode and x265 to encode; the version is the one that build installed (libheif 1.23.7, in the run of 10 Nov 2026). When that build's vcpkg cache key changes, check the versions here again. The Linux packages use the system's libheif, shipped by the distribution under its own notices.",
+  "licences": [
+    {
+      "id": "LGPL-3.0-only",
+      "name": "GNU Lesser General Public License v3.0",
+      "users": ["libde265 (Windows build)", "libheif 1.23.7 (Windows build)"],
+      "notice": "libheif: Copyright (c) 2017-2020 Struktur AG; Copyright (c) 2017-2026 Dirk Farin. Source: https://github.com/strukturag/libheif/releases/tag/v1.23.7\n\nlibde265: Copyright (c) 2013-2014 Struktur AG; Copyright (c) 2013-2026 Dirk Farin. Source: https://github.com/strukturag/libde265\n\nBoth are built into the Windows build of Skykeep by vcpkg (https://github.com/microsoft/vcpkg, ports libheif and libde265) and linked statically. Skykeep's own source, under the GPL-3.0, is at https://github.com/YashwanthKamireddi/Skykeep, so the whole program can be rebuilt with a changed copy of either library. This licence adds to the GNU General Public License v3.0, which is shipped with them too.",
+      "file": "packaging/licences/LGPL-3.0.txt"
+    },
+    {
+      "id": "GPL-3.0-only",
+      "name": "GNU General Public License v3.0",
+      "users": ["libde265 (Windows build)", "libheif 1.23.7 (Windows build)", "x265 (Windows build)"],
+      "notice": "x265: Copyright (C) 2013-2020 MulticoreWare, Inc. Under the GNU General Public License version 2 or (at your option) any later version, taken here under version 3. Source: https://bitbucket.org/multicoreware/x265_git\n\nBuilt into the Windows build of Skykeep by vcpkg (https://github.com/microsoft/vcpkg, port x265) as part of libheif, and linked statically. The Lesser GPL v3.0 of libheif and libde265 is written as additional permissions on this licence, so it is shipped with them as well.",
+      "file": "LICENSE"
+    }
+  ]
+}

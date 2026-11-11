@@ -803,6 +803,7 @@ export function SettingsView({ onSignOut }: { onSignOut: (keep: boolean) => Prom
       </div>
       <footer className="dash-foot">
         <span>Skykeep {version ?? ""}</span>
+        <span>Copyright (C) 2026 Yashwanth Kamireddi. Free software under the GPL-3.0, with no warranty. Not affiliated with Apple.</span>
             <button
               className="quiet"
               aria-label="Save Diagnostic Report"
@@ -948,8 +949,8 @@ function NetworkNote() {
   return (
     <p className="settings-note">
       {reach.updates.length > 0
-        ? "Skykeep connects to Apple for your iCloud, to calendars you subscribe to, and to GitHub for its own updates. No Skykeep account, no analytics."
-        : "Skykeep connects to Apple for your iCloud, and to calendars you subscribe to. No Skykeep account, no analytics."}
+        ? "Skykeep connects to Apple for your iCloud, to calendars you subscribe to and calendar accounts you add, and to GitHub for its own updates. No Skykeep account, no analytics."
+        : "Skykeep connects to Apple for your iCloud, and to calendars you subscribe to and calendar accounts you add. No Skykeep account, no analytics."}
     </p>
   );
 }

@@ -196,7 +196,7 @@ export function SignIn({
           </p>
           <p>
             <strong>Independent.</strong> Made by an independent developer, not affiliated with
-            Apple, and kept in step as iCloud evolves.
+            Apple. It uses the web services icloud.com uses, which Apple can change at any time.
           </p>
         </div>
       </details>

@@ -128,6 +128,16 @@ them, although Skykeep only decodes. The `.deb`, `.rpm` and
 Arch package carry none of this — they use the system's own packages (Fedora and openSUSE
 users add RPM Fusion or Packman for HEVC, as the README says).
 
+Source for what the AppImage bundles, as the LGPL and GPL ask: the GStreamer, gst-libav,
+FFmpeg, WebKitGTK and other libraries it copies are Ubuntu 22.04's own packages, whose exact
+sources are in Ubuntu's archive (`apt-get source <package>` on 22.04, or each package's page
+on https://launchpad.net/ubuntu/jammy); libheif and libde265 are built from the upstream
+release tarballs whose versions and SHA-256 sums are pinned in `.github/workflows/appimage.yml`
+(https://github.com/strukturag/libheif/releases, https://github.com/strukturag/libde265/releases).
+The Windows build's libheif, libde265 and x265, which vcpkg builds and links in statically,
+are listed with their licences and sources in `packaging/licences/extra.json`, shown in
+Settings ▸ Open-Source Licences.
+
 The files map uses Ubuntu's multiarch paths, so `npx tauri build --bundles appimage` is meant
 for an Ubuntu/Debian machine with `libheif-plugin-libde265` (or the one appimage.yml builds)
 installed; elsewhere build the `.rpm` or the Arch package.

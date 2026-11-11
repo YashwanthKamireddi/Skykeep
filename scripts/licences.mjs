@@ -1,7 +1,8 @@
 // `npm run licences`: writes src/licences.json, every open-source licence the desktop app ships,
 // for Settings › Open-Source Licences. The Rust crates built into the app come from cargo-about
 // (with about.toml's rules), the npm packages bundled into the window from package-lock.json,
-// each with its own licence file. Run when dependencies change and the result committed: the
+// each with its own licence file, and the C libraries a build links in that are neither
+// (packaging/licences/extra.json: libheif and what it brings in the Windows build). Run when dependencies change and the result committed: the
 // build only reads the file, so Flatpak, COPR, the AUR and every CI build need no cargo-about,
 // and the release (tag.yml) and the local gate (check.sh) run this again and refuse a list that
 // differs. It fails, writing nothing, on a licence about.toml does not accept, a package with no
@@ -115,8 +116,26 @@ function packages(allowed) {
   return list;
 }
 
-/** Crates and packages, one entry for each licence text, in a fixed order. */
-function combine(rust, web) {
+/**
+ * The C libraries listed by hand in packaging/licences/extra.json, each text its notice then its
+ * licence from the file named (a path from the repository's root).
+ */
+function extras() {
+  const file = join(root, "packaging", "licences", "extra.json");
+  const { licences } = JSON.parse(readFileSync(file, "utf8"));
+  if (!Array.isArray(licences)) throw new Error("packaging/licences/extra.json has no licences list");
+  return licences.map((l) => {
+    for (const key of ["id", "name", "notice", "file"]) {
+      if (typeof l[key] !== "string" || l[key] === "") throw new Error(`packaging/licences/extra.json: an entry has no ${key}`);
+    }
+    if (!Array.isArray(l.users) || l.users.length === 0) throw new Error(`packaging/licences/extra.json: ${l.id} names no users`);
+    const text = `${same(l.notice)}\n\n\n${same(readFileSync(join(root, l.file), "utf8"))}`;
+    return { id: l.id, name: l.name, text, users: l.users };
+  });
+}
+
+/** Crates, packages and the listed C libraries, one entry for each licence text, in a fixed order. */
+function combine(rust, web, extra) {
   const names = new Map(rust.map((l) => [l.id, l.name]));
   // The texts of one licence used by exactly the same crates are one entry, each text kept
   // once: ring carries its ISC notice in 21 source files, and listed apart they were 21 rows
@@ -144,6 +163,7 @@ function combine(rust, web) {
     add(id, name, texts.map(same).sort(order).join("\n\n\n"), users);
   }
   for (const p of web) add(p.id, names.get(p.id) ?? p.id, same(p.text), [p.user]);
+  for (const l of extra) add(l.id, l.name, l.text, l.users);
   const licences = [...byText.values()];
   for (const l of licences) l.users = [...new Set(l.users)].sort(order);
   licences.sort((a, b) => order(a.name, b.name) || order(a.users[0], b.users[0]) || order(a.text, b.text));
@@ -183,7 +203,7 @@ async function checkBundle(npm) {
 try {
   const allowed = accepted();
   const web = packages(allowed);
-  const licences = combine(await crates(), web);
+  const licences = combine(await crates(), web, extras());
   const text = JSON.stringify(licences, null, 2) + "\n";
   // The bundle is checked against the new list, then the old file is put back if it fails.
   let before = null;

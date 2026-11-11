@@ -86,6 +86,8 @@ jobs:
       # with the C and C++ runtimes too (the x64-windows-static triplet, /MT, matching Rust's
       # crt-static below): skykeep.exe then needs no Visual C++ Redistributable, which a fresh
       # Windows doesn't have — without it the program can't start at all (STATUS_DLL_NOT_FOUND).
+      # What vcpkg links in (libheif, libde265, x265) is listed with its licences in
+      # packaging/licences/extra.json; a new cache key can bring new versions, so check it there.
       - uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         with:
           path: C:\vcpkg\installed

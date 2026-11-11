@@ -13,8 +13,11 @@ description: |
   Rust engine that keeps your library on your computer. They open instantly, work offline and
   stay in sync with your iPhone.
 
-  Free and open source, with no Skykeep account and no analytics. Sign-in is Apple's own, with
-  two-factor. Skykeep is an independent project, not affiliated with or endorsed by Apple Inc.
+  Free and open source, with no Skykeep account and no analytics. You sign in with your Apple
+  Account and two-factor code through Apple's SRP sign-in, so your password is never sent.
+  Skykeep is an independent project, not affiliated with or endorsed by Apple Inc. It reaches
+  iCloud through web services Apple has not published, which Apple may change at any time.
+  iCloud and iPhone are trademarks of Apple Inc.
 license: GPL-3.0-only
 website: https://github.com/YashwanthKamireddi/Skykeep
 source-code: https://github.com/YashwanthKamireddi/Skykeep

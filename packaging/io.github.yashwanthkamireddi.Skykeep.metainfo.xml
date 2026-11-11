@@ -24,9 +24,9 @@
     </p>
     <p>
       Sign in once with your Apple Account. Your password stays on this computer, in your
-      system keyring. Skykeep connects to Apple for your iCloud and to the calendars you
-      subscribe to; the AppImage also checks GitHub for new versions of Skykeep. There is no
-      Skykeep account and no analytics.
+      system keyring. Skykeep connects to Apple for your iCloud, and to the calendars you
+      subscribe to and the calendar accounts you add yourself; the AppImage also checks GitHub
+      for new versions of Skykeep. There is no Skykeep account and no analytics.
     </p>
     <p>
       Skykeep is an independent, open-source project. It is not made by, endorsed by, or
