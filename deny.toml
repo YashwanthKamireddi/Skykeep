@@ -19,12 +19,6 @@ targets = [
 # every dependency update.
 yanked = "deny"
 ignore = [
-  # SQLite before 3.54 can return stale page-cache bytes for a database opened with a crafted
-  # -wal of another page size. Fixed in libsqlite3-sys 0.39 (rusqlite 0.41); Skykeep is on
-  # rusqlite 0.32, and the move is an API upgrade of its own, still to do. Skykeep opens only
-  # its own library.db and -wal in its own data folder, which only the person's own account
-  # can write: whoever could craft that pair could read the library outright.
-  { id = "RUSTSEC-2026-0459", reason = "rusqlite 0.41 upgrade pending; only Skykeep's own files are opened" },
   # glib 0.18 and its proc-macro-error: the GTK 3 stack Tauri's Linux webview and tray are
   # built on (tauri, wry, tray-icon pin gtk-rs 0.18). Skykeep never iterates a GVariant's
   # strings (VariantStrIter) itself.

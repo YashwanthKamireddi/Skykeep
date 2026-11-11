@@ -645,7 +645,7 @@ impl Library {
     }
 
     pub fn reminders_due_between(&self, from: i64, to: i64) -> Result<Vec<Reminder>> {
-        let mut stmt = self.conn.prepare(
+        let mut stmt = self.conn.prepare(&format!(
             "SELECT r.guid, r.list_guid, r.title, r.notes, r.due_at, r.completed_at,
                     r.priority, r.flagged, r.parent_guid, r.recur_frequency, r.recur_interval,
                     r.etag, r.timezone, r.section_guid, r.all_day
@@ -656,9 +656,9 @@ impl Library {
              -- Open ones first, so a busy year's finished history can never use up the cap and
              -- leave reminders still to do off the Year view; each placed by its date anyway.
              ORDER BY r.completed_at IS NOT NULL, r.due_at
-             LIMIT ?3",
-        )?;
-        let rows = stmt.query_map(params![from, to, MOST_AT_ONCE], |row| {
+             LIMIT {MOST_AT_ONCE}"
+        ))?;
+        let rows = stmt.query_map(params![from, to], |row| {
             Ok(Reminder {
                 guid: row.get(0)?,
                 list_guid: row.get(1)?,

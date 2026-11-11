@@ -293,15 +293,11 @@ impl Library {
         let Ok(mut stmt) = old.prepare(select) else {
             return 0;
         };
-        let theirs: Vec<String> = stmt
-            .column_names()
-            .iter()
-            .map(|c| (*c).to_string())
-            .collect();
+        let theirs: Vec<String> = stmt.column_names().map(str::to_owned).collect();
         let ours: Vec<String> = self
             .conn
             .prepare(&format!("SELECT * FROM {table} LIMIT 0"))
-            .map(|s| s.column_names().iter().map(|c| (*c).to_string()).collect())
+            .map(|s| s.column_names().map(str::to_owned).collect())
             .unwrap_or_default();
         let shared: Vec<(usize, &String)> = theirs
             .iter()
@@ -447,17 +443,11 @@ impl Library {
         apply: impl FnOnce(&mut Self) -> T,
     ) -> (T, bool) {
         use std::sync::atomic::{AtomicU64, Ordering};
-        /// The hook taken off again however `apply` ends, a panic included.
-        struct Unhook<'a>(&'a Connection);
-        impl Drop for Unhook<'_> {
-            fn drop(&mut self) {
-                self.0
-                    .update_hook(None::<fn(rusqlite::hooks::Action, &str, &str, i64)>);
-            }
-        }
         let aside = std::sync::Arc::new(AtomicU64::new(0));
         let counted = std::sync::Arc::clone(&aside);
-        self.conn.update_hook(Some(
+        // A hook that could not be set counts nothing aside, so every row written counts as
+        // a change: the one way this may err.
+        let _ = self.conn.update_hook(Some(
             move |_: rusqlite::hooks::Action, _: &str, table: &str, _: i64| {
                 if besides.contains(&table) {
                     counted.fetch_add(1, Ordering::Relaxed);
@@ -465,15 +455,15 @@ impl Library {
             },
         ));
         let before = self.conn.total_changes();
-        let out = {
-            // Not borrowed across `apply`: it takes the library whole. The hook is removed
-            // just after, and on unwinding by the guard below.
-            let out = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| apply(self)));
-            let _unhook = Unhook(&self.conn);
-            match out {
-                Ok(out) => out,
-                Err(panic) => std::panic::resume_unwind(panic),
-            }
+        // Not borrowed across `apply`: it takes the library whole. The hook comes off however
+        // `apply` ends, a panic included; one left on would only go on counting into `aside`.
+        let out = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| apply(self)));
+        let _ = self
+            .conn
+            .update_hook(None::<fn(rusqlite::hooks::Action, &str, &str, i64)>);
+        let out = match out {
+            Ok(out) => out,
+            Err(panic) => std::panic::resume_unwind(panic),
         };
         let written = self.conn.total_changes().saturating_sub(before);
         (out, written > aside.load(Ordering::Relaxed))
