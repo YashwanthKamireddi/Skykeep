@@ -147,6 +147,9 @@ jobs:
         runner: [ubuntu-24.04, ubuntu-24.04-arm]
     runs-on: ${{ matrix.runner }}
     timeout-minutes: 50  # a cold cache (new toolchain, new lockfile) compiles everything; warm runs take ~12
+    permissions:
+      contents: read
+      pull-requests: read
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - name: Build dependencies
@@ -194,27 +197,48 @@ jobs:
       - uses: taiki-e/install-action@cfdb7ed4ccc7c7dce37759eae89dc5674b469b39 # v2.90.3
         with:
           tool: cargo-nextest
-      - run: cargo nextest run --workspace --lib --bins --tests --locked --profile ci
+      # A pull request builds and tests the packages it changed and every package that depends
+      # on them (.github/scripts/test-scope.py, cargo's own graph), as Zed's CI does; a change to
+      # the lockfile, the toolchain or the CI tests everything, and so does every push to main.
+      - name: What to test
+        id: scope
+        env:
+          GH_TOKEN: ${{ github.token }}
+          PR: ${{ github.event.pull_request.number }}
+        run: |
+          if [ -n "$PR" ]; then
+            scope=$(gh api --paginate "repos/$GITHUB_REPOSITORY/pulls/$PR/files" --jq '.[].filename' | python3 .github/scripts/test-scope.py)
+          else
+            scope=all
+          fi
+          case "$scope" in all) sel=--workspace ;; none) sel= ;; *) sel=$(printf -- '-p %s ' $scope) ;; esac
+          echo "scope: $scope"
+          { echo "scope=$scope"; echo "sel=$sel"; } >> "$GITHUB_OUTPUT"
+      - if: steps.scope.outputs.scope != 'none'
+        run: cargo nextest run ${{ steps.scope.outputs.sel }} --lib --bins --tests --locked --profile ci
         env:
           TZ: America/Chicago
       # The keyring code against a real, throwaway gnome-keyring on a private bus (check.sh's
       # "real keyring"): what the keyring crate saved reads with ours, and a burst is survived.
+      # The ignored tests below run through nextest with the suite's own selection, so they
+      # reuse its binaries: `cargo test` built examples and doc tests again (3.6 min, 11 Nov).
       - name: A real keyring
-        if: runner.arch == 'X64'
+        if: runner.arch == 'X64' && (steps.scope.outputs.scope == 'all' || contains(steps.scope.outputs.scope, 'quince-auth'))
         run: |
           sudo apt-get -o Acquire::Retries=5 install -y --no-install-recommends gnome-keyring dbus-daemon
           t=$(mktemp -d); mkdir -p "$t/data" "$t/run"; chmod 700 "$t/run"
           XDG_DATA_HOME="$t/data" XDG_RUNTIME_DIR="$t/run" dbus-run-session -- bash -c '
             echo -n throwaway | gnome-keyring-daemon --unlock --components=secrets >/dev/null 2>&1
             export QUINCE_ISOLATED_KEYRING=$DBUS_SESSION_BUS_ADDRESS
-            cargo test --locked -p quince-auth --lib secret_service -- --ignored'
+            cargo nextest run ${{ steps.scope.outputs.sel }} --lib --bins --tests --locked --profile ci --run-ignored only -E "test(secret_service)"'
       # A download onto a disk that really fills up (a 1 MB tmpfs): the disk's own refusal,
       # not a made-up free-space number, stops it cleanly (folder_download/tests.rs).
       - name: A real full disk
+        if: steps.scope.outputs.scope == 'all' || contains(steps.scope.outputs.scope, 'quince-app')
         run: |
           sudo mkdir -p /mnt/skykeep-full
           sudo mount -t tmpfs -o size=1m,uid=$(id -u) tmpfs /mnt/skykeep-full
-          SKYKEEP_FULL_DISK=/mnt/skykeep-full cargo test --locked -p quince-app real_full_disk -- --ignored
+          SKYKEEP_FULL_DISK=/mnt/skykeep-full cargo nextest run ${{ steps.scope.outputs.sel }} --lib --bins --tests --locked --profile ci --run-ignored only -E 'test(real_full_disk)'
 
   # The Android app, which nothing else here builds: the engine for both ABIs (cargo-ndk) and its
   # Kotlin bindings made from that same code, the app and its device-test APK compiled, the JVM
