@@ -26,7 +26,7 @@ import {
   type UploadEvent,
 } from "../lib/ipc";
 import { ActionGlyph, FileGlyph } from "../components/FileGlyph";
-import { UploadTray } from "../components/UploadTray";
+import { UploadTray, Uploads } from "../components/UploadTray";
 import { DownloadTray } from "../components/DownloadTray";
 import { startDownload } from "../lib/downloads";
 import { listen } from "@tauri-apps/api/event";
@@ -36,6 +36,7 @@ import { dateText, timeText } from "../lib/when";
 import { Clock, Cloud, Trash2 } from "lucide-react";
 import { useReveal } from "../lib/reveal";
 import { keepSame } from "../lib/same";
+import { composing } from "../lib/keys";
 import { carryLabel } from "../lib/dragPicture";
 import { copyName, copyText, keepBothName } from "../lib/clipboard";
 import { useChosen, useIsChosen, type Chosen } from "../lib/chosen";
@@ -118,7 +119,7 @@ function passing(message: string): boolean {
  * is asked for; a refusal puts the row back and says why. Delete Now asks first, as Apple's
  * does, because nothing brings it back.
  */
-function DriveTrash({ onClose }: { onClose: () => void }) {
+function DriveTrash({ onClose, onRecovered }: { onClose: () => void; onRecovered: (ids: string[]) => void }) {
   const [rows, setRows] = useState<TrashItem[] | null>(null);
   const [error, setError] = useState<string | null>(null);
   useErrorToast(error, () => setError(null));
@@ -143,6 +144,10 @@ function DriveTrash({ onClose }: { onClose: () => void }) {
     setError(null);
     try {
       const refused = await api.driveTrashOut(gone, recover);
+      if (recover) {
+        const back = new Set(refused.map((r) => r.drivewsid));
+        onRecovered(gone.map((i) => i.drivewsid).filter((id) => !back.has(id)));
+      }
       if (refused.length > 0) {
         setError(
           refused.length === 1
@@ -671,8 +676,12 @@ export function DriveView() {
       // while a slow fetch ran meant a click landed on a row from the level just left, and
       // Drive seemed to jump into folders nobody opened.
       setItems(Array.isArray(cached) ? cached : []);
-      setThumbs({});
-      thumbsOf.current = null;
+      // Another folder's pictures go; this folder's own, opened again, stay until the new set
+      // lands, rather than every thumbnail blinking out and back.
+      if (thumbsOf.current !== folderId) {
+        setThumbs({});
+        thumbsOf.current = null;
+      }
       try {
         await api.driveSyncFolder(folderId);
       } catch (e) {
@@ -696,7 +705,23 @@ export function DriveView() {
       if (token !== openToken.current) return;
       const fresh = await api.driveChildren(folderId);
       if (token !== openToken.current) return;
-      setItems(Array.isArray(fresh) ? fresh : []);
+      const listed = Array.isArray(fresh) ? fresh : [];
+      // The second set is mostly the rows the first drew: those keep their objects (lib/same),
+      // so opening a folder doesn't draw every row twice.
+      setItems((was) => keepSame(was, listed, (i) => i.drivewsid));
+      // Hidden items this listing no longer carries need hiding no more. Without this an item
+      // deleted here and recovered on another device, or moved back from elsewhere, stayed
+      // hidden in this folder until the app restarted. Done only when the folder is opened, a
+      // listing Apple has just been asked for: a quiet refresh straight after a delete could
+      // still be followed by one of Apple's that carries the item a moment longer.
+      const carried = new Set(listed.map((i) => goneKey(folderId, i.drivewsid)));
+      setGone((g) => {
+        const stale = [...g].filter((k) => k.startsWith(`${folderId}:`) && !carried.has(k));
+        if (stale.length === 0) return g;
+        const next = new Set(g);
+        for (const k of stale) next.delete(k);
+        return next;
+      });
       // Pictures last, and never in the way: a folder is usable before they arrive.
       api.driveThumbnails(folderId).then(
         (t) => {
@@ -919,7 +944,7 @@ export function DriveView() {
         if (isContainer(item)) {
           // Files dropped onto it, or a folder of that name being made in the folder it is in —
           // not one of the same name being made somewhere else.
-          const into = [...uploadsRef.current.values()].filter((u) => {
+          const into = [...uploads.values()].filter((u) => {
             if (["done", "failed", "cancelled"].includes(u.state)) return false;
             const dest = batchInto.current.get(u.batch);
             if (dest === item.drivewsid) return true;
@@ -998,7 +1023,17 @@ export function DriveView() {
       setError(null);
       const going = list.filter((i) => i.drivewsid !== destinationId);
       if (going.length === 0) return;
-      setGone((g) => new Set([...g, ...going.map((i) => goneKey(from, i.drivewsid))]));
+      // Hidden where they left, and no longer hidden where they go: moved from X to Y and back,
+      // an item kept the "X:item" key from the first move and stayed missing from X until the
+      // app restarted.
+      setGone((g) => {
+        const next = new Set(g);
+        for (const i of going) {
+          next.add(goneKey(from, i.drivewsid));
+          next.delete(goneKey(destinationId, i.drivewsid));
+        }
+        return next;
+      });
       const batch = `move-${Date.now()}`;
       if (destinationId === hereRef.current) {
         setPending((p) => [
@@ -1143,8 +1178,8 @@ export function DriveView() {
    * One file Apple refuses must not look like all of them failing, so each is reported by
    * name and the rest still land.
    */
-  /** Every file sent from this window, until the tray is closed. */
-  const [uploads, setUploads] = useState<Map<string, UploadEvent>>(new Map());
+  /** Every file sent from this window, until the tray is closed; only the tray draws it. */
+  const [uploads] = useState(() => new Uploads());
   const [uploadMenu, setUploadMenu] = useState(false);
   /**
    * What has been asked for here and is not back from Apple yet, drawn at once as rows of
@@ -1212,14 +1247,7 @@ export function DriveView() {
     let cancelled = false;
     listen<UploadEvent>(UPLOAD, (event) => {
       const u = event.payload;
-      setUploads((was) => {
-        const next = new Map(was);
-        const before = next.get(u.id);
-        // Events for one file can pass each other; a finished file never goes back.
-        if (before && (before.state === "done" || before.state === "failed" || before.state === "cancelled")) return was;
-        next.set(u.id, u);
-        return next;
-      });
+      uploads.hear(u);
       // Each file that lands shows as it lands, not all at once when the batch ends.
       if (u.state === "done" && !u.folder) landed();
     })
@@ -1244,11 +1272,9 @@ export function DriveView() {
     };
   }, []);
 
-  const uploadsRef = useRef(uploads);
-  uploadsRef.current = uploads;
   /** The folder each upload batch was sent into, so deleting a folder stops only its own. */
   const batchInto = useRef(new Map<string, string>());
-  const dismissUploads = useCallback(() => setUploads(new Map()), []);
+  const dismissUploads = useCallback(() => uploads.clear(), [uploads]);
 
   const upload = useCallback(
     async (paths: string[], target?: string) => {
@@ -1280,16 +1306,11 @@ export function DriveView() {
         // The batch is over: the backend has said all it will. A row of it still open — a
         // report that never came, an upload stopped part-way — is closed now, so nothing can
         // sit at "0 of 80" for ever.
-        setUploads((was) => {
-          let changed = false;
-          const next = new Map(was);
-          for (const [id, u] of was) {
-            if (u.batch !== batch || ["done", "failed", "cancelled", "planned"].includes(u.state)) continue;
-            next.set(id, { ...u, state: u.folder ? "failed" : "cancelled", error: "Stopped before it finished" });
-            changed = true;
-          }
-          return changed ? next : was;
-        });
+        uploads.edit((u) =>
+          u.batch !== batch || ["done", "failed", "cancelled", "planned"].includes(u.state)
+            ? null
+            : { ...u, state: u.folder ? "failed" : "cancelled", error: "Stopped before it finished" },
+        );
       }
     },
     [here.id, refresh]
@@ -1479,7 +1500,20 @@ export function DriveView() {
     () => sortItems(items.filter((item) => !gone.has(goneKey(here.id, item.drivewsid))), sortBy, reversed),
     [items, gone, sortBy, reversed, here.id],
   );
-  const pickedItems = useMemo(() => rows.filter((r) => picked.includes(r.drivewsid)), [rows, picked]);
+  // The selection as a set for lookups: as an array, `includes` per row made Ctrl-A in a folder
+  // of 10,000 items a hundred million comparisons, and again on every change to the rows.
+  const pickedSet = useMemo(() => new Set(picked), [picked]);
+  const pickedItems = useMemo(() => rows.filter((r) => pickedSet.has(r.drivewsid)), [rows, pickedSet]);
+  // What is being made here, shown until a row of its name is there — not one leaving (a
+  // Replace's): that one goes at once, and the copy taking its place shows as being made. The
+  // names shown are a set made once per change: searched row by row for each pending upload,
+  // a thousand files going into a folder of thousands was millions of names per draw.
+  const pendingHere = useMemo(() => {
+    const ours = pending.filter((p) => p.folder === here.id);
+    if (ours.length === 0) return ours;
+    const shownNames = new Set(rows.map(driveName));
+    return ours.filter((p) => !shownNames.has(p.name));
+  }, [pending, rows, here.id]);
   const primary = useMemo(() => (selected ? rows.find((r) => r.drivewsid === selected) ?? null : null), [rows, selected]);
   const listRef = useRef<HTMLUListElement | null>(null);
   const [listFocused, setListFocused] = useState(false);
@@ -1504,17 +1538,17 @@ export function DriveView() {
    * it shows changes: in a folder of thousands, a click redrew every row in it. The handlers
    * read the folder's state as it is when they run.
    */
-  const latest = useRef({ rows, picked, run, openItem, rename, moveAll });
-  latest.current = { rows, picked, run, openItem, rename, moveAll };
+  const latest = useRef({ rows, picked, pickedSet, run, openItem, rename, moveAll });
+  latest.current = { rows, picked, pickedSet, run, openItem, rename, moveAll };
   const rowActions = useMemo<DriveRowActions>(
     () => ({
       click: (item, e) => {
-        const { picked, run } = latest.current;
+        const { picked, pickedSet, run } = latest.current;
         const id = item.drivewsid;
         if (e.metaKey || e.ctrlKey) {
           // Command/Ctrl-click: one more, or one fewer, keeping the rest.
           anchor.current = id;
-          setPicked(picked.includes(id) ? picked.filter((p) => p !== id) : [...picked, id]);
+          setPicked(pickedSet.has(id) ? picked.filter((p) => p !== id) : [...picked, id]);
         } else if (e.shiftKey && anchor.current) {
           setPicked(run(id));
         } else {
@@ -1524,19 +1558,19 @@ export function DriveView() {
       },
       open: (item) => latest.current.openItem(item),
       menu: (item, at) => {
-        const { picked } = latest.current;
+        const { pickedSet } = latest.current;
         // A right-click on something not selected selects it, as in Finder; on the selection,
         // it is for all of it.
-        if (!picked.includes(item.drivewsid)) {
+        if (!pickedSet.has(item.drivewsid)) {
           anchor.current = item.drivewsid;
           setPicked([item.drivewsid]);
         }
         setMenu({ item, ...at });
       },
       dragStart: (item, e) => {
-        const { rows, picked } = latest.current;
+        const { rows, pickedSet } = latest.current;
         // Dragging a selected row takes the whole selection with it.
-        dragItem.current = picked.includes(item.drivewsid) ? rows.filter((r) => picked.includes(r.drivewsid)) : [item];
+        dragItem.current = pickedSet.has(item.drivewsid) ? rows.filter((r) => pickedSet.has(r.drivewsid)) : [item];
         e.dataTransfer.effectAllowed = "move";
         e.dataTransfer.setData("application/x-quince-drive", item.drivewsid);
         carryLabel(e, driveName(item), dragItem.current.length);
@@ -1729,7 +1763,16 @@ export function DriveView() {
       <div className="dx-main">{pane}</div>
     </div>
   );
-  if (inTrash) return frame(<DriveTrash onClose={() => setInTrash(false)} />);
+  // What was recovered shows again in the folder it went back to: it was hidden there when it
+  // was deleted, and that key alone kept it hidden after it came back.
+  const recovered = (ids: string[]) => {
+    if (ids.length === 0) return;
+    const back = new Set(ids);
+    setGone((g) => new Set([...g].filter((k) => ![...back].some((id) => k.endsWith(`:${id}`)))));
+    // And the folder behind is read again, quietly, so it is there on leaving Recently Deleted.
+    void refresh();
+  };
+  if (inTrash) return frame(<DriveTrash onClose={() => setInTrash(false)} onRecovered={recovered} />);
   if (inRecents) return frame(<DriveRecents onClose={() => setInRecents(false)} />);
 
   /** A step of the path: the folder open is the title; one further up goes back to it, and takes
@@ -1804,7 +1847,7 @@ export function DriveView() {
             <span className="drive-count" aria-live="polite">
               {loaded
                 ? (() => {
-                    const n = items.filter((x) => !gone.has(goneKey(here.id, x.drivewsid))).length;
+                    const n = rows.length;
                     return `${n} item${n === 1 ? "" : "s"}${available ? `, ${available} available` : ""}`;
                   })()
                 : "\u00a0"}
@@ -1916,11 +1959,7 @@ export function DriveView() {
         }}
         aria-label={here.name}
       >
-        {pending
-          // Shown until a row of its name is there — not one leaving (a Replace's): that one
-          // goes at once, and the copy taking its place shows as being made.
-          .filter((p) => p.folder === here.id && !items.some((i) => driveName(i) === p.name && !gone.has(goneKey(here.id, i.drivewsid))))
-          .map((p) => (
+        {pendingHere.map((p) => (
             <li key={p.key} className="drive-row is-busy" aria-busy="true">
               <span className="drive-row-hit">
                 <span className="drive-badge" aria-hidden="true">
@@ -1951,6 +1990,8 @@ export function DriveView() {
                 onChange={(e) => setNewFolderName(e.target.value)}
                 onBlur={() => void createFolder()}
                 onKeyDown={(e) => {
+                  // Escape mid-composition only cancels the composition (lib/keys).
+                  if (composing(e)) return;
                   if (e.key === "Escape") {
                     e.currentTarget.value = "";
                     setNewFolderName("");
@@ -2009,7 +2050,7 @@ export function DriveView() {
 
       {menu && (() => {
         // A right-click on the selection is for all of it, as Finder's menu is.
-        const many = pickedItems.length > 1 && picked.includes(menu.item.drivewsid) ? pickedItems : null;
+        const many = pickedItems.length > 1 && pickedSet.has(menu.item.drivewsid) ? pickedItems : null;
         return (
           <RowMenu
             at={menu}
@@ -2083,7 +2124,7 @@ export function DriveView() {
 
       <div className="trays">
         <DownloadTray />
-        <UploadTray uploads={[...uploads.values()]} onDismiss={dismissUploads} />
+        <UploadTray store={uploads} onDismiss={dismissUploads} />
       </div>
     </div>
   );
@@ -2187,6 +2228,8 @@ const DriveRow = memo(function DriveRow({
             }}
             onBlur={(e) => actions.rename(item, e.target.value)}
             onKeyDown={(e) => {
+              // Enter that confirms a candidate isn't the end of the name (lib/keys).
+              if (composing(e)) return;
               if (e.key === "Enter") e.currentTarget.blur();
               if (e.key === "Escape") {
                 e.currentTarget.value = driveName(item);
@@ -2228,7 +2271,9 @@ const DriveRow = memo(function DriveRow({
             {busy ? (
               <Spinner small />
             ) : thumb ? (
-              <img className="drive-thumb" src={thumb} alt="" draggable={false} />
+              // Fetched and decoded only near the view, off the main thread: a folder of
+              // 10,000 photos asked for every thumbnail and decoded each as it opened.
+              <img className="drive-thumb" src={thumb} alt="" draggable={false} loading="lazy" decoding="async" />
             ) : (
               <FileGlyph kind={item.kind} extension={item.extension} />
             )}

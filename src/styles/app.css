@@ -684,6 +684,9 @@
 .drive-rows { list-style: none; margin: 8px 0 0; padding: 0; overflow-y: auto; min-height: 0; }
 /* A folder of thousands lays out and paints only the rows in view. */
 .drive-rows:not(.is-grid) > li[data-id] { content-visibility: auto; contain-intrinsic-size: auto 39px; }
+/* And the grid's tiles, by the height of a tile as drawn (101 px): tiles not laid out also
+   leave their pictures unfetched until they come near (the img is loading="lazy"). */
+.drive-rows.is-grid > li[data-id] { content-visibility: auto; contain-intrinsic-size: auto 101px; }
 .drive-col-turn { white-space: pre; }
 /* Quick Look: Apple's picture of the file, large, on a sheet that fades in (lib/fade.ts). */
 .drive-peek { width: min(520px, 92vw); max-height: 88vh; align-items: center; text-align: center; gap: 6px; }

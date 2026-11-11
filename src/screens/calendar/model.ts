@@ -402,6 +402,17 @@ export function addDaysIn(zone: string, s: number, days: number): number {
 }
 
 /**
+ * The end a timed event takes when its end is set to `end`: an end before the start is the
+ * next day's clock, as Calendar reads it, so 23:00 to "1:00" runs past midnight. It was
+ * clamped to five minutes after the start, and the event became 23:00 to 23:05 (desktop audit
+ * M12). Only an end still before the start a day on is clamped, as before.
+ */
+export function endAfter(zone: string, startsAt: number, end: number): number {
+  const rolled = end < startsAt ? addDaysIn(zone, end, 1) : end;
+  return Math.max(rolled, startsAt + 300);
+}
+
+/**
  * The number of the week starting `weekStart`, as Calendar shows them: ISO 8601's where weeks
  * start on Monday (the week holding the year's first Thursday is 1), and elsewhere the week
  * holding 1 January is 1 — the US way, and the way a Sunday- or Saturday-first calendar counts.

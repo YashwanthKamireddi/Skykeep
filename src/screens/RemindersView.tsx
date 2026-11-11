@@ -1,6 +1,7 @@
 import { Fragment, memo, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { AppFoot } from "../components/AppFoot";
 import { REFUSED_LINK, outsideHref } from "../lib/links";
+import { composing } from "../lib/keys";
 import { fadeIn, fadeOut } from "../lib/fade";
 import { overlayOpen, useActiveRef } from "../lib/screen";
 import { useModalFocus } from "../lib/focus";
@@ -42,7 +43,7 @@ import { useArriving, useShownRevision } from "../lib/sync";
 import { Picker } from "../components/Picker";
 import { RowMenu } from "../components/RowMenu";
 import { Glyph, emblemGlyph, type GlyphName } from "../components/Glyph";
-import { dateText, timeText } from "../lib/when";
+import { dateText, dayOf, timeText, useClock } from "../lib/when";
 import { parseReminder, understood, type QuickReminder } from "./reminderQuick.ts";
 import { useReveal } from "../lib/reveal";
 import { instantIn, wallIn, zoneName, type Wall } from "./calendar/model";
@@ -415,15 +416,6 @@ export function RemindersView() {
   /** The reminder open now — read after an await, when the one open before it may have changed. */
   const openRef = useRef<string | null>(null);
   openRef.current = openGuid;
-  const [draft, setDraft] = useState("");
-  /** The line is added exactly as typed, its dates and marks left in the title (the preview's
-   *  Add as Typed). Cleared once the line changes or is added. */
-  const [literal, setLiteral] = useState(false);
-  const quick = useMemo<QuickReminder | null>(() => {
-    if (literal || !draft.trim()) return null;
-    const q = parseReminder(draft);
-    return understood(q) ? q : null;
-  }, [draft, literal]);
   const [newList, setNewList] = useState("");
   const [addingList, setAddingList] = useState(false);
   const [renaming, setRenaming] = useState<string | null>(null);
@@ -543,6 +535,11 @@ export function RemindersView() {
   const mainRef = useRef<HTMLElement | null>(null);
   const itemIds = useMemo(() => items.map((r) => r.guid), [items]);
   useArrivals(mainRef, itemIds, `${JSON.stringify(selection)}\u0000${showDone}\u0000${sought.trim()}`, outbox.waiting.size > 0 || itemIds.some((g) => g.startsWith(STAND_IN)));
+  // When each timed reminder here falls due, and the time moved on to each of them and to each
+  // midnight (lib/when): a row is told only when its label or its red can change.
+  const dueMoments = useMemo(() => items.flatMap((r) => (r.dueAt !== null && !r.allDay ? [r.dueAt * 1000] : [])), [items]);
+  const clock = useClock(dueMoments);
+  const today = dayOf(clock);
   /** Each read is numbered: one overtaken by a later pick is dropped, never drawn late. */
   const reads = useRef(0);
   const readItems = useCallback(async (): Promise<Reminder[]> => {
@@ -664,13 +661,13 @@ export function RemindersView() {
         await before;
         await run();
         release();
-        return await readItems();
+        return await readItemsRef.current();
       } catch (e) {
         release();
         // Not in the library at all — deleted on another device and synced away. Nothing to
         // say about it: the list is read again and the row goes, as on the phone.
         if (messageOf(e) !== REMINDER_GONE) setError(messageOf(e));
-        readItems().catch(() => {});
+        readItemsRef.current().catch(() => {});
         return null;
       } finally {
         done();
@@ -678,7 +675,7 @@ export function RemindersView() {
         release();
       }
     },
-    [readItems, hold],
+    [hold],
   );
 
   /**
@@ -1019,7 +1016,7 @@ export function RemindersView() {
     } catch (e) {
       setError(messageOf(e));
     }
-    await readItems().catch(() => {});
+    await readItemsRef.current().catch(() => {});
   };
   const renameSection = async (section: ReminderSection, title: string) => {
     if (!REMINDER_DETAIL_WRITES || !title.trim() || title.trim() === section.title) return;
@@ -1029,7 +1026,7 @@ export function RemindersView() {
     } catch (e) {
       setError(messageOf(e));
     }
-    await readItems().catch(() => {});
+    await readItemsRef.current().catch(() => {});
   };
 
   /** Deleting asks first: there is no bringing a reminder back from here. */
@@ -1250,7 +1247,7 @@ export function RemindersView() {
       try {
         await run();
         await readLists();
-        await readItems();
+        await readItemsRef.current();
       } catch (e) {
         setError(messageOf(e));
       } finally {
@@ -1312,14 +1309,10 @@ export function RemindersView() {
       : (lists[0]?.guid ?? null));
   const targetList = lists.find((l) => l.guid === targetListGuid) ?? null;
 
-  async function add(e: React.FormEvent) {
-    e.preventDefault();
-    const typed = draft.trim();
-    if (!typed || !targetListGuid) return;
-    // What the line said beyond its title, as the preview showed it.
-    const said = quick;
+  /** A line typed at the foot of the view, added; `false` when it could not be. */
+  async function add(typed: string, said: QuickReminder | null): Promise<boolean> {
+    if (!typed || !targetListGuid) return false;
     const title = said ? said.title : typed;
-    setLiteral(false);
     setSyncing(true);
     setError(null);
     // What the view implies, as on the phone: typed into Today or Scheduled it is due today,
@@ -1348,7 +1341,6 @@ export function RemindersView() {
         : viewImplied;
     // The row is there the moment Return is pressed, and the field is ready for the next.
     const standIn = `${STAND_IN}${Date.now()}`;
-    setDraft("");
     const tagged = selection.type === "tag" ? selection.name : null;
     const shownHere = inList || tagged !== null || kind === "today" || kind === "scheduled" || kind === "flagged" || kind === "all";
     if (shownHere) setItems((rows) => [
@@ -1373,11 +1365,12 @@ export function RemindersView() {
         await remindersApi.tagAdd(made, tagged).catch((e) => setError(messageOf(e)));
         void readExtras().catch(() => {});
       }
-      await readItems();
+      await readItemsRef.current();
+      return true;
     } catch (err) {
       setItems((rows) => rows.filter((r) => r.guid !== standIn));
-      setDraft((d) => d || typed);
       setError(messageOf(err));
+      return false;
     } finally {
       setSyncing(false);
     }
@@ -1444,7 +1437,7 @@ export function RemindersView() {
         if (q?.priority) await api.reminderEdit(made, listGuid, { priority: q.priority }).catch((e) => setError(messageOf(e)));
         if (q?.repeat) await api.reminderSetRepeat(made, listGuid, q.repeat).catch((e) => setError(messageOf(e)));
       }
-      await readItems();
+      await readItemsRef.current();
     } catch (err) {
       setItems((rows) => rows.filter((r) => r.guid !== standIn));
       setInsertAfter((was) => (was?.guid === standIn ? null : was));
@@ -1715,7 +1708,7 @@ export function RemindersView() {
         dated: false,
         rows,
       }));
-  }, [threaded, inList, selection, listById, listSections, searching]);
+  }, [threaded, inList, selection, listById, listSections, searching, clock]);
 
   const countOf = (guid: string) => counts?.lists.find(([g]) => g === guid)?.[1] ?? 0;
   const openList = inList ? (lists.find((l) => l.guid === listGuid) ?? null) : null;
@@ -1760,6 +1753,7 @@ export function RemindersView() {
             }
           }}
           onKeyDown={(e) => {
+            if (composing(e)) return;
             if (e.key === "Enter") e.currentTarget.blur();
             if (e.key === "Escape") {
               e.currentTarget.value = list.title;
@@ -1859,50 +1853,18 @@ export function RemindersView() {
   /** Where a reminder typed at the foot of the view is filed, when that is a choice. */
   // Completed has nothing to add to, as on the Mac: a reminder begins open.
   const canAdd = (!gathered || (selection.type === "tag" && REMINDER_DETAIL_WRITES)) && smartKind !== "completed";
+  const addNow = useRef(add);
+  addNow.current = add;
+  const onAdd = useCallback((typed: string, said: QuickReminder | null) => addNow.current(typed, said), []);
   const addRow = targetListGuid && !searching && canAdd && (
-    <form className="rx-add" onSubmit={add}>
-      <span className="rx-tick ghost" aria-hidden="true">
-        <Glyph name="plus" />
-      </span>
-      <input
-        value={draft}
-        onChange={(e) => {
-          setDraft(e.target.value);
-          setLiteral(false);
-        }}
-        placeholder="New Reminder"
-        aria-label={
-          inList ? `Add a reminder to ${heading}` : `Add a reminder to ${targetList?.title ?? "a list"}`
-        }
-      />
-      {/* From a built-in view, where it lands is a real choice, so it is shown — but only
-          once something is being typed, not as a permanent control on the screen. */}
-      {!inList && targetList && lists.length > 1 && draft.trim() && (
-        <Picker
-          className="rx-add-target"
-          label="List to add to"
-          value={targetListGuid ?? ""}
-          onChange={chooseList}
-          options={lists.map((l) => ({ value: l.guid, label: l.title }))}
-        />
-      )}
-      {quick && (
-        <div className="rx-add-understood" role="status">
-          <span className="rx-add-reading">
-            {[
-              quick.dueAt !== null && dueLabel(quick.dueAt, false, quick.allDay).text,
-              quick.repeat && repeatWords(quick.repeat),
-              quick.priority === 1 ? "High priority" : quick.priority === 5 ? "Medium priority" : quick.priority === 9 ? "Low priority" : null,
-            ]
-              .filter(Boolean)
-              .join(" · ")}
-          </span>
-          <button type="button" className="rx-add-literal" onClick={() => setLiteral(true)}>
-            Add as Typed
-          </button>
-        </div>
-      )}
-    </form>
+    <AddReminder
+      onAdd={onAdd}
+      label={inList ? `Add a reminder to ${heading}` : `Add a reminder to ${targetList?.title ?? "a list"}`}
+      // From a built-in view, where it lands is a real choice, so it is shown.
+      lists={!inList && targetList && lists.length > 1 ? lists : null}
+      target={targetListGuid}
+      onChooseList={chooseList}
+    />
   );
 
   const rowActions = useRef<RowActions>(null!);
@@ -1943,6 +1905,7 @@ export function RemindersView() {
           value={query}
           onChange={setQuery}
           onKeyDown={(e) => {
+            if (composing(e)) return;
             if (e.key === "Escape") setQuery("");
           }}
         />
@@ -2135,6 +2098,7 @@ export function RemindersView() {
                     if (found) void renameSection(found, e.target.value);
                   }}
                   onKeyDown={(e) => {
+                    if (composing(e)) return;
                     if (e.key === "Enter") e.currentTarget.blur();
                     if (e.key === "Escape") {
                       e.currentTarget.value = section.heading ?? "";
@@ -2173,6 +2137,7 @@ export function RemindersView() {
                     reminder={reminder}
                     depth={depth}
                     dated={section.dated}
+                    clock={reminder.dueAt === null || reminder.completedAt ? "" : `${today}:${reminder.dueAt * 1000 <= clock ? 1 : 0}`}
                     isOpen={isOpen}
                     marks={marks.get(reminder.guid)}
                     tags={isOpen && detailOf?.guid === reminder.guid ? detailOf.tags : (tagsOf.get(reminder.guid) ?? NO_TAGS)}
@@ -2232,6 +2197,7 @@ export function RemindersView() {
                 void createSection(e.target.value);
               }}
               onKeyDown={(e) => {
+                if (composing(e)) return;
                 if (e.key === "Enter") e.currentTarget.blur();
                 if (e.key === "Escape") {
                   e.currentTarget.value = "";
@@ -2410,6 +2376,8 @@ type ReminderRowProps = {
   depth: number;
   /** Under a heading that already says the day, so the row says only the time. */
   dated: boolean;
+  /** Moves when this row's due label or its red can change: at midnight, and as it falls due. */
+  clock: string;
   isOpen: boolean;
   marks: ReminderMarks | undefined;
   tags: string[];
@@ -2436,6 +2404,93 @@ type ReminderRowProps = {
 };
 
 /**
+ * New Reminder at the foot of the view, keeping what is being typed to itself. Kept in the
+ * screen, each key drew the whole screen again: every section worked out anew and every row's
+ * props compared, ten thousand of them in a big list (desktop audit H7). Here a key draws this
+ * field and its preview, and the list is drawn when a reminder is added.
+ */
+const AddReminder = memo(function AddReminder({
+  onAdd, label, lists, target, onChooseList,
+}: {
+  onAdd: (typed: string, said: QuickReminder | null) => Promise<boolean>;
+  label: string;
+  /** The lists to choose from, when where it lands is a choice; otherwise null. */
+  lists: ReminderList[] | null;
+  target: string;
+  onChooseList: (guid: string) => void;
+}) {
+  const [draft, setDraft] = useState("");
+  /** The line is added exactly as typed, its dates and marks left in the title (the preview's
+   *  Add as Typed). Cleared once the line changes or is added. */
+  const [literal, setLiteral] = useState(false);
+  const quick = useMemo<QuickReminder | null>(() => {
+    if (literal || !draft.trim()) return null;
+    const q = parseReminder(draft);
+    return understood(q) ? q : null;
+  }, [draft, literal]);
+  const options = useMemo(() => lists?.map((l) => ({ value: l.guid, label: l.title })) ?? [], [lists]);
+  return (
+    <form
+      className="rx-add"
+      onSubmit={(e) => {
+        e.preventDefault();
+        const typed = draft.trim();
+        if (!typed) return;
+        // What the line said beyond its title, as the preview showed it.
+        const said = quick;
+        setLiteral(false);
+        // The field is ready for the next the moment Return is pressed; a line that could not
+        // be added comes back, unless something new was typed meanwhile.
+        setDraft("");
+        void onAdd(typed, said).then((added) => {
+          if (!added) setDraft((d) => d || typed);
+        });
+      }}
+    >
+      <span className="rx-tick ghost" aria-hidden="true">
+        <Glyph name="plus" />
+      </span>
+      <input
+        value={draft}
+        onChange={(e) => {
+          setDraft(e.target.value);
+          setLiteral(false);
+        }}
+        placeholder="New Reminder"
+        aria-label={label}
+      />
+      {/* From a built-in view, where it lands is a real choice, so it is shown — but only
+          once something is being typed, not as a permanent control on the screen. */}
+      {lists && draft.trim() && (
+        <Picker
+          className="rx-add-target"
+          label="List to add to"
+          value={target}
+          onChange={onChooseList}
+          options={options}
+        />
+      )}
+      {quick && (
+        <div className="rx-add-understood" role="status">
+          <span className="rx-add-reading">
+            {[
+              quick.dueAt !== null && dueLabel(quick.dueAt, false, quick.allDay).text,
+              quick.repeat && repeatWords(quick.repeat),
+              quick.priority === 1 ? "High priority" : quick.priority === 5 ? "Medium priority" : quick.priority === 9 ? "Low priority" : null,
+            ]
+              .filter(Boolean)
+              .join(" · ")}
+          </span>
+          <button type="button" className="rx-add-literal" onClick={() => setLiteral(true)}>
+            Add as Typed
+          </button>
+        </div>
+      )}
+    </form>
+  );
+});
+
+/**
  * One reminder's row, drawn again only when something it shows changes. Inline, every row of
  * up to a thousand was rebuilt on each key typed into New Reminder or the search, each tick and
  * each row the pointer crossed while dragging.
@@ -2454,6 +2509,18 @@ const ReminderRow = memo(function ReminderRow({
       ? zonedClock(reminder.timezone, reminder.dueAt)
       : null;
   const chips = rowMarks && (rowMarks.location || rowMarks.messaging || rowMarks.url) ? rowMarks : null;
+  // The title field is the reminder's for its life, and takes a new title from a sync only
+  // while nobody is in it. Keyed on the title, a phone's edit landing while this one was being
+  // typed made a new field under the cursor and the words typed were gone (desktop audit M3).
+  const titleRef = useRef<HTMLInputElement | null>(null);
+  /** The title the field was last given, to tell typing from a field only visited. */
+  const titleShown = useRef(reminder.title);
+  useEffect(() => {
+    const field = titleRef.current;
+    if (!field || document.activeElement === field) return;
+    field.value = reminder.title;
+    titleShown.current = reminder.title;
+  }, [reminder.title]);
   return (
     <li
       className={`rx-row${reminder.completedAt ? " is-done" : ""}${leaving ? " is-leaving" : ""}${
@@ -2567,12 +2634,23 @@ const ReminderRow = memo(function ReminderRow({
           )}
           <input
             className="rx-title"
+            ref={titleRef}
             defaultValue={reminder.title}
-            key={`${reminder.guid}-${reminder.title}`}
             aria-label={`Rename ${reminder.title}`}
-            
-            onBlur={(e) => void act.current.rename(reminder, e.target.value)}
+            onBlur={(e) => {
+              const typed = e.target.value;
+              // Visited, nothing typed: it shows the title as it is now, which a sync may have
+              // changed meanwhile, rather than send the old one back over it.
+              if (typed === titleShown.current) {
+                e.target.value = reminder.title;
+                titleShown.current = reminder.title;
+                return;
+              }
+              titleShown.current = typed;
+              void act.current.rename(reminder, typed);
+            }}
             onKeyDown={(e) => {
+              if (composing(e)) return;
               // As in Reminders on a Mac: Return finishes it and starts the next,
               // Tab tucks it under the one above, Shift-Tab brings it back out.
               if (e.key === "Enter") {
@@ -2900,6 +2978,7 @@ function NextReminder({ subtask, onAdd, onCancel }: { subtask: boolean; onAdd: (
             autoFocus
             aria-label="New reminder"
             onKeyDown={(e) => {
+              if (composing(e)) return;
               if (e.key === "Enter") {
                 e.preventDefault();
                 const typed = e.currentTarget.value;
@@ -2973,7 +3052,7 @@ function ListInfo({ list, onClose, onDone }: {
           style={{ color: `color-mix(in srgb, ${shown} 55%, var(--text))` }}
           autoFocus
           onChange={(e) => setTitle(e.target.value)}
-          onKeyDown={(e) => e.key === "Enter" && done()}
+          onKeyDown={(e) => !composing(e) && e.key === "Enter" && done()}
         />
         <div className="rx-info-colours" role="radiogroup" aria-label="Colour">
           {LIST_COLOURS.map((c) => (
@@ -3084,6 +3163,7 @@ function UrlField({ reminder, url, onSave }: { reminder: Reminder; url: string |
           if (typed !== (url ?? "")) onSave(typed || null);
         }}
         onKeyDown={(e) => {
+          if (composing(e)) return;
           if (e.key === "Enter") e.currentTarget.blur();
           if (e.key === "Escape") {
             e.currentTarget.value = url ?? "";
@@ -3174,6 +3254,7 @@ function TagsField({ reminder, tags, onOpen, onAdd, onRemove }: {
             aria-label={`Add a tag to ${reminder.title}`}
             onChange={(e) => setTyped(e.target.value.replace(/\s/g, ""))}
             onKeyDown={(e) => {
+              if (composing(e)) return;
               if ((e.key === "Enter" || e.key === "," || e.key === " ") && typed.replace(/^#+/, "")) {
                 e.preventDefault();
                 onAdd(typed);
@@ -3308,7 +3389,7 @@ function RepeatField({ reminder, rule, onChange }: {
                 value={typed}
                 onChange={(e) => setTyped(e.target.value.replace(/\D/g, "").slice(0, 3))}
                 onBlur={(e) => commitEvery(e.target.value)}
-                onKeyDown={(e) => e.key === "Enter" && e.currentTarget.blur()}
+                onKeyDown={(e) => !composing(e) && e.key === "Enter" && e.currentTarget.blur()}
               />
               <button type="button" className="rx-step" aria-label="More" disabled={interval >= 999} onClick={() => commitEvery(String(interval + 1))}>
                 +

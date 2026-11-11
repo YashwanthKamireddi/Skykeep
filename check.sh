@@ -138,6 +138,10 @@ pooled "accessibility"    node .uiverify/a11y.mjs
 pooled "keyboard only"    node .uiverify/keyboard.mjs
 pooled "somewhere else"   node .uiverify/elsewhere.mjs
 pooled "writing a note"   node .uiverify/notes-compose.mjs
+pooled "notes saved on quit" node .uiverify/notes-flush.mjs
+pooled "webkit: notes saved on quit" env ENGINE=webkit node .uiverify/notes-flush.mjs
+pooled "photos screen quiet" node .uiverify/photos-screen-quiet.mjs
+pooled "webkit: photos screen quiet" env ENGINE=webkit node .uiverify/photos-screen-quiet.mjs
 pooled "deleting a note"  node .uiverify/notes-trash.mjs
 pooled "pinning a note"   node .uiverify/notes-pin.mjs
 pooled "a long note"      node .uiverify/notes-long.mjs
@@ -190,6 +194,10 @@ pooled "notes no text"     node .uiverify/notes-no-text.mjs
 pooled "empty today"     node .uiverify/reminders-empty.mjs
 pooled "calendar keys"   node .uiverify/calendar-keys.mjs
 pooled "reminders instant" node .uiverify/reminders-instant.mjs
+pooled "app window quiet" node .uiverify/app-window-quiet.mjs
+pooled "webkit: app window quiet" env ENGINE=webkit node .uiverify/app-window-quiet.mjs
+pooled "reminders current" node .uiverify/reminders-current.mjs
+pooled "webkit: reminders current" env ENGINE=webkit node .uiverify/reminders-current.mjs
 pooled "calendar instant"  node .uiverify/calendar-instant.mjs
 pooled "notes instant"     node .uiverify/notes-instant.mjs
 pooled "drive sort"        node .uiverify/drive-sort.mjs
@@ -208,6 +216,7 @@ pooled "drive keys"        node .uiverify/drive-keys.mjs
 pooled "drive drag"        node .uiverify/drive-drag.mjs
 pooled "drive recents"     node .uiverify/drive-recents.mjs
 pooled "drive gone folder" node .uiverify/drive-gone.mjs
+pooled "drive move back"   node .uiverify/drive-move-back.mjs
 pooled "settings"          node .uiverify/settings.mjs
 pooled "calendar day steps" node .uiverify/calendar-daystep.mjs
 pooled "pending writes"    node .uiverify/pending-writes.mjs
@@ -263,6 +272,9 @@ pooled "menus"             node .uiverify/menus.mjs
 pooled "webkit: menus"     env ENGINE=webkit node .uiverify/menus.mjs
 pooled "contacts vcard"    node .uiverify/contacts-vcard.mjs
 pooled "contacts select"   node .uiverify/contacts-select.mjs
+pooled "contacts search"   node .uiverify/contacts-search.mjs
+pooled "webkit: contacts search" env ENGINE=webkit node .uiverify/contacts-search.mjs
+pooled "contacts instant"  node .uiverify/contacts-instant.mjs
 pooled "calendar alerts"   node .uiverify/calendar-alerts.mjs
 pooled "calendar repeat"   node .uiverify/calendar-repeat.mjs
 pooled "reminder add/done"  node .uiverify/reminders-add-done.mjs

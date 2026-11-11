@@ -1,11 +1,28 @@
 // The arithmetic Calendar's views are drawn from, checked directly.
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { placeDay, placeDayWith, weekSpans, monthDays, daysOf, snap, clock, startOfWeek, weekInfoOf, hourLabel } from "../src/screens/calendar/model.ts";
+import { placeDay, placeDayWith, weekSpans, monthDays, daysOf, snap, clock, startOfWeek, weekInfoOf, hourLabel, endAfter } from "../src/screens/calendar/model.ts";
 
 const at = (y, m, d, h = 0, min = 0) => Math.floor(new Date(y, m, d, h, min).getTime() / 1000);
 const ev = (guid, startsAt, endsAt, allDay = false) =>
   ({ guid, calendarGuid: "c", title: guid, location: null, startsAt, endsAt, allDay, timezone: null, url: null, notes: null, etag: null });
+
+test("an end set before the start runs into the next day, on the event's own clock", () => {
+  const z = "Asia/Kolkata";
+  const start = instantIn(z, { y: 2026, m: 11, d: 11, h: 23, min: 0 });
+  // 1:00 typed for a 23:00 event: 1:00 the next morning, not 23:05.
+  const end = endAfter(z, start, instantIn(z, { y: 2026, m: 11, d: 11, h: 1, min: 0 }));
+  assert.equal(end, instantIn(z, { y: 2026, m: 11, d: 12, h: 1, min: 0 }));
+  // Across a clock change the next day's 1:00 is still 1:00 on that clock.
+  const ny = "America/New_York";
+  const late = instantIn(ny, { y: 2026, m: 10, d: 31, h: 23, min: 30 });
+  assert.equal(endAfter(ny, late, instantIn(ny, { y: 2026, m: 10, d: 31, h: 1, min: 0 })), instantIn(ny, { y: 2026, m: 11, d: 1, h: 1, min: 0 }));
+  // An end after the start stays; one still before it a day on, and an end equal to the
+  // start, are five minutes after it, as before.
+  assert.equal(endAfter(z, start, start + 3600), start + 3600);
+  assert.equal(endAfter(z, start, start - 3 * 86_400), start + 300);
+  assert.equal(endAfter(z, start, start), start + 300);
+});
 
 test("a month is six weeks from the Sunday on or before the 1st", () => {
   const days = monthDays(new Date(2026, 8, 15), 0);

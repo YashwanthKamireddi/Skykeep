@@ -390,6 +390,83 @@ pub fn open_skykeep(app: &AppHandle) {
     crate::show_window(app);
 }
 
+/// The event that asks a page to write down what is still being typed (`src/lib/flush.ts`).
+const FLUSH: &str = "quince://flush";
+
+/// How long each window has to answer `FLUSH`. The windows are asked together, so this is
+/// also the longest any quit, sign-out or close waits: a page that is hung, or still loading
+/// and not listening yet, costs half a second and never holds Skykeep open.
+pub const FLUSH_WITHIN: std::time::Duration = std::time::Duration::from_millis(500);
+
+/// The asks waiting for answers, by number: a sign-out and a quit at the same moment each
+/// hear only their own windows.
+static ASKS: std::sync::Mutex<Vec<(u64, std::sync::mpsc::Sender<String>)>> =
+    std::sync::Mutex::new(Vec::new());
+static NEXT_ASK: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(1);
+
+/// Every window asked to write down what is typed in it, then waited for, each up to
+/// `FLUSH_WITHIN`, before it is closed or Skykeep ends.
+///
+/// Notes saves a pause after the last key, so for about a second a note's last words live only
+/// in its page. Quit `_exit`s, sign-out destroys the app windows and a close with no tray
+/// closes for real; none of them runs the page's own cleanup, and those words were lost
+/// (desktop audit C1). Blocks, so never call it on the main thread: on Linux the page's answer
+/// reaches Rust through the main loop, which would be waiting here.
+pub fn flush_windows(app: &AppHandle, labels: &[String]) {
+    let id = NEXT_ASK.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+    let (tx, rx) = std::sync::mpsc::channel();
+    asks().push((id, tx));
+    let asked: std::collections::HashSet<String> = labels
+        .iter()
+        .filter(|label| app.emit_to(label.as_str(), FLUSH, id).is_ok())
+        .cloned()
+        .collect();
+    let silent = await_answers(asked, &rx, std::time::Instant::now() + FLUSH_WITHIN);
+    if !silent.is_empty() {
+        quiet!(
+            "{} window(s) did not answer the flush in time",
+            silent.len()
+        );
+    }
+    asks().retain(|(n, _)| *n != id);
+}
+
+/// Every open window's label: what quitting and signing out ask.
+pub fn every_window(app: &AppHandle) -> Vec<String> {
+    app.webview_windows().into_keys().collect()
+}
+
+fn asks() -> std::sync::MutexGuard<'static, Vec<(u64, std::sync::mpsc::Sender<String>)>> {
+    ASKS.lock()
+        .unwrap_or_else(std::sync::PoisonError::into_inner)
+}
+
+/// The windows in `waiting` that had not answered by `deadline`.
+fn await_answers(
+    mut waiting: std::collections::HashSet<String>,
+    answers: &std::sync::mpsc::Receiver<String>,
+    deadline: std::time::Instant,
+) -> std::collections::HashSet<String> {
+    while !waiting.is_empty() {
+        let left = deadline.saturating_duration_since(std::time::Instant::now());
+        match answers.recv_timeout(left) {
+            Ok(label) => {
+                waiting.remove(&label);
+            }
+            Err(_) => break,
+        }
+    }
+    waiting
+}
+
+/// A page's answer to `FLUSH`: what it held is in the library now.
+#[tauri::command]
+pub fn window_flushed(window: tauri::WebviewWindow, id: u64) {
+    if let Some((_, tx)) = asks().iter().find(|(n, _)| *n == id) {
+        tx.send(window.label().to_string()).ok();
+    }
+}
+
 /// Signed out: every app's window goes, so the one sign-in is Skykeep's own window's.
 pub fn close_all(app: &AppHandle) {
     for (key, _) in APPS {
@@ -435,6 +512,48 @@ mod tests {
         assert_eq!(asked(&args(&["skykeep", "--background"])), None);
         assert_eq!(asked(&args(&["skykeep", "--app", "mail"])), None);
         assert_eq!(asked(&args(&["skykeep", "--app"])), None);
+    }
+
+    /// A quit waits for every window's answer, and no longer than the deadline for one that
+    /// never answers: the answers that came are taken, the silent window is named.
+    #[test]
+    fn a_flush_waits_for_each_answer_up_to_its_deadline() {
+        use std::time::{Duration, Instant};
+        let (tx, rx) = std::sync::mpsc::channel();
+        let waiting = ["app-notes", "main", "app-photos"]
+            .map(String::from)
+            .into_iter()
+            .collect();
+        let late = tx.clone();
+        std::thread::spawn(move || {
+            std::thread::sleep(Duration::from_millis(50));
+            late.send("main".to_string()).ok();
+        });
+        tx.send("app-notes".to_string()).ok();
+        let started = Instant::now();
+        let silent = await_answers(waiting, &rx, started + Duration::from_millis(300));
+        let took = started.elapsed();
+        assert_eq!(silent, ["app-photos".to_string()].into_iter().collect());
+        assert!(
+            took >= Duration::from_millis(290),
+            "gave up early: {took:?}"
+        );
+        assert!(
+            took < Duration::from_secs(2),
+            "waited past the deadline: {took:?}"
+        );
+
+        // Everyone answering ends the wait at once, not at the deadline.
+        let (tx, rx) = std::sync::mpsc::channel();
+        tx.send("main".to_string()).ok();
+        let started = Instant::now();
+        let silent = await_answers(
+            ["main".to_string()].into_iter().collect(),
+            &rx,
+            started + Duration::from_secs(5),
+        );
+        assert!(silent.is_empty());
+        assert!(started.elapsed() < Duration::from_secs(1));
     }
 
     #[test]

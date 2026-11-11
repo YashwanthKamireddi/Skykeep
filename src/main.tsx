@@ -1,6 +1,5 @@
 import React, { lazy, Suspense } from "react";
 import ReactDOM from "react-dom/client";
-import App from "./App";
 import "./styles/tokens.css";
 import "./styles/kit.css";
 import "./styles/app.css";
@@ -16,6 +15,7 @@ import { followClick } from "./lib/follow";
 import { markEngine } from "./lib/engine";
 import { slideThumbs } from "./lib/thumb";
 import { carryDragsInPage } from "./lib/drag";
+import { answerFlushes } from "./lib/flush";
 
 // Before the first paint, so the window opens in the appearance chosen.
 markEngine();
@@ -27,6 +27,8 @@ fadeSheetsIn();
 slideThumbs();
 // On Windows a drag inside the window is carried by the mouse (lib/drag.ts).
 carryDragsInPage();
+// Quit, sign-out and a close with no tray ask every window to save what is typed first.
+answerFlushes();
 
 /*
  * Every link goes the one way out: through `followClick` (lib/follow.ts), which checks what
@@ -53,9 +55,12 @@ document.addEventListener("contextmenu", (e) => {
 });
 
 // The quick-capture window (`skykeep --new reminder`) is one field, not the library — and the
-// library's window never reads its code.
+// library's window never reads its code. Nor does the capture window read the library's:
+// imported here outright, App brought Library with it, which fetched Settings and listened for
+// reveals in a window that only ever shows one field (desktop audit H9).
 const capture = new URLSearchParams(window.location.search).get("capture");
 const QuickCapture = lazy(() => import("./components/QuickCapture").then((m) => ({ default: m.QuickCapture })));
+const App = lazy(() => import("./App"));
 
 ReactDOM.createRoot(document.getElementById("root")!).render(
   <React.StrictMode>
@@ -64,7 +69,9 @@ ReactDOM.createRoot(document.getElementById("root")!).render(
         <QuickCapture initial={capture} />
       </Suspense>
     ) : (
-      <App />
+      <Suspense fallback={null}>
+        <App />
+      </Suspense>
     )}
   </React.StrictMode>
 );

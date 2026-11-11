@@ -30,6 +30,9 @@ import { Arriving } from "../components/EmptyState";
 import { useArriving, useRevision, useShownRevision } from "../lib/sync";
 import { Picker } from "../components/Picker";
 import { holdTyping } from "../lib/updates";
+import { dayOf, useClock } from "../lib/when";
+import { onFlush } from "../lib/flush";
+import { composing as imeComposing } from "../lib/keys";
 import { keepSame, same } from "../lib/same";
 import { useChosen, useIsChosen, type Chosen } from "../lib/chosen";
 import { useArrivals } from "../lib/arrival";
@@ -270,6 +273,13 @@ export function NotesView() {
   const [renamingFolder, setRenamingFolder] = useState<string | null>(null);
   const [folder, setFolder] = useState<string>(ALL);
   const [notes, setNotes] = useState<Note[]>([]);
+  // The list as shown, worked out again when the notes, the order or the day change ("Today" and
+  // "Yesterday" move at midnight, desktop audit M4). The order the rows are in is read off the
+  // list once and kept: Up and Down, and the note opened after a delete, walk it rather than
+  // a sort with a collator over every note on each press (desktop audit H7).
+  const today = dayOf(useClock());
+  const sections = useMemo(() => groupNotes(notes, new Date(), listOrder), [notes, listOrder, today]);
+  const shownOrder = useMemo(() => sections.flatMap((g) => g.notes.map((n) => n.guid)), [sections]);
   const [openGuid, setOpenGuid] = useState<string | null>(null);
   /** `openGuid` as last drawn, for work that finishes later — a save landing — to tell whether
    *  the note it was for is still the one on screen. */
@@ -319,6 +329,23 @@ export function NotesView() {
    */
   const [scope, setScope] = useState<"all" | "folder">("all");
   const scoped = searching && scope === "folder" && folder !== ALL;
+  /**
+   * What the library is asked for: the search once typing pauses (120 ms, as Reminders and
+   * Calendar wait), and never a word an input method is still composing. Each key, each IME
+   * update among them, ran a full-text search with the folders and counts, and opened the first
+   * result (desktop audit H8). Clearing the field is at once.
+   */
+  const [settled, setSettled] = useState("");
+  const imeOn = useRef(false);
+  const [imeDone, setImeDone] = useState(0);
+  useEffect(() => {
+    if (!query.trim()) return setSettled("");
+    if (imeOn.current) return undefined;
+    const timer = window.setTimeout(() => setSettled(query), 120);
+    return () => window.clearTimeout(timer);
+  }, [query, imeDone]);
+  const sought = searching ? settled : "";
+  const seeking = sought.trim().length > 0;
   const searchRef = useRef<HTMLInputElement | null>(null);
   const rowsRef = useRef<HTMLDivElement | null>(null);
 
@@ -344,8 +371,8 @@ export function NotesView() {
     const [found, list] = await Promise.all([
       api.noteFolders(),
       // Search reaches every folder, as Apple's does — a note is found wherever it is filed.
-      searching
-        ? api.notesSearch(query).then((found) =>
+      seeking
+        ? api.notesSearch(sought).then((found) =>
             scoped && Array.isArray(found) ? found.filter((n) => n.folderGuid === folder) : found)
         : api.notesIn(folder === ALL ? null : folder),
     ]);
@@ -354,7 +381,7 @@ export function NotesView() {
     // Each note unchanged keeps its row as it was (lib/same).
     setNotes((was) => keepSame(was, over(Array.isArray(list) ? list : []), (n) => n.guid));
     setLoaded(true);
-  }, [folder, query, searching, scoped, over]);
+  }, [folder, sought, seeking, scoped, over]);
 
   // Reads the library and nothing else. `revision` ticks when a refresh finishes, whether
   // someone pressed for it or the timer came round, and that is the screen's whole
@@ -380,6 +407,8 @@ export function NotesView() {
    * so no row is drawn again for it.
    */
   const [pictures, setPictures] = useState<Record<string, string>>({});
+  const picturesRef = useRef(pictures);
+  picturesRef.current = pictures;
   useEffect(() => {
     let live = true;
     let timer: number | undefined;
@@ -392,6 +421,12 @@ export function NotesView() {
       );
     };
     const kept = () => {
+      // A picture drawn in a note whose row already shows one changes nothing in the list:
+      // every load fired this, cached pictures included, and each asked the library to scan
+      // every note's runs again (desktop audit H8). A picture added to a note is an edit,
+      // which asks again by itself.
+      const shown = openGuidRef.current;
+      if (shown && picturesRef.current[shown]) return;
       window.clearTimeout(timer);
       timer = window.setTimeout(ask, 120);
     };
@@ -413,6 +448,11 @@ export function NotesView() {
    * to Apple and the list is re-read. A refusal re-reads, which puts the note back, and says
    * why.
    */
+  // The read for what is on screen now, not when the write began: `read` closes over the
+  // folder and search, and a write's read after its await used the old ones. Moving to another
+  // folder while a pin was on its way drew the old folder's notes over the new (audit H3).
+  const readNow = useRef(read);
+  readNow.current = read;
   const write = useCallback(
     async (run: () => Promise<void>, predict?: (rows: Note[]) => Note[]) => {
       setBusy(true);
@@ -423,19 +463,19 @@ export function NotesView() {
       try {
         await run();
         release();
-        await read();
+        await readNow.current();
         return true;
       } catch (e) {
         release();
         setError(messageOf(e));
-        read().catch(() => {});
+        readNow.current().catch(() => {});
         return false;
       } finally {
         release();
         setBusy(false);
       }
     },
-    [read, hold]
+    [hold]
   );
 
   /** Mirrors `composing` for effects that must not re-run when it changes. */
@@ -782,7 +822,7 @@ export function NotesView() {
   // A note written on the phone, landing in the list on screen, fades in (lib/arrival) — not
   // one written here, which is being composed until it lands.
   const noteIds = useMemo(() => notes.map((n) => n.guid), [notes]);
-  useArrivals(rowsRef, noteIds, `${folder}\u0000${searching ? query : ""}\u0000${scoped}\u0000${listOrder.by}`, outbox.waiting.size > 0 || composing !== null);
+  useArrivals(rowsRef, noteIds, `${folder}\u0000${seeking ? sought : ""}\u0000${scoped}\u0000${listOrder.by}`, outbox.waiting.size > 0 || composing !== null);
   const setComposing = useCallback(
     (
       next:
@@ -819,15 +859,20 @@ export function NotesView() {
    * create saved onto it afterwards.
    */
   const creating = useRef(false);
+  /** The create in flight, so a save asked for meanwhile (quit, sign-out) can wait it out. */
+  const createRun = useRef<Promise<void>>(Promise.resolve());
   const commitComposing = useCallback(async () => {
     const draft = composingRef.current;
-    if (!draft || creating.current) return;
+    if (creating.current) return createRun.current;
+    if (!draft) return;
     if (!draft.body.trim()) {
       // Nothing was ever typed. There is nothing to keep, so nothing is sent.
       setComposing(null);
       return;
     }
     creating.current = true;
+    let done = () => {};
+    createRun.current = new Promise<void>((r) => (done = r));
     setBusy(true);
     setError(null);
     try {
@@ -859,15 +904,16 @@ export function NotesView() {
       } as Note, ...ns]);
       setOpenGuid(guid);
       setComposing(null);
-      await read();
+      await readNow.current();
     } catch (e) {
       // The write failed, not the typing — it stays on screen to try again.
       setError(messageOf(e));
     } finally {
       creating.current = false;
       setBusy(false);
+      done();
     }
-  }, [read, setComposing]);
+  }, [setComposing]);
 
   // The same pause-then-save rhythm as an existing note, up until there is a real note to
   // hand it to.
@@ -876,6 +922,38 @@ export function NotesView() {
     const timer = window.setTimeout(() => void commitComposing(), 900);
     return () => window.clearTimeout(timer);
   }, [composing, commitComposing]);
+
+  /**
+   * Everything typed, written down now rather than after the pause: the words still in the
+   * editor's report delay, a note being composed made real, and the open note's edit saved.
+   * Asked when the window loses the focus or is hidden, and by the backend before Skykeep quits,
+   * signs out or closes a window for good (lib/flush). None of those ran React's cleanup, so
+   * the last second of typing was lost (desktop audit C1). A new note with nothing typed in it
+   * stays being composed: only leaving it on purpose lets it go.
+   */
+  const saveNow = useCallback(async () => {
+    editorRef.current?.flushChange();
+    if (composingRef.current?.body.trim() || creating.current) await commitComposing();
+    await flush();
+  }, [commitComposing, flush]);
+  const saveNowRef = useRef(saveNow);
+  saveNowRef.current = saveNow;
+  useEffect(() => {
+    const now = () => void saveNowRef.current();
+    const hidden = () => {
+      if (document.visibilityState === "hidden") now();
+    };
+    window.addEventListener("blur", now);
+    window.addEventListener("pagehide", now);
+    document.addEventListener("visibilitychange", hidden);
+    const stop = onFlush(() => saveNowRef.current());
+    return () => {
+      window.removeEventListener("blur", now);
+      window.removeEventListener("pagehide", now);
+      document.removeEventListener("visibilitychange", hidden);
+      stop();
+    };
+  }, []);
 
   /** Finish composing before doing anything that would otherwise abandon it mid-thought. */
   const selectNote = useCallback(
@@ -918,7 +996,7 @@ export function NotesView() {
     setFolders((fs) => [...fs, { guid: standIn, title: "New Folder", sortOrder: 0, parentGuid: parent } as NoteFolder]);
     try {
       const guid = await api.noteFolderCreate("New Folder", parent);
-      await read();
+      await readNow.current();
       setRenamingFolder(guid);
     } catch (e) {
       setFolders((fs) => fs.filter((f) => f.guid !== standIn));
@@ -932,10 +1010,10 @@ export function NotesView() {
     setFolders((fs) => fs.map((x) => (x.guid === f.guid ? { ...x, title: name } : x)));
     try {
       await api.noteFolderRename(f.guid, name);
-      await read();
+      await readNow.current();
     } catch (e) {
       setError(messageOf(e));
-      read().catch(() => {});
+      readNow.current().catch(() => {});
     }
   };
   const deleteFolder = async (f: NoteFolder) => {
@@ -952,10 +1030,10 @@ export function NotesView() {
     if (folder === f.guid) setFolder(ALL);
     try {
       await api.noteFolderDelete(f.guid);
-      await read();
+      await readNow.current();
     } catch (e) {
       setError(messageOf(e));
-      read().catch(() => {});
+      readNow.current().catch(() => {});
     }
   };
 
@@ -976,12 +1054,12 @@ export function NotesView() {
     const gone = open.guid;
     // The note below opens in its place, or the one above at the end, as in Notes: the order
     // is the list's as shown, pinned notes first.
-    const order = groupNotes(notes, new Date(), listOrder).flatMap((g) => g.notes.map((n) => n.guid));
+    const order = shownOrder;
     const at = order.indexOf(gone);
     const next = order[at + 1] ?? order[at - 1] ?? null;
     setOpenGuid(next);
     await write(() => api.noteDelete(gone), (rows) => rows.filter((n) => n.guid !== gone));
-  }, [open, write, notes, confirm, listOrder]);
+  }, [open, write, shownOrder, confirm]);
 
   /** Out of Recently Deleted and back into Notes — Apple's "Notes" folder where there is one. */
   const recover = useCallback(async () => {
@@ -1099,7 +1177,7 @@ export function NotesView() {
         const [nextBody, nextRuns] = await Promise.all([api.noteBody(guid), api.noteRuns(guid)]);
         if (nextBody !== null) setLoadedBody({ guid, text: nextBody });
         setLoadedRuns({ guid, runs: Array.isArray(nextRuns) ? nextRuns : [] });
-        await read();
+        await readNow.current();
       } catch (e) {
         setError(messageOf(e));
       } finally {
@@ -1200,7 +1278,7 @@ export function NotesView() {
   /** Up and Down through the list as it is shown, pinned notes first. */
   const step = useCallback(
     (by: 1 | -1) => {
-      const order = groupNotes(notes, new Date(), listOrder).flatMap((g) => g.notes.map((n) => n.guid));
+      const order = shownOrder;
       if (order.length === 0) return;
       const at = openGuid ? order.indexOf(openGuid) : -1;
       const next = at < 0 ? order[0] : order[Math.max(0, Math.min(order.length - 1, at + by))];
@@ -1208,7 +1286,7 @@ export function NotesView() {
       if (next !== openGuid) void selectNote(next);
       focusRow(next);
     },
-    [notes, openGuid, selectNote, listOrder]
+    [shownOrder, openGuid, selectNote]
   );
 
   /** Into the search field: this folder (Ctrl+F) or every folder (Ctrl+Shift+F). */
@@ -1334,9 +1412,8 @@ export function NotesView() {
   // Another folder is another list, and a narrow window shows that list, not a note from the last.
   useEffect(() => setDetail(false), [folder]);
 
-  const sections = useMemo(() => groupNotes(notes, new Date(), listOrder), [notes, listOrder]);
   /** What a search is looking for, marked in the results and in the note opened from them. */
-  const foundWords = useMemo(() => (searching ? queryWords(query) : []), [searching, query]);
+  const foundWords = useMemo(() => (seeking ? queryWords(sought) : []), [seeking, sought]);
   /** The folders as nested, worked out when they change rather than on every key typed. */
   const nested = useMemo(() => nestFolders(folders), [folders]);
 
@@ -1466,6 +1543,7 @@ export function NotesView() {
                   onFocus={(e) => e.currentTarget.select()}
                   onBlur={(e) => void renameFolder(f, e.currentTarget.value)}
                   onKeyDown={(e) => {
+                    if (imeComposing(e)) return;
                     if (e.key === "Enter") e.currentTarget.blur();
                     if (e.key === "Escape") { e.currentTarget.value = f.title; e.currentTarget.blur(); }
                   }}
@@ -1589,12 +1667,15 @@ export function NotesView() {
           aria-keyshortcuts="Control+F Control+Shift+F"
           value={query}
           onChange={setQuery}
+          onCompositionStart={() => { imeOn.current = true; }}
+          onCompositionEnd={() => { imeOn.current = false; setImeDone((n) => n + 1); }}
           onClear={() => {
             setQuery("");
             setScope("all");
             searchRef.current?.focus();
           }}
           onKeyDown={(e) => {
+            if (imeComposing(e)) return;
             if (e.key === "Escape") {
               e.preventDefault();
               leaveSearch();

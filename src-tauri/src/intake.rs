@@ -159,7 +159,12 @@ async fn read(app: &AppHandle, path: &Path) -> (&'static str, Arrival) {
     };
     let data = app.state::<crate::Data>();
     if contacts_file {
-        let book = data.0.lock().await.contacts(None).unwrap_or_default();
+        // Beside a sync pass, not in the writer's turn (desktop audit H1).
+        let book = data
+            .0
+            .read(|library| library.contacts(None))
+            .await
+            .unwrap_or_default();
         let contacts = preview_contacts(&text, &book);
         if contacts.is_empty() {
             let reason = "There are no contacts in this file.".to_string();
@@ -180,16 +185,25 @@ async fn read(app: &AppHandle, path: &Path) -> (&'static str, Arrival) {
         Ok(read) => read,
         Err(reason) => return (key, Arrival::Unreadable { file, reason }),
     };
-    {
-        let library = data.0.lock().await;
-        for event in &mut events {
-            event.duplicate = library
-                .events_starting_between(event.starts_at, event.starts_at + 1)
-                .unwrap_or_default()
+    let duplicates = data
+        .0
+        .read(|library| {
+            Ok(events
                 .iter()
-                .filter_map(|(guid, _)| library.event(guid).ok().flatten())
-                .any(|e| e.title.trim().eq_ignore_ascii_case(event.title.trim()));
-        }
+                .map(|event| {
+                    library
+                        .events_starting_between(event.starts_at, event.starts_at + 1)
+                        .unwrap_or_default()
+                        .iter()
+                        .filter_map(|(guid, _)| library.event(guid).ok().flatten())
+                        .any(|e| e.title.trim().eq_ignore_ascii_case(event.title.trim()))
+                })
+                .collect::<Vec<_>>())
+        })
+        .await
+        .unwrap_or_default();
+    for (event, duplicate) in events.iter_mut().zip(duplicates) {
+        event.duplicate = duplicate;
     }
     (
         key,

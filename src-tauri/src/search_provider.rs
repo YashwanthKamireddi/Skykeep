@@ -576,7 +576,9 @@ pub fn end_when_idle(app: AppHandle) {
             return;
         }
         if crate::login::search_done(false, idle) {
+            // Ends the process from a thread of its own; nothing is left for this one to do.
             crate::shutdown(&app, 0);
+            return;
         }
     });
 }

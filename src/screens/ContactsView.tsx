@@ -37,6 +37,9 @@ import { DateField, dateWords } from "./contacts/DateField";
 import { PhotoSheet } from "./contacts/PhotoSheet";
 import { DuplicatesBanner, DuplicatesView } from "./contacts/Duplicates";
 import { keepSame } from "../lib/same";
+import { usePending } from "../lib/pending";
+import { composing } from "../lib/keys";
+import { firstContact, letterOf, search as searchBook, sortedContacts } from "./contacts/search";
 import { useChosen, useIsChosen, type Chosen } from "../lib/chosen";
 import { useArrivals } from "../lib/arrival";
 import { copyText } from "../lib/clipboard";
@@ -166,6 +169,17 @@ function initials(contact: Contact): string {
 export function ContactsView() {
   const [contacts, setContacts] = useState<Contact[]>([]);
   const [search, setSearch] = useState("");
+  /**
+   * What the list is filtered by: the search as typed, once typing pauses (120 ms, as
+   * Calendar's search waits), and at once when it is cleared. Each key used to filter, sort
+   * and redraw the whole book while the next key was already on its way.
+   */
+  const [query, setQuery] = useState("");
+  useEffect(() => {
+    if (!search.trim()) return setQuery(search);
+    const timer = window.setTimeout(() => setQuery(search), 120);
+    return () => window.clearTimeout(timer);
+  }, [search]);
   const [openGuid, setOpenGuid] = useState<string | null>(null);
   /** In a narrow window, the person picked rather than the list — as on iPhone. */
   const [detail, setDetail] = useState(false);
@@ -302,24 +316,33 @@ export function ContactsView() {
   const seenTick = useRef(outbox.tick);
   if (active) seenTick.current = outbox.tick;
   const tickDue = seenTick.current;
-  /** Each read is numbered: one overtaken by a later one (a key typed since) never draws. */
+  /**
+   * Saves and deletes still on their way into the library, laid over every read until they
+   * land. Without them a read finishing mid-write (a pass storing, or a pass's cards being
+   * patched in) put the library's older copy back: an edit flashed back, a deleted card
+   * reappeared, and a new card vanished, which moved the selection to the first contact so
+   * the card was never opened once it was saved.
+   */
+  const { hold, over } = usePending<Contact>();
+  /** Each read is numbered: one overtaken by a later one never draws. */
   const reads = useRef(0);
   /** Whole reads on their way: a pass's cards landing meanwhile are read whole too (`patch`). */
   const reading = useRef(0);
-  const read = useCallback(async (query: string) => {
+  /** The whole book; the search filters it in the window (contacts/search). */
+  const read = useCallback(async () => {
     const mine = ++reads.current;
     reading.current += 1;
     let found: Contact[];
     try {
-      found = await api.contactsList(query.trim() || null);
+      found = await api.contactsList(null);
     } finally {
       reading.current -= 1;
     }
     if (mine !== reads.current) return;
     // Each card unchanged keeps its row as it was (lib/same).
-    setContacts((was) => keepSame(was, Array.isArray(found) ? found : [], (c) => c.guid));
+    setContacts((was) => keepSame(was, over(Array.isArray(found) ? found : []), (c) => c.guid));
     setLoaded(true);
-  }, []);
+  }, [over]);
   /** The book as last drawn, for a handler that runs after awaiting something. */
   const shownBook = useRef(contacts);
   shownBook.current = contacts;
@@ -331,7 +354,7 @@ export function ContactsView() {
   // this screen knowing anything about the network.
   useEffect(() => {
     let cancelled = false;
-    read(search).catch((e) => {
+    read().catch((e) => {
       if (!cancelled) {
         setError(messageOf(e));
         setLoaded(true);
@@ -340,9 +363,9 @@ export function ContactsView() {
     return () => {
       cancelled = true;
     };
-    // Re-reading on every keystroke is the point: the filter runs in SQLite. `outbox.tick`: a
-    // card sent, or turned down, changes what the library holds.
-  }, [read, search, due, tickDue]);
+    // Not on a key typed: the search filters the book already here. `outbox.tick`: a card
+    // sent, or turned down, changes what the library holds.
+  }, [read, due, tickDue]);
 
   const readLists = useCallback(async () => {
     const [found, mine] = await Promise.all([api.contactLists(), api.contactMe()]);
@@ -369,18 +392,7 @@ export function ContactsView() {
    * search typed it exported only the people found, under the whole book's name.
    */
   const exportWhole = async () => {
-    let people = sorted;
-    if (search.trim()) {
-      try {
-        const all = await api.contactsList(null);
-        const members = list === ALL ? null : new Set((lists.find((l) => l.guid === list)?.members ?? []).map((m) => m.toUpperCase()));
-        people = sortedContacts(members ? all.filter((c) => members.has(c.guid.toUpperCase())) : all);
-      } catch (e) {
-        setError(messageOf(e));
-        return;
-      }
-    }
-    await exportCards(people, openList?.name);
+    await exportCards(query.trim() ? sortedContacts(inList) : sorted, openList?.name);
   };
   const importCards = async () => {
     try {
@@ -394,7 +406,7 @@ export function ContactsView() {
       if (paths.length === 0) return;
       setBusy(true);
       const [added, failed, known] = await api.contactsImport(paths);
-      await Promise.all([read(search), readLists()]);
+      await Promise.all([read(), readLists()]);
       const people = (n: number) => `${n} ${n === 1 ? "contact" : "contacts"}`;
       toast(
         [
@@ -435,9 +447,8 @@ export function ContactsView() {
   /**
    * A pass that named the cards it changed: those alone are read and put in their places, and
    * every other row is left as it is. It used to read the whole book again for one card edited
-   * on the phone — every card, every number — and compare each row. With a search typed, or a
-   * read of the whole book already on its way, the book is read as the search has it instead:
-   * that read decides who shows.
+   * on the phone — every card, every number — and compare each row. With a read of the whole
+   * book already on its way, the book is read whole instead: that read decides who shows.
    */
   patch.current = (items: ItemChanges) => {
     const ids = [...items.added, ...items.changed];
@@ -445,8 +456,8 @@ export function ContactsView() {
       readDupes().catch(() => {});
       if (openGuid && (ids.includes(openGuid) || items.removed.includes(openGuid))) setCardRead((n) => n + 1);
     };
-    if (search.trim() || reading.current > 0 || !loaded) {
-      read(search).then(next, () => {});
+    if (reading.current > 0 || !loaded) {
+      read().then(next, () => {});
       return;
     }
     const before = reads.current;
@@ -468,11 +479,11 @@ export function ContactsView() {
               return now;
             });
           const added = [...fresh.values()].filter((c) => !placed.has(c.guid));
-          return added.length ? [...kept, ...added] : kept;
+          return over(added.length ? [...kept, ...added] : kept);
         });
         next();
       })
-      .catch(() => read(search).then(next, () => {}));
+      .catch(() => read().then(next, () => {}));
   };
 
   /** Everyone by id, for the duplicates view to draw from. */
@@ -485,10 +496,10 @@ export function ContactsView() {
   const undoMerge = useCallback(async (kept: string[]) => {
     const undone = await Promise.all(kept.map((k) => api.contactsMergeUndo(k).catch(() => false)));
     setLastMerge([]);
-    await Promise.all([read(search), readLists(), readDupes()]).catch(() => {});
+    await Promise.all([read(), readLists(), readDupes()]).catch(() => {});
     if (undone.every(Boolean)) toast({ message: "Merge undone.", tone: "done" });
     else toast({ message: "iCloud already has this merge, so the cards stay merged.", tone: "error" });
-  }, [read, readLists, readDupes, search]);
+  }, [read, readLists, readDupes]);
   const mergeGroups = async (groups: Duplicates[]) => {
     if (groups.length === 0) return;
     const name = (g: Duplicates) => {
@@ -505,7 +516,7 @@ export function ContactsView() {
     } finally {
       setBusy(false);
     }
-    await Promise.all([read(search), readLists(), readDupes()]).catch(() => {});
+    await Promise.all([read(), readLists(), readDupes()]).catch(() => {});
     if (kept.length === 0) return;
     setLastMerge(kept);
     const left = dupes.length - groups.length;
@@ -556,7 +567,7 @@ export function ContactsView() {
         try {
           const written = await contactsApi.addressEdit(guid, base, edits);
           if (Array.isArray(written)) setAddresses((cur) => (cur?.guid === guid ? { guid, list: written } : cur));
-          read(search).catch(() => {});
+          read().catch(() => {});
         } catch (e) {
           setAddresses((cur) => (cur?.guid === guid ? { guid, list: base } : cur));
           toast({
@@ -571,20 +582,23 @@ export function ContactsView() {
         }
       });
     },
-    [read, search],
+    [read],
   );
 
-  /** Who shows: everyone, or the people in the open list. */
-  const shown = useMemo(() => {
+  /** Everyone, or the people in the open list, whatever the search. */
+  const inList = useMemo(() => {
     if (list === ALL) return contacts;
     const members = new Set((lists.find((l) => l.guid === list)?.members ?? []).map((m) => m.toUpperCase()));
     return contacts.filter((c) => members.has(c.guid.toUpperCase()));
   }, [contacts, lists, list]);
+  /** Who shows: those of them the search finds. */
+  const shown = useMemo(() => searchBook(inList, query), [inList, query]);
 
   useEffect(() => {
     if (shown.length === 0) return setOpenGuid(null);
+    // The first in the list's order, found without sorting everyone a second time.
     setOpenGuid((current) =>
-      current && shown.some((c) => c.guid === current) ? current : sortedContacts(shown)[0].guid
+      current && shown.some((c) => c.guid === current) ? current : firstContact(shown)!.guid
     );
   }, [shown]);
 
@@ -690,9 +704,9 @@ export function ContactsView() {
   /** After a write lands in the library: the book and the lists as it now holds them — a
    * deleted card leaves every list it was in — and who looks like whom. */
   const settleWrite = useCallback(() => {
-    Promise.all([read(search), readLists()]).catch((e) => setError(messageOf(e)));
+    Promise.all([read(), readLists()]).catch((e) => setError(messageOf(e)));
     readDupes().catch(() => {});
-  }, [read, readLists, readDupes, search]);
+  }, [read, readLists, readDupes]);
 
   const saveDraft = useCallback(async () => {
     if (!draft) return;
@@ -716,7 +730,11 @@ export function ContactsView() {
     // was and the form comes back as it was being written, so nothing typed is lost.
     const was = draftBase.current;
     const stand: Contact = saving.guid ? saving : { ...saving, guid: `pending-card-${Date.now()}` };
-    setContacts((all) => (saving.guid ? all.map((c) => (c.guid === saving.guid ? stand : c)) : [...all, stand]));
+    const predict = (all: Contact[]) =>
+      saving.guid ? all.map((c) => (c.guid === saving.guid ? stand : c)) : all.some((c) => c.guid === stand.guid) ? all : [...all, stand];
+    setContacts(predict);
+    // Kept over any read until the library has it; let go just before the read that confirms it.
+    const release = hold(predict);
     setDraft(null);
     setPicked([]);
     setShowDupes(false);
@@ -726,6 +744,7 @@ export function ContactsView() {
     try {
       guid = await api.contactSave(saving, saving.guid ? was : null);
     } catch (e) {
+      release();
       setContacts((all) =>
         saving.guid && was ? all.map((c) => (c.guid === saving.guid ? was : c)) : all.filter((c) => c.guid !== stand.guid),
       );
@@ -741,9 +760,10 @@ export function ContactsView() {
       setContacts((all) => all.map((c) => (c.guid === stand.guid ? { ...stand, guid } : c)));
       setOpenGuid((cur) => (cur === stand.guid ? guid : cur));
     }
+    release();
     settleWrite();
     if (edits.length) sendAddresses(guid, base, edits, after);
-  }, [draft, draftAddresses, sendAddresses, settleWrite]);
+  }, [draft, draftAddresses, sendAddresses, settleWrite, hold]);
 
   /**
    * Deleting a person is not something to discover by accident. Inside a list, icloud.com
@@ -765,7 +785,10 @@ export function ContactsView() {
     async (guids: string[]) => {
       const going = new Set(guids);
       const gone = shownBook.current.filter((c) => going.has(c.guid));
-      setContacts((all) => all.filter((c) => !going.has(c.guid)));
+      const predict = (all: Contact[]) => all.filter((c) => !going.has(c.guid));
+      setContacts(predict);
+      // Kept gone over any read until the library has let them go.
+      const release = hold(predict);
       setDraft((d) => (d && going.has(d.guid) ? null : d));
       setError(null);
       const kept: string[] = [];
@@ -778,6 +801,7 @@ export function ContactsView() {
           why = e;
         }
       }
+      release();
       if (kept.length) {
         const back = gone.filter((c) => kept.includes(c.guid));
         setContacts((all) => [...all.filter((c) => !kept.includes(c.guid)), ...back]);
@@ -785,7 +809,7 @@ export function ContactsView() {
       }
       settleWrite();
     },
-    [settleWrite]
+    [settleWrite, hold]
   );
   const removeContact = useCallback((guid: string) => removeContacts([guid]), [removeContacts]);
 
@@ -816,9 +840,9 @@ export function ContactsView() {
   const chosen = useChosen(multi ? picked : openGuid ? [openGuid] : []);
   /** How many of each list's people are here, counted once per change rather than per render. */
   const listCounts = useMemo(() => {
-    const here = new Set(contacts.map((c) => c.guid.toUpperCase()));
+    const here = new Set(searchBook(contacts, query).map((c) => c.guid.toUpperCase()));
     return new Map(lists.map((l) => [l.guid, l.members.filter((m) => here.has(m.toUpperCase())).length]));
-  }, [contacts, lists]);
+  }, [contacts, lists, query]);
   const removeMany = async (people: Contact[]) => {
     const sure = await confirm({
       title: `Delete ${people.length} contacts?`,
@@ -845,7 +869,7 @@ export function ContactsView() {
   const rowsRef = useRef<HTMLUListElement | null>(null);
   // A card made on the phone, landing in the list on screen, fades in (lib/arrival).
   const contactIds = useMemo(() => contacts.map((c) => c.guid), [contacts]);
-  useArrivals(rowsRef, contactIds, `${list}\u0000${search.trim()}`, outbox.waiting.size > 0);
+  useArrivals(rowsRef, contactIds, `${list}\u0000${query.trim()}`, outbox.waiting.size > 0);
   const [listFocused, setListFocused] = useState(false);
   const searchRef = useRef<HTMLInputElement | null>(null);
   /** The row for a person brought into view and given focus, as the arrows and the index do. */
@@ -938,7 +962,9 @@ export function ContactsView() {
   const listsColumn = useRef<HTMLElement | null>(null);
   const keys = useRef<(e: KeyboardEvent) => void>(() => {});
   keys.current = (e: KeyboardEvent) => {
-    if (!live.current || e.defaultPrevented) return;
+    // Keys an input method is still composing with are its own: Return confirming a candidate
+    // in the search opened the first match, Escape cancelling one left the card being written.
+    if (!live.current || e.defaultPrevented || composing(e)) return;
     // A menu, a picker's list or a sheet open over the screen has the keys to itself.
     if (overlayOpen()) return;
     const target = e.target as HTMLElement | null;
@@ -1010,11 +1036,15 @@ export function ContactsView() {
     }
     if (inSearch) {
       // Return in the search field goes to the first match, as Contacts does.
-      if (e.key === "Enter" && sorted.length) {
+      // Pressed before the search caught up with the last key, it goes to the first of what
+      // was typed, not of what the list still shows.
+      const first = query === search ? sorted[0] : firstContact(searchBook(inList, search));
+      if (e.key === "Enter" && first) {
         e.preventDefault();
-        setOpenGuid(sorted[0].guid);
+        setQuery(search);
+        setOpenGuid(first.guid);
         setDetail(true);
-        showRow(sorted[0].guid, true);
+        showRow(first.guid, true);
       }
       return;
     }
@@ -1152,7 +1182,7 @@ export function ContactsView() {
           />
         )}
 
-        {dupes.length > 0 && list === ALL && !search && !showDupes && (
+        {dupes.length > 0 && list === ALL && !query && !showDupes && (
           <DuplicatesBanner
             count={dupes.length}
             onOpen={() => {
@@ -1226,9 +1256,9 @@ export function ContactsView() {
         )}
         </div>
 
-        {shown.length === 0 && !search && <Arriving service="contacts" what="contacts" />}
-        {loaded && shown.length === 0 && !error && !(arriving && !search) && (
-          <EmptyState className="contact-empty">{search ? "No matches." : openList ? "No one in this list yet." : "No contacts yet."}</EmptyState>
+        {shown.length === 0 && !query && <Arriving service="contacts" what="contacts" />}
+        {loaded && shown.length === 0 && !error && !(arriving && !query) && (
+          <EmptyState className="contact-empty">{query ? "No matches." : openList ? "No one in this list yet." : "No contacts yet."}</EmptyState>
         )}
         {deleting && openList && (
           <ConfirmSheet<"list" | "card">
@@ -1957,6 +1987,8 @@ function NameField({ initial, label, onDone, onCancel }: {
         onDone(e.currentTarget.value);
       }}
       onKeyDown={(e) => {
+        // Return confirming an input method's candidate is not Return finishing the name.
+        if (composing(e)) return;
         if (e.key === "Enter") e.currentTarget.blur();
         if (e.key === "Escape") {
           settled.current = true;
@@ -1965,27 +1997,6 @@ function NameField({ initial, label, onDone, onCancel }: {
       }}
     />
   );
-}
-
-/**
- * The order Contacts keeps: by last name, then first — a company by its name — letters
- * before anything else, accents and case aside, and a card with no name at all ("#") last.
- */
-const contactCollator = new Intl.Collator(undefined, { sensitivity: "base", numeric: true });
-function sortKey(c: Contact): string {
-  if (c.isCompany && c.company) return c.company;
-  return [c.lastName, c.firstName, c.middleName].filter(Boolean).join(" ") || c.company || "";
-}
-function letterOf(c: Contact): string {
-  const first = sortKey(c).trim().charAt(0).toLocaleUpperCase();
-  return /\p{L}/u.test(first) ? first.normalize("NFD").charAt(0) : "#";
-}
-function sortedContacts(list: Contact[]): Contact[] {
-  return [...list].sort((a, b) => {
-    const la = letterOf(a) === "#", lb = letterOf(b) === "#";
-    if (la !== lb) return la ? 1 : -1;
-    return contactCollator.compare(sortKey(a), sortKey(b));
-  });
 }
 
 /* ── Postal addresses ─────────────────────────────────────────────────────────────────── */
@@ -2167,7 +2178,7 @@ function AddressEditor({ n, address, custom, autoFocus, onChange, onCustom, onRe
           onChange={(e) => onChange({ street: e.target.value || null })}
           onKeyDown={(e) => {
             // Return saves, as in every other field; Shift-Return starts another line.
-            if (e.key === "Enter" && !e.shiftKey && !e.nativeEvent.isComposing) {
+            if (e.key === "Enter" && !e.shiftKey && !composing(e)) {
               e.preventDefault();
               e.currentTarget.form?.requestSubmit();
             }

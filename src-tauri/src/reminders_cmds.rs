@@ -34,28 +34,32 @@ pub async fn reminder_more(
     auth: State<'_, Auth>,
     data: State<'_, Data>,
 ) -> UiResult<ReminderMore> {
-    let (mut more, urgent_unread) = {
-        let library = data.0.lock().await;
-        let reminder = library.reminder(&guid).map_err(|e| e.to_string())?;
-        // The record as Apple sent it; the reminder as read for the window leaves it out.
-        let raw = library.reminder_raw(&guid).map_err(|e| e.to_string())?;
-        let raw = raw.as_deref();
-        let parts = library.reminder_parts(&guid).map_err(|e| e.to_string())?;
-        let mut more = more::more_from(
-            &guid,
-            raw,
-            reminder.as_ref().and_then(|r| r.timezone.as_deref()),
-            &parts,
-        );
-        if let Some(person) = more.messaging.as_mut() {
-            person.name = library
-                .contact_name_for(&person.handles)
-                .map_err(|e| e.to_string())?;
-        }
-        more.urgent = more::urgent_known(raw);
-        let unread = more.urgent.is_none() && raw.is_some();
-        (more, unread)
-    };
+    // A read beside any sync pass (`LibraryLock::read`), not the writer's turn: one read
+    // queued for the writer behind a long Photos store sent every other window's reads into the
+    // same queue (desktop audit H1).
+    let (mut more, urgent_unread) = data
+        .0
+        .read(|library| {
+            let reminder = library.reminder(&guid)?;
+            // The record as Apple sent it; the reminder as read for the window leaves it out.
+            let raw = library.reminder_raw(&guid)?;
+            let raw = raw.as_deref();
+            let parts = library.reminder_parts(&guid)?;
+            let mut more = more::more_from(
+                &guid,
+                raw,
+                reminder.as_ref().and_then(|r| r.timezone.as_deref()),
+                &parts,
+            );
+            if let Some(person) = more.messaging.as_mut() {
+                person.name = library.contact_name_for(&person.handles)?;
+            }
+            more.urgent = more::urgent_known(raw);
+            let unread = more.urgent.is_none() && raw.is_some();
+            Ok((more, unread))
+        })
+        .await
+        .map_err(|e| e.to_string())?;
     if urgent_unread {
         if let Ok((http, root, params)) = crate::cloudkit_context(&auth).await {
             more.urgent = more::urgent_cloudkit(&http, &root, params, &guid)
@@ -71,20 +75,23 @@ pub async fn reminder_more(
 /// completed rather than moved on, so the window shows it done as it does a one-off.
 #[tauri::command]
 pub async fn reminders_ending(data: State<'_, Data>) -> UiResult<Vec<String>> {
-    let library = data.0.lock().await;
     let at = now();
-    let mut out = Vec::new();
-    for (guid, end) in library.reminder_repeat_ends().map_err(|e| e.to_string())? {
-        if let Some(r) = library.reminder(&guid).map_err(|e| e.to_string())? {
-            let days = library
-                .reminder_repeat_days(&guid)
-                .map_err(|e| e.to_string())?;
-            if r.tick_ends_series_on(Some(end), &days, at) {
-                out.push(guid);
+    // Beside a sync pass, as every pure read is (see `reminder_more`).
+    data.0
+        .read(|library| {
+            let mut out = Vec::new();
+            for (guid, end) in library.reminder_repeat_ends()? {
+                if let Some(r) = library.reminder(&guid)? {
+                    let days = library.reminder_repeat_days(&guid)?;
+                    if r.tick_ends_series_on(Some(end), &days, at) {
+                        out.push(guid);
+                    }
+                }
             }
-        }
-    }
-    Ok(out)
+            Ok(out)
+        })
+        .await
+        .map_err(|e| e.to_string())
 }
 
 /// Told to the window as Urgent is read from Apple for rows the library could not say: each
@@ -140,44 +147,46 @@ pub async fn reminder_marks(
 ) -> UiResult<Vec<ReminderMarks>> {
     /// Urgent files read for one call at most; the rest are read on the next.
     const MOST_UNREAD: usize = 40;
-    let mut out = Vec::new();
-    let mut unread: Vec<(String, String)> = Vec::new();
-    {
-        let library = data.0.lock().await;
-        for guid in guids.iter().take(2_000) {
-            let raw = library.reminder_raw(guid).map_err(|e| e.to_string())?;
-            let parts = library.reminder_parts(guid).map_err(|e| e.to_string())?;
-            let found = more::more_from(guid, raw.as_deref(), None, &parts);
-            let messaging = match found.messaging {
-                Some(person) => library
-                    .contact_name_for(&person.handles)
-                    .map_err(|e| e.to_string())?
-                    .or_else(|| person.handles.first().cloned()),
-                None => None,
-            };
-            let url = library
-                .reminder_detail(guid)
-                .map_err(|e| e.to_string())?
-                .url;
-            let urgent = more::urgent_known(raw.as_deref());
-            out.push(ReminderMarks {
-                guid: guid.clone(),
-                days_of_week: found.repeat.map(|r| r.days_of_week).unwrap_or_default(),
-                urgent: urgent.unwrap_or(false),
-                location: found.location,
-                messaging,
-                url,
-            });
-            if urgent.is_none() && unread.len() < MOST_UNREAD {
-                if let Some(raw) = raw {
-                    // One that failed lately is left until it is worth asking again.
-                    if !more::urgent_failed_lately(guid, &raw) {
-                        unread.push((guid.clone(), raw));
+    // Beside a sync pass, as every pure read is (see `reminder_more`): asked on every change of
+    // the rows shown, this one under the writer's turn held every window's reads behind a store.
+    let (mut out, unread) = data
+        .0
+        .read(|library| {
+            let mut out = Vec::new();
+            let mut unread: Vec<(String, String)> = Vec::new();
+            for guid in guids.iter().take(2_000) {
+                let raw = library.reminder_raw(guid)?;
+                let parts = library.reminder_parts(guid)?;
+                let found = more::more_from(guid, raw.as_deref(), None, &parts);
+                let messaging = match found.messaging {
+                    Some(person) => library
+                        .contact_name_for(&person.handles)?
+                        .or_else(|| person.handles.first().cloned()),
+                    None => None,
+                };
+                let url = library.reminder_detail(guid)?.url;
+                let urgent = more::urgent_known(raw.as_deref());
+                out.push(ReminderMarks {
+                    guid: guid.clone(),
+                    days_of_week: found.repeat.map(|r| r.days_of_week).unwrap_or_default(),
+                    urgent: urgent.unwrap_or(false),
+                    location: found.location,
+                    messaging,
+                    url,
+                });
+                if urgent.is_none() && unread.len() < MOST_UNREAD {
+                    if let Some(raw) = raw {
+                        // One that failed lately is left until it is worth asking again.
+                        if !more::urgent_failed_lately(guid, &raw) {
+                            unread.push((guid.clone(), raw));
+                        }
                     }
                 }
             }
-        }
-    }
+            Ok((out, unread))
+        })
+        .await
+        .map_err(|e| e.to_string())?;
     let unread = take_unasked(unread);
     if !unread.is_empty() {
         tauri::async_runtime::spawn(read_urgent(app, unread));

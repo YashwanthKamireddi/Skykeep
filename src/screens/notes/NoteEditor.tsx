@@ -23,6 +23,7 @@ import { RowMenu, type MenuEntry } from "../../components/RowMenu";
 import { autolink, openLinkAt } from "./links";
 import { linkAt, setLink } from "./linking";
 import { LinkBox, type LinkAsk } from "./LinkBox";
+import { composing } from "../../lib/keys";
 
 /** `content` with every attachment taken out, a table's cells kept as text in its place. */
 function withoutAttachments(content: Fragment): Fragment {
@@ -347,6 +348,7 @@ function attachmentView(node: PMNode) {
           );
         };
         field.addEventListener("keydown", (e) => {
+          if (composing(e)) return;
           if (e.key === "Enter") {
             e.preventDefault();
             field.blur();

@@ -596,6 +596,10 @@ export function installStub({ screen, services, twoFactor, calendarFixture, note
           if (args.runs && kept === args.body) (window.__savedRuns ??= {})[args.guid] = args.runs;
           return kept;
         }
+        // The window's answer to `quince://flush` (lib/flush): kept with what had been saved by then.
+        case "window_flushed":
+          (window.__flushed ??= []).push({ id: args.id, saves: (window.__noteSaves ?? []).length, creates: window.__noteCreates ?? 0 });
+          return null;
         case "note_delete":
           (window.__noteDeletes ??= []).push(args.guid);
           if (window.__slowDelete) await new Promise((r) => setTimeout(r, window.__slowDelete));
@@ -619,6 +623,7 @@ export function installStub({ screen, services, twoFactor, calendarFixture, note
           // Kept, as the library keeps a note made here (it is listed from then on): left out,
           // the next read of the list lost it, and the screen went back to the note before.
           const body = args?.body ?? "";
+          window.__noteCreates = (window.__noteCreates ?? 0) + 1;
           const title = body.split("\n").find((l) => l.trim()) ?? "";
           if (!noteList.some((x) => x.guid === "Note/new"))
             noteList.unshift({ guid: "Note/new", folderGuid: args?.folderGuid ?? "f1", title, snippet: "", body,

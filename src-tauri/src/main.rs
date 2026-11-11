@@ -743,7 +743,7 @@ async fn note_attachment_info(
     data: State<'_, Data>,
 ) -> UiResult<serde_json::Value> {
     let key = format!("notes.attachment.{id}");
-    if let Ok(Some(kept)) = data.0.lock().await.state(&key) {
+    if let Ok(Some(kept)) = data.0.read(|library| library.state(&key)).await {
         if let Ok(info) = serde_json::from_str::<serde_json::Value>(&kept) {
             return Ok(info);
         }
@@ -1255,7 +1255,15 @@ async fn auth_status(auth: State<'_, Auth>, data: State<'_, Data>) -> UiResult<S
     timing::mark("auth_status asked");
     // Busy (a resume, a sign-in, the timer's check): what was last known, rather than a wait.
     let facts = session_facts(&auth);
-    let owner = data.0.lock().await.state(ACCOUNT_KEY).ok().flatten();
+    // Beside a sync pass, never in the writer's turn: asked on every report change in every
+    // window, waiting behind a Photos store held each window's other reads behind it too
+    // (desktop audit H1).
+    let owner = data
+        .0
+        .read(|library| library.state(ACCOUNT_KEY))
+        .await
+        .ok()
+        .flatten();
     timing::mark("auth_status answered");
     Ok(Status {
         has_stored_session: facts.has_stored_session,
@@ -1996,16 +2004,11 @@ struct Unsent {
 
 #[tauri::command]
 async fn account_unsent(app: tauri::AppHandle, data: State<'_, Data>) -> UiResult<Unsent> {
-    let (changes, photos) = {
-        let library = data.0.lock().await;
-        (
-            library.outbox_count().map_err(|e| e.to_string())?,
-            library
-                .unfinished_uploads()
-                .map_err(|e| e.to_string())?
-                .len(),
-        )
-    };
+    let (changes, photos) = data
+        .0
+        .read(|library| Ok((library.outbox_count()?, library.unfinished_uploads()?.len())))
+        .await
+        .map_err(|e| e.to_string())?;
     Ok(Unsent {
         changes,
         photos,
@@ -2021,6 +2024,15 @@ async fn account_unsent(app: tauri::AppHandle, data: State<'_, Data>) -> UiResul
 /// account is removed from this computer. Either way nothing is deleted from iCloud.
 #[tauri::command]
 async fn auth_sign_out(keep: bool, app: tauri::AppHandle, auth: State<'_, Auth>) -> UiResult<()> {
+    // What is still being typed in any window is written down first, while the library is the
+    // account's and the windows are there to answer: `close_all` below destroys the app
+    // windows, and a note's last second of typing went with them (desktop audit C1).
+    let windows = app.clone();
+    tauri::async_runtime::spawn_blocking(move || {
+        apps::flush_windows(&windows, &apps::every_window(&windows));
+    })
+    .await
+    .ok();
     // The folders go with the session they were served by — before the auth lock is taken,
     // since what they are still answering may be waiting on it.
     LIVE.store(false, Ordering::SeqCst);
@@ -2087,15 +2099,20 @@ struct AccountInfo {
 #[tauri::command]
 async fn account_info(auth: State<'_, Auth>, data: State<'_, Data>) -> UiResult<AccountInfo> {
     // The picture is the person's own card's — the card Contacts marks as theirs.
-    let photo_contact = {
-        let library = data.0.lock().await;
-        library
-            .state(quince_icloud::contacts::ME_KEY)
-            .ok()
-            .flatten()
-            .filter(|guid| !guid.is_empty())
-            .filter(|guid| library.contact_photo_source(guid).ok().flatten().is_some())
-    };
+    // Read beside a sync pass (asked after every pass in every window; see `auth_status`).
+    let photo_contact = data
+        .0
+        .read(|library| {
+            Ok(library
+                .state(quince_icloud::contacts::ME_KEY)
+                .ok()
+                .flatten()
+                .filter(|guid| !guid.is_empty())
+                .filter(|guid| library.contact_photo_source(guid).ok().flatten().is_some()))
+        })
+        .await
+        .ok()
+        .flatten();
     // Never behind the session's lock: see `session_facts`.
     let s = session_facts(&auth);
     Ok(AccountInfo {
@@ -2145,11 +2162,16 @@ struct Settings {
 
 #[tauri::command]
 async fn settings_get(data: State<'_, Data>) -> UiResult<Settings> {
-    let library = data.0.lock().await;
-    Ok(Settings {
-        reminder_alerts: alerts::allowed(&library, alerts::REMINDER_ALERTS),
-        event_alerts: alerts::allowed(&library, alerts::EVENT_ALERTS),
-    })
+    // Beside a sync pass, as every pure read is (see `auth_status`).
+    data.0
+        .read(|library| {
+            Ok(Settings {
+                reminder_alerts: alerts::allowed(library, alerts::REMINDER_ALERTS),
+                event_alerts: alerts::allowed(library, alerts::EVENT_ALERTS),
+            })
+        })
+        .await
+        .map_err(|e| e.to_string())
 }
 
 /// Turn a kind of alert on or off. Only the switches Settings shows can be set.
@@ -2321,10 +2343,11 @@ async fn event_alerts(
     auth: State<'_, Auth>,
     data: State<'_, Data>,
 ) -> UiResult<Vec<i64>> {
-    let event = {
-        let library = data.0.lock().await;
-        library.event(&guid).map_err(|e| e.to_string())?
-    };
+    let event = data
+        .0
+        .read(|library| library.event(&guid))
+        .await
+        .map_err(|e| e.to_string())?;
     let Some(event) = event else {
         return Ok(Vec::new());
     };
@@ -2345,10 +2368,11 @@ async fn event_guests(
     auth: State<'_, Auth>,
     data: State<'_, Data>,
 ) -> UiResult<Vec<quince_icloud::calendar::Guest>> {
-    let event = {
-        let library = data.0.lock().await;
-        library.event(&guid).map_err(|e| e.to_string())?
-    };
+    let event = data
+        .0
+        .read(|library| library.event(&guid))
+        .await
+        .map_err(|e| e.to_string())?;
     let Some(event) = event else {
         return Ok(Vec::new());
     };
@@ -2369,10 +2393,11 @@ async fn event_repeat(
     auth: State<'_, Auth>,
     data: State<'_, Data>,
 ) -> UiResult<Option<quince_icloud::calendar::EventRepeat>> {
-    let event = {
-        let library = data.0.lock().await;
-        library.event(&guid).map_err(|e| e.to_string())?
-    };
+    let event = data
+        .0
+        .read(|library| library.event(&guid))
+        .await
+        .map_err(|e| e.to_string())?;
     let Some(event) = event else { return Ok(None) };
     if dav::is_account_event(&event) {
         return Ok(dav::repeat_of(&data, &event).await);
@@ -2523,15 +2548,17 @@ async fn calendar_search(
     feeds_state: State<'_, Feeds>,
 ) -> UiResult<Vec<Event>> {
     let words = quince_core::fold::words(&query);
-    let (mut found, people) = {
-        let library = data.0.lock().await;
-        (
-            library.search_events(&query).map_err(|e| e.to_string())?,
-            library
-                .contacts_with_birthdays()
-                .map_err(|e| e.to_string())?,
-        )
-    };
+    // A read beside any sync pass, as every pure read is (see `auth_status`).
+    let (mut found, people) = data
+        .0
+        .read(|library| {
+            Ok((
+                library.search_events(&query)?,
+                library.contacts_with_birthdays()?,
+            ))
+        })
+        .await
+        .map_err(|e| e.to_string())?;
     if !words.is_empty() {
         let now = std::time::SystemTime::now()
             .duration_since(std::time::UNIX_EPOCH)
@@ -3598,11 +3625,11 @@ async fn resync_notes(
 
 /// One note, by record name. `None` once Apple no longer has it.
 async fn note_by_guid(data: &State<'_, Data>, guid: &str) -> Result<Note, String> {
-    let library = data.0.lock().await;
     // Wherever it is filed, Recently Deleted included: Delete Now and Recover act on notes
     // there, and looking only in "All" answered each of them "no longer in the library".
-    library
-        .note(guid)
+    data.0
+        .read(|library| library.note(guid))
+        .await
         .map_err(|e| e.to_string())?
         .ok_or_else(|| "That note is no longer in the local library.".into())
 }
@@ -5607,36 +5634,53 @@ async fn folder_thumbnail_files(
         .await
         .map_err(|e| e.to_string())?
     };
-    if !missing.is_empty() {
-        let (http, docws, params) = {
-            let auth = app.state::<Auth>();
-            let client = auth.client.lock().await;
-            (
-                client.http().clone(),
-                client
-                    .session()
-                    .service_url("docws")
-                    .ok_or("Apple hasn't offered iCloud Drive for this account.")?,
-                client.service_params(),
-            )
-        };
-        let got = quince_icloud::drive::thumbnails(&http, &docws, params, &missing)
-            .await
-            .map_err(|e| e.to_string())?;
-        for f in &missing {
-            let bytes = got
-                .iter()
-                .find(|(id, _)| id == &f.drivewsid)
-                .map(|(_, b)| b.clone());
-            let at = thumbnail_file(&cache, f);
-            // An empty file records "Apple has no picture for this version", so it is not asked again.
-            let written = write_whole(&at, bytes.as_deref().unwrap_or(&[])).await;
-            if bytes.is_some() && written.is_ok() {
-                out.insert(f.drivewsid.clone(), at);
-            }
+    if missing.is_empty() {
+        return Ok(out);
+    }
+    // Offline, or Apple failing, the pictures already in the cache still come back: an error
+    // here once threw them all away, and a folder opened offline with one new file in it lost
+    // every picture it had (desktop audit H15). The new ones are asked for next time.
+    let got = match fetch_thumbnails(app, &missing).await {
+        Ok(got) => got,
+        Err(e) => {
+            quiet!("drive thumbnails not fetched: {e}");
+            return Ok(out);
+        }
+    };
+    // Each looked up once and moved out, rather than a scan and a copy of the bytes per file.
+    let mut got: std::collections::HashMap<String, Vec<u8>> = got.into_iter().collect();
+    for f in &missing {
+        let bytes = got.remove(&f.drivewsid);
+        let at = thumbnail_file(&cache, f);
+        // An empty file records "Apple has no picture for this version", so it is not asked again.
+        let written = write_whole(&at, bytes.as_deref().unwrap_or(&[])).await;
+        if bytes.is_some() && written.is_ok() {
+            out.insert(f.drivewsid.clone(), at);
         }
     }
     Ok(out)
+}
+
+/// Apple's thumbnails for `missing`, by item id.
+async fn fetch_thumbnails(
+    app: &tauri::AppHandle,
+    missing: &[quince_core::drive::DriveItem],
+) -> Result<Vec<(String, Vec<u8>)>, String> {
+    let (http, docws, params) = {
+        let auth = app.state::<Auth>();
+        let client = auth.client.lock().await;
+        (
+            client.http().clone(),
+            client
+                .session()
+                .service_url("docws")
+                .ok_or("Apple hasn't offered iCloud Drive for this account.")?,
+            client.service_params(),
+        )
+    };
+    quince_icloud::drive::thumbnails(&http, &docws, params, missing)
+        .await
+        .map_err(|e| e.to_string())
 }
 
 /// A thumbnail's type, read from its first bytes.
@@ -6007,13 +6051,15 @@ async fn contact_photo(
     app: &tauri::AppHandle,
     guid: &str,
 ) -> Result<Photo, Box<dyn std::error::Error + Send + Sync>> {
-    let photo = {
-        let data = app.state::<Data>();
-        let library = data.0.lock().await;
-        library
-            .contact_photo_source(guid)?
-            .ok_or("that contact has no picture")?
-    };
+    // Beside a sync pass: one of these per face in view, and three at a time while warming
+    // after every pass, each in the writer's turn kept every window's reads queued behind
+    // whatever store was running (desktop audit H1).
+    let photo = app
+        .state::<Data>()
+        .0
+        .read(|library| library.contact_photo_source(guid))
+        .await?
+        .ok_or("that contact has no picture")?;
 
     // A picture shared by the person it belongs to arrives with no signature, and Apple's
     // own preference on those is that they update themselves. With nothing to tell a cached
@@ -6411,7 +6457,28 @@ static LAUNCHED_AS_APP: AtomicBool = AtomicBool::new(false);
 /// in libheif, main thread in exit). Nothing needs that teardown: every change is in the
 /// library the moment it is made (SQLite commits as it goes), and what waits to be sent is
 /// written down as it waits.
-fn shutdown(app: &tauri::AppHandle, code: i32) -> ! {
+///
+/// Each window is asked first to write down what is still being typed, and waited for up to
+/// `apps::FLUSH_WITHIN`: a note's last second of typing lived only in its page, and `_exit`
+/// ended it unsaved (desktop audit C1). The wait runs on a thread of its own, so this returns
+/// at once: called on the main thread, as the tray's menu is on Windows, waiting there would
+/// have kept the pages' answers (which come through the main loop) from ever arriving.
+fn shutdown(app: &tauri::AppHandle, code: i32) {
+    let leaving = app.clone();
+    let spawned = std::thread::Builder::new()
+        .name("quit".into())
+        .spawn(move || {
+            apps::flush_windows(&leaving, &apps::every_window(&leaving));
+            end(&leaving, code)
+        });
+    if spawned.is_err() {
+        end(app, code);
+    }
+}
+
+/// The process ended now, past any asking: what `shutdown` does once the windows have
+/// answered, and what the event loop's own end does, when no window is left to ask.
+fn end(app: &tauri::AppHandle, code: i32) -> ! {
     wind_down(app);
     // SAFETY: ends the process at once; nothing after it runs.
     unsafe { libc::_exit(code) }
@@ -7050,6 +7117,19 @@ fn main() {
             // gone unused for a while, so six put-away windows do not sit on memory.
             if let tauri::WindowEvent::CloseRequested { api, .. } = event {
                 if !tray_reachable(window.app_handle()) {
+                    // Closed for real, so the page is asked to write down what is typed in it
+                    // first, off the main thread (its answer comes through the main loop), and
+                    // the window destroyed once it has or the wait is up. Let close at once, a
+                    // note's last second of typing went with it (desktop audit C1).
+                    api.prevent_close();
+                    let app = window.app_handle().clone();
+                    let label = window.label().to_string();
+                    std::thread::spawn(move || {
+                        apps::flush_windows(&app, std::slice::from_ref(&label));
+                        if let Some(w) = app.get_webview_window(&label) {
+                            w.destroy().ok();
+                        }
+                    });
                     return;
                 }
                 if window.label() == "main" {
@@ -7435,6 +7515,7 @@ fn main() {
             updates::update_later,
             updates::update_auto_set,
             updates::update_typing,
+            apps::window_flushed,
             auth_status,
             auth_resume,
             auth_sign_in,
@@ -7673,7 +7754,7 @@ fn main() {
             // The iCloud Drive folder goes with the app: left mounted, it would answer
             // nothing ("Transport endpoint is not connected").
             if let tauri::RunEvent::Exit = event {
-                shutdown(_app, 0);
+                end(_app, 0);
             }
         });
 }
