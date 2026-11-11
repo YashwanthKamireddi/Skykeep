@@ -3,7 +3,7 @@ import { onWindows } from "../lib/platform";
 import { ConfirmSheet } from "../components/Confirm";
 import { toast, toastSaved, useErrorToast } from "../components/Toast";
 import { Progress } from "../components/Spinner";
-import { useEffect, useState, useSyncExternalStore } from "react";
+import { lazy, Suspense, useEffect, useState, useSyncExternalStore } from "react";
 import { getVersion } from "@tauri-apps/api/app";
 import { listen } from "@tauri-apps/api/event";
 import { pickOpen } from "../lib/pick";
@@ -36,6 +36,9 @@ import { AccountAvatar, NOT_KEPT, useNotKept } from "../components/Account";
 import { Picker } from "../components/Picker";
 import { localeFirstDay, setWeekStart, weekStartChoice, type WeekStartChoice } from "./calendar/model";
 import { icloudSize } from "../lib/icloudSize";
+
+// Its licence texts are some 400 kB: loaded when the sheet is first opened, not with Settings.
+const LicencesSheet = lazy(() => import("../components/LicencesSheet").then((m) => ({ default: m.LicencesSheet })));
 
 /** The Drive folder's line when it is up: up to date, uploading, or why something is waiting. */
 function folderState(f: DriveFolder): string {
@@ -467,6 +470,7 @@ export function SettingsView({ onSignOut }: { onSignOut: (keep: boolean) => Prom
   const [photosBusy, setPhotosBusy] = useState(false);
   const [login, setLogin] = useState<LoginItem | null>(null);
   const [loginBusy, setLoginBusy] = useState(false);
+  const [licences, setLicences] = useState(false);
   const { report, syncing, refresh } = useSync();
   const notKept = useNotKept();
 
@@ -811,7 +815,15 @@ export function SettingsView({ onSignOut }: { onSignOut: (keep: boolean) => Prom
             >
               Save Diagnostic Report
             </button>
+            <button className="quiet" onClick={() => setLicences(true)}>
+              Open-Source Licences
+            </button>
       </footer>
+        {licences && (
+          <Suspense fallback={null}>
+            <LicencesSheet onClose={() => setLicences(false)} />
+          </Suspense>
+        )}
         {signingOut && (
           <SignOutSheet
             unsent={signingOut}

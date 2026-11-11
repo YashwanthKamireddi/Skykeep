@@ -56,6 +56,7 @@ Then:
 git clone https://github.com/YashwanthKamireddi/Skykeep.git
 cd Skykeep
 npm ci
+cargo install --locked cargo-about@0.9.3   # the build writes the app's open-source licences with it
 npx playwright install chromium webkit   # for the interface suites
 ```
 

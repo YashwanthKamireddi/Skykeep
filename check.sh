@@ -119,6 +119,8 @@ pooled "launcher status"    node .uiverify/launcher-status.mjs
 pooled "webkit: launcher status" env ENGINE=webkit node .uiverify/launcher-status.mjs
 pooled "webkit: notes add link" env ENGINE=webkit node .uiverify/notes-add-link.mjs
 pooled "updates"          node .uiverify/updates.mjs
+pooled "licences"         node .uiverify/licences.mjs
+pooled "webkit: licences" env ENGINE=webkit node .uiverify/licences.mjs
 pooled "ui renders"       node .uiverify/shots.mjs
 pooled "nav behaviour"    node .uiverify/assert.mjs
 pooled "accessibility"    node .uiverify/a11y.mjs
