@@ -267,9 +267,11 @@ jobs:
           bash /compat/check.sh "$(ls /native/*.${{ matrix.bundle }})" /compat/distro_check /compat/test.heic \
             /compat/black-start.mp4 /compat/hevc.mov
 
-  arch:
-    needs: build
-    name: Arch Linux (PKGBUILD)
+  # The Arch package, built by its PKGBUILD as an Arch user would, beside the other builds
+  # rather than after them (it needs nothing of theirs), with its compiled crates kept between
+  # runs: cold, it compiled everything for 20 minutes after waiting 9 for `build` (11 Nov).
+  arch-package:
+    name: "Arch Linux: package"
     runs-on: ubuntu-24.04
     timeout-minutes: 60
     container:
@@ -289,10 +291,13 @@ jobs:
       - name: Build tools
         run: pacman -Syu --noconfirm --needed base-devel git rust nodejs npm
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+      # The PKGBUILD's own target directory (src/target, apart from any developer's). A new
+      # Rust or lockfile rebuilds only what changed.
+      - uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         with:
-          name: linux-compat-x64
-          path: /compat
+          path: packaging/arch/src/target
+          key: arch-target-${{ hashFiles('Cargo.lock') }}
+          restore-keys: arch-target-
       - name: makepkg, as a user (it refuses root)
         run: |
           useradd -m builder
@@ -301,8 +306,41 @@ jobs:
           # shellcheck disable=SC1091
           (cd packaging/arch && source ./PKGBUILD && pacman -S --noconfirm --needed --asdeps "${depends[@]}" "${makedepends[@]}")
           su builder -c "cd '$GITHUB_WORKSPACE/packaging/arch' && CARGO_BUILD_JOBS=4 makepkg -f --noconfirm"
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: arch-package
+          path: packaging/arch/skykeep-[0-9]*.pkg.tar.zst
+          if-no-files-found: error
+
+  arch:
+    needs: [build, arch-package]
+    name: Arch Linux (PKGBUILD)
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    container:
+      image: archlinux:latest
+      # Arch's gnome-keyring-daemon, started as root, drops its capabilities and aborts
+      # ("error dropping process capabilities") when the container's bounding set lacks some;
+      # the keyring check then fails for the container, not for Skykeep. With every capability
+      # it starts (checked under podman).
+      options: --cap-add=ALL
+    # bash, not the container's sh: Arch's sh is bash in POSIX mode, whose `source` looks for a
+    # bare file name only on PATH — never in the current directory — so `source PKGBUILD`
+    # failed with "file not found" from inside packaging/arch.
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          name: linux-compat-x64
+          path: /compat
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          name: arch-package
+          path: /pkg
       - name: Install and run
         run: |
           chmod +x /compat/check.sh /compat/distro_check
-          bash /compat/check.sh "$(ls "$GITHUB_WORKSPACE"/packaging/arch/skykeep-[0-9]*.pkg.tar.zst)" \
+          bash /compat/check.sh "$(ls /pkg/skykeep-[0-9]*.pkg.tar.zst)" \
             /compat/distro_check /compat/test.heic /compat/black-start.mp4 /compat/hevc.mov
