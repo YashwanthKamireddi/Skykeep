@@ -184,6 +184,14 @@ impl Account {
 
 #[uniffi::export]
 impl Account {
+    /// Changes made on the phone in the engine's library (notes, reminders, photos) not yet at
+    /// Apple, waiting or refused: said before signing out, beside the phone's own contacts and
+    /// calendars, so nothing unsent goes without the person knowing.
+    pub fn unsent_changes(&self) -> Result<u32, EngineError> {
+        self.with_library(|l| l.outbox_count())
+            .map(|n| u32::try_from(n).unwrap_or(u32::MAX))
+    }
+
     /// The reminder lists, in Apple's order, with how many are open in each.
     pub fn reminder_lists(&self) -> Result<Vec<RList>, EngineError> {
         self.with_library(|l| {

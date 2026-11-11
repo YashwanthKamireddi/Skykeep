@@ -549,7 +549,12 @@ private fun SettingsPage(engine: uniffi.quince_mobile.AccountInterface, account:
     enabled = !working,
     onClick = {
       scope.launch {
-        unsent = withContext(Dispatchers.IO) { account?.let { SignOut.unsent(context.contentResolver, it) } ?: 0 }
+        // Everything not yet at Apple: the phone's contacts and calendars, and the notes,
+        // reminders and photo changes waiting in the engine's library.
+        unsent = withContext(Dispatchers.IO) {
+          (account?.let { SignOut.unsent(context.contentResolver, it) } ?: 0) +
+            (runCatching { engine.unsentChanges().toInt() }.getOrDefault(0))
+        }
         leaving = true
       }
     },
