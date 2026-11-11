@@ -60,39 +60,43 @@ fn photo(i: usize) -> Photo {
         id: format!("A{i:08}-7B1C-4E2F-9A3D-{i:012}"),
         master: format!("M{i:08}-1C2D-4E5F-8A9B-{i:012}"),
         taken_at: taken,
-        added_at: Some(taken + if i % 7 == 0 { 86_400 * 30 } else { 60 }),
-        kind: if i % 20 == 0 {
+        added_at: Some(taken + if i.is_multiple_of(7) { 86_400 * 30 } else { 60 }),
+        kind: if i.is_multiple_of(20) {
             Kind::Video
-        } else if i % 9 == 0 {
+        } else if i.is_multiple_of(9) {
             Kind::Live
         } else {
             Kind::Image
         },
         width: 4032,
         height: 3024,
-        duration: (i % 20 == 0).then_some(12.5),
+        duration: i.is_multiple_of(20).then_some(12.5),
         filename: Some(format!("IMG_{:04}.HEIC", i % 10_000)),
         size: Some(2_400_000),
         uti: Some("public.heic".into()),
-        favorite: i % 50 == 0,
-        hidden: i % 997 == 0,
-        deleted: i % 991 == 0,
-        deleted_at: (i % 991 == 0).then_some(taken + 10),
+        favorite: i.is_multiple_of(50),
+        hidden: i.is_multiple_of(997),
+        deleted: i.is_multiple_of(991),
+        deleted_at: i.is_multiple_of(991).then_some(taken + 10),
         expunge_at: None,
-        title: (i % 100 == 0).then(|| format!("Trip day {}", i % 31)),
-        caption: (i % 250 == 0).then(|| "Sunset over the bay".to_string()),
-        rating: (i % 333 == 0) as i64 * 4,
-        keywords: if i % 400 == 0 {
+        title: i
+            .is_multiple_of(100)
+            .then(|| format!("Trip day {}", i % 31)),
+        caption: i
+            .is_multiple_of(250)
+            .then(|| "Sunset over the bay".to_string()),
+        rating: i.is_multiple_of(333) as i64 * 4,
+        keywords: if i.is_multiple_of(400) {
             vec!["beach".into(), "family".into()]
         } else {
             Vec::new()
         },
         latitude: Some(17.7),
         longitude: Some(83.3),
-        rendered: if i % 40 == 0 { 8 } else { 0 },
-        subtype: if i % 60 == 0 { 3 } else { 0 },
+        rendered: if i.is_multiple_of(40) { 8 } else { 0 },
+        subtype: if i.is_multiple_of(60) { 3 } else { 0 },
         burst: (i % 1000 < 5).then(|| format!("B{}", i / 1000)),
-        burst_pick: i % 1000 == 0,
+        burst_pick: i.is_multiple_of(1000),
         burst_count: 0,
         live_size: None,
         change_tag: Some(format!("t{i}")),

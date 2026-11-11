@@ -15,7 +15,7 @@ pub const BLOCK: u64 = 4096;
 /// Nothing for a request that starts past the end: the caller fails it, whole.
 #[must_use]
 pub fn pieces(size: u64, offset: u64, len: u64, most: u64) -> Vec<(u64, u64)> {
-    debug_assert!(most >= BLOCK && most % BLOCK == 0);
+    debug_assert!(most >= BLOCK && most.is_multiple_of(BLOCK));
     if size == 0 {
         return if offset == 0 {
             vec![(0, 0)]

@@ -6768,7 +6768,9 @@ mod linux_tray {
                 height: image.height() as i32,
                 data: image
                     .rgba()
-                    .chunks_exact(4)
+                    .as_chunks::<4>()
+                    .0
+                    .iter()
                     .flat_map(|p| [p[3], p[0], p[1], p[2]])
                     .collect(),
             })

@@ -176,18 +176,14 @@ impl Library {
             let keep: Vec<&str> = calendars.iter().map(|c| c.guid.as_str()).collect();
             if keep.is_empty() {
                 tx.execute(
-                    "DELETE FROM calendars WHERE substr(guid, 1, ?1) != ?2",
-                    params![crate::dav::PREFIX.len(), crate::dav::PREFIX],
+                    "DELETE FROM calendars WHERE substr(guid, 1, length(?1)) != ?1",
+                    params![crate::dav::PREFIX],
                 )?;
             } else {
                 tx.execute(
                     "DELETE FROM calendars WHERE guid NOT IN (SELECT value FROM json_each(?1))
-                       AND substr(guid, 1, ?2) != ?3",
-                    params![
-                        crate::id_list(&keep),
-                        crate::dav::PREFIX.len(),
-                        crate::dav::PREFIX
-                    ],
+                       AND substr(guid, 1, length(?2)) != ?2",
+                    params![crate::id_list(&keep), crate::dav::PREFIX],
                 )?;
             }
         }

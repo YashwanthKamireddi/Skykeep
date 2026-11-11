@@ -44,8 +44,10 @@ pub mod protocol {
     }
 
     pub fn path_of(body: &[u8]) -> Vec<u16> {
-        body.chunks_exact(2)
-            .map(|b| u16::from_le_bytes([b[0], b[1]]))
+        body.as_chunks::<2>()
+            .0
+            .iter()
+            .map(|b| u16::from_le_bytes(*b))
             .collect()
     }
 
