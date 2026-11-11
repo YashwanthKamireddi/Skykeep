@@ -125,16 +125,17 @@ let serious = 0;
 let minor = 0;
 let broken = 0;
 
-for (const mode of modes) {
-  for (const s of scenarios) {
-    if (ONLY && !ONLY.test(s.name)) continue;
-    const forced = mode.startsWith("forced");
-    const ctx = await browser.newContext({
-      viewport: s.viewport ?? { width: 1280, height: 800 },
-      colorScheme: mode.endsWith("dark") ? "dark" : "light",
-      ...(forced ? { forcedColors: "active" } : {}),
-      ...(mode.startsWith("more") ? { contrast: "more" } : {}),
-    });
+/** One scenario in one mode, in a context of its own: its report lines, and what it found. */
+async function audit(s, mode) {
+  const out = [];
+  const forced = mode.startsWith("forced");
+  const ctx = await browser.newContext({
+    viewport: s.viewport ?? { width: 1280, height: 800 },
+    colorScheme: mode.endsWith("dark") ? "dark" : "light",
+    ...(forced ? { forcedColors: "active" } : {}),
+    ...(mode.startsWith("more") ? { contrast: "more" } : {}),
+  });
+  try {
     await ctx.addInitScript(installStub, { screen: s.screen ?? "library", services: SERVICES, twoFactor: TWO_FACTOR, ...FIXTURES });
     if (s.init) await ctx.addInitScript(s.init);
     const page = await ctx.newPage();
@@ -146,33 +147,48 @@ for (const mode of modes) {
       await page.locator(s.ready).first().waitFor({ state: "attached", timeout: 5000 });
       await settle(page, 400);
     } catch (e) {
-      broken++;
-      console.log(`${label} FAIL could not reach it: ${String(e.message).split("\n")[0]}`);
-      await ctx.close();
-      continue;
+      out.push(`${label} FAIL could not reach it: ${String(e.message).split("\n")[0]}`);
+      return { out, serious: 0, minor: 0, broken: 1 };
     }
-
     const { violations } = await new AxeBuilder({ page })
       .withTags(["wcag2a", "wcag2aa", "wcag21a", "wcag21aa", "wcag22aa"])
       // Under forced colours the system draws every colour, so the author's contrast is moot.
       .disableRules(forced ? ["color-contrast"] : [])
       .analyze();
-
     const bad = violations.filter((v) => v.impact === "serious" || v.impact === "critical");
-    serious += bad.length;
-    minor += violations.length - bad.length;
-    console.log(violations.length === 0 ? `${label} clean`
+    out.push(violations.length === 0 ? `${label} clean`
       : `${label} ${bad.length} serious/critical, ${violations.length - bad.length} other`);
     for (const v of violations) {
-      console.log(`   [${v.impact}] ${v.id} — ${v.help}`);
+      out.push(`   [${v.impact}] ${v.id} — ${v.help}`);
       for (const node of v.nodes.slice(0, 4)) {
-        console.log(`      ${node.target.join(" ")}  ${node.html.slice(0, 100)}`);
-        if (v.id === "color-contrast") console.log(`        ${node.any[0]?.message?.slice(0, 140)}`);
+        out.push(`      ${node.target.join(" ")}  ${node.html.slice(0, 100)}`);
+        if (v.id === "color-contrast") out.push(`        ${node.any[0]?.message?.slice(0, 140)}`);
       }
     }
+    return { out, serious: bad.length, minor: violations.length - bad.length, broken: 0 };
+  } finally {
     await ctx.close();
   }
 }
+
+// Each audit has a context of its own, so several run at once in the one browser (A11Y_JOBS,
+// 4 by default: 520 s one at a time on CI, 11 Nov); the report keeps the order of the list.
+const jobs = modes.flatMap((mode) => scenarios.filter((s) => !ONLY || ONLY.test(s.name)).map((s) => [s, mode]));
+const results = new Array(jobs.length);
+let next = 0;
+let printed = 0;
+const width = Math.max(1, Number(process.env.A11Y_JOBS) || 4);
+await Promise.all(Array.from({ length: width }, async () => {
+  while (next < jobs.length) {
+    const i = next++;
+    results[i] = await audit(...jobs[i]);
+    while (printed < jobs.length && results[printed]) {
+      const r = results[printed++];
+      for (const line of r.out) console.log(line);
+      serious += r.serious; minor += r.minor; broken += r.broken;
+    }
+  }
+}));
 
 await browser.close();
 console.log(serious + broken === 0
