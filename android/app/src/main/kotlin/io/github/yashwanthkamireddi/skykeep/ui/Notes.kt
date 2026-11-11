@@ -79,6 +79,7 @@ import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import uniffi.quince_mobile.Account
+import uniffi.quince_mobile.AccountInterface
 import uniffi.quince_mobile.NDoc
 import uniffi.quince_mobile.NFolder
 import uniffi.quince_mobile.NItem
@@ -131,7 +132,7 @@ private sealed interface NPlace {
  * and is sent behind; a note's formatting is kept by the engine whatever is typed.
  */
 @Composable
-fun NotesPage(engine: Account) {
+fun NotesPage(engine: AccountInterface) {
   val context = LocalContext.current
   val scope = rememberCoroutineScope()
   var place by rememberSaveable(stateSaver = NPlaceSaver) { mutableStateOf<NPlace>(NPlace.Folders) }
@@ -363,7 +364,7 @@ private fun emphasisColour(e: UInt?): Color? = when (e?.toInt()) {
  * to the new text, so nothing the phone doesn't draw is lost. Locked notes are not opened.
  */
 @Composable
-private fun NoteScreen(engine: Account, opened: String?, folderGuid: String?, folders: List<NFolder>, onBack: () -> Unit, onProblem: (String) -> Unit) {
+private fun NoteScreen(engine: AccountInterface, opened: String?, folderGuid: String?, folders: List<NFolder>, onBack: () -> Unit, onProblem: (String) -> Unit) {
   var moving by remember { mutableStateOf(false) }
   val context = LocalContext.current
   val scope = rememberCoroutineScope()

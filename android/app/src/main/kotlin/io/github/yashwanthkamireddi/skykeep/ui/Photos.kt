@@ -116,6 +116,7 @@ import kotlinx.coroutines.sync.Semaphore
 import kotlinx.coroutines.sync.withPermit
 import kotlinx.coroutines.withContext
 import uniffi.quince_mobile.Account
+import uniffi.quince_mobile.AccountInterface
 import uniffi.quince_mobile.EngineException
 import uniffi.quince_mobile.PAlbum
 import uniffi.quince_mobile.PFlag
@@ -155,7 +156,7 @@ private fun decode(file: File, long: Int): ImageBitmap? {
 }
 
 /** A photo's thumbnail: decoded from memory, the phone's copy, or fetched once from Apple. */
-private suspend fun thumbnail(context: Context, engine: Account, id: String, px: Int): ImageBitmap? {
+private suspend fun thumbnail(context: Context, engine: AccountInterface, id: String, px: Int): ImageBitmap? {
   thumbs.get(id)?.let { return it }
   return withContext(Dispatchers.IO) {
     fetching.withPermit {
@@ -235,7 +236,7 @@ private fun unlock(context: Context, onOk: () -> Unit) {
 }
 
 /** Photos handed to another app: each fetched at the viewer's size and shared as one copy. */
-private suspend fun share(context: Context, engine: Account, ids: List<String>) {
+private suspend fun share(context: Context, engine: AccountInterface, ids: List<String>) {
   val uris = withContext(Dispatchers.IO) {
     ids.mapNotNull { id ->
       val item = runCatching { engine.photoItem(id) }.getOrNull() ?: return@mapNotNull null
@@ -263,7 +264,7 @@ private suspend fun share(context: Context, engine: Account, ids: List<String>) 
  * fetched once as they come into view and kept.
  */
 @Composable
-fun PhotosPage(engine: Account) {
+fun PhotosPage(engine: AccountInterface) {
   val context = LocalContext.current
   val scope = rememberCoroutineScope()
   var key by rememberSaveable { mutableStateOf("library") }
@@ -399,7 +400,7 @@ fun PhotosPage(engine: Account) {
  */
 @Composable
 private fun Grid(
-  engine: Account, idx: PIndex, columns: Int, selected: Set<String>,
+  engine: AccountInterface, idx: PIndex, columns: Int, selected: Set<String>,
   onColumns: (Int) -> Unit, onTap: (Int) -> Unit, onHold: (Int) -> Unit, modifier: Modifier,
 ) {
   val rows = remember(idx) { cells(idx) }
@@ -487,7 +488,7 @@ private fun Grid(
 
 @OptIn(ExperimentalFoundationApi::class)
 @Composable
-private fun Thumb(engine: Account, id: String, px: Int, video: Boolean, favorite: Boolean, picked: Boolean, onTap: () -> Unit, onHold: () -> Unit) {
+private fun Thumb(engine: AccountInterface, id: String, px: Int, video: Boolean, favorite: Boolean, picked: Boolean, onTap: () -> Unit, onHold: () -> Unit) {
   val context = LocalContext.current
   val picture by produceState(thumbs.get(id), id) { if (value == null) value = thumbnail(context, engine, id, px) }
   Box(
@@ -527,7 +528,7 @@ private fun SelectionBar(key: String, n: Int, onShare: () -> Unit, onFavorite: (
 
 /** Collections: the places the desktop's sidebar lists, then the albums, each with its newest photo. */
 @Composable
-private fun Collections(engine: Account, albums: List<PAlbum>, onBack: () -> Unit, onOpen: (String) -> Unit) {
+private fun Collections(engine: AccountInterface, albums: List<PAlbum>, onBack: () -> Unit, onOpen: (String) -> Unit) {
   BackHandler(onBack = onBack)
   val pairs = albums.chunked(2)
   LazyColumn(contentPadding = PaddingValues(start = 16.dp, end = 16.dp, bottom = 24.dp)) {
@@ -559,7 +560,7 @@ private fun Collections(engine: Account, albums: List<PAlbum>, onBack: () -> Uni
 }
 
 @Composable
-private fun AlbumTile(engine: Account, a: PAlbum, modifier: Modifier, onClick: () -> Unit) {
+private fun AlbumTile(engine: AccountInterface, a: PAlbum, modifier: Modifier, onClick: () -> Unit) {
   val context = LocalContext.current
   val cover by produceState<Pair<ImageBitmap?, Int>>(null to -1, a.id) {
     val idx = withContext(Dispatchers.IO) { runCatching { engine.photoIndex(PView.Album(a.id)) }.getOrNull() }
@@ -579,7 +580,7 @@ private fun AlbumTile(engine: Account, a: PAlbum, modifier: Modifier, onClick: (
  * bars; Share, Favorite and Delete (with Undo) at the bottom; a film plays where it is.
  */
 @Composable
-private fun Viewer(engine: Account, idx: PIndex, start: Int, onClose: () -> Unit, onFlag: (String, PFlag, Boolean, String?) -> Unit) {
+private fun Viewer(engine: AccountInterface, idx: PIndex, start: Int, onClose: () -> Unit, onFlag: (String, PFlag, Boolean, String?) -> Unit) {
   val context = LocalContext.current
   val scope = rememberCoroutineScope()
   BackHandler(onBack = onClose)
@@ -620,7 +621,7 @@ private fun Viewer(engine: Account, idx: PIndex, start: Int, onClose: () -> Unit
 }
 
 @Composable
-private fun Page(engine: Account, id: String, video: Boolean, current: Boolean, onTap: () -> Unit) {
+private fun Page(engine: AccountInterface, id: String, video: Boolean, current: Boolean, onTap: () -> Unit) {
   val context = LocalContext.current
   val picture by produceState<ImageBitmap?>(thumbs.get(id), id) {
     val big = withContext(Dispatchers.IO) {

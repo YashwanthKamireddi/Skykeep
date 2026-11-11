@@ -62,6 +62,7 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import uniffi.quince_mobile.Account
+import uniffi.quince_mobile.AccountInterface
 import uniffi.quince_mobile.DItem
 import uniffi.quince_mobile.EngineException
 
@@ -96,7 +97,7 @@ private fun reason(t: Throwable, fallback: String) = (t as? EngineException.Fail
  */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-fun DrivePage(engine: Account) {
+fun DrivePage(engine: AccountInterface) {
   val context = LocalContext.current
   val scope = rememberCoroutineScope()
   val root = remember { engine.driveRoot() }

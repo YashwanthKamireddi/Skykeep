@@ -109,7 +109,7 @@ private enum class Page { Contacts, Calendar, Settings, Licences }
  */
 @OptIn(androidx.compose.material3.ExperimentalMaterial3Api::class)
 @Composable
-fun MainScreens(engine: uniffi.quince_mobile.Account, onSignedOut: () -> Unit) {
+fun MainScreens(engine: uniffi.quince_mobile.AccountInterface, onSignedOut: () -> Unit) {
   val context = LocalContext.current
   // Kept through a rotation or a light/dark switch (Android rebuilds the screen for both).
   var tab by rememberSaveable { mutableStateOf(Tab.Home) }
@@ -204,7 +204,7 @@ private fun Outcome.Last?.needsYou() = this != null && (!ok || onlyHere > 0)
  */
 @Composable
 private fun Home(
-  engine: uniffi.quince_mobile.Account, account: Account?, sync: SyncView,
+  engine: uniffi.quince_mobile.AccountInterface, account: Account?, sync: SyncView,
   onSync: () -> Unit, onOpen: (Page) -> Unit, onTab: (Tab) -> Unit,
 ) {
   val context = LocalContext.current
@@ -300,7 +300,7 @@ private fun Home(
  * they're used), so its card says how much of iCloud is used, the one number that matters here.
  */
 @Composable
-private fun DriveCard(engine: uniffi.quince_mobile.Account, online: Boolean, onClick: () -> Unit) {
+private fun DriveCard(engine: uniffi.quince_mobile.AccountInterface, online: Boolean, onClick: () -> Unit) {
   val context = LocalContext.current
   // Asked again when the phone comes back online: offline, Apple can't say.
   val space by produceState<List<ULong>?>(null, online) {
@@ -471,16 +471,21 @@ private fun SyncSwitch(account: Account?, authority: String, title: String, deta
 }
 
 @Composable
-private fun SettingsPage(engine: uniffi.quince_mobile.Account, account: Account?, onSignedOut: () -> Unit, onLicences: () -> Unit) {
+private fun SettingsPage(engine: uniffi.quince_mobile.AccountInterface, account: Account?, onSignedOut: () -> Unit, onLicences: () -> Unit) {
   val context = LocalContext.current
   val scope = rememberCoroutineScope()
   Text("Settings", style = MaterialTheme.typography.headlineLarge)
   // Off unless turned on; from that moment on, never the whole camera roll at once.
   var backup by remember { mutableStateOf(io.github.yashwanthkamireddi.skykeep.sync.PhotoBackup.on(context)) }
-  val media = if (android.os.Build.VERSION.SDK_INT >= 33) arrayOf(android.Manifest.permission.READ_MEDIA_IMAGES, android.Manifest.permission.READ_MEDIA_VIDEO)
-    else arrayOf(android.Manifest.permission.READ_EXTERNAL_STORAGE)
+  // The photos to read, and where each was taken: without ACCESS_MEDIA_LOCATION Android hands
+  // over photos with their location removed, and the backup in iCloud would be missing it.
+  val media = (if (android.os.Build.VERSION.SDK_INT >= 33) arrayOf(android.Manifest.permission.READ_MEDIA_IMAGES, android.Manifest.permission.READ_MEDIA_VIDEO)
+    else arrayOf(android.Manifest.permission.READ_EXTERNAL_STORAGE)) + android.Manifest.permission.ACCESS_MEDIA_LOCATION
   val askMedia = androidx.activity.compose.rememberLauncherForActivityResult(androidx.activity.result.contract.ActivityResultContracts.RequestMultiplePermissions()) { granted ->
-    if (granted.values.all { it }) { backup = true; io.github.yashwanthkamireddi.skykeep.sync.PhotoBackup.set(context, true) }
+    // Location is the person's choice: backup runs without it (photos then arrive without where).
+    if (granted.filterKeys { it != android.Manifest.permission.ACCESS_MEDIA_LOCATION }.values.all { it }) {
+      backup = true; io.github.yashwanthkamireddi.skykeep.sync.PhotoBackup.set(context, true)
+    }
   }
   var cellular by remember { mutableStateOf(io.github.yashwanthkamireddi.skykeep.sync.PhotoBackup.mobileData(context)) }
   SectionLabel("Photos")
@@ -576,6 +581,9 @@ private fun SettingsPage(engine: uniffi.quince_mobile.Account, account: Account?
                         if (keep) SignOut.keepCopy(context.contentResolver, a)
                         SignOut.removeAccount(context, a)
                       }
+                      // Remove from Phone: the account's library and Skykeep's own copies go too,
+                      // as the desktop's Remove does; nothing of it is left in the app's storage.
+                      if (!keep) { engine.forgetAccount(); SignOut.forgetHere(context) }
                       engine.signOut()
                     }
                   }

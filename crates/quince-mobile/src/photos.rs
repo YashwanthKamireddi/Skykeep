@@ -194,6 +194,20 @@ impl Account {
         })
     }
 
+    /// Whether a backup under `key` has already reached iCloud Photos (or found its photo there),
+    /// from the phone's library alone: a photo edited on the phone is seen again by the backup,
+    /// and this answers it without asking Apple.
+    pub fn photo_backup_done(&self, key: String) -> bool {
+        let Ok((lock, _)) = self.library() else {
+            return false;
+        };
+        runtime()
+            .block_on(async { lock.lock().await.upload(&key) })
+            .ok()
+            .flatten()
+            .is_some_and(|u| u.state == "done")
+    }
+
     /// Whether iCloud Photos takes a file of this name and size (Send to iPhone sends it to
     /// Photos when it does, to iCloud Drive when it doesn't, as the desktop decides).
     pub fn photo_accepts(&self, name: String, size: u64) -> bool {

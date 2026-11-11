@@ -142,4 +142,19 @@ object SignOut {
     .appendQueryParameter(Calendars.ACCOUNT_NAME, a.name)
     .appendQueryParameter(Calendars.ACCOUNT_TYPE, a.type)
     .build()
+
+  /**
+   * Remove from Phone: what Skykeep itself keeps for the account deleted with it, beside the
+   * engine's library (Account.forgetAccount): the pictures and files fetched (photos, Drive
+   * copies, shares), the last syncs' counts and the backup's place. The phone's own contacts
+   * and calendars go with the account (removeAccount).
+   */
+  fun forgetHere(context: Context) {
+    for (dir in listOf("photos", "drive", "share", "send", "backup", "drive-upload")) {
+      java.io.File(context.cacheDir, dir).deleteRecursively()
+    }
+    for (prefs in listOf("sync-outcome", "photo-backup")) {
+      context.getSharedPreferences(prefs, Context.MODE_PRIVATE).edit().clear().commit()
+    }
+  }
 }

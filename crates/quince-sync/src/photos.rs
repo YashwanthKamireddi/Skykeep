@@ -121,10 +121,10 @@ pub async fn set_flags(
         if flag == Flag::Expunged && (!on || found.iter().any(|p| !p.deleted)) {
             return Err("Only photos in Recently Deleted can be deleted for good.".into());
         }
-        if flag == Flag::Expunged {
-            let gone: Vec<String> = found.iter().map(|p| p.id.clone()).collect();
-            library.forget_photos(&gone).map_err(|e| e.to_string())?;
-        } else {
+        // Deleted for good is the one change not made here first: forgotten only once Apple has
+        // taken it (below). Forgotten first, a crash or a killed app mid-send left them gone
+        // here and still in Recently Deleted at Apple, where no later pass brought them back.
+        if flag != Flag::Expunged {
             let changed: Vec<Photo> = found
                 .iter()
                 .cloned()
@@ -223,11 +223,13 @@ pub async fn set_flags(
     };
     let mut now_are = Vec::with_capacity(before.len());
     let mut refused = Vec::new();
+    let mut gone = Vec::new();
     let mut why = None;
     for (old, answer) in before.iter().zip(answers) {
         match answer {
             Ok(record) => {
                 if flag == Flag::Expunged {
+                    gone.push(old.id.clone());
                     continue;
                 }
                 let mut p = old.clone();
@@ -263,6 +265,9 @@ pub async fn set_flags(
         let back = flags_back(&library, &refused, None);
         library.put_photos(&done).map_err(|e| e.to_string())?;
         library.put_photos(&back).map_err(|e| e.to_string())?;
+        if !gone.is_empty() {
+            library.forget_photos(&gone).map_err(|e| e.to_string())?;
+        }
     }
     if let Some(why) = why {
         let n = refused.len();

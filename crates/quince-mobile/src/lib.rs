@@ -864,7 +864,7 @@ impl Account {
             out.push(match sent {
                 Ok(done) => done,
                 Err(e) => {
-                    log::error(&format!("{e:?}"));
+                    log::error(&log::redact(&format!("{e:?}")));
                     let later = matches!(
                         e,
                         quince_icloud::Error::Network(_)
@@ -1009,7 +1009,7 @@ impl Account {
             out.push(match sent {
                 Ok(done) => done,
                 Err(e) => {
-                    log::error(&format!("{e:?}"));
+                    log::error(&log::redact(&format!("{e:?}")));
                     let later = matches!(
                         e,
                         quince_icloud::Error::Network(_)
@@ -1222,7 +1222,7 @@ impl Account {
             out.push(match sent {
                 Ok(done) => done,
                 Err(e) => {
-                    log::error(&format!("{e:?}"));
+                    log::error(&log::redact(&format!("{e:?}")));
                     let later = matches!(
                         e,
                         quince_icloud::Error::Network(_)
@@ -1238,6 +1238,27 @@ impl Account {
             });
         }
         Ok(out)
+    }
+
+    /// Everything this account keeps on the phone deleted: its library (notes, reminders, photo
+    /// and Drive lists, changes not yet sent), as the desktop's Remove from this computer does.
+    /// Called before [`Account::sign_out`] when the person chooses Remove from Phone; the app
+    /// clears its caches beside it.
+    pub fn forget_account(&self) -> Result<(), EngineError> {
+        let account = {
+            let c = self.client.lock().map_err(failed)?;
+            quince_sync::queue::asked_as(&c.service_params())
+        };
+        // Closed first, so nothing writes into the folder as it goes.
+        self.library.lock().map_err(failed)?.take();
+        if let Some(account) = account {
+            let dir = self.dir.join("libraries").join(account);
+            match std::fs::remove_dir_all(&dir) {
+                Err(e) if e.kind() != std::io::ErrorKind::NotFound => return Err(failed(e)),
+                _ => {}
+            }
+        }
+        Ok(())
     }
 
     /// Signs out here: the session forgotten on this phone, its secrets deleted.

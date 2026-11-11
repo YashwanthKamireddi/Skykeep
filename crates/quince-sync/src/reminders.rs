@@ -406,12 +406,16 @@ pub fn apply(
     fetched: quince_icloud::reminders::RemindersFetch,
     full: bool,
 ) -> Result<(usize, usize), Error> {
-    let (lists, count, _) = quince_icloud::reminders::apply_cloudkit(library, fetched)?;
-    replay(library)?;
-    if full {
-        library.mark_full_sync(REMINDERS)?;
-    }
-    Ok((lists, count))
+    // One transaction, Apple's pass and the edits laid back over it, as the desktop stores it:
+    // killed between the two (Android stops apps), unsent edits showed reverted until the next.
+    library.atomically(|library| {
+        let (lists, count, _) = quince_icloud::reminders::apply_cloudkit(library, fetched)?;
+        replay(library)?;
+        if full {
+            library.mark_full_sync(REMINDERS)?;
+        }
+        Ok((lists, count))
+    })
 }
 
 /// A pass from Apple, from where the last one left off (or the start), stored and laid over.

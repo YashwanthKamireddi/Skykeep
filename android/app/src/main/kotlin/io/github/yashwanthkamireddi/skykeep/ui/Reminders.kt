@@ -107,6 +107,7 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import uniffi.quince_mobile.Account
+import uniffi.quince_mobile.AccountInterface
 import uniffi.quince_mobile.RCounts
 import uniffi.quince_mobile.REdit
 import uniffi.quince_mobile.RItem
@@ -158,7 +159,7 @@ private fun syncReminders(context: android.content.Context) {
  * so it opens at once and works offline; every change shows at once and is sent behind.
  */
 @Composable
-fun RemindersPage(engine: Account) {
+fun RemindersPage(engine: AccountInterface) {
   val context = LocalContext.current
   val scope = rememberCoroutineScope()
   var place by rememberSaveable(stateSaver = PlaceSaver) { mutableStateOf<Place?>(null) }

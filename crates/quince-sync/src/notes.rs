@@ -368,12 +368,16 @@ pub fn apply(
     fetched: quince_icloud::notes::NotesFetch,
     full: bool,
 ) -> Result<(usize, usize), Error> {
-    let (folders, notes, _) = quince_icloud::notes::apply_cloudkit(library, fetched)?;
-    replay(library)?;
-    if full {
-        library.mark_full_sync(NOTES)?;
-    }
-    Ok((folders, notes))
+    // One transaction, Apple's pass and the edits laid back over it, as the desktop stores it:
+    // killed between the two (Android stops apps), unsent edits showed reverted until the next.
+    library.atomically(|library| {
+        let (folders, notes, _) = quince_icloud::notes::apply_cloudkit(library, fetched)?;
+        replay(library)?;
+        if full {
+            library.mark_full_sync(NOTES)?;
+        }
+        Ok((folders, notes))
+    })
 }
 
 /// A pass from Apple, from where the last one left off (or the start), stored and laid over.

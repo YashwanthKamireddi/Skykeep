@@ -22,3 +22,6 @@ packaging/arch/*.log
 # every note into the public repo (0.1.6).
 /docs/*
 !/docs/media/
+
+# Other build folders: the checks' (target-check) and the Android engine's (target-android).
+/target-*/

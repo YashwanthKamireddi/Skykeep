@@ -20,6 +20,9 @@
     <!-- New photos backed up to iCloud Photos, only when turned on in Settings (PhotoBackup.kt). -->
     <uses-permission android:name="android.permission.READ_MEDIA_IMAGES" />
     <uses-permission android:name="android.permission.READ_MEDIA_VIDEO" />
+    <!-- Where each backed-up photo was taken: without it Android removes the location from what
+         the app reads, and the photo would reach iCloud without it. -->
+    <uses-permission android:name="android.permission.ACCESS_MEDIA_LOCATION" />
     <uses-permission android:name="android.permission.READ_EXTERNAL_STORAGE" android:maxSdkVersion="32" />
 
     <application
