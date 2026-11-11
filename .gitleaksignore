@@ -5,3 +5,5 @@
 # A made-up journal key in a UI check (32 hex digits standing for a download's id) — not a secret.
 4f68cebf8026cc9a01f7cc6861b73dbcf4231b29:.uiverify/drive-download.mjs:generic-api-key:177
 39313cf5ee236cdaa6972b2a95afe5cc2818a7d7:.uiverify/drive-download.mjs:generic-api-key:177
+# A test fixture's placeholder key (0123456789abcdef repeated) in the downloads-journal test, not a secret.
+8c256398b43a311073d167c9f975d21447e72da3:src-tauri/src/main.rs:generic-api-key:8494
