@@ -5625,36 +5625,53 @@ async fn folder_thumbnail_files(
         .await
         .map_err(|e| e.to_string())?
     };
-    if !missing.is_empty() {
-        let (http, docws, params) = {
-            let auth = app.state::<Auth>();
-            let client = auth.client.lock().await;
-            (
-                client.http().clone(),
-                client
-                    .session()
-                    .service_url("docws")
-                    .ok_or("Apple hasn't offered iCloud Drive for this account.")?,
-                client.service_params(),
-            )
-        };
-        let got = quince_icloud::drive::thumbnails(&http, &docws, params, &missing)
-            .await
-            .map_err(|e| e.to_string())?;
-        for f in &missing {
-            let bytes = got
-                .iter()
-                .find(|(id, _)| id == &f.drivewsid)
-                .map(|(_, b)| b.clone());
-            let at = thumbnail_file(&cache, f);
-            // An empty file records "Apple has no picture for this version", so it is not asked again.
-            let written = write_whole(&at, bytes.as_deref().unwrap_or(&[])).await;
-            if bytes.is_some() && written.is_ok() {
-                out.insert(f.drivewsid.clone(), at);
-            }
+    if missing.is_empty() {
+        return Ok(out);
+    }
+    // Offline, or Apple failing, the pictures already in the cache still come back: an error
+    // here once threw them all away, and a folder opened offline with one new file in it lost
+    // every picture it had (desktop audit H15). The new ones are asked for next time.
+    let got = match fetch_thumbnails(app, &missing).await {
+        Ok(got) => got,
+        Err(e) => {
+            quiet!("drive thumbnails not fetched: {e}");
+            return Ok(out);
+        }
+    };
+    // Each looked up once and moved out, rather than a scan and a copy of the bytes per file.
+    let mut got: std::collections::HashMap<String, Vec<u8>> = got.into_iter().collect();
+    for f in &missing {
+        let bytes = got.remove(&f.drivewsid);
+        let at = thumbnail_file(&cache, f);
+        // An empty file records "Apple has no picture for this version", so it is not asked again.
+        let written = write_whole(&at, bytes.as_deref().unwrap_or(&[])).await;
+        if bytes.is_some() && written.is_ok() {
+            out.insert(f.drivewsid.clone(), at);
         }
     }
     Ok(out)
+}
+
+/// Apple's thumbnails for `missing`, by item id.
+async fn fetch_thumbnails(
+    app: &tauri::AppHandle,
+    missing: &[quince_core::drive::DriveItem],
+) -> Result<Vec<(String, Vec<u8>)>, String> {
+    let (http, docws, params) = {
+        let auth = app.state::<Auth>();
+        let client = auth.client.lock().await;
+        (
+            client.http().clone(),
+            client
+                .session()
+                .service_url("docws")
+                .ok_or("Apple hasn't offered iCloud Drive for this account.")?,
+            client.service_params(),
+        )
+    };
+    quince_icloud::drive::thumbnails(&http, &docws, params, missing)
+        .await
+        .map_err(|e| e.to_string())
 }
 
 /// A thumbnail's type, read from its first bytes.
