@@ -34,19 +34,33 @@ object ReminderAlerts {
   /** Each reminder said once per due time: `guid@due` kept, so a sync never says it again. */
   private fun said(context: Context) = context.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
 
-  /** The next alert set (or none), after saying whatever is due now. */
+  private fun fireIntent(context: Context) = PendingIntent.getBroadcast(
+    context, 0, Intent(context, ReminderAlertReceiver::class.java).setAction(ACTION_FIRE),
+    PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE,
+  )
+
+  /**
+   * Signed out: the next alert cancelled and every reminder notification taken down, so one
+   * account's reminders are never shown after it leaves the phone. Other notifications stay.
+   */
+  fun stop(context: Context) {
+    context.getSystemService(AlarmManager::class.java).cancel(fireIntent(context))
+    val manager = context.getSystemService(NotificationManager::class.java)
+    for (n in manager.activeNotifications) if (n.notification.channelId == CHANNEL) manager.cancel(n.tag, n.id)
+    said(context).edit().clear().commit()
+  }
+
+  /** The next alert set (or none), after saying whatever is due now. Signed out, none. */
   fun schedule(context: Context) {
     val engine = io.github.yashwanthkamireddi.skykeep.Engine.account(context)
+    if (!engine.hasSession()) return stop(context)
     val now = System.currentTimeMillis() / 1000
     val soon = runCatching { engine.remindersDueBetween(now - 86_400, now + 14 * 86_400) }.getOrNull() ?: return
     val open = soon.filter { it.completedAt == null }
     sayDue(context, open.filter { (ringsAt(it) ?: Long.MAX_VALUE) <= now })
     val next = open.mapNotNull(::ringsAt).filter { it > now }.minOrNull()
     val alarms = context.getSystemService(AlarmManager::class.java)
-    val fire = PendingIntent.getBroadcast(
-      context, 0, Intent(context, ReminderAlertReceiver::class.java).setAction(ACTION_FIRE),
-      PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE,
-    )
+    val fire = fireIntent(context)
     alarms.cancel(fire)
     if (next == null) return
     val at = next * 1000

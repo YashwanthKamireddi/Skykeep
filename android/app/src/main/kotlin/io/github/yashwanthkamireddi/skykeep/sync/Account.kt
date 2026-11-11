@@ -29,17 +29,30 @@ fun setSyncEvery(context: Context, account: Account?, seconds: Long) {
   }
 }
 
+/** Where an account keeps the tag of the Apple Account it syncs for (the engine's account tag). */
+private const val OWNER = "account"
+
+/** The phone account syncing now, by name: set when the signed-in Apple Account's is made. */
+private const val CURRENT = "phoneAccount"
+
 /**
  * The Skykeep account for an Apple Account, created once and made syncable for Contacts,
- * Calendar and Reminders. No password is kept in it: the session lives sealed in the Keystore.
- * Run again on every start, so an account made before Reminders synced gains it.
+ * Calendar and Reminders, and marked with the Apple Account's tag. No password is kept in it:
+ * the session lives sealed in the Keystore. Run again on every start, so an account made before
+ * Reminders synced gains it.
+ *
+ * Any other Skykeep account on the phone (an earlier Apple Account's, kept when someone else
+ * signed in) stops syncing here: its contacts and calendars stay as they are, and nothing of
+ * this account's iCloud is ever written into them, nor theirs sent to it.
  */
-fun ensureAccount(context: Context, appleId: String): Account {
+fun ensureAccount(context: Context, appleId: String, tag: String): Account {
   val account = Account(appleId, ACCOUNT_TYPE)
   val manager = AccountManager.get(context)
-  if (manager.getAccountsByType(ACCOUNT_TYPE).none { it.name == appleId }) {
-    manager.addAccountExplicitly(account, null, null)
-  }
+  val all = manager.getAccountsByType(ACCOUNT_TYPE)
+  if (all.none { it == account }) manager.addAccountExplicitly(account, null, null)
+  manager.setUserData(account, OWNER, tag)
+  context.getSharedPreferences("settings", Context.MODE_PRIVATE).edit().putString(CURRENT, appleId).commit()
+  for (other in all) if (other != account) stopSyncing(other)
   for (authority in SYNCED) {
     ContentResolver.setIsSyncable(account, authority, 1)
     ContentResolver.setSyncAutomatically(account, authority, true)
@@ -48,4 +61,48 @@ fun ensureAccount(context: Context, appleId: String): Account {
     ContentResolver.addPeriodicSync(account, authority, android.os.Bundle.EMPTY, syncEvery(context))
   }
   return account
+}
+
+/** An account no longer synced on its own nor offered a sync: its rows stay, untouched. */
+private fun stopSyncing(account: Account) {
+  for (authority in SYNCED) {
+    ContentResolver.cancelSync(account, authority)
+    ContentResolver.removePeriodicSync(account, authority, android.os.Bundle.EMPTY)
+    ContentResolver.setSyncAutomatically(account, authority, false)
+    ContentResolver.setIsSyncable(account, authority, 0)
+  }
+}
+
+/**
+ * The phone account of the Apple Account signed in, if it has one here: the one last made by
+ * [ensureAccount]; an account from before that was kept is taken when it is the only one.
+ */
+fun currentAccount(context: Context): Account? {
+  val all = AccountManager.get(context).getAccountsByType(ACCOUNT_TYPE)
+  val name = context.getSharedPreferences("settings", Context.MODE_PRIVATE).getString(CURRENT, null)
+  return if (name != null) all.firstOrNull { it.name == name } else all.singleOrNull()
+}
+
+/**
+ * Whether a sync Android asks for on `account` is for the Apple Account signed in now: its tag
+ * the engine's. Every adapter asks first, so a second account's contacts and calendars are
+ * never read with this session, nor this session's changes sent from them. An account made
+ * before accounts were tagged is this one's when its name is the Apple ID signed in, and is
+ * marked so. With no session, nothing is anyone's.
+ */
+fun syncsFor(context: Context, engine: uniffi.quince_mobile.AccountInterface, account: Account): Boolean {
+  val tag = engine.accountTag() ?: return false
+  val manager = AccountManager.get(context)
+  val owner = manager.getUserData(account, OWNER)
+  if (owner != null) return owner == tag
+  if (engine.appleId()?.equals(account.name, ignoreCase = true) != true) return false
+  manager.setUserData(account, OWNER, tag)
+  return true
+}
+
+/** The adapters' first step: a sync for another account's phone account is refused and stopped. */
+fun refuseOthers(context: Context, engine: uniffi.quince_mobile.AccountInterface, account: Account, authority: String): Boolean {
+  if (syncsFor(context, engine, account)) return false
+  ContentResolver.setIsSyncable(account, authority, 0)
+  return true
 }

@@ -119,11 +119,18 @@ object SignOut {
 
   /**
    * The account removed from the phone: Android takes its contacts and calendars with it. What
-   * the person chose to keep was copied first ([keepCopy]). The sync outcomes go too.
+   * the person chose to keep was copied first ([keepCopy]). The sync outcomes, photo backup's
+   * settings and the reminder alerts go too.
    */
   fun removeAccount(context: Context, account: Account): Boolean {
     val gone = AccountManager.get(context).removeAccountExplicitly(account)
-    context.getSharedPreferences("sync-outcome", Context.MODE_PRIVATE).edit().clear().apply()
+    // What belonged to the account's session goes with it, Keep a Copy or not: photo backup's
+    // choice and place (the next account never uploads this phone's photos unless it turns
+    // backup on itself), and the reminders said or still due.
+    for (prefs in listOf("sync-outcome", "photo-backup")) {
+      context.getSharedPreferences(prefs, Context.MODE_PRIVATE).edit().clear().commit()
+    }
+    ReminderAlerts.stop(context)
     return gone
   }
 

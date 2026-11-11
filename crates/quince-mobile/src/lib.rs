@@ -692,6 +692,14 @@ impl Account {
         c.session().apple_id.clone()
     }
 
+    /// The signed-in account's own tag (from Apple's account number, never the Apple ID typed):
+    /// the same for every spelling of the Apple ID, different for every other account. Android's
+    /// account for this Apple Account carries it, so a sync never runs for another account's.
+    pub fn account_tag(&self) -> Option<String> {
+        let c = self.client.lock().ok()?;
+        quince_sync::queue::asked_as(&c.service_params())
+    }
+
     /// The whole iCloud address book, read as desktop reads it (Apple's `/co/startup`).
     pub fn contacts(&self) -> Result<Vec<Person>, EngineError> {
         Ok(self.address_book()?.people)

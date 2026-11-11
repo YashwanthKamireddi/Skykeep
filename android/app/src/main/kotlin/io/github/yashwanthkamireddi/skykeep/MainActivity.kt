@@ -68,8 +68,14 @@ class MainActivity : ComponentActivity() {
               if (where == Reopened.SIGN_IN || where == Reopened.CODE) stage = Stage.SignIn
             }
             // An account made before something synced (Reminders, 10 Nov) is given it now.
+            // Only the signed-in Apple Account's own phone account, never another's kept here.
             phoneAccount(applicationContext)?.let { existing ->
-              withContext(Dispatchers.IO) { io.github.yashwanthkamireddi.skykeep.sync.ensureAccount(applicationContext, existing.name) }
+              withContext(Dispatchers.IO) {
+                val tag = a.accountTag()
+                if (tag != null && io.github.yashwanthkamireddi.skykeep.sync.syncsFor(applicationContext, a, existing)) {
+                  io.github.yashwanthkamireddi.skykeep.sync.ensureAccount(applicationContext, existing.name, tag)
+                }
+              }
             }
           }
           when (stage) {

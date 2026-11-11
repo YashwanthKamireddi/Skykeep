@@ -1,7 +1,6 @@
 package io.github.yashwanthkamireddi.skykeep.ui
 
 import android.accounts.Account
-import android.accounts.AccountManager
 import android.content.ContentResolver
 import android.content.Context
 import android.os.Bundle
@@ -14,15 +13,13 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.platform.LocalContext
-import io.github.yashwanthkamireddi.skykeep.sync.ACCOUNT_TYPE
 import io.github.yashwanthkamireddi.skykeep.sync.Outcome
 
 /** Contacts and Calendar, the two things the phone's own apps show from iCloud. */
 val AUTHORITIES = listOf(ContactsContract.AUTHORITY, CalendarContract.AUTHORITY, io.github.yashwanthkamireddi.skykeep.sync.REMINDERS_AUTHORITY, io.github.yashwanthkamireddi.skykeep.sync.NOTES_AUTHORITY, io.github.yashwanthkamireddi.skykeep.sync.PHOTOS_AUTHORITY)
 
 /** The Skykeep account on this phone, once the first sync has made it. */
-fun phoneAccount(context: Context): Account? =
-  AccountManager.get(context).getAccountsByType(ACCOUNT_TYPE).firstOrNull()
+fun phoneAccount(context: Context): Account? = io.github.yashwanthkamireddi.skykeep.sync.currentAccount(context)
 
 /** Android asked to sync now — the adapters are the one place a sync runs. */
 fun syncNow(account: Account) {

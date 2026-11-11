@@ -41,6 +41,7 @@ class AuthenticatorService : Service() {
 private class Adapter(context: Context) : AbstractThreadedSyncAdapter(context, true) {
   override fun onPerformSync(a: Account, e: Bundle, authority: String, p: ContentProviderClient, r: SyncResult) {
     val engine = io.github.yashwanthkamireddi.skykeep.Engine.account(context)
+    if (refuseOthers(context, engine, a, authority)) return
     try {
       val (from, to) = CalendarSync.span()
       val tz = java.util.TimeZone.getDefault().id
@@ -80,6 +81,7 @@ private class Adapter(context: Context) : AbstractThreadedSyncAdapter(context, t
 private class ContactsAdapter(context: Context) : AbstractThreadedSyncAdapter(context, true) {
   override fun onPerformSync(a: Account, e: Bundle, authority: String, p: ContentProviderClient, r: SyncResult) {
     val engine = io.github.yashwanthkamireddi.skykeep.Engine.account(context)
+    if (refuseOthers(context, engine, a, authority)) return
     try {
       // One confirmation covers both ways: the changes held from sending and the removals held.
       val confirmed = Outcome.massRemovalConfirmed(context, authority)

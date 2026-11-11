@@ -34,6 +34,7 @@ class NotesProvider : ContentProvider() {
 private class NotesAdapter(context: Context) : AbstractThreadedSyncAdapter(context, true) {
   override fun onPerformSync(a: Account, e: Bundle, authority: String, p: ContentProviderClient, r: SyncResult) {
     val engine = io.github.yashwanthkamireddi.skykeep.Engine.account(context)
+    if (refuseOthers(context, engine, a, authority)) return
     try {
       val done = engine.notesSync()
       val said = buildList {

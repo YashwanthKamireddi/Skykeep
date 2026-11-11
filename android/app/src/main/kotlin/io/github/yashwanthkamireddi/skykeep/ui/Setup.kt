@@ -128,8 +128,12 @@ fun Setup(onDone: () -> Unit) {
         var account by remember { mutableStateOf<android.accounts.Account?>(null) }
         LaunchedEffect(Unit) {
           val made = withContext(Dispatchers.IO) {
-            ensureAccount(context, io.github.yashwanthkamireddi.skykeep.Engine.account(context).appleId() ?: "iCloud")
-          }
+            val engine = io.github.yashwanthkamireddi.skykeep.Engine.account(context)
+            // Named for the Apple ID, owned by the account's tag: a second Apple Account signed
+            // in later gets its own phone account, and this one stops syncing (never mixed).
+            val tag = engine.accountTag() ?: return@withContext null
+            ensureAccount(context, engine.appleId() ?: "iCloud", tag)
+          } ?: return@LaunchedEffect
           account = made
           asked = System.currentTimeMillis()
           syncNow(made)
