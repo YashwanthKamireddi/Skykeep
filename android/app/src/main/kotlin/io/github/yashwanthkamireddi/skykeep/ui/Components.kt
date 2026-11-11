@@ -1,5 +1,7 @@
 package io.github.yashwanthkamireddi.skykeep.ui
 
+import androidx.compose.foundation.lazy.itemsIndexed
+
 import android.content.Context
 import android.net.ConnectivityManager
 import android.net.Network
@@ -119,6 +121,36 @@ fun <T> GroupCard(items: List<T>, inset: Int = 56, row: @Composable (T) -> Unit)
   Surface(color = MaterialTheme.colorScheme.surfaceContainer, shape = MaterialTheme.shapes.large, modifier = Modifier.fillMaxWidth()) {
     Column {
       items.forEachIndexed { i, item ->
+        row(item)
+        if (i < items.lastIndex) androidx.compose.material3.HorizontalDivider(Modifier.padding(start = inset.dp), color = MaterialTheme.colorScheme.outlineVariant)
+      }
+    }
+  }
+}
+
+/**
+ * [GroupCard] for a long list: each row its own item of the lazy list, drawn as its slice of the
+ * one card (the first row with the card's top corners, the last with its bottom ones), so only
+ * the rows on screen are built. A folder of thousands of notes built every row before its first
+ * frame inside one card.
+ */
+fun <T> androidx.compose.foundation.lazy.LazyListScope.groupItems(
+  items: List<T>,
+  key: (T) -> Any,
+  inset: Int = 56,
+  row: @Composable (T) -> Unit,
+) {
+  itemsIndexed(items, key = { _, item -> key(item) }) { i, item ->
+    val card = MaterialTheme.shapes.large
+    val none = androidx.compose.foundation.shape.ZeroCornerSize
+    val shape = when {
+      items.size == 1 -> card
+      i == 0 -> card.copy(bottomStart = none, bottomEnd = none)
+      i == items.lastIndex -> card.copy(topStart = none, topEnd = none)
+      else -> androidx.compose.ui.graphics.RectangleShape
+    }
+    Surface(color = MaterialTheme.colorScheme.surfaceContainer, shape = shape, modifier = Modifier.fillMaxWidth()) {
+      Column {
         row(item)
         if (i < items.lastIndex) androidx.compose.material3.HorizontalDivider(Modifier.padding(start = inset.dp), color = MaterialTheme.colorScheme.outlineVariant)
       }

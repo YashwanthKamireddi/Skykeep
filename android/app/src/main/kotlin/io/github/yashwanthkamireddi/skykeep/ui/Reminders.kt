@@ -282,11 +282,14 @@ fun RemindersPage(engine: AccountInterface) {
           }
         }
         // Sub-tasks under their reminder, set in, as the desktop shows them.
-        val children = items.filter { it.parentGuid != null }.groupBy { it.parentGuid }
-        val shown = items.filter { it.parentGuid == null || items.none { p -> p.guid == it.parentGuid } }
+        // By set, not by searching the list for each row: a list of thousands was laid out in
+        // quadratic time on every redraw.
+        val listed = items.mapTo(HashSet(items.size)) { it.guid }
+        val children = items.filter { it.parentGuid != null && it.parentGuid in listed }.groupBy { it.parentGuid }
+        val shown = items.filter { it.parentGuid == null || it.parentGuid !in listed }
           .flatMap { listOf(it) + children[it.guid].orEmpty() }
         items(shown, key = { it.guid }) { r ->
-          val sub = r.parentGuid != null && items.any { it.guid == r.parentGuid }
+          val sub = r.parentGuid != null && r.parentGuid in listed
           ReminderRow(r, here.colour, sub, onTick = { change { engine.reminderTick(r.guid, r.completedAt == null) } }, onOpen = { editing = r })
           HorizontalDivider(Modifier.padding(start = if (sub) 76.dp else 40.dp), color = MaterialTheme.colorScheme.outlineVariant)
         }

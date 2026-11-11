@@ -147,19 +147,30 @@ fun NotesPage(engine: AccountInterface) {
 
   fun reason(t: Throwable) = (t as? uniffi.quince_mobile.EngineException.Failed)?.reason ?: "Notes couldn't be read."
 
-  fun reload() = scope.launch {
-    val p = place
-    runCatching {
-      withContext(Dispatchers.IO) {
-        val f = engine.noteFolders()
-        val n = when {
-          query.isNotBlank() -> engine.searchNotes(query)
-          p is NPlace.Folder -> engine.notes(p.guid)
-          else -> emptyList()
+  // The read in flight: a new one cancels it, so a search typed fast never shows an older
+  // query's answer arriving after a newer one's.
+  val reading = remember { arrayOfNulls<kotlinx.coroutines.Job>(1) }
+  fun reload(): kotlinx.coroutines.Job {
+    reading[0]?.cancel()
+    return scope.launch {
+      val p = place
+      try {
+        val (f, n) = withContext(Dispatchers.IO) {
+          val f = engine.noteFolders()
+          val n = when {
+            query.isNotBlank() -> engine.searchNotes(query)
+            p is NPlace.Folder -> engine.notes(p.guid)
+            else -> emptyList()
+          }
+          f to n
         }
-        f to n
+        folders = f; notes = n; problem = null
+      } catch (e: kotlinx.coroutines.CancellationException) {
+        throw e
+      } catch (t: Throwable) {
+        problem = reason(t)
       }
-    }.onSuccess { (f, n) -> folders = f; notes = n; problem = null }.onFailure { problem = reason(it) }
+    }.also { reading[0] = it }
   }
 
   /** A folder made, renamed or deleted at Apple, then everything read again. */
@@ -333,8 +344,7 @@ private fun NoteList(notes: List<NItem>, grouped: Boolean, open: (NItem) -> Unit
     }
     for ((name, list) in sections) {
       if (name.isNotEmpty()) item(key = "h-$name") { SectionLabel(name) }
-      item(key = "s-$name") {
-        GroupCard(list, inset = 16) { n ->
+      groupItems(list, key = { "n-${it.guid}" }, inset = 16) { n ->
           Column(Modifier.fillMaxWidth().clickable { open(n) }.padding(horizontal = 16.dp, vertical = 12.dp)) {
             Text(n.title.ifBlank { "New Note" }, style = MaterialTheme.typography.titleMedium, maxLines = 1, overflow = TextOverflow.Ellipsis)
             Row {
@@ -346,7 +356,6 @@ private fun NoteList(notes: List<NItem>, grouped: Boolean, open: (NItem) -> Unit
               )
             }
           }
-        }
       }
     }
   }
