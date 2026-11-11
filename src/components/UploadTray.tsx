@@ -1,5 +1,5 @@
 import { Progress } from "./Spinner";
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useRef, useState, useSyncExternalStore } from "react";
 import { api, type UploadEvent } from "../lib/ipc";
 import { FileGlyph } from "./FileGlyph";
 
@@ -9,6 +9,75 @@ const extensionOf = (name: string) => {
 };
 
 const ended = (u: UploadEvent) => u.state === "done" || u.state === "failed" || u.state === "cancelled";
+
+/**
+ * Every file sent from a screen, until its tray is closed, held outside the screen's state.
+ *
+ * Kept as the screen's state, each upload event copied the whole map and drew Drive again:
+ * a thousand files going up into a folder of thousands sent dozens of events a second, each
+ * redrawing the file list for a tray in the corner. Here an event changes one entry in place,
+ * and the tray alone is told, at most every 80 ms, as the download tray is (lib/downloads).
+ */
+export class Uploads {
+  private byId = new Map<string, UploadEvent>();
+  private shown: UploadEvent[] = [];
+  private listeners = new Set<() => void>();
+  private flushing: number | null = null;
+
+  /** An event from the backend. Events for one file can pass each other; a finished file never goes back. */
+  hear(u: UploadEvent) {
+    const before = this.byId.get(u.id);
+    if (before && ended(before)) return;
+    this.byId.set(u.id, u);
+    this.changed();
+  }
+
+  /** Change the entries `edit` returns a new value for; told only if one changed. */
+  edit(edit: (u: UploadEvent) => UploadEvent | null) {
+    let any = false;
+    for (const [id, u] of this.byId) {
+      const next = edit(u);
+      if (next) {
+        this.byId.set(id, next);
+        any = true;
+      }
+    }
+    if (any) this.changed();
+  }
+
+  clear() {
+    if (this.byId.size === 0) return;
+    this.byId.clear();
+    // At once: Done closes the tray in the same frame it is pressed.
+    this.flush();
+  }
+
+  values(): IterableIterator<UploadEvent> {
+    return this.byId.values();
+  }
+
+  /** The uploads as last told, the same array until the next change is told. */
+  get = (): UploadEvent[] => this.shown;
+
+  subscribe = (listener: () => void) => {
+    this.listeners.add(listener);
+    return () => {
+      this.listeners.delete(listener);
+    };
+  };
+
+  private changed() {
+    if (this.flushing !== null) return;
+    this.flushing = window.setTimeout(() => this.flush(), 80);
+  }
+
+  private flush() {
+    if (this.flushing !== null) window.clearTimeout(this.flushing);
+    this.flushing = null;
+    this.shown = [...this.byId.values()];
+    this.listeners.forEach((l) => l());
+  }
+}
 
 /**
  * One line of the tray: a file dropped on its own, or a whole folder with everything in it
@@ -82,15 +151,16 @@ function measure(item: Item, planned: boolean) {
  * tray steps aside on its own; anything that failed keeps it until it is read.
  */
 export function UploadTray({
-  uploads,
+  store,
   onDismiss,
   cancel = api.driveUploadCancel,
 }: {
-  uploads: UploadEvent[];
+  store: Uploads;
   onDismiss: () => void;
   /** Stops uploads by id, or a whole batch; Drive's unless the screen says otherwise. */
   cancel?: (ids: string[], batch?: string) => Promise<void>;
 }) {
+  const uploads = useSyncExternalStore(store.subscribe, store.get);
   const [open, setOpen] = useState<string | null>(null);
   const items = group(uploads);
   const planned = new Set(uploads.filter((u) => u.state === "planned").map((u) => u.batch));

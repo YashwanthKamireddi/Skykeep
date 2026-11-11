@@ -212,6 +212,7 @@ pooled "drive keys"        node .uiverify/drive-keys.mjs
 pooled "drive drag"        node .uiverify/drive-drag.mjs
 pooled "drive recents"     node .uiverify/drive-recents.mjs
 pooled "drive gone folder" node .uiverify/drive-gone.mjs
+pooled "drive move back"   node .uiverify/drive-move-back.mjs
 pooled "settings"          node .uiverify/settings.mjs
 pooled "calendar day steps" node .uiverify/calendar-daystep.mjs
 pooled "pending writes"    node .uiverify/pending-writes.mjs
