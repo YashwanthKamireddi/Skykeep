@@ -4,7 +4,7 @@
 
 <h1 align="center">Skykeep</h1>
 
-<p align="center"><strong>Six apps. Your whole iCloud.</strong><br>Notes, Reminders, Calendar, Contacts, iCloud Drive and Photos as native apps for Windows and Linux. Send files to your iPhone, back up every photo, and work offline.</p>
+<p align="center"><strong>Your iPhone's iCloud, on Windows and Linux.</strong><br>Notes, Reminders, Calendar, Contacts, iCloud Drive and Photos as native apps. Send files to your iPhone, back up every photo, and work offline.</p>
 
 <p align="center">
   <a href="https://github.com/YashwanthKamireddi/Skykeep/releases/latest"><strong>Download</strong></a> ·
