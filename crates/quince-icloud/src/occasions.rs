@@ -20,6 +20,36 @@ pub const HOLIDAYS: &str = "quince:holidays";
 /// The year Apple writes for a birthday given without one (`1604-03-17`).
 const NO_YEAR: i16 = 1604;
 
+/// A birthday as Android's Contacts keeps it, from Apple's: one without a year is `--MM-DD`
+/// there (vCard's form, which Android shows as a day and month), never Apple's 1604, which
+/// Android showed as a year and so an age of four hundred. A full date is left as it is.
+#[must_use]
+pub fn birthday_for_phone(apple: &str) -> String {
+    match apple.trim().strip_prefix("1604-") {
+        Some(day) if day.len() == 5 && day.as_bytes()[2] == b'-' => format!("--{day}"),
+        _ => apple.to_string(),
+    }
+}
+
+/// A birthday as Apple keeps it, from Android's: a day and month without a year (`--MM-DD`,
+/// or `--MMDD`) is Apple's 1604, so it shows on an iPhone as a birthday with no year. A full
+/// date is left as it is.
+#[must_use]
+pub fn birthday_from_phone(phone: &str) -> String {
+    let Some(day) = phone.trim().strip_prefix("--").filter(|d| d.is_ascii()) else {
+        return phone.to_string();
+    };
+    let (month, date) = match (day.len(), day.as_bytes().get(2)) {
+        (5, Some(b'-')) => (&day[..2], &day[3..]),
+        (4, _) => (&day[..2], &day[2..]),
+        _ => return phone.to_string(),
+    };
+    if !(month.bytes().all(|b| b.is_ascii_digit()) && date.bytes().all(|b| b.is_ascii_digit())) {
+        return phone.to_string();
+    }
+    format!("{NO_YEAR}-{month}-{date}")
+}
+
 /// The two calendars, as the sidebar lists them.
 #[must_use]
 pub fn calendars(holidays_title: Option<&str>, any_birthdays: bool) -> Vec<Calendar> {
@@ -391,6 +421,30 @@ pub async fn fetch_feed(http: &reqwest::Client, region: &str, lang: &str) -> Res
 
 #[cfg(test)]
 mod tests {
+
+    /// A birthday without a year goes to Android as `--MM-DD` and comes back as Apple's 1604,
+    /// both ways; a full date, and anything else, is left as it is.
+    #[test]
+    fn a_yearless_birthday_is_the_phones_form_there_and_apples_here() {
+        assert_eq!(birthday_for_phone("1604-03-17"), "--03-17");
+        assert_eq!(birthday_from_phone("--03-17"), "1604-03-17");
+        assert_eq!(birthday_from_phone("--0317"), "1604-03-17");
+        assert_eq!(
+            birthday_from_phone(&birthday_for_phone("1604-12-01")),
+            "1604-12-01"
+        );
+        for kept in [
+            "1990-03-17",
+            "2000-02-29",
+            "",
+            "--3-17",
+            "--é3-17",
+            "1604-3-17",
+        ] {
+            assert_eq!(birthday_for_phone(kept), kept);
+            assert_eq!(birthday_from_phone(kept), kept);
+        }
+    }
 
     /// A start date with an accented character where the digits go is skipped, not a panic.
     #[test]
