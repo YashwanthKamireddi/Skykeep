@@ -58,7 +58,7 @@ class DriveProvider : DocumentsProvider() {
     if (phoneSignedIn()) {
       c.newRow().apply {
         add(Root.COLUMN_ROOT_ID, "icloud-drive")
-        add(Root.COLUMN_DOCUMENT_ID, engine.driveRoot())
+        add(Root.COLUMN_DOCUMENT_ID, rootId())
         add(Root.COLUMN_TITLE, "iCloud Drive")
         add(Root.COLUMN_ICON, io.github.yashwanthkamireddi.skykeep.R.mipmap.ic_launcher)
         add(Root.COLUMN_FLAGS, Root.FLAG_SUPPORTS_CREATE or Root.FLAG_SUPPORTS_IS_CHILD or Root.FLAG_SUPPORTS_SEARCH)
@@ -68,13 +68,33 @@ class DriveProvider : DocumentsProvider() {
     return c
   }
 
-  private fun phoneSignedIn() = runCatching { io.github.yashwanthkamireddi.skykeep.ui.phoneAccount(context!!) != null }.getOrDefault(false)
+  /** Signed in as the engine sees it: a session kept and an account it belongs to. */
+  private fun phoneSignedIn() = runCatching { engine.hasSession() && engine.accountTag() != null }.getOrDefault(false)
+
+  /**
+   * The Drive root as other apps see it: named for the account ("root:<tag>"), never the
+   * engine's own root id, which is the same for every Apple Account. A folder grant an app was
+   * given under one account is checked against that name ([isChildDocument]), so it never
+   * reaches the next account's Drive on the same phone. Every other id is Apple's own, unique to
+   * its account, and unknown to another account's library.
+   */
+  private fun rootId(): String = "root:" + (engine.accountTag() ?: throw java.io.FileNotFoundException("signed out"))
+
+  /** An id from another app, as the engine knows it; another account's root is not found. */
+  private fun inner(id: String): String = when {
+    id == rootId() -> engine.driveRoot()
+    id.startsWith("root:") -> throw java.io.FileNotFoundException("not this account's iCloud Drive")
+    else -> id
+  }
+
+  /** An engine id, as other apps are given it. */
+  private fun outer(id: String): String = if (id == engine.driveRoot()) rootId() else id
 
   private fun mimeOf(item: DItem): String = DriveFiles.mimeOf(item)
 
   private fun MatrixCursor.add(item: DItem) {
     newRow().apply {
-      add(Document.COLUMN_DOCUMENT_ID, item.id)
+      add(Document.COLUMN_DOCUMENT_ID, outer(item.id))
       add(Document.COLUMN_MIME_TYPE, mimeOf(item))
       add(Document.COLUMN_DISPLAY_NAME, item.name)
       add(Document.COLUMN_LAST_MODIFIED, item.modifiedAt?.let { it * 1000 })
@@ -89,18 +109,20 @@ class DriveProvider : DocumentsProvider() {
 
   override fun queryDocument(documentId: String, projection: Array<out String>?): Cursor {
     val c = MatrixCursor(projection ?: docColumns)
-    if (documentId == engine.driveRoot()) {
-      c.add(DItem(documentId, null, "iCloud Drive", true, null, null, null))
+    val id = inner(documentId)
+    if (id == engine.driveRoot()) {
+      c.add(DItem(id, null, "iCloud Drive", true, null, null, null))
     } else {
-      engine.driveItem(documentId)?.let { c.add(it) }
+      engine.driveItem(id)?.let { c.add(it) }
     }
     return c
   }
 
   override fun queryChildDocuments(parentDocumentId: String, projection: Array<out String>?, sortOrder: String?): Cursor {
     val c = MatrixCursor(projection ?: docColumns)
+    val parent = inner(parentDocumentId)
     // What the phone has: at once (read from Apple first when never seen).
-    runCatching { engine.driveChildren(parentDocumentId, false) }.getOrNull()?.forEach { c.add(it) }
+    runCatching { engine.driveChildren(parent, false) }.getOrNull()?.forEach { c.add(it) }
     val uri = DocumentsContract.buildChildDocumentsUri(authority, parentDocumentId)
     c.setNotificationUri(context!!.contentResolver, uri)
     // Then as Apple has it now, and the Files app told when it is in.
@@ -108,7 +130,7 @@ class DriveProvider : DocumentsProvider() {
     if (now - (readAt[parentDocumentId] ?: 0) > 60_000) {
       readAt[parentDocumentId] = now
       refreshing.execute {
-        if (runCatching { engine.driveChildren(parentDocumentId, true) }.isSuccess) {
+        if (runCatching { engine.driveChildren(parent, true) }.isSuccess) {
           context!!.contentResolver.notifyChange(uri, null, false)
         }
       }
@@ -122,12 +144,18 @@ class DriveProvider : DocumentsProvider() {
     return c
   }
 
+  /**
+   * Whether a document is inside a folder: how Android checks what a folder grant reaches. Both
+   * sides compared as other apps name them, so a grant on another account's root ("root:<tag>"
+   * of an account signed out since) contains nothing here.
+   */
   override fun isChildDocument(parentDocumentId: String, documentId: String): Boolean {
+    if (!phoneSignedIn()) return false
     var at: String? = documentId
     var steps = 0
     while (at != null && steps++ < 64) {
       if (at == parentDocumentId) return true
-      at = engine.driveItem(at)?.parentId
+      at = if (at.startsWith("root:")) null else engine.driveItem(at)?.parentId?.let(::outer)
     }
     return false
   }
@@ -135,7 +163,8 @@ class DriveProvider : DocumentsProvider() {
   /** Where a file's copy is kept on the phone: its own folder per item, named as the file is. */
   private fun copyOf(item: DItem): File = DriveFiles.copyOf(context!!, item)
 
-  override fun openDocument(documentId: String, mode: String, signal: CancellationSignal?): ParcelFileDescriptor {
+  override fun openDocument(openedId: String, mode: String, signal: CancellationSignal?): ParcelFileDescriptor {
+    val documentId = inner(openedId)
     val item = engine.driveItem(documentId) ?: throw java.io.FileNotFoundException("not in iCloud Drive")
     val file = copyOf(item)
     val writing = mode.contains('w') || mode.contains('a')
@@ -162,40 +191,56 @@ class DriveProvider : DocumentsProvider() {
             unsent -= documentId
           }
           .onFailure { android.util.Log.w("Skykeep", "A file written in iCloud Drive wasn't sent yet: ${it.message}") }
-        context!!.contentResolver.notifyChange(DocumentsContract.buildChildDocumentsUri(authority, parent), null, false)
+        notifyChildren(parent)
       }
     }
   }
 
+  /**
+   * A new file or folder, named by the app asking. The name is refused, never altered, when it
+   * isn't one plain name (a slash, NUL, "." or ".."): it becomes a file on the phone before it
+   * goes to Apple, and a name like "../../files/x" must never reach outside its own folder.
+   */
   override fun createDocument(parentDocumentId: String, mimeType: String, displayName: String): String {
-    if (mimeType == Document.MIME_TYPE_DIR) return engine.driveMkdir(parentDocumentId, displayName).id
+    val parent = inner(parentDocumentId)
+    val name = displayName.trim()
+    require(name.isNotEmpty() && name != "." && name != ".." && '/' !in name && '\u0000' !in name) { "Not a file name" }
+    if (mimeType == Document.MIME_TYPE_DIR) return outer(engine.driveMkdir(parent, name).id)
     // A new file: made at Apple at once, empty, so it has its id; what the app then writes into
-    // it goes into that same file.
-    val staged = File(context!!.cacheDir, "drive-new/${System.nanoTime()}/$displayName").also { it.parentFile?.mkdirs(); it.writeBytes(ByteArray(0)) }
-    val made = engine.driveWriteBack(parentDocumentId, staged.path, null)
-    staged.parentFile?.deleteRecursively()
-    notifyChildren(parentDocumentId)
-    return made.id
+    // it goes into that same file. Staged in a folder of its own, never shared with another.
+    val dir = File(context!!.cacheDir, "drive-new/${java.util.UUID.randomUUID()}")
+    try {
+      val staged = File(dir, DriveFiles.safeName(name)).also { dir.mkdirs(); it.writeBytes(ByteArray(0)) }
+      val made = engine.driveWriteBack(parent, staged.path, null)
+      notifyChildren(parent)
+      return outer(made.id)
+    } finally {
+      dir.deleteRecursively()
+    }
   }
 
-  override fun deleteDocument(documentId: String) {
+  override fun deleteDocument(givenId: String) {
+    val documentId = inner(givenId)
     val parent = engine.driveItem(documentId)?.parentId
     engine.driveDelete(documentId)
     parent?.let(::notifyChildren)
   }
 
-  override fun renameDocument(documentId: String, displayName: String): String? {
+  override fun renameDocument(givenId: String, displayName: String): String? {
+    val documentId = inner(givenId)
     engine.driveRename(documentId, displayName)
     engine.driveItem(documentId)?.parentId?.let(::notifyChildren)
     return null
   }
 
   override fun moveDocument(sourceDocumentId: String, sourceParentDocumentId: String, targetParentDocumentId: String): String {
-    engine.driveMove(sourceDocumentId, targetParentDocumentId)
-    notifyChildren(sourceParentDocumentId); notifyChildren(targetParentDocumentId)
+    val target = inner(targetParentDocumentId)
+    engine.driveMove(inner(sourceDocumentId), target)
+    notifyChildren(inner(sourceParentDocumentId)); notifyChildren(target)
     return sourceDocumentId
   }
 
+  /** The Files app told a folder changed; `folder` is the engine's id. */
   private fun notifyChildren(folder: String) =
-    context!!.contentResolver.notifyChange(DocumentsContract.buildChildDocumentsUri(authority, folder), null, false)
+    context!!.contentResolver.notifyChange(DocumentsContract.buildChildDocumentsUri(authority, outer(folder)), null, false)
 }

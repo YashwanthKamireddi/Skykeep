@@ -104,7 +104,7 @@ object PhotoBackup {
     for (t in todo) {
       if (!mayUpload(context)) return
       if (engine.photoBackupDone(t.key)) { advance(p, t); continue }
-      val dir = File(context.cacheDir, "backup/${t.key.hashCode().toUInt().toString(16)}").also { it.mkdirs() }
+      val dir = File(context.cacheDir, "backup/${DriveFiles.keyOf(t.key)}").also { it.mkdirs() }
       val file = File(dir, DriveFiles.safeName(t.name))
       val ok = runCatching {
         context.contentResolver.openInputStream(original(context, t.uri))?.use { input -> file.outputStream().use { input.copyTo(it) } }
@@ -133,7 +133,7 @@ object PhotoBackup {
         val name = context.contentResolver.query(uri, arrayOf(MediaStore.MediaColumns.DISPLAY_NAME), null, null, null)
           ?.use { c -> if (c.moveToFirst()) c.getString(0) else null }
         if (name == null) { retry -= key; tries.remove(key); continue } // gone from the phone
-        val dir = File(context.cacheDir, "backup/${key.hashCode().toUInt().toString(16)}").also { it.mkdirs() }
+        val dir = File(context.cacheDir, "backup/${DriveFiles.keyOf(key)}").also { it.mkdirs() }
         val file = File(dir, DriveFiles.safeName(name))
         val outcome = runCatching {
           context.contentResolver.openInputStream(original(context, uri))?.use { input -> file.outputStream().use { input.copyTo(it) } }

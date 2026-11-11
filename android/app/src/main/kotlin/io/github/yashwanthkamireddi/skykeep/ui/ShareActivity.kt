@@ -46,9 +46,10 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 
 /**
- * Send to iPhone from any app's Share sheet: the shared files copied while this app may read
- * them, handed to [SendToIphone], and a sheet saying where they will appear. Signed out, it
- * says so instead; nothing is sent.
+ * Send to iPhone from any app's Share sheet: a sheet naming what was shared and where it will
+ * appear, and nothing sent until the person taps Send (any app can open this screen, so none
+ * can push files into someone's iCloud on its own). Then the files are copied while this app
+ * may read them and handed to [SendToIphone]. Signed out, it says so instead; nothing is sent.
  */
 class ShareActivity : ComponentActivity() {
   /** What was shared: one item or several. */
@@ -94,14 +95,25 @@ class ShareActivity : ComponentActivity() {
 
   override fun onCreate(savedInstanceState: Bundle?) {
     super.onCreate(savedInstanceState)
-    val uris = shared(intent)
+    val uris = shared(intent).filter { it.scheme == android.content.ContentResolver.SCHEME_CONTENT }
     setContent {
       SkykeepTheme {
-        var stage by remember { mutableStateOf("copying") }
+        var stage by remember { mutableStateOf("checking") }
         var n by remember { mutableStateOf(0) }
+        var names by remember { mutableStateOf<List<String>>(emptyList()) }
+        var go by remember { mutableStateOf(false) }
         LaunchedEffect(Unit) {
           stage = withContext(Dispatchers.IO) {
             if (!Engine.account(applicationContext).hasSession()) return@withContext "signedOut"
+            if (uris.isEmpty()) return@withContext "nothing"
+            names = uris.take(3).map { nameOf(it) }
+            "ask"
+          }
+        }
+        LaunchedEffect(go) {
+          if (!go) return@LaunchedEffect
+          stage = "copying"
+          stage = withContext(Dispatchers.IO) {
             val files = uris.mapNotNull { copy(it) }
             n = files.size
             if (files.isEmpty()) return@withContext "nothing"
@@ -126,7 +138,23 @@ class ShareActivity : ComponentActivity() {
                 Text("Send to iPhone", style = MaterialTheme.typography.titleLarge)
               }
               when (stage) {
-                "copying" -> Row(horizontalArrangement = Arrangement.spacedBy(12.dp), verticalAlignment = Alignment.CenterVertically) {
+                "ask" -> {
+                  val more = uris.size - names.size
+                  Text(
+                    names.joinToString(", ") + (if (more > 0) " and $more more" else ""),
+                    style = MaterialTheme.typography.bodyLarge, maxLines = 3,
+                    overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis,
+                  )
+                  Text(
+                    "Photos and videos go to your iPhone's Photos; other files to Files, in iCloud Drive › “${SendToIphone.folderName()}”.",
+                    style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant,
+                  )
+                  Row(Modifier.align(Alignment.End), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    androidx.compose.material3.TextButton(onClick = { finish() }) { Text("Cancel") }
+                    Button(onClick = { go = true }) { Text(if (uris.size == 1) "Send" else "Send ${uris.size} Items") }
+                  }
+                }
+                "checking", "copying" -> Row(horizontalArrangement = Arrangement.spacedBy(12.dp), verticalAlignment = Alignment.CenterVertically) {
                   CircularProgressIndicator(Modifier.size(20.dp), strokeWidth = 2.dp)
                   Text("Getting ready", style = MaterialTheme.typography.bodyLarge)
                 }
@@ -137,7 +165,7 @@ class ShareActivity : ComponentActivity() {
                 "signedOut" -> Text("Open Skykeep and sign in first, then share again.", style = MaterialTheme.typography.bodyLarge)
                 else -> Text("Nothing here could be read to send.", style = MaterialTheme.typography.bodyLarge)
               }
-              if (stage != "copying") Button(onClick = { finish() }, modifier = Modifier.align(Alignment.End)) { Text("Done") }
+              if (stage !in setOf("checking", "ask", "copying")) Button(onClick = { finish() }, modifier = Modifier.align(Alignment.End)) { Text("Done") }
             }
           }
         }

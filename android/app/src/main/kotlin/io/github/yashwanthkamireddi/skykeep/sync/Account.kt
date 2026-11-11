@@ -91,9 +91,11 @@ fun currentAccount(context: Context): Account? {
  * marked so. With no session, nothing is anyone's.
  */
 fun syncsFor(context: Context, engine: uniffi.quince_mobile.AccountInterface, account: Account): Boolean {
+  // Android's sync services can be asked about any account; only Skykeep's own are read.
+  if (account.type != ACCOUNT_TYPE) return false
   val tag = engine.accountTag() ?: return false
   val manager = AccountManager.get(context)
-  val owner = manager.getUserData(account, OWNER)
+  val owner = runCatching { manager.getUserData(account, OWNER) }.getOrElse { return false }
   if (owner != null) return owner == tag
   if (engine.appleId()?.equals(account.name, ignoreCase = true) != true) return false
   manager.setUserData(account, OWNER, tag)
@@ -103,6 +105,6 @@ fun syncsFor(context: Context, engine: uniffi.quince_mobile.AccountInterface, ac
 /** The adapters' first step: a sync for another account's phone account is refused and stopped. */
 fun refuseOthers(context: Context, engine: uniffi.quince_mobile.AccountInterface, account: Account, authority: String): Boolean {
   if (syncsFor(context, engine, account)) return false
-  ContentResolver.setIsSyncable(account, authority, 0)
+  if (account.type == ACCOUNT_TYPE) ContentResolver.setIsSyncable(account, authority, 0)
   return true
 }

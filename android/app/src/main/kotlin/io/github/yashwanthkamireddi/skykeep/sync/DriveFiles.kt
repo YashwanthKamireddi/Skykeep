@@ -13,7 +13,15 @@ import uniffi.quince_mobile.DItem
  */
 object DriveFiles {
   fun copyOf(context: Context, item: DItem): File =
-    File(context.cacheDir, "drive/${item.id.hashCode().toUInt().toString(16)}/${safeName(item.name)}").also { it.parentFile?.mkdirs() }
+    File(context.cacheDir, "drive/${keyOf(item.id)}/${safeName(item.name)}").also { it.parentFile?.mkdirs() }
+
+  /**
+   * A folder or file name for an id (a photo's, a Drive item's, a backup's): SHA-256, so two ids
+   * never share one cached picture or copy. A 32-bit hash could, and then a Hidden photo's
+   * picture could show for another photo in the grid or go out with a share.
+   */
+  fun keyOf(id: String): String =
+    java.security.MessageDigest.getInstance("SHA-256").digest(id.toByteArray()).take(16).joinToString("") { "%02x".format(it) }
 
   /**
    * A name from outside (Apple's, or another app's) made safe to be one file's name in a folder

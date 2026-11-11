@@ -507,10 +507,13 @@ fn base_with_photo(
     Some(base)
 }
 
+/// An error as the app is given it: the reason shown in notifications and logged by the app is
+/// redacted as the engine's own log line is, so Apple's query (the account number, the session's
+/// ids) never reaches a notification or the phone's log through it.
 fn failed(e: impl std::fmt::Display + std::fmt::Debug) -> EngineError {
     log::error(&log::redact(&format!("{e:?}")));
     EngineError::Failed {
-        reason: e.to_string(),
+        reason: log::redact(&e.to_string()),
     }
 }
 

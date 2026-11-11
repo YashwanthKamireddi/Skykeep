@@ -120,7 +120,7 @@ object SignOut {
   /**
    * The account removed from the phone: Android takes its contacts and calendars with it. What
    * the person chose to keep was copied first ([keepCopy]). The sync outcomes, photo backup's
-   * settings and the reminder alerts go too.
+   * settings, the reminder alerts and the cached pictures and copies go too.
    */
   fun removeAccount(context: Context, account: Account): Boolean {
     val gone = AccountManager.get(context).removeAccountExplicitly(account)
@@ -131,6 +131,9 @@ object SignOut {
       context.getSharedPreferences(prefs, Context.MODE_PRIVATE).edit().clear().commit()
     }
     ReminderAlerts.stop(context)
+    // Cached pictures (Hidden ones included), Drive copies and shared copies are the session's
+    // too: re-fetched by whoever signs in next, never left readable from this one.
+    for (dir in listOf("photos", "drive", "share", "send", "drive-new")) java.io.File(context.cacheDir, dir).deleteRecursively()
     return gone
   }
 

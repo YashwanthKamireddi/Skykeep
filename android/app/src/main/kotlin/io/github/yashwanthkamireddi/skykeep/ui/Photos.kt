@@ -143,7 +143,7 @@ private fun syncPhotos(context: Context) {
 
 /** Where a photo's picture of a size is kept on the phone. */
 private fun cached(context: Context, id: String, size: String): File =
-  File(context.cacheDir, "photos/$size/${id.hashCode().toUInt().toString(16)}-${id.length}")
+  File(context.cacheDir, "photos/$size/${io.github.yashwanthkamireddi.skykeep.sync.DriveFiles.keyOf(id)}")
 
 /** A picture decoded no larger than `long` pixels on its long side. */
 private fun decode(file: File, long: Int): ImageBitmap? {
@@ -238,11 +238,14 @@ private fun unlock(context: Context, onOk: () -> Unit) {
 /** Photos handed to another app: each fetched at the viewer's size and shared as one copy. */
 private suspend fun share(context: Context, engine: AccountInterface, ids: List<String>) {
   val uris = withContext(Dispatchers.IO) {
+    // Copies shared before stay a day (the app they went to may still be reading), then go.
+    val dayAgo = System.currentTimeMillis() - 86_400_000
+    File(context.cacheDir, "share").listFiles()?.filter { it.lastModified() < dayAgo }?.forEach { it.deleteRecursively() }
     ids.mapNotNull { id ->
       val item = runCatching { engine.photoItem(id) }.getOrNull() ?: return@mapNotNull null
       val base = item.filename?.substringBeforeLast('.') ?: "photo"
       val name = if (item.video) "$base.mp4" else "$base.jpg"
-      val file = File(context.cacheDir, "share/${id.hashCode().toUInt().toString(16)}/${io.github.yashwanthkamireddi.skykeep.sync.DriveFiles.safeName(name)}").also { it.parentFile?.mkdirs() }
+      val file = File(context.cacheDir, "share/${io.github.yashwanthkamireddi.skykeep.sync.DriveFiles.keyOf(id)}/${io.github.yashwanthkamireddi.skykeep.sync.DriveFiles.safeName(name)}").also { it.parentFile?.mkdirs() }
       val size = if (item.video) PSize.VIDEO else PSize.MEDIUM
       if (!file.exists() && !runCatching { engine.photoFile(id, size, file.path) }.getOrDefault(false)) return@mapNotNull null
       FileProvider.getUriForFile(context, "${context.packageName}.share", file)
@@ -280,6 +283,30 @@ fun PhotosPage(engine: AccountInterface) {
   // Hidden never opens without the person proving it is them in this sitting.
   if (key == "hidden" && !hiddenOpen) key = "library"
   val place = placeOf(key, albums)
+
+  // Hidden, and Recently Deleted (which can hold hidden photos), stay out of the Recents
+  // thumbnail and of screenshots while shown, a photo opened from them included.
+  val window = remember(context) {
+    generateSequence(context) { (it as? android.content.ContextWrapper)?.baseContext }
+      .filterIsInstance<android.app.Activity>().firstOrNull()?.window
+  }
+  val sensitive = key == "hidden" || key == "deleted"
+  DisposableEffect(sensitive, window) {
+    if (sensitive) window?.addFlags(android.view.WindowManager.LayoutParams.FLAG_SECURE)
+    onDispose { window?.clearFlags(android.view.WindowManager.LayoutParams.FLAG_SECURE) }
+  }
+  // Hidden locks again whenever Skykeep leaves the screen: unlocking holds for this sitting only.
+  val lifecycle = androidx.lifecycle.compose.LocalLifecycleOwner.current.lifecycle
+  DisposableEffect(lifecycle) {
+    val watch = androidx.lifecycle.LifecycleEventObserver { _, event ->
+      if (event == androidx.lifecycle.Lifecycle.Event.ON_STOP) {
+        hiddenOpen = false
+        if (key == "hidden") { open = null; key = "library" }
+      }
+    }
+    lifecycle.addObserver(watch)
+    onDispose { lifecycle.removeObserver(watch) }
+  }
 
   LaunchedEffect(Unit) { syncPhotos(context) }
   DisposableEffect(Unit) {
