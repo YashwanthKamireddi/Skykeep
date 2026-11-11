@@ -87,12 +87,19 @@ const after = await gets();
 ok(after.length === g2 + 1 && after.at(-1).slice().sort().join() === "c2,c3", `coming back reads them, together, once  ${JSON.stringify(after.slice(g2))}`);
 ok((await reads()) === before, "still without the whole book");
 
-// With a search typed, the search is run again: it decides who shows.
+// With a search typed, the named card is still read alone: the search filters the book in the
+// window, so it decides who shows without the library being asked for the whole book.
 await page.locator(".contacts-search input").fill("Maya");
 await page.waitForFunction(() => document.querySelectorAll(".contact-row").length === 1, null, { timeout: 3000 }).catch(() => {});
+await page.evaluate(() => {
+  const book = window.__contactList;
+  const at = book.findIndex((c) => c.guid === "c9");
+  book[at] = { ...book[at], lastName: "Silvana" };
+});
 before = await reads();
 await pass({ added: [], changed: ["c9"], removed: [] });
-await page.waitForFunction((n) => (window.__reads ?? 0) > n, before, { timeout: 3000 }).catch(() => {});
-ok((await reads()) === before + 1, "with a search typed, the search is run again");
+await page.locator(".contact-row", { hasText: "Maya Silvana" }).waitFor({ timeout: 3000 }).catch(() => {});
+ok((await reads()) === before && JSON.stringify(await names()) === JSON.stringify(["Maya Silvana"]),
+  `with a search typed, the card is read alone and the search still decides who shows  ${JSON.stringify(await names())}`);
 await b.close();
 process.exitCode = failures ? 1 : (process.exitCode ?? 0);

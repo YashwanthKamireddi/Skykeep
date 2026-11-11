@@ -17,11 +17,12 @@ await ctx.addInitScript(() => {
     if (cmd === "contact_save" || cmd === "contact_delete") {
       await new Promise((r) => setTimeout(r, window.__slow ?? 0));
       if (window.__refuse) throw "The library couldn’t be saved.";
-      const out = await invoke(cmd, args);
+      let out = await invoke(cmd, args);
+      if (cmd === "contact_save" && !args.contact.guid && window.__newGuid) out = window.__newGuid;
       const book = window.__contactList;
       if (cmd === "contact_delete") book.splice(book.findIndex((c) => c.guid === args.guid), 1);
       else {
-        const card = { ...args.contact, guid: args.contact.guid || "C-new" };
+        const card = { ...args.contact, guid: args.contact.guid || out };
         const at = book.findIndex((c) => c.guid === card.guid);
         if (at >= 0) book[at] = card;
         else book.push(card);
@@ -73,6 +74,46 @@ await page.locator(".contact-row", { hasText: "Maya Silva" }).waitFor({ timeout:
 ok((await page.locator(".contact-detail h2").innerText()) === "Maya Silva", "a new card is in the list and open at once");
 await page.waitForTimeout(1700);
 ok((await page.locator('.contact-row[aria-selected="true"]').getAttribute("data-guid")) === "C-new", "and keeps its place under the id it is given");
+
+// A pass reading the book while the library is still taking a write: the library's older copy
+// must not undo the edit on screen, and a new card must stay, and be the one open once saved.
+// The read came back without the stand-in, the selection jumped to the first person, and the
+// card, saved, was never opened.
+const passRead = () => page.evaluate(() => window.__emit("quince://synced", { services: [], asOf: null, tookMs: 0 }));
+await page.evaluate(() => { window.__slow = 1500; window.__newGuid = "C-new2"; });
+await page.locator(".contact-row", { hasText: "Zoya Rivera" }).click();
+await page.keyboard.press("Control+l");
+await page.getByLabel("Last", { exact: true }).fill("Rao");
+await page.getByRole("button", { name: "Save" }).click();
+await page.locator(".contact-row", { hasText: "Zoya Rao" }).waitFor({ timeout: 1000 });
+await passRead();
+await page.waitForTimeout(400);
+ok((await names()).includes("Zoya Rao") && !(await names()).includes("Zoya Rivera"), `an edit stays over a read landing mid-save  ${JSON.stringify(await names())}`);
+await page.waitForTimeout(1500);
+ok((await names()).includes("Zoya Rao"), "and once the library has it");
+
+await page.keyboard.press("Control+n");
+await page.getByLabel("First", { exact: true }).fill("Ines");
+await page.getByLabel("Last", { exact: true }).fill("Duarte");
+await page.getByRole("button", { name: "Add contact" }).click();
+await page.locator(".contact-row", { hasText: "Ines Duarte" }).waitFor({ timeout: 1000 });
+await passRead();
+await page.waitForTimeout(400);
+ok((await names()).includes("Ines Duarte"), `a new card stays over a read landing mid-save  ${JSON.stringify(await names())}`);
+ok((await page.locator(".contact-detail h2").innerText()) === "Ines Duarte", "and stays open");
+await page.waitForTimeout(1700);
+ok((await page.locator('.contact-row[aria-selected="true"]').getAttribute("data-guid")) === "C-new2"
+  && (await page.locator(".contact-detail h2").innerText()) === "Ines Duarte", "and is the card open once saved, under its id");
+
+await page.evaluate(() => { window.__slow = 1500; });
+await page.locator(".contact-row", { hasText: "Ines Duarte" }).click();
+await page.keyboard.press("Delete");
+await page.waitForFunction(() => ![...document.querySelectorAll(".contact-row")].some((r) => r.textContent.includes("Ines Duarte")), null, { timeout: 1000 });
+await passRead();
+await page.waitForTimeout(400);
+ok(!(await names()).includes("Ines Duarte"), `a card deleted stays gone over a read landing mid-delete  ${JSON.stringify(await names())}`);
+await page.waitForTimeout(1500);
+await page.evaluate(() => { window.__slow = 0; });
 
 // Deleted: gone at once.
 await page.locator(".contact-row", { hasText: "Amma" }).click();

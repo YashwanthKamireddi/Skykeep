@@ -267,6 +267,9 @@ pooled "menus"             node .uiverify/menus.mjs
 pooled "webkit: menus"     env ENGINE=webkit node .uiverify/menus.mjs
 pooled "contacts vcard"    node .uiverify/contacts-vcard.mjs
 pooled "contacts select"   node .uiverify/contacts-select.mjs
+pooled "contacts search"   node .uiverify/contacts-search.mjs
+pooled "webkit: contacts search" env ENGINE=webkit node .uiverify/contacts-search.mjs
+pooled "contacts instant"  node .uiverify/contacts-instant.mjs
 pooled "calendar alerts"   node .uiverify/calendar-alerts.mjs
 pooled "calendar repeat"   node .uiverify/calendar-repeat.mjs
 pooled "reminder add/done"  node .uiverify/reminders-add-done.mjs

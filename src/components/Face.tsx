@@ -8,6 +8,11 @@ import { useLayoutEffect, useRef, useState } from "react";
  * already to hand (the backend keeps each on disk, the window keeps it in memory) is drawn at
  * once. Nothing fades: a fade replayed every time Contacts came back into view. One that
  * cannot be had leaves the initials, never a broken frame.
+ *
+ * Fetched only near the screen and decoded off the main thread: with `decoding="sync"` and no
+ * lazy loading, a book of 2,000 pictured cards asked for every picture the moment Contacts
+ * opened and decoded each on the main thread. The initials stay until `decode()` says the
+ * picture is ready to draw, so it still arrives whole in one frame.
  */
 export function Face({ src, initials }: { src: string | null; initials: string }) {
   const img = useRef<HTMLImageElement | null>(null);
@@ -26,9 +31,18 @@ export function Face({ src, initials }: { src: string | null; initials: string }
           className={`face-photo is-${state}`}
           src={src}
           alt=""
-          decoding="sync"
+          loading="lazy"
+          decoding="async"
           draggable={false}
-          onLoad={() => setState((s) => (s === "instant" ? s : "ready"))}
+          onLoad={(e) => {
+            const el = e.currentTarget;
+            const shown = el.src;
+            el.decode()
+              .catch(() => {})
+              .then(() => {
+                if (img.current === el && el.src === shown) setState((s) => (s === "instant" ? s : "ready"));
+              });
+          }}
           onError={() => setState("failed")}
         />
       )}
