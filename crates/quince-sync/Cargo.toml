@@ -13,7 +13,7 @@ quince-icloud = { path = "../quince-icloud" }
 serde.workspace = true
 serde_json.workspace = true
 reqwest.workspace = true
-tokio = { workspace = true, features = ["sync", "time"] }
+tokio = { workspace = true, features = ["sync", "time", "rt", "rt-multi-thread"] }
 futures-util = { version = "0.3", default-features = false, features = ["std"] }
 jiff = "0.2.37"
 sha2 = "0.10"
@@ -24,4 +24,5 @@ libc = "0.2"
 
 [dev-dependencies]
 tempfile = "3"
+wiremock = "0.6"
 tokio = { workspace = true, features = ["sync", "time", "macros", "rt-multi-thread"] }

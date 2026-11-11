@@ -1329,14 +1329,15 @@ async fn keep_signed_in(app: &tauri::AppHandle, client: &Arc<Mutex<Client>>) {
     // And once per wait at icloud.com, apart from a lapse: one never hides the other.
     static TOLD_ICLOUD: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
     let mut guard = client.lock().await;
-    if guard.session().webservices.is_none() {
-        return;
-    }
-    match guard.heartbeat().await {
+    // The heartbeat, and the resume when Apple says the session lapsed, shared with the phone
+    // and never hammering Apple (quince_auth::keep).
+    use quince_auth::Kept;
+    match guard.ensure_session().await {
+        Kept::SignedOut => {}
         // Apple wants a code before it trusts this computer again. None has been asked for:
         // the window says so calmly, and the code is sent once the person opens the code
         // screen from there — never pushed to their phone from a background pass.
-        Ok(false) if guard.awaiting_code() => {
+        Kept::Code => {
             LIVE.store(false, Ordering::SeqCst);
             app.emit(NEEDS_CODE, ()).ok();
             if !TOLD.swap(true, std::sync::atomic::Ordering::Relaxed) {
@@ -1350,7 +1351,7 @@ async fn keep_signed_in(app: &tauri::AppHandle, client: &Arc<Mutex<Client>>) {
         // Apple will not take the session back without the password: every sync would fail
         // quietly from here on. The window says so where it is open, and the desktop once,
         // for someone with only the tray running.
-        Ok(false) => {
+        Kept::SignIn => {
             LIVE.store(false, Ordering::SeqCst);
             app.emit(NEEDS_SIGNIN, ()).ok();
             if !TOLD.swap(true, std::sync::atomic::Ordering::Relaxed) {
@@ -1361,7 +1362,7 @@ async fn keep_signed_in(app: &tauri::AppHandle, client: &Arc<Mutex<Client>>) {
                 );
             }
         }
-        Ok(true) => {
+        Kept::Alive => {
             TOLD.store(false, std::sync::atomic::Ordering::Relaxed);
             // New iCloud terms waiting at icloud.com (or the account to finish there): asked
             // again each pass, so the whole session opens by itself once the person has agreed
@@ -1396,7 +1397,7 @@ async fn keep_signed_in(app: &tauri::AppHandle, client: &Arc<Mutex<Client>>) {
             data_access::check(app, client, data_access::Ask::Background).await;
         }
         // Not reaching Apple says nothing about the session.
-        Err(_) => {}
+        Kept::Away => {}
     }
 }
 

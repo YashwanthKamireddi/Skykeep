@@ -14,9 +14,15 @@ window or a platform.
   the owner check, for tests.
 - **`notes`, `reminders`**: each kind of change as `record_*` (local change and queue entry in
   one transaction), `lay` (its local effect), `replay` (lay everything still waiting over a
-  pass), plus `apply`, `refresh` and `send`.
-- **`photos`**: the paged library pass, and `set_flags` (shown at once, sent in batches, put
-  back if refused).
+  pass), plus `apply` and `send`.
+- **`photos`**: one round of the library stored, and `set_flags` (shown at once, sent in
+  batches, put back if refused).
+- **`pass`**: one sync pass, as both platforms run it. `run` (Notes, Reminders, Photos): the
+  owner checked under the lock it stores with, a whole walk once a day (`FULL_SYNC_EVERY`),
+  a service Advanced Data Protection holds left alone, a panic made that service's failure
+  (`guarded`, `driven`), the failure recorded. `store` and `token` for any other service's
+  fetch and apply; `photos` with readiness, Shared Albums and the Shared Library. `Hooks` is
+  what each platform does beside it (download links, an approval let go).
 - **`quiet!`**: messages printed in debug builds only, never with personal data.
 
 Contacts and Calendar sends still live in the desktop app (`src-tauri/src/outbox.rs`). On
@@ -27,6 +33,6 @@ Depends on `quince-core` and `quince-icloud`. Used by `quince-app` and `quince-m
 ## Tests
 
 ```sh
-cargo nextest run -p quince-sync         # the lock's own tests
+cargo nextest run -p quince-sync         # the lock's and the pass's own tests
 cargo nextest run -p quince-app outbox   # the queue, against a pretend Apple
 ```

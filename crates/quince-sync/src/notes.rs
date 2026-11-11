@@ -380,24 +380,6 @@ pub fn apply(
     })
 }
 
-/// A pass from Apple, from where the last one left off (or the start), stored and laid over.
-///
-/// # Errors
-/// When Apple can't be reached or refuses, or the library can't be written.
-pub async fn refresh(
-    library: &LibraryLock,
-    http: &reqwest::Client,
-    root: &str,
-    params: Vec<(String, String)>,
-) -> Result<(usize, usize), Error> {
-    let since = library.lock().await.sync_token(NOTES)?;
-    let full = since.is_none();
-    let fetched =
-        quince_icloud::notes::fetch_cloudkit(http, root, params, since.as_deref()).await?;
-    let mut held = library.lock().await;
-    apply(&mut held, fetched, full)
-}
-
 // --- Sending: the queue's half.
 
 pub async fn send(
