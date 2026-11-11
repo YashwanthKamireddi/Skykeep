@@ -137,6 +137,15 @@ pub async fn fetch_calendar(
             .map(|z| z.timestamp().as_second())
             .map_err(|e| Error::Protocol(format!("{d} has no start in {timezone}: {e}")))
     };
+    // Every iCloud account has a calendar. An answer with none is a broken answer, not an
+    // account emptied: refused here, in the one fetch both apps use, so neither stores it (the
+    // phone deleted every calendar and their events, unsent edits included, from one such
+    // answer; the desktop's `apply_calendar` refuses it too).
+    if calendars.is_empty() {
+        return Err(Error::Protocol(
+            "Apple's calendar answer carried no calendars, so nothing was changed.".into(),
+        ));
+    }
     let first = parse_date(from)?;
     let after_last = parse_date(to)?
         .checked_add(jiff::Span::new().days(1))
@@ -515,6 +524,40 @@ mod tests {
             guids,
             ["ev-1", "ev-2"],
             "each event once, in the order first seen"
+        );
+    }
+
+    /// An answer with no calendars is refused by the fetch itself, so no app stores it: the
+    /// phone, which doesn't go through `apply_calendar`, deleted every calendar from one.
+    #[tokio::test]
+    async fn an_answer_without_calendars_is_refused() {
+        let server = MockServer::start().await;
+        Mock::given(method("GET"))
+            .and(path("/ca/startup"))
+            .respond_with(
+                ResponseTemplate::new(200).set_body_json(json!({ "Collection": [], "Event": [] })),
+            )
+            .mount(&server)
+            .await;
+        Mock::given(method("GET"))
+            .and(path("/ca/events"))
+            .respond_with(ResponseTemplate::new(200).set_body_json(json!({ "Event": [] })))
+            .mount(&server)
+            .await;
+        let http = reqwest::Client::new();
+        let got = fetch_calendar(
+            &http,
+            &server.uri(),
+            vec![],
+            "2026-08-01",
+            "2026-08-31",
+            "UTC",
+        )
+        .await;
+        assert!(
+            matches!(got, Err(Error::Protocol(_))),
+            "{:?}",
+            got.map(|s| s.calendars.len())
         );
     }
 
