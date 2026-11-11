@@ -1,5 +1,5 @@
 <p align="center">
-  <img src="packaging/icons/skykeep-1024.png" alt="Skykeep logo" width="96" height="96">
+  <img src="packaging/icons/skykeep.svg" alt="Skykeep logo" width="96" height="96">
 </p>
 
 <h1 align="center">Skykeep</h1>
@@ -85,8 +85,7 @@ A native Rust engine with a light Tauri window on top, one codebase for Linux an
 
 Reminders, Notes, Photos and iCloud Drive as apps, and your iCloud contacts and calendars inside Android's own Contacts and Calendar, synced both ways. iCloud Drive also appears in the Files app. Same engine as the desktop, offline-first, talking only to Apple.
 
-<p align="center"><a href="docs/media/android/home-light.webp"><picture><source media="(prefers-color-scheme: dark)" srcset="docs/media/android/home-dark.webp"><img src="docs/media/android/home-light.webp" width="240" alt="Home: the account and each service syncing"></picture></a> <a href="docs/media/android/reminders-light.webp"><picture><source media="(prefers-color-scheme: dark)" srcset="docs/media/android/reminders-dark.webp"><img src="docs/media/android/reminders-light.webp" width="240" alt="A Reminders list with sub-tasks"></picture></a> <a href="docs/media/android/note-light.webp"><picture><source media="(prefers-color-scheme: dark)" srcset="docs/media/android/note-dark.webp"><img src="docs/media/android/note-light.webp" width="240" alt="A note with a checklist"></picture></a></p>
-<p align="center"><a href="docs/media/android/photos-light.webp"><picture><source media="(prefers-color-scheme: dark)" srcset="docs/media/android/photos-dark.webp"><img src="docs/media/android/photos-light.webp" width="240" alt="The photo library by month"></picture></a> <a href="docs/media/android/viewer-light.webp"><picture><source media="(prefers-color-scheme: dark)" srcset="docs/media/android/viewer-dark.webp"><img src="docs/media/android/viewer-light.webp" width="240" alt="A photo open"></picture></a> <a href="docs/media/android/drive-light.webp"><picture><source media="(prefers-color-scheme: dark)" srcset="docs/media/android/drive-dark.webp"><img src="docs/media/android/drive-light.webp" width="240" alt="An iCloud Drive folder"></picture></a></p>
+<p align="center"><a href="docs/media/android/home-light.webp"><picture><source media="(prefers-color-scheme: dark)" srcset="docs/media/android/home-dark.webp"><img src="docs/media/android/home-light.webp" width="280" alt="Home: the account and each service syncing"></picture></a></p>
 
 [Download the APK](https://github.com/YashwanthKamireddi/Skykeep/releases/latest/download/Skykeep-android.apk) · Android 10 or newer, 64-bit ARM
 
