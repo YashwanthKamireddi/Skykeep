@@ -22,6 +22,6 @@ await page.evaluate(() => { document.querySelector(".cx-scroll").scrollTop = 4 *
 seen = await colours(".cx-reminder");
 ok(Object.values(seen).includes("#cc73e1"), `and Week  ${JSON.stringify(seen)}`);
 const ring = await page.evaluate(() => getComputedStyle(document.querySelector(".cx-reminder .cx-ring"), "::after").backgroundColor);
-ok(ring !== "rgb(142, 142, 147)" && ring !== "rgba(0, 0, 0, 0)", `its ring in that colour  ${ring}`);
+ok(ring !== "rgb(85, 96, 112)" && ring !== "rgba(0, 0, 0, 0)", `its ring in that colour  ${ring}`);
 await b.close();
 process.exitCode = failures ? 1 : 0;

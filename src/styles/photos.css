@@ -1,5 +1,5 @@
 /* Photos: the photos are the design. Chrome stays quiet and solid (no live blur: WebKitGTK),
-   tiles meet with a hairline gap as on a Mac, and only what answers an action moves. */
+   tiles meet with a hairline gap, and only what answers an action moves. */
 
 /* The screen fills the window as Notes does, so the sidebar's divider runs the full height
    and only the library scrolls. */
@@ -25,7 +25,7 @@
   border-right: var(--hairline) solid var(--separator);
   overflow-y: auto;
 }
-.px-glyph { flex: none; color: var(--accent); }
+.px-glyph { flex: none; color: var(--accent-strong); }
 .px-albums { display: flex; flex-direction: column; gap: 1px; }
 .px-side-gap { margin-top: var(--source-gap); }
 .px-side-row { display: flex; align-items: center; justify-content: space-between; margin-top: 10px; }
@@ -89,7 +89,7 @@
   pointer-events: none;
 }
 
-/* The library runs up under the floating bar and fades out at the top edge — Apple's scroll
+/* The library runs up under the floating bar and fades out at the top edge — a scroll
    edge effect. Done with a still layer in the window's colour over the top, not a mask on the
    scroller: WebKitGTK composited a masked scroller again on every frame, and the scroll stuttered. */
 .px-scroll {
@@ -299,14 +299,14 @@
   /* A rounded square, as icloud.com's viewer has them. */
   border-radius: 10px;
   /* Clear glass: a glyph alone over the photo, which shows through it. */
-  background: var(--glass-clear);
-  -webkit-backdrop-filter: var(--glass-clear-filter);
-  backdrop-filter: var(--glass-clear-filter);
-  box-shadow: var(--glass-float);
+  background: var(--veil-sheer);
+  -webkit-backdrop-filter: var(--veil-sheer-filter);
+  backdrop-filter: var(--veil-sheer-filter);
+  box-shadow: var(--veil-float);
   color: var(--text);
   transition: none;
 }
-.px-nav:hover { background: var(--glass-thick); }
+.px-nav:hover { background: var(--veil-thick); }
 .px-nav:active { transform: scale(0.92); }
 .px-nav.is-prev { left: 14px; }
 .px-nav.is-next { right: 14px; }
@@ -326,10 +326,10 @@
   margin: 0;
   padding: 14px 16px 16px;
   border-radius: var(--r-float);
-  background: var(--glass-thick);
-  -webkit-backdrop-filter: var(--glass-regular-filter);
-  backdrop-filter: var(--glass-regular-filter);
-  box-shadow: var(--glass-float);
+  background: var(--veil-thick);
+  -webkit-backdrop-filter: var(--veil-filter);
+  backdrop-filter: var(--veil-filter);
+  box-shadow: var(--veil-float);
   font-size: var(--t-13);
   overflow-y: auto;
 }
@@ -403,9 +403,9 @@
   height: 22px;
   padding: 0 6px;
   border-radius: 11px;
-  background: #ff3b30;
+  background: var(--sk-red-deep);
   color: #fff;
-  font: 600 12px/22px system-ui, sans-serif;
+  font: 600 12px/22px var(--font-ui);
   text-align: center;
 }
 
@@ -496,7 +496,7 @@
   cursor: default;
   transition: color 120ms ease;
 }
-.px-star.is-on { color: #ff9f0a; }
+.px-star.is-on { color: var(--sk-amber); }
 .px-star:hover:not(:disabled) { background: color-mix(in srgb, var(--text) 7%, transparent); }
 .px-star:active:not(:disabled) { transform: scale(0.88); }
 .px-star:focus-visible { outline: var(--focus-ring); outline-offset: -2px; }
@@ -529,7 +529,7 @@
 }
 .px-up-head { padding: 12px 16px 0; }
 .px-up-hero { display: flex; flex-direction: column; align-items: center; gap: 8px; padding: 10px 22px 16px; text-align: center; }
-.px-up-icon { color: var(--accent); }
+.px-up-icon { color: var(--accent-strong); }
 .px-up-title { margin: 0; font-size: var(--t-15, 15px); font-weight: 700; }
 .px-up-rows { flex: 1; min-height: 0; margin: 0; padding: 0 8px 12px; list-style: none; overflow-y: auto; }
 .px-up-row { display: flex; align-items: center; gap: 10px; padding: 8px; border-radius: 10px; }
@@ -539,7 +539,7 @@
 .px-up-sub { color: var(--text-2); font-size: var(--t-11); font-variant-numeric: tabular-nums; }
 .px-up-row.is-failed .px-up-sub { color: var(--text-2); }
 .px-up-end { flex: none; display: flex; align-items: center; gap: 6px; color: var(--text-2); font-size: var(--t-12, 12px); }
-.px-up-ok { color: #30d158; }
+.px-up-ok { color: var(--sk-green); }
 .px-up-why { color: var(--text-3); }
 
 /* ---- the Albums page: every album as a card with its cover, as icloud.com's ------------------ */
@@ -648,7 +648,7 @@
 
 /* Info's place and keywords. */
 .px-place { display: flex; flex-wrap: wrap; align-items: baseline; gap: 4px 10px; font-variant-numeric: tabular-nums; }
-.px-link { padding: 0; border: 0; background: none; color: var(--accent); font: inherit; cursor: default; }
+.px-link { padding: 0; border: 0; background: none; color: var(--accent-strong); font: inherit; cursor: default; }
 .px-link:hover { text-decoration: underline; }
 .px-words-field { display: flex; flex-wrap: wrap; gap: 5px; align-items: center; margin-top: 4px; }
 .px-chip {
@@ -729,7 +729,7 @@
 .px-albums .px-depth .px-naming { padding-left: calc(30px + var(--depth, 0) * 14px); }
 .px-albums .px-parent-row.px-depth .px-twisty { left: calc(10px + var(--depth, 0) * 14px); }
 .px-albums .px-parent-row.px-depth .px-parent { padding-left: calc(30px + var(--depth, 0) * 14px); }
-.px-card.is-folder .px-card-pic { color: var(--accent); }
+.px-card.is-folder .px-card-pic { color: var(--accent-strong); }
 
 /* ---- a video, as Photos plays one: the film alone, its controls in a capsule floating over
    its foot that fades while the pointer rests (always there while paused) ----------------- */
@@ -811,7 +811,7 @@
   font-variant-numeric: tabular-nums;
   color: var(--text);
   background: var(--sheet);
-  box-shadow: var(--glass-float);
+  box-shadow: var(--veil-float);
   pointer-events: none;
   white-space: nowrap;
 }
@@ -845,7 +845,7 @@
   padding: 0 10px;
   border: 0;
   border-radius: 12px;
-  font: 600 11px/1 var(--sf, system-ui);
+  font: 600 11px/1 var(--font-ui, system-ui);
   letter-spacing: 0.04em;
   color: #fff;
   background: rgba(28, 28, 30, 0.62);
@@ -861,9 +861,9 @@
   padding: 0 9px;
   border: 0;
   border-radius: 9px;
-  font: 600 11px/1 var(--sf, system-ui);
+  font: 600 11px/1 var(--font-ui, system-ui);
   color: #fff;
-  background: var(--accent);
+  background: var(--accent-deep);
 }
 /* A Live Photo's moving part, exactly over its still. */
 .px-live-frame { position: absolute; inset: 0; overflow: hidden; pointer-events: none; }
@@ -878,10 +878,10 @@
   width: 400px;
   max-height: min(460px, 70vh);
   border-radius: var(--r-float);
-  background: var(--glass-thick);
-  -webkit-backdrop-filter: var(--glass-regular-filter);
-  backdrop-filter: var(--glass-regular-filter);
-  box-shadow: var(--glass-float);
+  background: var(--veil-thick);
+  -webkit-backdrop-filter: var(--veil-filter);
+  backdrop-filter: var(--veil-filter);
+  box-shadow: var(--veil-float);
   overflow: hidden;
   outline: none;
   /* Grows in frame by frame from the page (grow), never a CSS animation: animated by the
@@ -892,7 +892,7 @@
   height: 30px;
   border: 0;
   border-radius: 8px;
-  font: 500 var(--t-13, 13px)/1 var(--sf, system-ui);
+  font: 500 var(--t-13, 13px)/1 var(--font-ui, system-ui);
   font-variant-numeric: tabular-nums;
   color: var(--text);
   background: transparent;
@@ -916,7 +916,7 @@
   position: absolute;
   left: 7px;
   bottom: 5px;
-  font: 600 12px/1 var(--sf, system-ui);
+  font: 600 12px/1 var(--font-ui, system-ui);
   color: #fff;
   text-shadow: 0 1px 3px rgba(0, 0, 0, 0.55);
 }
@@ -937,7 +937,7 @@ img[data-failed] { content: url("data:image/gif;base64,R0lGODlhAQABAAAAACw="); }
 /* Full screen: the photo alone, black to every edge, over the whole window — as icloud.com's.
    Its bar lies over the top and is out of sight until the pointer goes there; the thumbnails,
    when asked for, take a band along the bottom and the photo fits above them. */
-.px-viewer.is-full { position: fixed; inset: 0; z-index: 40; color: #f5f5f7; }
+.px-viewer.is-full { position: fixed; inset: 0; z-index: 40; color: #eef2f7; }
 .px-viewer.is-full .px-backdrop { background: #000; }
 .px-viewer.is-full .px-stage { padding: 0; }
 .px-viewer.is-full.has-thumbs { grid-template-rows: minmax(0, 1fr) 64px; }
@@ -946,7 +946,7 @@ img[data-failed] { content: url("data:image/gif;base64,R0lGODlhAQABAAAAACw="); }
   bottom: auto;
   grid-row: 2;
   height: 64px;
-  background: #1c1c1e;
+  background: #151a22;
   border-top: var(--hairline) solid rgba(255, 255, 255, 0.08);
 }
 .px-viewer.is-full .px-strip-run { top: 10px; }
@@ -966,7 +966,7 @@ img[data-failed] { content: url("data:image/gif;base64,R0lGODlhAQABAAAAACw="); }
 }
 /* Away: out of sight at once (an animated hide is the compositor's, and flickered). */
 .px-full-bar.is-away { visibility: hidden; }
-.px-full-bar .px-viewer-when strong { color: #f5f5f7; }
+.px-full-bar .px-viewer-when strong { color: #eef2f7; }
 .px-full-bar .px-viewer-when span { color: rgba(245, 245, 247, 0.6); }
 .px-full-side { display: flex; align-items: center; gap: 4px; min-width: 0; }
 .px-full-side.is-end { justify-content: flex-end; }
@@ -979,7 +979,7 @@ img[data-failed] { content: url("data:image/gif;base64,R0lGODlhAQABAAAAACw="); }
   border: 0;
   border-radius: 7px;
   background: none;
-  color: #f5f5f7;
+  color: #eef2f7;
   cursor: pointer;
 }
 .px-full-btn:hover { background: rgba(255, 255, 255, 0.1); }
@@ -992,10 +992,10 @@ img[data-failed] { content: url("data:image/gif;base64,R0lGODlhAQABAAAAACw="); }
   height: 16px;
   margin: 0;
   background: none;
-  accent-color: #f5f5f7;
+  accent-color: #eef2f7;
   cursor: pointer;
 }
-.px-viewer.is-full .px-nav { background: rgba(60, 60, 64, 0.85); color: #f5f5f7; }
+.px-viewer.is-full .px-nav { background: rgba(52, 60, 72, 0.85); color: #eef2f7; }
 .px-viewer.is-full .px-nav:hover { background: rgba(80, 80, 86, 0.95); }
 .px-viewer.is-full .px-info { top: 54px; }
 .px-viewer.is-full.has-info .px-stage { margin-right: 282px; }

@@ -11,7 +11,7 @@
 
 /* ---- buttons ------------------------------------------------------------------------------ */
 
-/* A capsule, as macOS 27's regular-size buttons are: the filled one is the single action that
+/* A capsule: the filled one is the single action that
    matters on its surface; the quiet one is everything else. */
 .primary,
 .quiet {
@@ -41,7 +41,7 @@
 .primary.danger:active:not(:disabled) { background: color-mix(in srgb, var(--danger-deep) 84%, #000); }
 .primary:disabled { background: var(--fill-selected); color: var(--text-3); cursor: default; }
 
-/* A quiet fill, no outline (Button/Radius 1000 from Large up in Apple's kit). */
+/* A quiet fill, no outline. */
 .quiet { background: var(--fill); color: var(--text); }
 .quiet:hover:not(:disabled) { background: var(--fill-raised-hover); }
 .quiet:active:not(:disabled) { background: var(--fill-raised-press); }
@@ -95,7 +95,7 @@
 
 /* ---- toolbars ----------------------------------------------------------------------------- */
 
-/* A group of a toolbar's controls, as macOS 27 floats them: one capsule, its controls round
+/* A group of a toolbar's controls, floated together: one capsule, its controls round
    inside it, concentric. Nearly solid rather than a live blur — these sit over scrolling
    photos and lists, and every engine blurs what is behind again on every frame of a scroll:
    measured (.uiverify/glass-frames.mjs), Photos' six capsules blurred took a scroll from
@@ -233,7 +233,7 @@
 }
 .field::placeholder { color: var(--text-3); opacity: 1; }
 .field:hover:not(:disabled):not(:focus) { border-color: var(--field-edge-hover); }
-.field:focus { border-color: var(--accent); box-shadow: var(--shadow-field), var(--ring); }
+.field:focus { border-color: var(--accent-strong); box-shadow: var(--shadow-field), var(--ring); }
 textarea.field { padding-block: 5px; resize: vertical; }
 
 /* ---- source lists: an app's own sidebar of folders, lists, albums, calendars -------------- */
@@ -356,10 +356,10 @@ textarea.field { padding-block: 5px; resize: vertical; }
 /* Menus, pop-ups, popovers: regular glass, rim, edge and lift — the whole recipe, one radius. */
 .popover {
   border-radius: var(--r-float);
-  background: var(--glass-thick);
-  -webkit-backdrop-filter: var(--glass-regular-filter);
-  backdrop-filter: var(--glass-regular-filter);
-  box-shadow: var(--glass-float);
+  background: var(--veil-thick);
+  -webkit-backdrop-filter: var(--veil-filter);
+  backdrop-filter: var(--veil-filter);
+  box-shadow: var(--veil-float);
   color: var(--text);
 }
 /* Never glass on glass: a floating surface opened inside another (Go to Date under a
@@ -399,8 +399,8 @@ textarea.field { padding-block: 5px; resize: vertical; }
   padding: 5px 6px 5px 14px;
   border-radius: var(--r-float);
   /* Frosted, never blurred: it stays up over lists that scroll (tokens.css "The two tiers"). */
-  background: var(--glass-frost);
-  box-shadow: var(--glass-float);
+  background: var(--veil-frost);
+  box-shadow: var(--veil-float);
   color: var(--text);
   font-size: var(--t-13);
   line-height: 1.35;
@@ -408,7 +408,7 @@ textarea.field { padding-block: 5px; resize: vertical; }
 }
 .toast p { flex: 1; min-width: 0; margin: 0; padding: 4px 0; overflow-wrap: anywhere; }
 .toast-glyph { flex: none; }
-.toast.is-done .toast-glyph { color: var(--sys-green); }
+.toast.is-done .toast-glyph { color: var(--sk-green); }
 .toast.is-error .toast-glyph { color: var(--danger); }
 .toast-action {
   flex: none;
@@ -432,7 +432,7 @@ textarea.field { padding-block: 5px; resize: vertical; }
    its progress or notes, and its two answers at the foot. Stays until answered. */
 .update-notice { align-items: flex-start; width: min(420px, 100%); padding: 10px 12px 10px 14px; }
 .update-notice .toast-glyph { margin-top: 2px; }
-.update-glyph { color: var(--accent); }
+.update-glyph { color: var(--accent-strong); }
 .update-body { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 8px; }
 .update-line { margin: 0; padding: 0; font-weight: 600; text-wrap: pretty; }
 .update-notice.is-error .update-line { font-weight: 400; }
@@ -452,7 +452,7 @@ textarea.field { padding-block: 5px; resize: vertical; }
   padding: 10px 12px;
   border-radius: var(--r-float);
   background: color-mix(in srgb, var(--danger) 8%, var(--sheet));
-  box-shadow: 0 0 0 var(--hairline) var(--glass-edge);
+  box-shadow: 0 0 0 var(--hairline) var(--veil-edge);
   font-size: var(--t-13);
 }
 .unsent .toast-glyph { margin-top: 2px; color: var(--danger); }
@@ -485,10 +485,10 @@ textarea.field { padding-block: 5px; resize: vertical; }
   gap: 12px;
   padding: 20px 22px;
   border-radius: var(--r-window);
-  background: var(--glass-thick);
-  -webkit-backdrop-filter: var(--glass-regular-filter);
-  backdrop-filter: var(--glass-regular-filter);
-  box-shadow: var(--glass-float);
+  background: var(--veil-thick);
+  -webkit-backdrop-filter: var(--veil-filter);
+  backdrop-filter: var(--veil-filter);
+  box-shadow: var(--veil-float);
   color: var(--text);
 }
 .modal-sheet h2 {
@@ -505,7 +505,7 @@ textarea.field { padding-block: 5px; resize: vertical; }
 .sheet-actions { display: flex; justify-content: flex-end; gap: 8px; margin-top: 4px; }
 
 .confirm { width: min(320px, 92vw); align-items: center; gap: 6px; padding: 22px 20px 16px; text-align: center; }
-.confirm-symbol { display: grid; place-items: center; margin-bottom: 4px; color: var(--accent); }
+.confirm-symbol { display: grid; place-items: center; margin-bottom: 4px; color: var(--accent-strong); }
 .confirm h2 { white-space: normal; line-height: 1.3; text-wrap: balance; }
 .confirm p { margin: 0; color: var(--text-2); font-size: var(--t-13); line-height: 1.45; text-wrap: balance; }
 .confirm-actions { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; width: 100%; margin-top: 14px; }
@@ -573,7 +573,7 @@ textarea.field { padding-block: 5px; resize: vertical; }
   background: var(--sheet);
   color: var(--text);
   font-weight: 590;
-  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.14), 0 0 0 var(--hairline) var(--glass-edge);
+  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.14), 0 0 0 var(--hairline) var(--veil-edge);
 }
 .segment:focus-visible { outline: var(--focus-ring); outline-offset: 1px; }
 /* The thumb on its way from one segment to the next (lib/thumb.ts): the chosen segment's cap,
@@ -599,12 +599,12 @@ textarea.field { padding-block: 5px; resize: vertical; }
   translate: var(--thumb-x) 0;
   border-radius: var(--r-pill);
   background: var(--sheet);
-  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.14), 0 0 0 var(--hairline) var(--glass-edge);
+  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.14), 0 0 0 var(--hairline) var(--veil-edge);
   pointer-events: none;
 }
 .toolbar-group.segmented.is-sliding::before { background: var(--fill-selected); box-shadow: none; }
 
-/* The switch, as macOS draws it: a capsule in the accent when on, the knob sliding on the
+/* The switch: a capsule in the accent when on, the knob sliding on the
    snappy spring (a small thing moving a short way, its own layer only). */
 .switch {
   position: relative;
@@ -680,7 +680,7 @@ span.switch::after { content: ""; }
   padding: 0 12px;
   border-radius: 14px;
   background: var(--sheet);
-  box-shadow: inset 0 0 0 1px var(--glass-edge);
+  box-shadow: inset 0 0 0 1px var(--veil-edge);
   color: var(--text);
   font-size: var(--t-13);
   font-weight: 500;
@@ -693,7 +693,7 @@ span.switch::after { content: ""; }
   height: 20px;
   padding: 0 6px;
   border-radius: 10px;
-  background: var(--sys-red);
+  background: var(--sk-red-deep);
   color: #fff;
   font-size: var(--t-12);
   font-weight: 600;

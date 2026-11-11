@@ -1,4 +1,4 @@
-// Show List Info: Apple's twelve colours; choosing one shows at once and is sent as its
+// List Details: Apple's twelve colours; choosing one shows at once and is sent as its
 // CloudKit name.
 import { engine } from "./engine.mjs";
 import { SERVICES, installStub, openScreen } from "./stub.mjs";
@@ -24,7 +24,7 @@ await page.locator(".rx-list", { hasText: "Daily" }).hover();
 // One ⋯ on the row, not three buttons over its name.
 ok((await page.locator(".rx-list-row", { hasText: "Daily" }).getByRole("button").count()) === 2, "a list row has its name and one ⋯, nothing more");
 await page.getByRole("button", { name: "Actions for Daily" }).click();
-await page.getByRole("menuitem", { name: "Show List Info" }).click();
+await page.getByRole("menuitem", { name: "List Details" }).click();
 await page.waitForTimeout(200);
 ok((await page.getByRole("radio").count()) === 12, "Apple's twelve colours are offered");
 await page.getByRole("radio", { name: "purple" }).click();

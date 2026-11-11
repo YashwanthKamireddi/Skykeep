@@ -1,4 +1,4 @@
-/* Calendar, laid out the way macOS Calendar is. Scoped under `.cx`. */
+/* Calendar. Scoped under `.cx`. */
 
 .content[data-screen="calendar"] {
   display: flex;
@@ -30,7 +30,7 @@
 }
 .cx-cals { display: flex; flex-direction: column; gap: 2px; }
 
-/* Apple's calendar checkbox: a rounded square in the calendar's own colour. */
+/* A calendar's checkbox: a rounded square in the calendar's own colour. */
 .cx-cal input {
   appearance: none;
   flex: none;
@@ -83,7 +83,7 @@
 .cx-minimonth-day:hover { background: color-mix(in srgb, var(--text) 8%, transparent); }
 .cx-minimonth-day.is-out { color: var(--text-3); }
 .cx-minimonth-day.is-selected { background: color-mix(in srgb, var(--text) 16%, transparent); font-weight: 600; }
-.cx-minimonth-day.is-today { background: var(--danger-deep); color: #fff; font-weight: 700; }
+.cx-minimonth-day.is-today { background: var(--accent-deep); color: #fff; font-weight: 700; }
 .cx-minimonth-day.is-busy::after {
   content: "";
   position: absolute;
@@ -200,7 +200,7 @@
    week Saturday had kept a hairline down the grid's right edge that the other weeks had not. */
 .cx-day:nth-child(7) { border-right: 0; }
 .cx-day.is-weekend { background: color-mix(in srgb, var(--text) 2.5%, transparent); }
-.cx-day.is-selected { background: color-mix(in srgb, var(--sys-blue) 7%, transparent); }
+.cx-day.is-selected { background: color-mix(in srgb, var(--sk-blue) 7%, transparent); }
 .cx-day-hit {
   position: absolute;
   inset: 0;
@@ -228,7 +228,7 @@
   pointer-events: none;
 }
 .cx-day.is-out .cx-daynum { color: var(--text-3); }
-.cx-daynum.is-today { background: var(--danger-deep); color: #fff; font-weight: 700; }
+.cx-daynum.is-today { background: var(--accent-deep); color: #fff; font-weight: 700; }
 
 .cx-items { position: relative; z-index: 1; margin: 0; padding: 0; list-style: none; pointer-events: none; }
 .cx-items li { pointer-events: auto; }
@@ -267,7 +267,7 @@
 .cx-ring::before { background: transparent; -webkit-mask: var(--mask-disc) center/12px 12px no-repeat; mask: var(--mask-disc) center/12px 12px no-repeat; }
 .cx-ring:hover::before { background: color-mix(in srgb, var(--cal, var(--text)) 22%, transparent); }
 .cx-ring:active::before, .cx-ring:active::after { transform: scale(0.85); }
-.cx-ring.is-ticked::before { background: var(--cal, var(--sys-blue)); }
+.cx-ring.is-ticked::before { background: var(--cal, var(--sk-blue)); }
 .cx-ring:focus-visible { outline: var(--focus-ring); outline-offset: -4px; }
 .cx-item-title { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .cx-item-time { color: var(--text-3); font-variant-numeric: tabular-nums; }
@@ -450,13 +450,13 @@
 .cx-bar-grip { position: absolute; top: 0; bottom: 0; width: 6px; cursor: ew-resize; }
 .cx-bar-grip.is-start { left: 0; }
 .cx-bar-grip.is-end { right: 0; }
-.cx-bar-event.is-draft { --cal: var(--sys-blue); display: flex; align-items: center; pointer-events: none; }
+.cx-bar-event.is-draft { --cal: var(--sk-blue); display: flex; align-items: center; pointer-events: none; }
 .cx-block.is-draft {
-  --cal: var(--sys-blue);
+  --cal: var(--sk-blue);
   left: 0;
   right: 3px;
   width: auto;
-  background: color-mix(in srgb, var(--sys-blue) 26%, var(--bg));
+  background: color-mix(in srgb, var(--sk-blue) 26%, var(--bg));
   pointer-events: none;
 }
 /* Under three quarters of an hour there is room for one line: the title, then the time. */
@@ -522,7 +522,7 @@
   margin-top: -1px;
   pointer-events: none;
 }
-.cx-now::after { content: ""; position: absolute; z-index: 2; inset: 0; background: var(--sys-red); }
+.cx-now::after { content: ""; position: absolute; z-index: 2; inset: 0; background: var(--sk-red); }
 .cx-now::before {
   content: "";
   position: absolute;
@@ -531,7 +531,7 @@
   top: -4px;
   width: 10px;
   height: 10px;
-  background: var(--sys-red);
+  background: var(--sk-red);
   -webkit-mask: var(--mask-disc) center/100% no-repeat;
   mask: var(--mask-disc) center/100% no-repeat;
 }
@@ -590,10 +590,10 @@
   overscroll-behavior: contain;
   padding: 14px 14px 12px;
   border-radius: var(--r-float);
-  background: var(--glass-thick);
-  -webkit-backdrop-filter: var(--glass-regular-filter);
-  backdrop-filter: var(--glass-regular-filter);
-  box-shadow: var(--glass-float);
+  background: var(--veil-thick);
+  -webkit-backdrop-filter: var(--veil-filter);
+  backdrop-filter: var(--veil-filter);
+  box-shadow: var(--veil-float);
   /* Grows out of the event that opened it as it appears (lib/fade.ts grow): drawn by the
      page frame by frame, from 96% only and from the edge facing the click, once — never on a
      re-anchor. History: a compositor (CSS) fade over this large shadowed layer was what
@@ -615,7 +615,7 @@
 .cx-rcard-body .cx-info-notes { align-self: stretch; }
 .cx-rcard-open {
   margin: 6px 0 0; padding: 0; border: 0; background: none;
-  color: var(--sys-blue); font: inherit; font-size: var(--t-13); cursor: pointer;
+  color: var(--sk-blue-strong); font: inherit; font-size: var(--t-13); cursor: pointer;
 }
 .cx-rcard-open:hover { text-decoration: underline; }
 .cx-item.is-reminder, .cx-reminder, .cx-pane-reminder { cursor: default; }
@@ -670,8 +670,8 @@
   transition: background-color 120ms var(--ease);
 }
 .cx-pop-row input[type="checkbox"]:checked {
-  border-color: var(--sys-blue);
-  background-color: var(--sys-blue);
+  border-color: var(--sk-blue-deep);
+  background-color: var(--sk-blue-deep);
   background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 10 10'%3E%3Cpath d='M2 5.2 4.1 7.3 8 2.8' fill='none' stroke='white' stroke-width='1.6' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E");
 }
 .cx-pop-row input[type="checkbox"]:focus-visible { outline: var(--focus-ring); outline-offset: 1px; }
@@ -724,7 +724,7 @@
 /* Without room for both, the timeline keeps the window. */
 @container cx-page (max-width: 900px) { .cx-pane { display: none; } }
 
-.cx-info-url { margin-top: 6px; font-size: var(--t-13); color: var(--sys-blue); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.cx-info-url { margin-top: 6px; font-size: var(--t-13); color: var(--sk-blue-strong); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .cx-pane-month { padding-bottom: 14px; margin-bottom: 14px; border-bottom: var(--hairline) solid var(--separator); }
 /* With the month in the Day pane, the sidebar's copy would be the same month twice. */
 .cx:has(.cx-pane-month) .cx-side .cx-minimonth { display: none; }
@@ -788,7 +788,7 @@
 }
 .cx-zones {
   position: absolute; z-index: 5; inset-inline: 0; top: calc(100% + 4px); display: flex; flex-direction: column;
-  padding: 4px; border-radius: 10px; background: var(--sheet, var(--bg)); box-shadow: var(--glass-float), 0 0 0 var(--hairline) var(--separator);
+  padding: 4px; border-radius: 10px; background: var(--sheet, var(--bg)); box-shadow: var(--veil-float), 0 0 0 var(--hairline) var(--separator);
 }
 .cx-zone-option {
   display: grid; grid-template-columns: minmax(0, 1fr) auto auto; align-items: baseline; gap: 8px;
@@ -815,7 +815,7 @@
 @media (prefers-reduced-motion: reduce) { .cx-fold { transition: none; } }
 .cx-cal-problem {
   flex: none; display: grid; place-items: center; width: 16px; height: 16px; border-radius: 50%;
-  background: color-mix(in srgb, var(--sys-orange, #ff9500) 22%, transparent); color: var(--sys-orange, #c76b00);
+  background: color-mix(in srgb, var(--sk-orange) 22%, transparent); color: var(--sk-orange-strong);
   font-size: var(--t-10); font-weight: 700;
 }
 
@@ -843,7 +843,7 @@
 /* Under the +, opaque and simply there, as the other popovers are (no fade: WebKitGTK). */
 .cx-quick-anchor { position: relative; }
 .cx-quick {
-  background: var(--sheet, var(--glass-thick));
+  background: var(--sheet, var(--veil-thick));
   /* Opaque: nothing for a blur to show. */
   -webkit-backdrop-filter: none;
   backdrop-filter: none;
@@ -879,7 +879,7 @@
 .cx-found-text { display: flex; flex-direction: column; min-width: 0; }
 .cx-found-where { overflow: hidden; color: var(--text-3); font-size: var(--t-11); text-overflow: ellipsis; white-space: nowrap; }
 .cx-found-section { margin: 6px 10px 2px; color: var(--text-3); font-size: var(--t-11); font-weight: 600; }
-.cx-mark { border-radius: 2px; background: color-mix(in srgb, var(--sys-yellow, #ffcc00) 45%, transparent); color: inherit; }
+.cx-mark { border-radius: 2px; background: color-mix(in srgb, var(--sk-amber) 35%, transparent); color: inherit; }
 
 /* ---- week numbers --------------------------------------------------------------------- */
 
@@ -899,7 +899,7 @@
 .cx-item.is-carried, .cx-bar-event.is-carried { opacity: 0.45; }
 .cal-grid.is-carrying { cursor: grabbing; }
 .cal-grid.is-carrying .cx-item, .cal-grid.is-carrying .cx-bar-event { pointer-events: none; }
-.cx-day.is-drop { background: color-mix(in srgb, var(--sys-blue) 12%, transparent); box-shadow: inset 0 0 0 2px color-mix(in srgb, var(--sys-blue) 55%, transparent); }
+.cx-day.is-drop { background: color-mix(in srgb, var(--sk-blue) 12%, transparent); box-shadow: inset 0 0 0 2px color-mix(in srgb, var(--sk-blue) 55%, transparent); }
 .cx-block-grip.is-top { top: 0; bottom: auto; height: 4px; }
 
 /* ---- places and links in the popover ---------------------------------------------------- */
@@ -908,12 +908,12 @@
 .cx-pop-place > input { flex: 1; min-width: 0; }
 .cx-pop-link {
   flex: none; display: inline-grid; place-items: center; min-width: 22px; height: 22px; padding: 0 4px;
-  border-radius: 6px; color: var(--sys-blue); font-size: var(--t-11); text-decoration: none;
+  border-radius: 6px; color: var(--sk-blue-strong); font-size: var(--t-11); text-decoration: none;
 }
-.cx-pop-link:hover { background: color-mix(in srgb, var(--sys-blue) 12%, transparent); }
+.cx-pop-link:hover { background: color-mix(in srgb, var(--sk-blue) 12%, transparent); }
 .cx-pop-link:focus-visible { outline: var(--focus-ring); }
 .cx-info-place { display: flex; flex-wrap: wrap; align-items: baseline; gap: 2px 8px; }
-.cx-maps { color: var(--sys-blue); font-size: var(--t-11); text-decoration: none; }
+.cx-maps { color: var(--sk-blue-strong); font-size: var(--t-11); text-decoration: none; }
 /* Join: the one action an event with a call asks for, as Calendar puts it — a filled pill
    under the title, the call's service named, the link itself in the tooltip. */
 .cx-join {
@@ -924,8 +924,8 @@
   margin: 2px 0 6px;
   padding: 4px 12px;
   border-radius: 999px;
-  /* A deep green: white reads on it at 5:1, where Apple's bright green gives 2.2:1. */
-  background: #1f8034;
+  /* Skykeep's green: white reads on it at 5:1. */
+  background: var(--sk-green);
   color: #fff;
   font-size: var(--t-12);
   font-weight: 600;
@@ -949,8 +949,8 @@
   font-size: var(--t-10); font-weight: 700; line-height: 1; color: #fff;
   box-shadow: inset 0 0 0 var(--hairline) color-mix(in srgb, var(--text) 25%, transparent);
 }
-.cx-guest-mark.is-accepted { background: #1f8034; box-shadow: none; }
-.cx-guest-mark.is-declined { background: #c62828; box-shadow: none; }
+.cx-guest-mark.is-accepted { background: var(--sk-green); box-shadow: none; }
+.cx-guest-mark.is-declined { background: #c8323a; box-shadow: none; }
 .cx-guest-mark.is-tentative { background: #a35b00; box-shadow: none; }
 @media (forced-colors: active) { .cx-guest-mark { border: 1px solid CanvasText; } }
 .cx-maps:hover { text-decoration: underline; }

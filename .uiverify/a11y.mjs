@@ -46,7 +46,7 @@ const scenarios = [
   { name: "reminders list info", ready: ".rx-info", act: then(open("Reminders"), async (p) => {
       await p.locator(".rx-list", { hasText: "Daily" }).hover();
       await p.getByRole("button", { name: "Actions for Daily" }).click();
-      await p.getByRole("menuitem", { name: "Show List Info" }).click();
+      await p.getByRole("menuitem", { name: "List Details" }).click();
     }) },
   { name: "contacts", act: open("Contacts"), ready: ".contacts" },
   { name: "contacts menu", ready: '[role="menu"]', act: then(open("Contacts"), async (p) => {

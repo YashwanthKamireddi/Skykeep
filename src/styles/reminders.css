@@ -1,4 +1,4 @@
-/* Reminders, laid out the way macOS Reminders is.
+/* Reminders.
  *
  * Everything here is scoped under `.rx`. The screen's old rules were spread through app.css
  * and collided — one class name meant a button in one place and a notice in another — so
@@ -28,7 +28,7 @@
 }
 
 /* The tiles: glyph top left, count top right, name beneath. Chosen, a tile takes its own
-   colour and everything on it turns white — which is how Apple marks the open one. */
+   colour and everything on it turns white. */
 .rx-tiles {
   display: grid;
   /* minmax(0, …): a long name or a four-digit count shrinks inside its tile rather than
@@ -91,8 +91,8 @@
   white-space: nowrap;
 }
 
-/* A shade under the tile's own colour, so white type on it reads at 4.5:1 — the colour
-   Apple's Increase Contrast setting draws these in. */
+/* A shade under the tile's own colour, so white type on it reads at 4.5:1 (5.1:1 or better
+   for every built-in view's colour). */
 .rx-tile[aria-current="true"] { background: color-mix(in srgb, var(--tile) 82%, #000); color: #fff; }
 .rx-tile[aria-current="true"] .rx-tile-glyph { background: #fff; color: color-mix(in srgb, var(--tile) 82%, #000); }
 .rx-tile[aria-current="true"] .rx-tile-name { color: #fff; }
@@ -152,7 +152,7 @@
 }
 .rx-tag-chip:hover { background: var(--fill-raised-hover); }
 .rx-tag-chip:focus-visible { outline: var(--focus-ring); outline-offset: 1px; }
-.rx-tag-chip[aria-current="true"] { background: color-mix(in srgb, var(--sys-blue) 86%, #000); color: #fff; }
+.rx-tag-chip[aria-current="true"] { background: var(--sk-blue-deep); color: #fff; }
 .rx-side-heading { margin-top: var(--source-gap); }
 .rx-side-heading:first-of-type { margin-top: 0; }
 
@@ -364,7 +364,7 @@ button.rx-tag:hover { background: color-mix(in srgb, var(--text) 12%, transparen
 .rx-row:has(:focus-visible) .rx-icon-button,
 .rx-row.is-open .rx-icon-button,
 .rx-icon-button.rx-flag.on { opacity: 1; }
-.rx-icon-button.rx-flag.on { color: var(--sys-orange); }
+.rx-icon-button.rx-flag.on { color: var(--sk-orange); }
 /* A reminder's subtasks, folded or shown: always there, as it says something about the row.
    Folded, how many wait under it; shown, the arrow points down at them. */
 .rx-kids { display: inline-flex; align-items: center; gap: 1px; width: auto; min-width: 24px; padding: 0 4px; color: var(--text-2); }
@@ -391,7 +391,7 @@ button.rx-tag:hover { background: color-mix(in srgb, var(--text) 12%, transparen
 .rx-field-notes { align-items: start; }
 /* The link: typed in the field, opened with Open beside it — as the phone's link is tapped. */
 .rx-field-url { grid-template-columns: 96px minmax(0, 1fr) auto; }
-.rx-url-open { font-size: var(--t-12); color: var(--accent, var(--sys-blue)); text-decoration: none; }
+.rx-url-open { font-size: var(--t-12); color: var(--accent); text-decoration: none; }
 .rx-url-open:hover { text-decoration: underline; }
 .rx-field-notes > span:first-child { padding-top: 6px; }
 .rx-field textarea.field { resize: vertical; min-height: 44px; }
@@ -415,7 +415,7 @@ button.rx-tag:hover { background: color-mix(in srgb, var(--text) 12%, transparen
 .rx-url {
   min-width: 0;
   overflow: hidden;
-  color: var(--sys-blue);
+  color: var(--sk-blue-strong);
   font-size: var(--t-13);
   text-decoration: none;
   text-overflow: ellipsis;
@@ -464,9 +464,9 @@ button.rx-tag:hover { background: color-mix(in srgb, var(--text) 12%, transparen
   font-size: var(--t-11);
   font-variant-numeric: tabular-nums;
 }
-.rx-day.is-on { background: var(--sys-blue); color: #fff; font-weight: 600; }
+.rx-day.is-on { background: var(--sk-blue-deep); color: #fff; font-weight: 600; }
 .rx-tag-field { display: flex; flex-wrap: wrap; align-items: center; gap: 5px; min-width: 0; }
-.rx-tag.is-chip { padding: 0; height: 22px; background: color-mix(in srgb, var(--sys-blue) 12%, transparent); }
+.rx-tag.is-chip { padding: 0; height: 22px; background: color-mix(in srgb, var(--sk-blue) 10%, transparent); }
 .rx-tag-name,
 .rx-tag-remove {
   height: 22px;
@@ -474,7 +474,7 @@ button.rx-tag:hover { background: color-mix(in srgb, var(--text) 12%, transparen
   border: 0;
   border-radius: 999px;
   background: none;
-  color: var(--sys-blue);
+  color: var(--sk-blue-strong);
   font: inherit;
   font-size: var(--t-13);
   cursor: default;
@@ -515,7 +515,7 @@ button.rx-tag:hover { background: color-mix(in srgb, var(--text) 12%, transparen
   gap: 10px;
   margin-top: 4px;
   font-size: var(--t-11);
-  color: var(--accent, var(--sys-blue));
+  color: var(--accent);
 }
 .rx-add-reading { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .rx-add-literal {
@@ -545,7 +545,7 @@ button.rx-tag:hover { background: color-mix(in srgb, var(--text) 12%, transparen
   .rx .compact-back { align-self: flex-start; margin-bottom: 6px; }
 }
 
-/* Show List Info: a centred sheet, the list's mark large in its colour, Apple's swatches. */
+/* List Details: a centred sheet, the list's mark large in its colour, iCloud's swatches. */
 .rx-info { width: min(420px, calc(100vw - 32px)); display: flex; flex-direction: column; align-items: center; gap: 16px; padding: 22px 24px 18px; }
 .rx-info h2 { margin: 0; font-size: var(--t-15); font-weight: 600; }
 .rx-info-mark { display: grid; place-items: center; width: 84px; height: 84px; border-radius: 50%; color: #fff; box-shadow: 0 6px 18px color-mix(in srgb, currentColor 0%, rgba(0,0,0,0.35)); transition: background 160ms ease; }
@@ -567,9 +567,9 @@ button.rx-tag:hover { background: color-mix(in srgb, var(--text) 12%, transparen
 /* Dragging: the row lifted, and a line where it would land, as Reminders draws them. */
 .rx-row[draggable="true"] { cursor: grab; }
 .rx-row.is-dragging { opacity: 0.45; }
-.rx-row.is-drop-before { box-shadow: inset 0 2px 0 var(--sys-blue, #0a84ff); }
+.rx-row.is-drop-before { box-shadow: inset 0 2px 0 var(--sk-blue); }
 /* A list a dragged reminder would move to, ringed as the Mac's sidebar rings a drop target. */
-.rx-list.is-drop-target { box-shadow: inset 0 0 0 2px var(--sys-blue, #0a84ff); }
+.rx-list.is-drop-target { box-shadow: inset 0 0 0 2px var(--sk-blue); }
 
 /* A row's marks, as the phone's list shows them: another zone's clock beside the time, the
    Urgent alarm, and chips for a place, a person and a link. */
@@ -594,10 +594,10 @@ button.rx-tag:hover { background: color-mix(in srgb, var(--text) 12%, transparen
 }
 .rx-chip b { font-weight: 600; }
 .rx-chip svg { flex: none; color: var(--text-2); }
-.rx-chip .rx-chip-place { color: var(--sys-red); }
+.rx-chip .rx-chip-place { color: var(--sk-red); }
 .rx-chip-link:hover { background: color-mix(in srgb, var(--text) 11%, transparent); }
 /* Custom's weekday picks: the same grid, each a toggle. */
 .rx-day.is-pick { padding: 0; border: 0; background: color-mix(in srgb, var(--text) 6%, transparent); font: inherit; font-size: var(--t-11); cursor: default; }
-.rx-day.is-pick.is-on { background: var(--sys-blue); color: #fff; }
+.rx-day.is-pick.is-on { background: var(--sk-blue-deep); color: #fff; }
 .rx-day.is-pick:focus-visible { outline: var(--focus-ring); }
 .rx-day.is-pick:disabled { opacity: 0.6; }

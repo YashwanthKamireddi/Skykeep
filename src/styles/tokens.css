@@ -1,53 +1,50 @@
-/* Quince design tokens, after Apple's macOS 27 kit (docs/macos27-kit.md).
-   The idiom is macOS, because familiarity is what earns trust from someone being asked for
-   their Apple ID. Each app takes its own Mac accent, as Apple's apps colour themselves —
-   Notes yellow, Calendar red, the rest the system blue — set on <html data-app> by the
-   window, so a menu or popover drawn over an app takes its colour too. Quince gold is the
+/* Skykeep's design tokens.
+   Skykeep's own palette: a clear sky blue for graphics, a deeper blue under white text and
+   for accent text, and cool blue-grey neutrals, in light and dark. Each app takes its own
+   accent — Notes amber, Calendar red, the rest the sky blue — set on <html data-app> by the
+   window, so a menu or popover drawn over an app takes its colour too. The sky blue is the
    brand: the app icon and the sign-in. */
 
 :root {
   color-scheme: light dark;
 
-  --gold: #c8912a;
-  --gold-strong: #a9781f;
-  --gold-deep: #7d5a16;
-
-  /* The accent: `--accent` fills and draws glyphs; `-strong` is accent text on the window,
-     at 4.5:1 or better; `-deep` a filled control under white text, also 4.5:1. Apple's own
-     macOS 27 blue (#0088ff) carries white text at 3.5:1, so filled controls take the deeper
-     shade and keep the same hue. */
-  --accent: #0088ff;
+  /* The accent: `--accent` fills, tints and rings; `-strong` is accent text and glyphs on the
+     window, at 4.5:1 or better; `-deep` a filled control under white text, also 4.5:1. The
+     sky blue (#2F9BFF) is 2.6:1 on the light window, so in light it never carries text or a
+     glyph alone: those take the deep shade (#0068D6, 4.7:1 on the window, 5.3:1 under white). */
+  --accent: #2f9bff;
   --accent-strong: #0068d6;
   --accent-deep: #0068d6;
   --accent-tint: color-mix(in srgb, var(--accent) 14%, transparent);
   --accent-ring: color-mix(in srgb, var(--accent) 34%, transparent);
   /* A selection drawn in the accent, under --on-accent: the deep shade, which carries white
-     text at 4.5:1 — on the bright blue a selected row's name read at 3.5:1. */
+     text at 4.5:1 — on the bright blue a selected row's name would read at 2.9:1. */
   --accent-fill: var(--accent-deep);
-  /* Text on a filled accent — white, or on Notes' yellow the near-black Notes uses. */
+  /* Text on a filled accent — white, or on Notes' amber the ink. */
   --on-accent: #fff;
   /* Secondary text on a fill: 0.82 white read at 4.1:1 on the deep blue and red. */
   --on-accent-2: rgba(255, 255, 255, 0.92);
 
-  --bg: #f5f5f7;
+  --bg: #eef2f7;
   --sheet: #ffffff;
-  --text: #1d1d1f;
+  --text: #151a22;
   /* Secondary and tertiary text at 4.5:1 or better on the window, a sheet and a selected
-     row (WCAG AA). Apple's own #6e6e73 and #8e8e93 fell to 4.0 and 3.0 there. */
-  --text-2: #5f5f64;
-  --text-3: #6a6a6f;
-  --separator: rgba(0, 0, 0, 0.11);
+     row (WCAG AA): 7.1:1 and 5.6:1 on the window, 4.5:1 for the tertiary on a selected row. */
+  --text-2: #475161;
+  --text-3: #556070;
+  --separator: rgba(21, 26, 34, 0.11);
   --field: #ffffff;
-  --field-edge: rgba(0, 0, 0, 0.17);
-  --field-edge-hover: rgba(0, 0, 0, 0.28);
+  --field-edge: rgba(21, 26, 34, 0.17);
+  --field-edge-hover: rgba(21, 26, 34, 0.28);
   --danger: #c1121f;
-  /* Notes' text colours (iOS 18): purple, pink, orange, mint, blue — Apple's system hues. */
+  /* The colours a note's text can carry in iCloud (purple, pink, orange, mint, blue), drawn
+     as the note was written in them: data, not the theme. */
   --note-c1: #af52de; --note-c2: #ff2d55; --note-c3: #ff9500; --note-c4: #00c7be; --note-c5: #007aff;
 
   --shadow-sheet: 0 14px 44px rgba(0, 0, 0, 0.15), 0 1px 3px rgba(0, 0, 0, 0.09);
   --shadow-field: inset 0 1px 1px rgba(0, 0, 0, 0.04);
 
-  /* macOS system text is 13px. Using the web's 16px default is the fastest way to look
+  /* Desktop interface text is 13px. Using the web's 16px default is the fastest way to look
      like a website pretending to be an app. In rem, so the sizes stay 11–28px at the engine's
      default 16px but follow the system's text size: WebKitGTK derives its default font size
      from GTK's font DPI (Xft.dpi — what GNOME's "Large Text" and text-scaling-factor change),
@@ -69,76 +66,75 @@
   /* A source list (an app's own column of folders, lists, albums, calendars): its inset, and
      the space above each section's heading after the first. */
   --source-pad: 2px 12px 12px;
-  /* Every app's own sidebar is this wide, as a Mac's are alike: room for Reminders' tiles
-     two across, and for the account's name and freshness at its foot. */
+  /* Every app's own sidebar is this wide, all alike: room for Reminders' tiles two across,
+     and for the account's name and freshness at its foot. */
   --source-w: 236px;
   --source-gap: 14px;
 
 
-  /* Liquid Glass, as macOS 26/27 builds it (docs/macos27-kit.md). Apple's rules: glass is
-     for CHROME — sidebars, toolbars, menus, popovers, sheets — never the content beneath,
-     and never glass laid on glass. Tint is for the single primary action.
+  /* The veil: Skykeep's translucent material. It is for CHROME — sidebars, toolbars, menus,
+     popovers, sheets — never the content beneath, and never one veil laid on another. A
+     filled accent is for the single primary action.
 
-     A glass surface is four things together: a thin tint that lets what is behind show,
-     a heavy blur that keeps it unreadable, a saturation lift so colours behind glow rather
-     than grey out, and a lit rim — a hairline of light all round with a brighter edge on
-     top, where the light catches it. The rim is what makes it read as a material and not
-     as a translucent rectangle. */
-  --glass: rgba(255, 255, 255, 0.58);
-  --glass-blur: blur(30px) saturate(190%);
+     A veil is four things together: a thin tint that lets what is behind show, a heavy blur
+     that keeps it unreadable, a saturation lift so colours behind glow rather than grey out,
+     and a lit rim — a hairline of light all round with a brighter edge on top, where the
+     light catches it. The rim is what makes it read as a material and not as a translucent
+     rectangle. */
+  --veil: rgba(246, 248, 252, 0.58);
+  --veil-blur: blur(30px) saturate(190%);
 
-  /* The two tiers Apple names (WWDC25, "Meet Liquid Glass"), each a fill and the live blur
-     laid under it, and the frost that stands in for them where a blur would cost frames.
-     Content (lists, editors, grids, the photo) takes none of them, and glass is never laid
-     on glass.
+  /* Three weights, each a fill and the live blur laid under it, the third standing in for
+     them where a blur would cost frames. Content (lists, editors, grids, the photo) takes
+     none of them.
 
-       Regular — what appears over the window for a moment and goes: menus, pop-ups,
-       popovers, sheets, Photos' Info. Primary and secondary text keep 4.5:1 over anything
-       at all behind it, black or white; tertiary text over the window's own colours (4:1
-       over pure black or white).
-       Clear — glyph-only controls floating over a photo (the viewer's arrows): thinner, so
-       the picture shows through; its glyphs keep 3:1 over black.
-       Frost — chrome that stays up while what is under it scrolls: the sidebar, toolbars'
-       capsules, toasts, the upload tray. Frosted nearly to opaque, never blurred, in every
-       engine: a blur is worked out again on every frame of the scroll beneath it, and
-       measured (.uiverify/glass-frames.mjs) Photos' capsules blurred took its scroll from
-       16.7 to 200ms a frame at p95 in Chromium.
+       Thick (--veil-thick, --veil-filter) — what appears over the window for a moment and
+       goes: menus, pop-ups, popovers, sheets, Photos' Info. Primary and secondary text keep
+       4.5:1 over anything at all behind it, black or white; tertiary text over the window's
+       own colours (4:1 over pure black or white).
+       Sheer (--veil-sheer) — glyph-only controls floating over a photo (the viewer's
+       arrows): thinner, so the picture shows through; its glyphs keep 3:1 over black.
+       Frost (--veil-frost) — chrome that stays up while what is under it scrolls: the
+       sidebar, toolbars' capsules, toasts, the upload tray. Frosted nearly to opaque, never
+       blurred, in every engine: a blur is worked out again on every frame of the scroll
+       beneath it, and measured (.uiverify/glass-frames.mjs) Photos' capsules blurred took
+       its scroll from 16.7 to 200ms a frame at p95 in Chromium.
 
      WebKitGTK (Linux, the engine he uses) gets no live blur at all — it blurs what is
      behind again on every frame anything under it moves, builds the layer on the frame a
      menu appears (the flash that keeps menus from animating), and does not always draw the
-     blur (measured on his machine: sharp text through a menu) — so there Regular and Clear
+     blur (measured on his machine: sharp text through a menu) — so there Thick and Sheer
      are frosted too, as Reduce Transparency draws them. lib/engine.ts marks the window
      `data-engine="gtk"`; a block below does the rest, changing only the alphas. */
-  --glass-rgb: 248 248 250;
-  --glass-thick-a: 0.9;
-  --glass-thick: rgb(var(--glass-rgb) / var(--glass-thick-a));
-  --glass-frost: rgb(var(--glass-rgb) / 0.96);
-  --glass-regular-filter: blur(24px) saturate(180%);
-  --glass-clear-a: 0.64;
-  --glass-clear-rgb: 255 255 255;
-  --glass-clear: rgb(var(--glass-clear-rgb) / var(--glass-clear-a));
-  --glass-clear-filter: blur(14px) saturate(170%);
-  --glass-specular: inset 0 var(--hairline) 0 rgba(255, 255, 255, 0.9), inset 0 0 0 var(--hairline) rgba(255, 255, 255, 0.45);
-  --glass-edge: rgba(0, 0, 0, 0.08);
-  /* Floating glass casts a soft, wide shadow — it sits above the window, not on it. */
-  --glass-lift: 0 8px 30px rgba(0, 0, 0, 0.13), 0 1px 3px rgba(0, 0, 0, 0.08);
-  /* A menu, popover or sheet: regular glass, rim, edge and lift — the whole recipe. In
+  --veil-rgb: 246 248 252;
+  --veil-thick-a: 0.9;
+  --veil-thick: rgb(var(--veil-rgb) / var(--veil-thick-a));
+  --veil-frost: rgb(var(--veil-rgb) / 0.96);
+  --veil-filter: blur(24px) saturate(180%);
+  --veil-sheer-a: 0.64;
+  --veil-sheer-rgb: 255 255 255;
+  --veil-sheer: rgb(var(--veil-sheer-rgb) / var(--veil-sheer-a));
+  --veil-sheer-filter: blur(14px) saturate(170%);
+  --veil-rim: inset 0 var(--hairline) 0 rgba(255, 255, 255, 0.9), inset 0 0 0 var(--hairline) rgba(255, 255, 255, 0.45);
+  --veil-edge: rgba(21, 26, 34, 0.08);
+  /* A floating veil casts a soft, wide shadow — it sits above the window, not on it. */
+  --veil-lift: 0 8px 30px rgba(0, 0, 0, 0.13), 0 1px 3px rgba(0, 0, 0, 0.08);
+  /* A menu, popover or sheet: the thick veil, rim, edge and lift — the whole recipe. In
      WebKitGTK it takes no live blur: a blurred layer is a compositing layer, and WebKitGTK
      building one on a menu's first frame is the flash that made menus open without
      animation in the first place. */
-  --glass-float: var(--glass-specular), 0 0 0 var(--hairline) var(--glass-edge), var(--glass-lift);
+  --veil-float: var(--veil-rim), 0 0 0 var(--hairline) var(--veil-edge), var(--veil-lift);
 
-  /* Concentric corners (WWDC25, "Get to know the new design system"): a shape inside
-     another takes the outer radius less the padding between them, so the two curves share
-     a centre. A menu's and a pop-up's 5px inset gives its highlighted line 7px corners; a
-     list inside a floating card (the upload tray) its 6px inset, 6px. */
+  /* Concentric corners: a shape inside another takes the outer radius less the padding
+     between them, so the two curves share a centre. A menu's and a pop-up's 5px inset gives
+     its highlighted line 7px corners; a list inside a floating card (the upload tray) its
+     6px inset, 6px. */
   --pad-float: 5px;
   --r-float-inner: calc(var(--r-float) - var(--pad-float));
 
-  /* Motion. Apple's interface moves on springs, not curves: these are SwiftUI's own,
-     computed from the spring itself (response and bounce) rather than eyeballed, and each
-     duration is the time the spring takes to settle. */
+  /* Motion moves on springs, not curves: each computed from the spring itself (response and
+     bounce) rather than eyeballed, and each duration is the time the spring takes to
+     settle. */
   /* .smooth — no bounce: things that move a long way, a sidebar, a sheet. */
   --spring-smooth: linear(0, 0.0139, 0.0495, 0.0995, 0.1582, 0.2215, 0.2864, 0.3507, 0.4129, 0.472, 0.5273, 0.5786, 0.6256, 0.6685, 0.7073, 0.7423, 0.7736, 0.8015, 0.8263, 0.8483, 0.8677, 0.8848, 0.8998, 0.913, 0.9246, 0.9347, 0.9435, 0.9511, 0.9578, 0.9636, 0.9686, 0.9729, 0.9767, 0.98, 0.9828, 0.9852, 0.9873, 0.9891, 0.9906, 0.992, 0.9931, 0.9941, 0.995, 0.9957, 0.9963, 0.9968, 0.9973, 0.9977, 1);
   --spring-smooth-d: 560ms;
@@ -191,7 +187,7 @@
   /* Drawn by the page frame by frame, never handed to the compositor (lib/fade.ts says why):
      a popover growing out of what opened it — from 96%, fading in (lib/fade.ts grow) — and a
      segmented control's thumb sliding to the segment chosen (lib/thumb.ts). Menus have
-     neither: a Mac's menu is simply there. */
+     neither: a menu is simply there. */
   --motion-pop: 140ms;
   --pop-from: 0.96;
   --motion-thumb: 160ms;
@@ -205,8 +201,8 @@
   /* A row someone deleted elsewhere: out by opacity, 2px up, then removed. */
   --leave-d: 140ms;
 
-  /* Tahoe moved windows from Sequoia's 4px to 12px, and radii nest concentrically:
-     an inner radius is the outer radius minus the gap between them. */
+  /* Windows have 12px corners, and radii nest concentrically: an inner radius is the outer
+     radius minus the gap between them. */
   --r-window: 12px;
   --r-plateau: 10px;
   --r-field: 7px;
@@ -214,13 +210,13 @@
   /* A menu, popover or toast: the floating surfaces, all one radius. */
   --r-float: 12px;
 
-  /* The kit's sizes (styles/kit.css). One height per kind of control, everywhere:
+  /* The control sizes (styles/kit.css). One height per kind of control, everywhere:
      a button, field or pop-up 28; a toolbar capsule 32, its controls 28 inside it; a row
      of a source list 30; a small icon button inside a row 22. */
   --h-control: 28px;
   --h-tool: 32px;
   --h-row: 30px;
-  /* 24, not Apple's 22: WCAG 2.2's smallest target (2.5.8). */
+  /* 24: WCAG 2.2's smallest target (2.5.8). */
   --h-mini: 24px;
 
   /* The neutral fills every control and row is drawn with, so a hover, a press and a
@@ -239,94 +235,101 @@
   /* A toolbar's capsules (kit.css .toolbar-group): nearly solid, a rim, a short lift. */
   --tool-bg: color-mix(in srgb, var(--sheet) 90%, transparent);
   --tool-drop: 0 2px 8px rgba(0, 0, 0, 0.08);
-  --tool-lift: var(--glass-specular), 0 0 0 var(--hairline) var(--glass-edge), var(--tool-drop);
+  --tool-lift: var(--veil-rim), 0 0 0 var(--hairline) var(--veil-edge), var(--tool-drop);
 
-  /* Apple's system colours, as its built-in views draw them; the dark set shifts them. */
-  --sys-blue: #0088ff;
-  --sys-red: #ff383c;
-  --sys-gray: #8e8e93;
-  --sys-orange: #ff8d28;
-  --sys-green: #34c759;
-  /* A menu's or list's highlighted row under white text, at 4.5:1 in either appearance
-     (the system blue itself carries white at 3.5:1). */
-  --sys-blue-deep: #0068d6;
+  /* Skykeep's named colours, for meaning rather than an app's accent: a reminder's flag, the
+     current time, a toast's tick. `-strong` is the blue as text on the window (4.5:1), and
+     `-deep` a highlighted row or a filled control under white text (5.3:1), in either
+     appearance; the sky blue itself carries white at 2.9:1. */
+  --sk-blue: #2f9bff;
+  --sk-blue-strong: #0068d6;
+  --sk-blue-deep: #0068d6;
+  --sk-red: #c8323a;
+  /* Red filled under white text, 5.3:1 in either appearance. */
+  --sk-red-deep: #c8323a;
+  --sk-gray: #7a8796;
+  --sk-orange: #b86e00;
+  /* The orange as small text on its own pale tint: 4.9:1 in light, 5.7:1 in dark. */
+  --sk-orange-strong: #7f4c00;
+  --sk-green: #1f8034;
+  --sk-amber: #f2b33d;
 
-  /* Apple's sheet-presentation curve. Decisive out, no bounce. */
+  /* A sheet's curve. Decisive out, no bounce. */
   --ease: cubic-bezier(0.32, 0.72, 0, 1);
   /* The library opening (kept by name; the bouncy spring is the same idea, computed). */
   --ease-spring: linear(0.0000 0.0%, 0.0230 2.5%, 0.0834 5.0%, 0.1694 7.5%, 0.2710 10.0%, 0.3800 12.5%, 0.4897 15.0%, 0.5951 17.5%, 0.6927 20.0%, 0.7800 22.5%, 0.8558 25.0%, 0.9194 27.5%, 0.9711 30.0%, 1.0115 32.5%, 1.0416 35.0%, 1.0625 37.5%, 1.0755 40.0%, 1.0821 42.5%, 1.0834 45.0%, 1.0808 47.5%, 1.0752 50.0%, 1.0677 52.5%, 1.0591 55.0%, 1.0499 57.5%, 1.0408 60.0%, 1.0321 62.5%, 1.0241 65.0%, 1.0170 67.5%, 1.0109 70.0%, 1.0058 72.5%, 1.0016 75.0%, 0.9985 77.5%, 0.9961 80.0%, 0.9945 82.5%, 0.9935 85.0%, 0.9931 87.5%, 0.9931 90.0%, 0.9933 92.5%, 0.9938 95.0%, 0.9945 97.5%, 0.9952 100.0%);
 
-  /* Adwaita Sans is GNOME's interface face (adwaita-fonts, which GTK pulls in): Inter's design,
-     variable, every weight. Before system-ui, because on Linux system-ui resolves through
-     fontconfig to a family with 400 and 700 only — and there every weight above 500 (510 on a
-     button, 590 on a selected row) was drawn bold, the hierarchy flat. */
-  --sf: "SF Pro Text", "SF Pro Display", Inter, "Inter Variable", "Adwaita Sans", system-ui,
-    -apple-system, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+  /* Inter first, then Adwaita Sans — GNOME's interface face (adwaita-fonts, which GTK pulls
+     in): Inter's design, variable, every weight. Both before system-ui, because on Linux
+     system-ui resolves through fontconfig to a family with 400 and 700 only — and there every
+     weight above 500 (510 on a button, 590 on a selected row) was drawn bold, the hierarchy
+     flat. Windows' own face next, then Android's. */
+  --font-ui: Inter, "Inter Variable", "Adwaita Sans", system-ui, "Segoe UI Variable", "Segoe UI",
+    Roboto, sans-serif;
+  --font-mono: ui-monospace, "JetBrains Mono", "Cascadia Mono", monospace;
 }
 
-/* Notes: Apple's yellow; its text and filled controls a deep gold that reads on white. */
-:root[data-app="notes"] { --accent: #ffcc00; --accent-strong: #8a6800; --accent-deep: #8a6800; --on-accent: #1d1d1f; --on-accent-2: rgba(0, 0, 0, 0.62); }
-/* Notes fills a selection with its yellow, under near-black text. */
-:root[data-app="notes"] { --accent-fill: var(--accent); }
-/* Before any app is open — signing in — the brand's own gold. */
-:root:not([data-app]) { --accent: var(--gold); --accent-strong: var(--gold-deep); --accent-deep: var(--gold-deep); }
-/* Calendar: Apple's red. */
-:root[data-app="calendar"] { --accent: #ff383c; --accent-strong: #d70015; --accent-deep: #d70015; }
+/* Notes: amber. Text and glyphs on the light window take its deep shade (#7A5600, 5.9:1),
+   and a filled control the same under white (6.7:1); on the amber itself, the ink (9.4:1). */
+:root[data-app="notes"] { --accent: #f2b33d; --accent-strong: #7a5600; --accent-deep: #7a5600; --on-accent: #151a22; --on-accent-2: rgba(21, 26, 34, 0.72); }
+/* Calendar: red, its text and filled controls a deeper red (4.7:1 on the window, 5.3:1
+   under white). */
+:root[data-app="calendar"] { --accent: #e0313f; --accent-strong: #c8323a; --accent-deep: #c8323a; }
 
 @media (prefers-color-scheme: dark) {
-  :root:not([data-theme="light"]) { --accent: #0091ff; --accent-strong: #0091ff; --accent-deep: #0068d6; }
-  :root:not([data-theme="light"])[data-app="notes"] { --accent: #ffd600; --accent-strong: #ffd600; --accent-deep: #8a6800; --on-accent: #1d1d1f; --on-accent-2: rgba(0, 0, 0, 0.62); }
-  :root:not([data-theme="light"])[data-app="calendar"] { --accent: #ff4245; --accent-strong: #ff4245; --accent-deep: #d70015; }
+  :root:not([data-theme="light"]) { --accent: #2f9bff; --accent-strong: #2f9bff; --accent-deep: #0068d6; }
+  :root:not([data-theme="light"])[data-app="notes"] { --accent: #f2b33d; --accent-strong: #f2b33d; --accent-deep: #7a5600; --on-accent: #151a22; --on-accent-2: rgba(21, 26, 34, 0.72); }
+  :root:not([data-theme="light"])[data-app="calendar"] { --accent: #ff6b70; --accent-strong: #ff6b70; --accent-deep: #c8323a; }
   :root:not([data-theme="light"]) {
-    --bg: #1c1c1e;
-    --sheet: #2c2c2e;
-    --text: #f5f5f7;
-    --text-2: #aeaeb3;
-    --text-3: #9c9ca1;
-    --separator: rgba(255, 255, 255, 0.13);
-    --field: #1c1c1e;
-    --field-edge: rgba(255, 255, 255, 0.16);
-    --field-edge-hover: rgba(255, 255, 255, 0.28);
+    --bg: #151a22;
+    --sheet: #1e242e;
+    --text: #eef2f7;
+    --text-2: #b4bdc9;
+    --text-3: #9aa4b2;
+    --separator: rgba(238, 242, 247, 0.13);
+    --field: #10141a;
+    --field-edge: rgba(238, 242, 247, 0.16);
+    --field-edge-hover: rgba(238, 242, 247, 0.28);
     --danger: #ff6b6b;
     --note-c1: #bf5af2; --note-c2: #ff375f; --note-c3: #ff9f0a; --note-c4: #63e6e2; --note-c5: #0a84ff;
-    --sys-blue: #0091ff; --sys-red: #ff4245; --sys-gray: #98989d; --sys-orange: #ff9230; --sys-green: #30d158;
+    --sk-blue-strong: #2f9bff; --sk-red: #ff6b70; --sk-orange-strong: #f0a23a;
     --tool-drop: 0 2px 10px rgba(0, 0, 0, 0.4);
     --shadow-sheet: 0 18px 50px rgba(0, 0, 0, 0.55), 0 1px 3px rgba(0, 0, 0, 0.4);
     --shadow-field: inset 0 1px 1px rgba(0, 0, 0, 0.25);
-    --glass: rgba(40, 40, 44, 0.56);
-    --glass-rgb: 38 38 42;
-    --glass-clear-rgb: 30 30 32;
-    --glass-specular: inset 0 var(--hairline) 0 rgba(255, 255, 255, 0.2), inset 0 0 0 var(--hairline) rgba(255, 255, 255, 0.1);
-    --glass-edge: rgba(0, 0, 0, 0.5);
-    --glass-lift: 0 10px 36px rgba(0, 0, 0, 0.5), 0 1px 3px rgba(0, 0, 0, 0.35);
+    --veil: rgba(34, 40, 50, 0.56);
+    --veil-rgb: 34 40 50;
+    --veil-sheer-rgb: 26 31 40;
+    --veil-rim: inset 0 var(--hairline) 0 rgba(255, 255, 255, 0.2), inset 0 0 0 var(--hairline) rgba(255, 255, 255, 0.1);
+    --veil-edge: rgba(0, 0, 0, 0.5);
+    --veil-lift: 0 10px 36px rgba(0, 0, 0, 0.5), 0 1px 3px rgba(0, 0, 0, 0.35);
   }
 }
 /* The same, when Settings chooses Dark whatever the system says. */
-:root[data-theme="dark"] { --accent: #0091ff; --accent-strong: #0091ff; --accent-deep: #0068d6; }
-:root[data-theme="dark"][data-app="notes"] { --accent: #ffd600; --accent-strong: #ffd600; --accent-deep: #8a6800; --on-accent: #1d1d1f; --on-accent-2: rgba(0, 0, 0, 0.62); }
-:root[data-theme="dark"][data-app="calendar"] { --accent: #ff4245; --accent-strong: #ff4245; --accent-deep: #d70015; }
+:root[data-theme="dark"] { --accent: #2f9bff; --accent-strong: #2f9bff; --accent-deep: #0068d6; }
+:root[data-theme="dark"][data-app="notes"] { --accent: #f2b33d; --accent-strong: #f2b33d; --accent-deep: #7a5600; --on-accent: #151a22; --on-accent-2: rgba(21, 26, 34, 0.72); }
+:root[data-theme="dark"][data-app="calendar"] { --accent: #ff6b70; --accent-strong: #ff6b70; --accent-deep: #c8323a; }
 :root[data-theme="dark"] {
-    --bg: #1c1c1e;
-    --sheet: #2c2c2e;
-    --text: #f5f5f7;
-    --text-2: #aeaeb3;
-    --text-3: #9c9ca1;
-    --separator: rgba(255, 255, 255, 0.13);
-    --field: #1c1c1e;
-    --field-edge: rgba(255, 255, 255, 0.16);
-    --field-edge-hover: rgba(255, 255, 255, 0.28);
+    --bg: #151a22;
+    --sheet: #1e242e;
+    --text: #eef2f7;
+    --text-2: #b4bdc9;
+    --text-3: #9aa4b2;
+    --separator: rgba(238, 242, 247, 0.13);
+    --field: #10141a;
+    --field-edge: rgba(238, 242, 247, 0.16);
+    --field-edge-hover: rgba(238, 242, 247, 0.28);
     --danger: #ff6b6b;
     --note-c1: #bf5af2; --note-c2: #ff375f; --note-c3: #ff9f0a; --note-c4: #63e6e2; --note-c5: #0a84ff;
-    --sys-blue: #0091ff; --sys-red: #ff4245; --sys-gray: #98989d; --sys-orange: #ff9230; --sys-green: #30d158;
+    --sk-blue-strong: #2f9bff; --sk-red: #ff6b70; --sk-orange-strong: #f0a23a;
     --tool-drop: 0 2px 10px rgba(0, 0, 0, 0.4);
     --shadow-sheet: 0 18px 50px rgba(0, 0, 0, 0.55), 0 1px 3px rgba(0, 0, 0, 0.4);
     --shadow-field: inset 0 1px 1px rgba(0, 0, 0, 0.25);
-    --glass: rgba(40, 40, 44, 0.56);
-    --glass-rgb: 38 38 42;
-    --glass-clear-rgb: 30 30 32;
-    --glass-specular: inset 0 var(--hairline) 0 rgba(255, 255, 255, 0.2), inset 0 0 0 var(--hairline) rgba(255, 255, 255, 0.1);
-    --glass-edge: rgba(0, 0, 0, 0.5);
-    --glass-lift: 0 10px 36px rgba(0, 0, 0, 0.5), 0 1px 3px rgba(0, 0, 0, 0.35);
+    --veil: rgba(34, 40, 50, 0.56);
+    --veil-rgb: 34 40 50;
+    --veil-sheer-rgb: 26 31 40;
+    --veil-rim: inset 0 var(--hairline) 0 rgba(255, 255, 255, 0.2), inset 0 0 0 var(--hairline) rgba(255, 255, 255, 0.1);
+    --veil-edge: rgba(0, 0, 0, 0.5);
+    --veil-lift: 0 10px 36px rgba(0, 0, 0, 0.5), 0 1px 3px rgba(0, 0, 0, 0.35);
   }
 
 /* Settings can choose the appearance rather than follow the system; the engine's own
@@ -351,14 +354,14 @@ body {
   margin: 0;
   background: var(--bg);
   color: var(--text);
-  font-family: var(--sf);
+  font-family: var(--font-ui);
   font-size: var(--t-13);
   line-height: 1.45;
   -webkit-font-smoothing: antialiased;
   font-synthesis-weight: none;
 }
 
-/* Scrollbars as macOS draws them: a thin rounded thumb on no track, not the toolkit's wide
+/* Scrollbars as a desktop app draws them: a thin rounded thumb on no track, not the toolkit's wide
    gutter — WebKitGTK otherwise paints GTK's own, a chunky bar beside every list. */
 ::-webkit-scrollbar { width: 10px; height: 10px; background: transparent; }
 ::-webkit-scrollbar-track, ::-webkit-scrollbar-corner { background: transparent; }
@@ -373,19 +376,19 @@ body {
 /* Where the engine has no backdrop blur, glass would be a see-through panel over text.
    Opaque instead, as Reduce Transparency draws it. */
 @supports not ((backdrop-filter: blur(1px)) or (-webkit-backdrop-filter: blur(1px))) {
-  :root:root:root { --glass: var(--bg); --glass-thick: var(--sheet); --glass-frost: var(--sheet); --glass-regular-filter: none; --glass-clear-filter: none; --glass-clear: var(--sheet); }
+  :root:root:root { --veil: var(--bg); --veil-thick: var(--sheet); --veil-frost: var(--sheet); --veil-filter: none; --veil-sheer-filter: none; --veil-sheer: var(--sheet); }
 }
 
 /* WebKitGTK: the same surfaces, frosted nearly to opaque, with no live blur (see "The two
    tiers" above). Only the alphas change; the colours stay each appearance's own. */
 :root:root[data-engine="gtk"] {
-  --glass-thick-a: 0.96;
-  --glass-clear-a: 0.9;
-  --glass-regular-filter: none;
-  --glass-clear-filter: none;
+  --veil-thick-a: 0.96;
+  --veil-sheer-a: 0.9;
+  --veil-filter: none;
+  --veil-sheer-filter: none;
   /* The narrow window's sidebar button, the last glass still blurred live here: frosted too. */
-  --glass: var(--glass-frost);
-  --glass-blur: none;
+  --veil: var(--veil-frost);
+  --veil-blur: none;
 }
 :is(.quiet, .primary, .icon-button, .tool, .segment, .picker-button, .compact-back, .toast-action, .search-clear):not(:disabled):active {
   scale: var(--press-scale);
@@ -397,9 +400,8 @@ body {
     background 120ms ease, border-color 120ms ease, color 120ms ease, box-shadow 160ms ease;
 }
 
-/* A control gives under a press and springs back, as Apple's do — buttons, icons, pop-up
-   buttons, segments. Not a row of a list: Apple's rows take a highlight, they do not
-   shrink. Only the pressed thing moves; hovering changes nothing but colour. */
+/* A control gives under a press and springs back — buttons, icons, pop-up buttons,
+   segments. Not a row of a list: rows take a highlight, they do not shrink. Only the pressed thing moves; hovering changes nothing but colour. */
 
 @media (prefers-reduced-motion: reduce) {
   :root { --motion-hover: 0ms; --motion-fade: 0ms; --motion-small: 0ms; --press-out: 0ms;
@@ -410,21 +412,20 @@ body {
   }
 }
 
-/* Apple frosts the glass under Reduce Transparency and drops to bordered opaque under
-   Increase Contrast. Matching that is the difference between using the design language
-   and merely copying its look. */
+/* The veil frosts under Reduce Transparency and drops to bordered opaque under Increase
+   Contrast, so the material never costs anyone legibility. */
 @media (prefers-reduced-transparency: reduce) {
   /* Outranks the dark set, which is chosen by a theme as well as by the system. */
-  :root:root:root { --glass: var(--bg); --glass-thick: var(--sheet); --glass-blur: none; --glass-specular: none;
-    --glass-frost: var(--sheet); --glass-regular-filter: none; --glass-clear-filter: none; --glass-clear: var(--sheet); }
+  :root:root:root { --veil: var(--bg); --veil-thick: var(--sheet); --veil-blur: none; --veil-rim: none;
+    --veil-frost: var(--sheet); --veil-filter: none; --veil-sheer-filter: none; --veil-sheer: var(--sheet); }
 }
 
 @media (prefers-contrast: more) {
   :root:root:root {
-    --glass: var(--bg);
-    --glass-thick: var(--sheet);
-    --glass-blur: none;
-    --glass-frost: var(--sheet); --glass-regular-filter: none; --glass-clear-filter: none; --glass-clear: var(--sheet);
+    --veil: var(--bg);
+    --veil-thick: var(--sheet);
+    --veil-blur: none;
+    --veil-frost: var(--sheet); --veil-filter: none; --veil-sheer-filter: none; --veil-sheer: var(--sheet);
     --field-edge: rgba(0, 0, 0, 0.55);
     --separator: rgba(0, 0, 0, 0.42);
   }

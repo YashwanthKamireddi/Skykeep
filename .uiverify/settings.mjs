@@ -35,7 +35,7 @@ await page.evaluate(() => { window.__settingsFail = false; });
 await page.getByRole("button", { name: "Dark", exact: true }).click();
 ok((await page.evaluate(() => document.documentElement.dataset.theme)) === "dark", "Dark applies at once");
 const bg = await page.evaluate(() => getComputedStyle(document.body).backgroundColor);
-ok(bg !== "rgb(245, 245, 247)", `the window turns dark whatever the system says  [${bg}]`);
+ok(bg !== "rgb(238, 242, 247)", `the window turns dark whatever the system says  [${bg}]`);
 await page.reload({ waitUntil: "networkidle" });
 ok((await page.evaluate(() => document.documentElement.dataset.theme)) === "dark", "and is still chosen after a restart");
 await page.getByRole("button", { name: "Automatic", exact: true }).click();
