@@ -17,10 +17,10 @@ Under `app/src/main/kotlin/io/github/yashwanthkamireddi/skykeep/`:
 |---|---|
 | `Engine.kt`, `KeystoreSecrets.kt` | the one engine `Account` per process, and the Keystore it keeps secrets in |
 | `sync/ContactsSync.kt`, `GroupsSync.kt`, `CalendarSync.kt` | iCloud into Android's own Contacts and Calendar, both ways |
-| `sync/NotesSync.kt`, `RemindersSync.kt`, `PhotosSync.kt` | Android's sync schedule driving engine passes; the data stays in the engine's library |
-| `sync/DriveProvider.kt`, `DriveFiles.kt` | iCloud Drive in the Files app and every app's pickers |
+| `sync/NotesSync.kt`, `RemindersSync.kt`, `PhotosSync.kt` | each service's sync pass; the data stays in the engine's library |
+| `sync/DriveProvider.kt`, `DriveFiles.kt`, `DriveReads.kt`, `DriveWrites.kt` | iCloud Drive in the Files app and every app's pickers: files read in parts as apps read them, saves held in the engine's journal until sent |
 | `sync/PhotoBackup.kt`, `SendToIphone.kt`, `ReminderAlerts.kt` | camera backup, the Share sheet target, reminder alarms |
-| `sync/Account.kt`, `Services.kt`, `SignOut.kt` | the Android account, its sync adapters, signing out |
+| `sync/Account.kt`, `Services.kt`, `SyncWork.kt`, `Work.kt`, `SignOut.kt` | the Android account, its sync adapters (thin triggers), the WorkManager work that syncs, signing out |
 | `ui/` | the screens; `ui/theme/` holds the palette, type and motion |
 
 `app/src/main/jniLibs/`, `app/src/main/kotlin/uniffi/` and `res/raw/engine_licences.json` are

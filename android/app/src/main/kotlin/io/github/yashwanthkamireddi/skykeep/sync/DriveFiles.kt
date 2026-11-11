@@ -37,6 +37,28 @@ object DriveFiles {
     if (item.folder) Document.MIME_TYPE_DIR
     else item.name.substringAfterLast('.', "").lowercase().let { MimeTypeMap.getSingleton().getMimeTypeFromExtension(it) } ?: "application/octet-stream"
 
+  /**
+   * Whether the Files app is offered a picture of a file: images and films, PDFs, and the Office
+   * and iWork documents Apple draws itself (quince-icloud `drive::thumbnails`). One Apple has no
+   * picture of is drawn here from the phone's copy when it has one, else keeps its icon.
+   */
+  fun thumbnailable(item: DItem): Boolean {
+    if (item.folder) return false
+    val mime = mimeOf(item)
+    val ext = item.name.substringAfterLast('.', "").lowercase()
+    return mime.startsWith("image/") || mime.startsWith("video/") || mime == "application/pdf" || ext in DRAWN_BY_APPLE
+  }
+
+  private val DRAWN_BY_APPLE = setOf("pages", "numbers", "key", "doc", "docx", "xls", "xlsx", "ppt", "pptx", "rtf")
+
+  /**
+   * Where a file's picture is kept: its own folder by id (DriveFiles.keyOf), the picture named
+   * for the version it shows, so a file changed elsewhere is drawn again. An empty file there
+   * says Apple has no picture of that version, so Apple is not asked again.
+   */
+  fun thumbnailOf(context: Context, item: DItem): File =
+    File(context.cacheDir, "drive-thumbs/${keyOf(item.id)}/${keyOf(item.etag ?: "${item.modifiedAt}-${item.size}")}")
+
   /** Whether the phone's copy is missing or older than Apple's. */
   fun stale(file: File, item: DItem): Boolean =
     !file.exists() || (item.modifiedAt ?: 0) * 1000 > file.lastModified() || file.length() != (item.size ?: file.length())

@@ -82,13 +82,14 @@ class ShareActivity : ComponentActivity() {
   }
 
   /**
-   * A shared item copied under its own name, in a folder of its own (two shares never clash).
-   * Only content addresses are taken, as Android has apps share: a plain file path could point
-   * into Skykeep's own storage and have it upload its private files.
+   * A shared item copied under its own name into this share's batch, in a folder of its own
+   * numbered in the order shared (two items of one name never clash), where it waits until it
+   * has gone (SendToIphone). Only content addresses are taken, as Android has apps share: a
+   * plain file path could point into Skykeep's own storage and have it upload its private files.
    */
-  private fun copy(uri: Uri): File? = runCatching {
+  private fun copy(batch: File, n: Int, uri: Uri): File? = runCatching {
     if (uri.scheme != android.content.ContentResolver.SCHEME_CONTENT) return null
-    val file = File(cacheDir, "send/${UUID.randomUUID()}/${nameOf(uri)}").also { it.parentFile?.mkdirs() }
+    val file = File(batch, "$n/${nameOf(uri)}").also { it.parentFile?.mkdirs() }
     contentResolver.openInputStream(uri)!!.use { input -> file.outputStream().use { input.copyTo(it) } }
     file
   }.getOrNull()
@@ -114,10 +115,12 @@ class ShareActivity : ComponentActivity() {
           if (!go) return@LaunchedEffect
           stage = "copying"
           stage = withContext(Dispatchers.IO) {
-            val files = uris.mapNotNull { copy(it) }
+            val tag = Engine.account(applicationContext).accountTag() ?: return@withContext "signedOut"
+            val batch = File(SendToIphone.batches(applicationContext), UUID.randomUUID().toString())
+            val files = uris.mapIndexedNotNull { i, uri -> copy(batch, i, uri) }
             n = files.size
-            if (files.isEmpty()) return@withContext "nothing"
-            SendToIphone.start(applicationContext, files)
+            if (files.isEmpty()) { batch.deleteRecursively(); return@withContext "nothing" }
+            SendToIphone.start(applicationContext, batch, tag)
             "sending"
           }
         }

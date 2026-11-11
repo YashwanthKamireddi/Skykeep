@@ -1,5 +1,6 @@
 <?xml version="1.0" encoding="utf-8"?>
-<manifest xmlns:android="http://schemas.android.com/apk/res/android">
+<manifest xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:tools="http://schemas.android.com/tools">
 
     <uses-permission android:name="android.permission.INTERNET" />
     <!-- Whether the network is metered (photo backup waits for Wi-Fi) and whether the phone is
@@ -24,6 +25,14 @@
          the app reads, and the photo would reach iCloud without it. -->
     <uses-permission android:name="android.permission.ACCESS_MEDIA_LOCATION" />
     <uses-permission android:name="android.permission.READ_EXTERNAL_STORAGE" android:maxSdkVersion="32" />
+    <!-- Send to iPhone on Android 14 and later: a user-initiated data transfer job, which the
+         person starts from the Share sheet and can stop from the Task Manager (SendToIphone.kt). -->
+    <uses-permission android:name="android.permission.RUN_USER_INITIATED_JOBS" />
+    <!-- Only before Android 14 (Send to iPhone) and before Android 12 (a sync asked for now):
+         WorkManager runs that work as a foreground service of the data sync type, with its
+         notification showing. -->
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE_DATA_SYNC" />
 
     <application
         android:allowBackup="false"
@@ -131,6 +140,14 @@
                 <action android:name="android.content.action.DOCUMENTS_PROVIDER" />
             </intent-filter>
         </provider>
+        <!-- Send to iPhone's job on Android 14 and later (SendToIphone.kt). -->
+        <service android:name=".sync.SendJob"
+            android:permission="android.permission.BIND_JOB_SERVICE"
+            android:exported="false" />
+        <!-- WorkManager's foreground service, declared as the data transfer it runs. -->
+        <service android:name="androidx.work.impl.foreground.SystemForegroundService"
+            android:foregroundServiceType="dataSync"
+            tools:node="merge" />
         <receiver android:name=".sync.ReminderAlertReceiver" android:exported="false">
             <intent-filter>
                 <action android:name="android.intent.action.BOOT_COMPLETED" />

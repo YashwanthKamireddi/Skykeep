@@ -20,17 +20,16 @@ fun syncEvery(context: Context): Long =
 /** What the account syncs: Contacts, Calendar, and Reminders and Notes (the engine's own library). */
 val SYNCED = listOf(ContactsContract.AUTHORITY, CalendarContract.AUTHORITY, REMINDERS_AUTHORITY, NOTES_AUTHORITY, PHOTOS_AUTHORITY)
 
-/** A new interval: kept, and given to Android for everything the account syncs. */
+/** A new interval: kept, and given to the account's periodic work (SyncWork.every). */
 fun setSyncEvery(context: Context, account: Account?, seconds: Long) {
   context.getSharedPreferences("settings", Context.MODE_PRIVATE).edit().putLong("syncEvery", seconds).apply()
   if (account == null) return
-  for (authority in SYNCED) {
-    ContentResolver.addPeriodicSync(account, authority, android.os.Bundle.EMPTY, seconds)
-  }
+  val tag = Work.tagOf(context, account) ?: return
+  SyncWork.every(context, account, tag, seconds)
 }
 
 /** Where an account keeps the tag of the Apple Account it syncs for (the engine's account tag). */
-private const val OWNER = "account"
+internal const val ACCOUNT_OWNER = "account"
 
 /** The phone account syncing now, by name: set when the signed-in Apple Account's is made. */
 private const val CURRENT = "phoneAccount"
@@ -50,21 +49,27 @@ fun ensureAccount(context: Context, appleId: String, tag: String): Account {
   val manager = AccountManager.get(context)
   val all = manager.getAccountsByType(ACCOUNT_TYPE)
   if (all.none { it == account }) manager.addAccountExplicitly(account, null, null)
-  manager.setUserData(account, OWNER, tag)
+  manager.setUserData(account, ACCOUNT_OWNER, tag)
   context.getSharedPreferences("settings", Context.MODE_PRIVATE).edit().putString(CURRENT, appleId).commit()
-  for (other in all) if (other != account) stopSyncing(other)
+  for (other in all) if (other != account) stopSyncing(context, other, tag)
   for (authority in SYNCED) {
     ContentResolver.setIsSyncable(account, authority, 1)
     ContentResolver.setSyncAutomatically(account, authority, true)
-    // iCloud sends no push a third-party app can receive, so Android is asked to sync on a
-    // schedule; it batches these with other apps' syncs and skips them without a network.
-    ContentResolver.addPeriodicSync(account, authority, android.os.Bundle.EMPTY, syncEvery(context))
   }
+  // iCloud sends no push a third-party app can receive, so the account syncs on a schedule:
+  // WorkManager batches it with other apps' work, waits for a network, and skips a low battery.
+  SyncWork.every(context, account, tag, syncEvery(context))
+  // New photos noticed as they are taken, when backup is on.
+  PhotoBackup.schedule(context)
   return account
 }
 
-/** An account no longer synced on its own nor offered a sync: its rows stay, untouched. */
-private fun stopSyncing(account: Account) {
+/**
+ * An account no longer synced on its own nor offered a sync: its rows stay, untouched, and its
+ * background work stops (never the signed-in account's, should both carry its tag).
+ */
+private fun stopSyncing(context: Context, account: Account, current: String) {
+  Work.tagOf(context, account)?.takeIf { it != current }?.let { Work.cancelAll(context, it) }
   for (authority in SYNCED) {
     ContentResolver.cancelSync(account, authority)
     ContentResolver.removePeriodicSync(account, authority, android.os.Bundle.EMPTY)
@@ -95,10 +100,10 @@ fun syncsFor(context: Context, engine: uniffi.quince_mobile.AccountInterface, ac
   if (account.type != ACCOUNT_TYPE) return false
   val tag = engine.accountTag() ?: return false
   val manager = AccountManager.get(context)
-  val owner = runCatching { manager.getUserData(account, OWNER) }.getOrElse { return false }
+  val owner = runCatching { manager.getUserData(account, ACCOUNT_OWNER) }.getOrElse { return false }
   if (owner != null) return owner == tag
   if (engine.appleId()?.equals(account.name, ignoreCase = true) != true) return false
-  manager.setUserData(account, OWNER, tag)
+  manager.setUserData(account, ACCOUNT_OWNER, tag)
   return true
 }
 

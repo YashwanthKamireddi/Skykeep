@@ -14,6 +14,7 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.platform.LocalContext
 import io.github.yashwanthkamireddi.skykeep.sync.Outcome
+import io.github.yashwanthkamireddi.skykeep.sync.SyncWork
 
 /** Contacts and Calendar, the two things the phone's own apps show from iCloud. */
 val AUTHORITIES = listOf(ContactsContract.AUTHORITY, CalendarContract.AUTHORITY, io.github.yashwanthkamireddi.skykeep.sync.REMINDERS_AUTHORITY, io.github.yashwanthkamireddi.skykeep.sync.NOTES_AUTHORITY, io.github.yashwanthkamireddi.skykeep.sync.PHOTOS_AUTHORITY)
@@ -50,14 +51,24 @@ data class SyncView(
 @Composable
 fun rememberSyncView(account: Account?, asked: Long): SyncView {
   val context = LocalContext.current
+  // Syncing on the interval runs as WorkManager work, which Android's sync status doesn't see:
+  // the services whose sync work is running, as WorkManager says.
+  var working by remember { mutableStateOf(emptySet<String>()) }
   fun read(): SyncView {
     val last = AUTHORITIES.associateWith { Outcome.last(context, it) }
     val waiting = asked > 0 && System.currentTimeMillis() - asked < 120_000 &&
       last.values.any { (it?.at ?: 0) < asked }
-    val active = if (account == null) emptySet() else AUTHORITIES.filter { ContentResolver.isSyncActive(account, it) }.toSet()
+    val active = if (account == null) emptySet() else AUTHORITIES.filter { ContentResolver.isSyncActive(account, it) || it in working }.toSet()
     return SyncView(waiting || active.isNotEmpty(), last, AUTHORITIES.sumOf { Outcome.held(context, it) }, active)
   }
   var view by remember(account, asked) { mutableStateOf(read()) }
+  androidx.compose.runtime.LaunchedEffect(Unit) {
+    androidx.work.WorkManager.getInstance(context).getWorkInfosByTagFlow(SyncWork.SYNCING).collect { infos ->
+      working = infos.filter { it.state == androidx.work.WorkInfo.State.RUNNING }
+        .flatMap { info -> AUTHORITIES.filter { SyncWork.authorityTag(it) in info.tags } }.toSet()
+      view = read()
+    }
+  }
   DisposableEffect(account, asked) {
     val handle = ContentResolver.addStatusChangeListener(ContentResolver.SYNC_OBSERVER_TYPE_ACTIVE) {
       android.os.Handler(android.os.Looper.getMainLooper()).post { view = read() }

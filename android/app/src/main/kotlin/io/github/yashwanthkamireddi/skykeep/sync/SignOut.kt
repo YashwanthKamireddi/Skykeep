@@ -123,6 +123,8 @@ object SignOut {
    * settings, the reminder alerts and the cached pictures and copies go too.
    */
   fun removeAccount(context: Context, account: Account): Boolean {
+    // Its background work stops first: no sync, backup or send runs for an account leaving.
+    Work.tagOf(context, account)?.let { Work.cancelAll(context, it) }
     val gone = AccountManager.get(context).removeAccountExplicitly(account)
     // What belonged to the account's session goes with it, Keep a Copy or not: photo backup's
     // choice and place (the next account never uploads this phone's photos unless it turns
@@ -133,7 +135,7 @@ object SignOut {
     ReminderAlerts.stop(context)
     // Cached pictures (Hidden ones included), Drive copies and shared copies are the session's
     // too: re-fetched by whoever signs in next, never left readable from this one.
-    for (dir in listOf("photos", "drive", "share", "send", "drive-new")) java.io.File(context.cacheDir, dir).deleteRecursively()
+    for (dir in listOf("photos", "drive", "share", "send", "drive-new", "drive-thumbs", "drive-parts")) java.io.File(context.cacheDir, dir).deleteRecursively()
     return gone
   }
 
@@ -160,7 +162,7 @@ object SignOut {
    * and calendars go with the account (removeAccount).
    */
   fun forgetHere(context: Context) {
-    for (dir in listOf("photos", "drive", "share", "send", "backup", "drive-upload")) {
+    for (dir in listOf("photos", "drive", "share", "send", "backup", "drive-upload", "drive-thumbs", "drive-parts")) {
       java.io.File(context.cacheDir, dir).deleteRecursively()
     }
     for (prefs in listOf("sync-outcome", "photo-backup")) {
