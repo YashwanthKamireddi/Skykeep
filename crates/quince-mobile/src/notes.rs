@@ -373,7 +373,7 @@ type Apple = (reqwest::Client, String, Vec<(String, String)>);
 
 impl Account {
     fn notes_context(&self) -> Result<Apple, EngineError> {
-        let c = self.client.lock().map_err(failed)?;
+        let c = self.client();
         let root = c
             .session()
             .service_url("ckdatabasews")

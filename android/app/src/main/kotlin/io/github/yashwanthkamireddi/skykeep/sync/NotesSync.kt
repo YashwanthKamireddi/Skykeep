@@ -1,18 +1,10 @@
 package io.github.yashwanthkamireddi.skykeep.sync
 
-import android.accounts.Account
-import android.app.Service
-import android.content.AbstractThreadedSyncAdapter
 import android.content.ContentProvider
-import android.content.ContentProviderClient
 import android.content.ContentValues
 import android.content.Context
-import android.content.Intent
-import android.content.SyncResult
 import android.database.Cursor
 import android.net.Uri
-import android.os.Bundle
-import android.os.IBinder
 
 /**
  * Notes' place in Android's sync, as Reminders' is (RemindersSync.kt): the notes live in the
@@ -30,28 +22,18 @@ class NotesProvider : ContentProvider() {
   override fun update(u: Uri, v: ContentValues?, s: String?, a: Array<out String>?) = 0
 }
 
-/** Android asking for Notes: what was changed here sent, oldest first, then Apple's Notes read. */
-private class NotesAdapter(context: Context) : AbstractThreadedSyncAdapter(context, true) {
-  override fun onPerformSync(a: Account, e: Bundle, authority: String, p: ContentProviderClient, r: SyncResult) {
-    val engine = io.github.yashwanthkamireddi.skykeep.Engine.account(context)
-    if (refuseOthers(context, engine, a, authority)) return
-    try {
-      val done = engine.notesSync()
-      val said = buildList {
-        add("${done.notes} notes in ${done.folders} folders")
-        if (done.waiting > 0u) add("${done.waiting} changes to send again")
-        if (done.refused.isNotEmpty()) add("${done.refused.size} not taken by iCloud: ${done.refused.first()}")
-      }.joinToString(" · ")
-      if (done.waiting > 0u) r.stats.numIoExceptions++
-      Outcome.record(context, authority, true, said)
-    } catch (x: uniffi.quince_mobile.EngineException) {
-      r.stats.numIoExceptions++
-      Outcome.record(context, authority, false, (x as? uniffi.quince_mobile.EngineException.Failed)?.reason ?: "Notes couldn't be read.")
-    }
-  }
-}
-
-class NotesSyncService : Service() {
-  private val adapter by lazy { NotesAdapter(applicationContext) }
-  override fun onBind(intent: Intent): IBinder = adapter.syncAdapterBinder
+/** Notes: what was changed here sent, oldest first, then Apple's Notes read. */
+internal fun notesPass(context: Context, engine: uniffi.quince_mobile.AccountInterface, authority: String): Pass = try {
+  val done = engine.notesSync()
+  val said = buildList {
+    add("${done.notes} notes in ${done.folders} folders")
+    if (done.waiting > 0u) add("${done.waiting} changes to send again")
+    if (done.refused.isNotEmpty()) add("${done.refused.size} not taken by iCloud: ${done.refused.first()}")
+  }.joinToString(" · ")
+  Outcome.record(context, authority, true, said)
+  if (done.waiting > 0u) Pass.Again else Pass.Done
+} catch (x: Exception) {
+  if (!x.fromEngine()) throw x
+  Outcome.record(context, authority, false, x.reason("Notes couldn't be read."))
+  Pass.Again
 }

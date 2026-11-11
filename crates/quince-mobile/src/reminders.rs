@@ -133,11 +133,14 @@ impl Account {
     /// Opened once, and again only for another account.
     pub(crate) fn library(&self) -> Result<(Arc<LibraryLock>, String), EngineError> {
         let account = {
-            let c = self.client.lock().map_err(failed)?;
+            let c = self.client();
             quince_sync::queue::asked_as(&c.service_params())
                 .ok_or_else(|| failed("Sign in to see your reminders."))?
         };
-        let mut open = self.library.lock().map_err(failed)?;
+        let mut open = self
+            .library
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner);
         if let Some((who, lock)) = open.as_ref() {
             if *who == account {
                 return Ok((Arc::clone(lock), account));
@@ -407,7 +410,7 @@ type Apple = (reqwest::Client, String, Vec<(String, String)>);
 
 impl Account {
     fn reminders_context(&self) -> Result<Apple, EngineError> {
-        let c = self.client.lock().map_err(failed)?;
+        let c = self.client();
         let root = c
             .session()
             .service_url("ckdatabasews")

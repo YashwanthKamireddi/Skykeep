@@ -91,6 +91,8 @@ dependencies {
   implementation(libs.androidx.core.ktx)
   implementation(libs.androidx.lifecycle.runtime.ktx)
   implementation(libs.androidx.activity.compose)
+  // Background work: syncs, photo backup, Drive saves and Send to iPhone before Android 14.
+  implementation(libs.androidx.work.runtime)
 
   // Arch Components
   implementation(libs.androidx.lifecycle.runtime.compose)

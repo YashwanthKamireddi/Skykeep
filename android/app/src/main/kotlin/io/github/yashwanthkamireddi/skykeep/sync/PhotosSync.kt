@@ -1,19 +1,10 @@
 package io.github.yashwanthkamireddi.skykeep.sync
 
-import android.accounts.Account
-import android.app.Service
-import android.content.AbstractThreadedSyncAdapter
 import android.content.ContentProvider
-import android.content.ContentProviderClient
-import android.content.ContentResolver
 import android.content.ContentValues
 import android.content.Context
-import android.content.Intent
-import android.content.SyncResult
 import android.database.Cursor
 import android.net.Uri
-import android.os.Bundle
-import android.os.IBinder
 
 /**
  * Photos' place in Android's sync, as Notes' is (NotesSync.kt): the library is read from Apple a
@@ -32,40 +23,28 @@ class PhotosProvider : ContentProvider() {
 }
 
 /**
- * Android asking for Photos: the favourites, hides and deletes made here sent to Apple, oldest
- * first, then a pass of Apple's library laid under whatever is still on its way; a large library
- * is read over several.
+ * Photos: the favourites, hides and deletes made here sent to Apple, oldest first, then a pass
+ * of Apple's library laid under whatever is still on its way; a large library is read over
+ * several, the next asked for at once ([Pass.More]). New photos taken here are backed up by
+ * their own work ([PhotoBackupWorker]), asked for once the library is read.
  */
-private class PhotosAdapter(context: Context) : AbstractThreadedSyncAdapter(context, true) {
-  override fun onPerformSync(a: Account, e: Bundle, authority: String, p: ContentProviderClient, r: SyncResult) {
-    val engine = io.github.yashwanthkamireddi.skykeep.Engine.account(context)
-    if (refuseOthers(context, engine, a, authority)) return
-    try {
-      val done = engine.photosSync()
-      val said = buildList {
-        add(when {
-          done.preparing -> "Apple is still preparing your library"
-          done.more -> "${done.photos} photos so far, more on the next sync"
-          else -> "${done.photos} photos"
-        })
-        if (done.waiting > 0u) add("${done.waiting} changes to send again")
-        if (done.refused.isNotEmpty()) add("${done.refused.size} not taken by iCloud: ${done.refused.first()}")
-      }.joinToString(" · ")
-      // Changes still waiting: Android tries again later, with its own backoff.
-      if (done.waiting > 0u) r.stats.numIoExceptions++
-      Outcome.record(context, authority, true, said)
-      // New photos taken here, when backup is on: sent after the library is read.
-      PhotoBackup.run(context)
-      // A large library is read over several passes: the next is asked for at once.
-      if (done.more) ContentResolver.requestSync(a, authority, Bundle())
-    } catch (x: uniffi.quince_mobile.EngineException) {
-      r.stats.numIoExceptions++
-      Outcome.record(context, authority, false, (x as? uniffi.quince_mobile.EngineException.Failed)?.reason ?: "Photos couldn't be read.")
-    }
-  }
-}
-
-class PhotosSyncService : Service() {
-  private val adapter by lazy { PhotosAdapter(applicationContext) }
-  override fun onBind(intent: Intent): IBinder = adapter.syncAdapterBinder
+internal fun photosPass(context: Context, engine: uniffi.quince_mobile.AccountInterface, authority: String): Pass = try {
+  val done = engine.photosSync()
+  val said = buildList {
+    add(when {
+      done.preparing -> "Apple is still preparing your library"
+      done.more -> "${done.photos} photos so far, more on the next sync"
+      else -> "${done.photos} photos"
+    })
+    if (done.waiting > 0u) add("${done.waiting} changes to send again")
+    if (done.refused.isNotEmpty()) add("${done.refused.size} not taken by iCloud: ${done.refused.first()}")
+  }.joinToString(" · ")
+  Outcome.record(context, authority, true, said)
+  kotlinx.coroutines.runBlocking { PhotoBackup.now(context) }
+  // Changes still waiting: tried again later, with the work's own backoff.
+  if (done.more) Pass.More else if (done.waiting > 0u) Pass.Again else Pass.Done
+} catch (x: Exception) {
+  if (!x.fromEngine()) throw x
+  Outcome.record(context, authority, false, x.reason("Photos couldn't be read."))
+  Pass.Again
 }

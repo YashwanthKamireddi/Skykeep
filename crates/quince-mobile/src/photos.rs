@@ -160,7 +160,7 @@ type Context = (reqwest::Client, String, Vec<(String, String)>);
 
 impl Account {
     fn photos_context(&self) -> Result<Context, EngineError> {
-        let c = self.client.lock().map_err(failed)?;
+        let c = self.client();
         let root = c
             .session()
             .service_url("ckdatabasews")
@@ -325,7 +325,7 @@ impl Account {
         use quince_icloud::photos_upload::{self as up, Refusal, Sending, Stage};
         let (lock, _) = self.library()?;
         let (http, ck, params, upload_root) = {
-            let c = self.client.lock().map_err(failed)?;
+            let c = self.client();
             let s = c.session();
             (
                 c.http().clone(),

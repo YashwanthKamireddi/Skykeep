@@ -219,8 +219,16 @@ How each service lands on the phone:
 - **Notes, Reminders and Photos** live in the engine's library and use the desktop's own
   `quince-sync` code. Their adapters (`NotesSync.kt`, `RemindersSync.kt`, `PhotosSync.kt`)
   store nothing; they give Android a schedule and run an engine pass.
-- **Drive** appears in the Files app through a `DocumentsProvider` (`DriveProvider.kt`), with
-  write-back through `quince-vfs`.
+- **Drive** appears in the Files app through a `DocumentsProvider` (`DriveProvider.kt`). A file
+  is read in parts as the app reads it (a proxy file descriptor over `quince_vfs::Cache`, ranged
+  reads from `quince_icloud::drive_parts`, shared with the desktop folder). A file an app writes
+  is held in `quince_vfs::writes`' journal, with the version it was opened at, and sent by
+  WorkManager work (`DriveWrites.kt`), so a save survives the process and never overwrites
+  another device's change.
+- **Background work** is WorkManager's (`SyncWork.kt`, `Work.kt`): the sync adapters only hand a
+  sync to a worker and wait for it, periodic syncs are WorkManager's, photo backup has its own
+  worker started by MediaStore, and Send to iPhone is a user-initiated job on Android 14+.
+  Every piece of work is named for the engine's account tag.
 
 ## Threads and async
 
