@@ -96,7 +96,7 @@ await group("menus and sheets", async () => {
   await keyFocus(page, listActions);
   await page.keyboard.press("Enter");
   await wait(page);
-  await page.getByRole("menuitem", { name: "Show List Info" }).focus();
+  await page.getByRole("menuitem", { name: "List Details" }).focus();
   await page.keyboard.press("Enter");
   await wait(page, 400);
   ok(await has(page, '.rx-info[aria-modal="true"]'), `list info: a modal sheet with the focus in it  (${await focused(page)})`);
@@ -307,7 +307,7 @@ await group("increase contrast", async () => {
   await openScreen(page, "Drive");
   await wait(page, 400);
   const ring = await page.evaluate(() => getComputedStyle(document.documentElement).getPropertyValue("--focus-ring").trim());
-  ok(/2px solid/.test(ring) && /var\(--text\)|rgb\(29, 29, 31\)|#1d1d1f/i.test(ring), `increase contrast: the focus ring is drawn in the text colour  (${ring})`);
+  ok(/2px solid/.test(ring) && /var\(--text\)|rgb\(21, 26, 34\)|#151a22/i.test(ring), `increase contrast: the focus ring is drawn in the text colour  (${ring})`);
   const rows = page.getByRole("button", { name: "Actions for Semester Plan.pdf" });
   // Reached by Tab, as WebKit shows a focus ring only for focus the keys moved.
   await keyFocus(page, rows);
@@ -329,7 +329,7 @@ await group("contrast from the desktop", async () => {
   const look = () => page.evaluate(() => ({
     mark: document.documentElement.dataset.contrast ?? null,
     sep: getComputedStyle(document.documentElement).getPropertyValue("--separator").trim(),
-    glass: getComputedStyle(document.documentElement).getPropertyValue("--glass-blur").trim(),
+    glass: getComputedStyle(document.documentElement).getPropertyValue("--veil-blur").trim(),
   }));
   let now = await look();
   ok(now.mark === "more" && /rgba\(0, 0, 0, 0?\.42\)/.test(now.sep) && now.glass === "none", `desktop contrast: the root is marked and the edges firm up  ${JSON.stringify(now)}`);

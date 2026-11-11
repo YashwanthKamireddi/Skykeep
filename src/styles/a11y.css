@@ -1,6 +1,6 @@
 /* Contrast settings, loaded last so they win over every app's own look.
  *
- * Increase Contrast (prefers-contrast: more) — macOS, iOS and Windows' "contrast themes" off
+ * Increase Contrast (prefers-contrast: more) — the system's "more contrast" with Windows' "contrast themes" off
  * but "more contrast" on. The design stays; edges, separators, secondary text and the focus
  * ring firm up, and glass turns opaque (tokens.css already drops the blur).
  *
@@ -20,12 +20,12 @@
 
 @media (prefers-contrast: more) {
   :root:root:root {
-    --text-2: #3a3a3e;
-    --text-3: #4a4a4f;
+    --text-2: #333c4a;
+    --text-3: #414b59;
     --separator: rgba(0, 0, 0, 0.42);
     --field-edge: rgba(0, 0, 0, 0.6);
     --field-edge-hover: rgba(0, 0, 0, 0.75);
-    --glass-edge: rgba(0, 0, 0, 0.5);
+    --veil-edge: rgba(0, 0, 0, 0.5);
     --fill: color-mix(in srgb, var(--text) 12%, transparent);
     --fill-selected: color-mix(in srgb, var(--text) 20%, transparent);
     --fill-hover: color-mix(in srgb, var(--text) 10%, transparent);
@@ -35,41 +35,46 @@
     --accent-ring: var(--accent-strong);
     --ring: 0 0 0 2px var(--accent-strong);
     --focus-ring: 2px solid var(--text);
+    /* The accent's text a step deeper, 4.5:1 or better on the firmer quiet fill. */
+    --accent-strong: #0055ad;
   }
+  :root:root:root[data-app="calendar"] { --accent-strong: #a4222b; }
+  :root:root:root[data-app="notes"] { --accent-strong: #6a4a00; }
 }
 /* Dark under Increase Contrast: the same, lifted toward white. Chosen by the system or by
    Settings, as tokens.css chooses the dark set. */
 @media (prefers-contrast: more) and (prefers-color-scheme: dark) {
   :root:root:root:not([data-theme="light"]) {
-    --text-2: #d1d1d6;
-    --text-3: #c2c2c7;
+    --text-2: #d3dae3;
+    --text-3: #c2cad5;
     --separator: rgba(255, 255, 255, 0.45);
     --field-edge: rgba(255, 255, 255, 0.6);
     --field-edge-hover: rgba(255, 255, 255, 0.75);
-    --glass-edge: rgba(255, 255, 255, 0.45);
-    /* Opaque here, a sheet is #2c2c2e and a quiet button on it lighter still: the accent's
-       text and the danger red are lifted to 4.5:1 on both (they read at 4.3 and 3.5). */
-    --accent-strong: #40a9ff;
+    --veil-edge: rgba(255, 255, 255, 0.45);
+    /* Opaque here, a sheet is #1e242e and a quiet button on it lighter still: the accent's
+       text and the danger red are lifted to 4.5:1 on both (the blue and red read 3.8 and
+       4.0 on the button). */
+    --accent-strong: #5ab0ff;
     --danger: #ff9999;
   }
-  :root:root:root:not([data-theme="light"])[data-app="calendar"] { --accent-strong: #ff7a7a; }
-  :root:root:root:not([data-theme="light"])[data-app="notes"] { --accent-strong: #ffd600; }
+  :root:root:root:not([data-theme="light"])[data-app="calendar"] { --accent-strong: #ff8a8e; }
+  :root:root:root:not([data-theme="light"])[data-app="notes"] { --accent-strong: #f2b33d; }
 }
 @media (prefers-contrast: more) {
   :root:root:root[data-theme="dark"] {
-    --text-2: #d1d1d6;
-    --text-3: #c2c2c7;
+    --text-2: #d3dae3;
+    --text-3: #c2cad5;
     --separator: rgba(255, 255, 255, 0.45);
     --field-edge: rgba(255, 255, 255, 0.6);
     --field-edge-hover: rgba(255, 255, 255, 0.75);
-    --glass-edge: rgba(255, 255, 255, 0.45);
-    --accent-strong: #40a9ff;
+    --veil-edge: rgba(255, 255, 255, 0.45);
+    --accent-strong: #5ab0ff;
     --danger: #ff9999;
   }
-  :root:root:root[data-theme="dark"][data-app="calendar"] { --accent-strong: #ff7a7a; }
-  :root:root:root[data-theme="dark"][data-app="notes"] { --accent-strong: #ffd600; }
+  :root:root:root[data-theme="dark"][data-app="calendar"] { --accent-strong: #ff8a8e; }
+  :root:root:root[data-theme="dark"][data-app="notes"] { --accent-strong: #f2b33d; }
   :is(.modal-sheet, .popover, .toast, .row-menu, .picker-menu, .cx-popover, .cx-zones, .format-panel, .upload-menu, .upload-tray, .px-info, .px-jump, .toolbar-group) {
-    outline: 1px solid var(--glass-edge);
+    outline: 1px solid var(--veil-edge);
     outline-offset: -1px;
   }
   /* Floating surfaces and toolbar capsules: a drawn edge, not only a shadow. */
@@ -85,16 +90,16 @@
    (Linux: the Settings portal, appearance.rs, marks the root data-contrast="more"). Kept in
    step with the blocks above and with tokens.css's glass rule. */
 :root:root:root[data-contrast="more"] {
-  --glass: var(--bg);
-  --glass-thick: var(--sheet);
-  --glass-blur: none;
-  --glass-frost: var(--sheet); --glass-regular-filter: none; --glass-clear-filter: none; --glass-clear: var(--sheet);
-  --text-2: #3a3a3e;
-  --text-3: #4a4a4f;
+  --veil: var(--bg);
+  --veil-thick: var(--sheet);
+  --veil-blur: none;
+  --veil-frost: var(--sheet); --veil-filter: none; --veil-sheer-filter: none; --veil-sheer: var(--sheet);
+  --text-2: #333c4a;
+  --text-3: #414b59;
   --separator: rgba(0, 0, 0, 0.42);
   --field-edge: rgba(0, 0, 0, 0.6);
   --field-edge-hover: rgba(0, 0, 0, 0.75);
-  --glass-edge: rgba(0, 0, 0, 0.5);
+  --veil-edge: rgba(0, 0, 0, 0.5);
   --fill: color-mix(in srgb, var(--text) 12%, transparent);
   --fill-selected: color-mix(in srgb, var(--text) 20%, transparent);
   --fill-hover: color-mix(in srgb, var(--text) 10%, transparent);
@@ -104,35 +109,38 @@
   --accent-ring: var(--accent-strong);
   --ring: 0 0 0 2px var(--accent-strong);
   --focus-ring: 2px solid var(--text);
+  --accent-strong: #0055ad;
 }
+:root:root:root[data-contrast="more"][data-app="calendar"] { --accent-strong: #a4222b; }
+:root:root:root[data-contrast="more"][data-app="notes"] { --accent-strong: #6a4a00; }
 @media (prefers-color-scheme: dark) {
   :root:root:root[data-contrast="more"]:not([data-theme="light"]) {
-    --text-2: #d1d1d6;
-    --text-3: #c2c2c7;
+    --text-2: #d3dae3;
+    --text-3: #c2cad5;
     --separator: rgba(255, 255, 255, 0.45);
     --field-edge: rgba(255, 255, 255, 0.6);
     --field-edge-hover: rgba(255, 255, 255, 0.75);
-    --glass-edge: rgba(255, 255, 255, 0.45);
-    --accent-strong: #40a9ff;
+    --veil-edge: rgba(255, 255, 255, 0.45);
+    --accent-strong: #5ab0ff;
     --danger: #ff9999;
   }
-  :root:root:root[data-contrast="more"]:not([data-theme="light"])[data-app="calendar"] { --accent-strong: #ff7a7a; }
-  :root:root:root[data-contrast="more"]:not([data-theme="light"])[data-app="notes"] { --accent-strong: #ffd600; }
+  :root:root:root[data-contrast="more"]:not([data-theme="light"])[data-app="calendar"] { --accent-strong: #ff8a8e; }
+  :root:root:root[data-contrast="more"]:not([data-theme="light"])[data-app="notes"] { --accent-strong: #f2b33d; }
 }
 :root:root:root[data-contrast="more"][data-theme="dark"] {
-  --text-2: #d1d1d6;
-  --text-3: #c2c2c7;
+  --text-2: #d3dae3;
+  --text-3: #c2cad5;
   --separator: rgba(255, 255, 255, 0.45);
   --field-edge: rgba(255, 255, 255, 0.6);
   --field-edge-hover: rgba(255, 255, 255, 0.75);
-  --glass-edge: rgba(255, 255, 255, 0.45);
-  --accent-strong: #40a9ff;
+  --veil-edge: rgba(255, 255, 255, 0.45);
+  --accent-strong: #5ab0ff;
   --danger: #ff9999;
 }
-:root:root:root[data-contrast="more"][data-theme="dark"][data-app="calendar"] { --accent-strong: #ff7a7a; }
-:root:root:root[data-contrast="more"][data-theme="dark"][data-app="notes"] { --accent-strong: #ffd600; }
+:root:root:root[data-contrast="more"][data-theme="dark"][data-app="calendar"] { --accent-strong: #ff8a8e; }
+:root:root:root[data-contrast="more"][data-theme="dark"][data-app="notes"] { --accent-strong: #f2b33d; }
 :root[data-contrast="more"] :is(.modal-sheet, .popover, .toast, .row-menu, .picker-menu, .cx-popover, .cx-zones, .format-panel, .upload-menu, .upload-tray, .px-info, .px-jump, .toolbar-group) {
-  outline: 1px solid var(--glass-edge);
+  outline: 1px solid var(--veil-edge);
   outline-offset: -1px;
 }
 :root[data-contrast="more"] :is(.quiet, .segment, .picker-button) { box-shadow: inset 0 0 0 1px var(--field-edge); }

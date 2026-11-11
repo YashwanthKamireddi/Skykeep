@@ -98,15 +98,15 @@ export function SignIn({
   return (
     <form className="sheet enter-sheet" onSubmit={submit} aria-busy={busy} noValidate>
       <Mark className="mark" />
-      <h1>Sign in with your Apple Account</h1>
+      <h1>Connect your iCloud</h1>
       <p className="lede">Your iCloud, kept on this computer.</p>
 
       <div className={`field-group${error ? " is-invalid" : ""}`}>
         <input
           value={appleId}
           onChange={edit(setAppleId)}
-          // Enter on the Apple ID with no password yet goes on to the password, as a Mac
-          // sheet does; with both filled it signs in.
+          // Enter on the Apple ID with no password yet goes on to the password; with both
+          // filled it signs in.
           onKeyDown={(e) => {
             if (e.key === "Enter" && !password) {
               e.preventDefault();
@@ -117,7 +117,7 @@ export function SignIn({
           autoComplete="username"
           autoCapitalize="off"
           spellCheck={false}
-          placeholder="Apple Account"
+          placeholder="Apple Account email"
           aria-label="Apple Account"
           aria-invalid={!!error}
           autoFocus
@@ -155,6 +155,9 @@ export function SignIn({
         ) : (
           <p className="assurance">Your password never leaves this computer.</p>
         )}
+        {/* Said where the password is typed, not only in the fold below: whose software
+            this is. */}
+        <p className="independence">Skykeep is independent and not made by Apple.</p>
       </div>
 
       {/*

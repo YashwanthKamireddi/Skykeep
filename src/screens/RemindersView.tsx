@@ -50,18 +50,19 @@ import { keepSame, same } from "../lib/same";
 import { useArrivals } from "../lib/arrival";
 import { carryLabel } from "../lib/dragPicture";
 
-/** Apple's built-in views, in Apple's order, each with the glyph and system colour its app uses. */
+/** The built-in views, in iCloud's order, each with its glyph and Skykeep's colour for it (the
+ *  same as the Android app's). Each carries white glyphs at 3.5:1 or better. */
 const SMART: { kind: SmartList; title: string; glyph: GlyphName; colour: string }[] = [
-  { kind: "today", title: "Today", glyph: "today", colour: "var(--sys-blue)" },
-  { kind: "scheduled", title: "Scheduled", glyph: "scheduled", colour: "var(--sys-red)" },
-  { kind: "all", title: "All", glyph: "all", colour: "var(--sys-gray)" },
-  { kind: "flagged", title: "Flagged", glyph: "flagged", colour: "var(--sys-orange)" },
-  { kind: "completed", title: "Completed", glyph: "completed", colour: "var(--sys-gray)" },
+  { kind: "today", title: "Today", glyph: "today", colour: "#2A82E0" },
+  { kind: "scheduled", title: "Scheduled", glyph: "scheduled", colour: "#D84A3F" },
+  { kind: "all", title: "All", glyph: "all", colour: "#7A8796" },
+  { kind: "flagged", title: "Flagged", glyph: "flagged", colour: "#B86E00" },
+  { kind: "completed", title: "Completed", glyph: "completed", colour: "#778392" },
 ];
 
-/** A list's own colour, or Apple's blue for one that has none. */
+/** A list's own colour, or Skykeep's blue for one that has none. */
 const colourOf = (list: ReminderList | undefined | null) =>
-  list?.colour && /^#[0-9a-f]{6}$/i.test(list.colour) ? list.colour : "var(--sys-blue)";
+  list?.colour && /^#[0-9a-f]{6}$/i.test(list.colour) ? list.colour : "var(--sk-blue)";
 
 /** Groups the viewer has folded shut, remembered on this computer. */
 const FOLDED_KEY = "quince.reminders.folded";
@@ -324,9 +325,9 @@ function timedInstant(day: string, time: string, zone: string): number {
   return instantIn(zone, { y, m, d, h, min });
 }
 
-/** A smart list's own colour, or Apple's grey for one that has none. */
+/** A smart list's own colour, or Skykeep's grey for one that has none. */
 const smartColour = (s: ReminderSmartList) =>
-  s.colour && /^#[0-9a-f]{6}$/i.test(s.colour) ? s.colour : "var(--sys-gray)";
+  s.colour && /^#[0-9a-f]{6}$/i.test(s.colour) ? s.colour : "var(--sk-gray)";
 
 type Selection =
   | { type: "smart"; kind: SmartList }
@@ -344,7 +345,7 @@ export function RemindersView() {
   const [rowMenu, setRowMenu] = useState<{ reminder: Reminder; at: { x: number; y: number; alignRight: boolean } } | null>(null);
   /** A list's menu, from its ⋯ or a right-click. */
   const [listMenu, setListMenu] = useState<{ list: ReminderList; at: { x: number; y: number; alignRight: boolean } } | null>(null);
-  /** The list whose Show List Info sheet is open. */
+  /** The list whose List Details sheet is open. */
   const [infoFor, setInfoFor] = useState<ReminderList | null>(null);
   const [groups, setGroups] = useState<ReminderGroup[]>([]);
   const [folded, setFolded] = useState<Set<string>>(readFolded);
@@ -1727,8 +1728,8 @@ export function RemindersView() {
       : openCustom
         ? smartColour(openCustom)
         : selection.type === "tag"
-          ? "var(--sys-blue)"
-          : (smartOpen?.colour ?? "var(--sys-blue)");
+          ? "var(--sk-blue)"
+          : (smartOpen?.colour ?? "var(--sk-blue)");
 
   /**
    * The sidebar in Apple's order: a list or group at the top level wherever it was walked,
@@ -2306,7 +2307,7 @@ export function RemindersView() {
           at={listMenu.at}
           onClose={() => setListMenu(null)}
           entries={[
-            { label: "Show List Info", run: () => setInfoFor(listMenu.list) },
+            { label: "List Details", run: () => setInfoFor(listMenu.list) },
             { label: "Rename List", run: () => setRenaming(listMenu.list.guid) },
             null,
             {
@@ -2937,7 +2938,7 @@ const LIST_COLOURS = [
   { key: "brown", hex: "#A2845E" }, { key: "gray", hex: "#5B6770" }, { key: "rose", hex: "#D9A69F" },
 ] as const;
 
-/** Show List Info, as icloud.com's: the list's mark, its name, and Apple's colours. */
+/** List Details: the list's mark, its name, and the twelve colours iCloud keeps for lists. */
 function ListInfo({ list, onClose, onDone }: {
   list: ReminderList;
   onClose: () => void;
@@ -2946,7 +2947,7 @@ function ListInfo({ list, onClose, onDone }: {
   const [title, setTitle] = useState(list.title);
   const current = LIST_COLOURS.find((c) => c.hex.toLowerCase() === (list.colour ?? "").toLowerCase())?.key ?? null;
   const [colour, setColour] = useState<string | null>(current);
-  const shown = LIST_COLOURS.find((c) => c.key === colour)?.hex ?? list.colour ?? "#007AFF";
+  const shown = LIST_COLOURS.find((c) => c.key === colour)?.hex ?? list.colour ?? "#0068D6";
   const sheet = useRef<HTMLDivElement | null>(null);
   useModalFocus(sheet);
   const live = useActiveRef();

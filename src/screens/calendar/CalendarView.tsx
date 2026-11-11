@@ -325,7 +325,7 @@ const TickContext = createContext<{
 /** A reminder's list colour, as Calendar on the Mac draws scheduled reminders in it. */
 const useListColour = () => {
   const ctx = useContext(TickContext);
-  return (r: Reminder) => ({ "--cal": ctx?.colour(r) ?? "var(--sys-blue)" }) as React.CSSProperties;
+  return (r: Reminder) => ({ "--cal": ctx?.colour(r) ?? "var(--sk-blue)" }) as React.CSSProperties;
 };
 /**
  * What makes a scheduled reminder open its card, as Calendar's do: a click, or Return or Space
@@ -441,7 +441,7 @@ const weekdayShort = (d: Date) => dateText(d, { weekday: "short" });
 
 /** The colour a calendar is drawn in, or Apple's blue when it has none. */
 const tint = (c: Calendar | undefined) =>
-  c?.colour && /^#[0-9a-f]{6}$/i.test(c.colour) ? c.colour : "var(--sys-blue)";
+  c?.colour && /^#[0-9a-f]{6}$/i.test(c.colour) ? c.colour : "var(--sk-blue)";
 
 /** Where a popover opens: to the right of `x`, or to the left of `left` (or `x`) when the
  *  window has no room on the right. */
@@ -517,7 +517,7 @@ export function CalendarView() {
   const [card, setCard] = useState<{ reminder: Reminder; at: Anchor } | null>(null);
   const tickValue = useMemo(() => ({
     ticked,
-    colour: (r: Reminder) => listColours.get(r.listGuid) || "var(--sys-blue)",
+    colour: (r: Reminder) => listColours.get(r.listGuid) || "var(--sk-blue)",
     tick: (r: Reminder) => {
       setTicked((was) => new Set(was).add(r.guid));
       const untick = () => setTicked((was) => { const next = new Set(was); next.delete(r.guid); return next; });

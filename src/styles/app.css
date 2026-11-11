@@ -32,28 +32,15 @@
   align-content: start;
   padding: clamp(28px, calc(50vh - 260px), 24vh) 24px 32px 34px;
 
-  /* The one filled control takes the app's own accent — the same blue the app it opens into
-     uses, as Apple's own sign-in sheets do. Said outright here: with no app open yet,
-     tokens.css hands :root the brand gold in light (white on it is 2.8:1), and a custom
-     property resolves where it is declared, so the ring is re-derived too. The fill is the
-     deeper blue, which carries white at 5.6:1 where the bright one manages 3.5:1. */
-  --accent: #0088ff;
-  --accent-strong: #0068d6;
-  --accent-ring: color-mix(in srgb, #0088ff 34%, transparent);
-  --go: #0068d6;
+  /* Signing in is Skykeep's own moment, so it takes the brand's sky blue whichever app's
+     window it appears in. The one filled control is the deep blue under white, 5.3:1 in
+     either appearance; a custom property resolves where it is declared, so the ring is
+     re-derived here too. */
+  --accent: var(--sk-blue);
+  --accent-strong: var(--sk-blue-strong);
+  --accent-ring: color-mix(in srgb, var(--sk-blue) 34%, transparent);
+  --go: var(--sk-blue-deep);
   --go-text: #fff;
-}
-@media (prefers-color-scheme: dark) {
-  :root:not([data-theme="light"]) .shell {
-    --accent: #0091ff;
-    --accent-strong: #0091ff;
-    --accent-ring: color-mix(in srgb, #0091ff 34%, transparent);
-  }
-}
-:root[data-theme="dark"] .shell {
-  --accent: #0091ff;
-  --accent-strong: #0091ff;
-  --accent-ring: color-mix(in srgb, #0091ff 34%, transparent);
 }
 
 /* "Not Now", under the primary when signing in again can wait: the same capsule and height
@@ -119,7 +106,7 @@
 .field-group:hover { border-color: var(--field-edge-hover); }
 
 .field-group:focus-within {
-  border-color: var(--accent);
+  border-color: var(--accent-strong);
   box-shadow: var(--shadow-field), 0 0 0 3px var(--accent-ring);
 }
 
@@ -186,14 +173,17 @@
 /* ---- footnotes --------------------------------------------------------------- */
 
 /* The line under the sheet's main control. Its height is kept whether it is empty, says
-   "Checking", or holds a two-line error, so nothing under it moves when it changes. */
+   "Checking", or holds a two-line error, so nothing under it moves when it changes. On the
+   sign-in, the independence line sits under it, room kept for both. */
 .sheet-status {
   min-height: 38px;
   margin-top: 12px;
   display: flex;
-  justify-content: center;
-  align-items: flex-start;
+  flex-direction: column;
+  align-items: center;
 }
+.sheet-status:has(> .independence) { min-height: 58px; }
+.sheet-status > .independence { margin: 0; max-width: none; color: var(--text-2); font-size: var(--t-12); line-height: 1.6; }
 .sheet-status > p { margin: 0; max-width: 34ch; font-size: var(--t-13); line-height: 1.4; }
 
 .assurance {
@@ -274,7 +264,7 @@
 .code input:hover:not(:disabled) { border-color: var(--field-edge-hover); }
 
 .code input:focus {
-  border-color: var(--accent);
+  border-color: var(--accent-strong);
   box-shadow: var(--shadow-field), 0 0 0 3px var(--accent-ring);
 }
 
@@ -292,8 +282,8 @@
   overflow: hidden;
 }
 
-/* Chrome, so it gets glass. The content pane deliberately does not — Apple forbids glass
-   on content layers, and a photo grid is exactly the thing it would fight. */
+/* Chrome, so it gets the veil. The content pane deliberately does not — a veil never lies
+   over content, and a photo grid is exactly the thing it would fight. */
 
 /* One statement of freshness for the whole library, and the one control that refreshes it.
    Quiet by default — it is status, not an action anyone has to take. */
@@ -551,7 +541,7 @@
 }
 
 .contact-row:hover { background: var(--fill-hover); }
-/* As macOS selects: the accent with white text while the list has focus, grey after. */
+/* A selection: the accent with white text while the list has focus, grey after. */
 .contact-row[aria-selected="true"] { background: var(--fill-selected); }
 .contact-rows.is-focused .contact-row[aria-selected="true"] { background: var(--accent-fill); color: var(--on-accent); }
 .contact-rows.is-focused .contact-row[aria-selected="true"] .avatar:not(:has(img)) { background: rgba(255, 255, 255, 0.28); color: #fff; }
@@ -812,7 +802,7 @@
   font-size: var(--t-13);
   color: var(--text);
   background: var(--field);
-  border: 1px solid var(--accent);
+  border: 1px solid var(--accent-strong);
   border-radius: var(--r-field);
   padding: 4px 8px;
   outline: none;
@@ -919,7 +909,7 @@
 
 /* ── Pop-up button ──────────────────────────────────────────────────────────────────────
    A native select renders its menu from the operating system, which on Linux is a square
-   grey list with a blue band through it. This is the macOS shape instead: a compact
+   grey list with a blue band through it. This is a desktop pop-up instead: a compact
    control, a menu that belongs to the window, and a checkmark against the current choice. */
 .picker { position: relative; display: inline-flex; min-width: 0; }
 
@@ -932,7 +922,7 @@
   font: inherit;
   font-size: var(--t-13);
   color: var(--text);
-  /* macOS 27's pop-up button: a soft fill with no outline, rounded concentric with the
+  /* A pop-up button: a soft fill with no outline, rounded concentric with the
      popover or panel it sits in. */
   background: var(--fill);
   border: 0;
@@ -974,10 +964,10 @@
   padding: 5px;
   list-style: none;
   border-radius: var(--r-float);
-  background: var(--glass-thick);
-  -webkit-backdrop-filter: var(--glass-regular-filter);
-  backdrop-filter: var(--glass-regular-filter);
-  box-shadow: var(--glass-float);
+  background: var(--veil-thick);
+  -webkit-backdrop-filter: var(--veil-filter);
+  backdrop-filter: var(--veil-filter);
+  box-shadow: var(--veil-float);
   color: var(--text);
   /* No opening animation, as a macOS menu has none: it is simply there. Animating it in
      made WebKitGTK build a compositing layer on the first frame, and the menu flashed. */
@@ -989,7 +979,7 @@
 }
 @media (prefers-reduced-motion: reduce) { .picker-menu { animation: none; } }
 
-/* Rows as macOS 27 draws a menu's: 24px, the highlight rounded to 8. */
+/* A menu's rows: 24px, the highlight rounded to 8. */
 .picker-menu li {
   display: flex;
   align-items: center;
@@ -1003,8 +993,8 @@
   outline: none;
 }
 
-/* A menu's highlight is the system's, whichever app it is in — as every Mac menu's is. */
-.picker-menu li.is-active { background: var(--sys-blue-deep); color: #fff; }
+/* A menu's highlight is Skykeep's blue, whichever app it is in. */
+.picker-menu li.is-active { background: var(--sk-blue-deep); color: #fff; }
 .picker-menu li.is-active .picker-check { color: #fff; }
 /* A rule between groups of choices, as Reminders' Repeat menu sets Never and Custom apart. */
 .picker-menu li.has-divider { position: relative; margin-top: 11px; }
@@ -1074,7 +1064,7 @@
 
 .contact-form input:focus,
 .contact-form textarea:focus {
-  border-color: var(--accent);
+  border-color: var(--accent-strong);
   box-shadow: 0 0 0 3px var(--accent-ring);
 }
 
@@ -1269,10 +1259,10 @@
   min-width: 150px;
   padding: 5px;
   border-radius: var(--r-float);
-  background: var(--glass-thick);
-  -webkit-backdrop-filter: var(--glass-regular-filter);
-  backdrop-filter: var(--glass-regular-filter);
-  box-shadow: var(--glass-float);
+  background: var(--veil-thick);
+  -webkit-backdrop-filter: var(--veil-filter);
+  backdrop-filter: var(--veil-filter);
+  box-shadow: var(--veil-float);
 }
 .upload-menu button {
   padding: 6px 10px;
@@ -1299,11 +1289,11 @@
   max-height: min(420px, 60vh);
   display: flex;
   flex-direction: column;
-  border: 1px solid var(--glass-edge);
+  border: 1px solid var(--veil-edge);
   border-radius: var(--r-float);
   /* Frosted, never blurred: it stays up over Drive's list as it scrolls (tokens.css). */
-  background: var(--glass-frost);
-  box-shadow: var(--shadow-sheet), var(--glass-specular);
+  background: var(--veil-frost);
+  box-shadow: var(--shadow-sheet), var(--veil-rim);
   overflow: hidden;
 }
 .upload-tray-head {
@@ -1392,18 +1382,18 @@
 .info-rows dt { color: var(--text-2); }
 .info-rows dd { margin: 0; text-align: right; overflow-wrap: anywhere; }
 
-/* Row menus: macOS's own shape — a rounded sheet, items the width of it, a hairline between
+/* Row menus: a rounded sheet, items the width of it, a hairline between
    groups, the highlight in the accent, Delete in red. */
-/* Menus as macOS 27 draws them: 12px corners, 24px lines with an 8px highlight in the
-   system blue, ▸ beside a line that leads on to a submenu. */
+/* Menus: 12px corners, 24px lines with an 8px highlight in Skykeep's
+   blue, ▸ beside a line that leads on to a submenu. */
 .row-menu {
   position: fixed; z-index: 60; min-width: 200px; padding: 5px;
   display: flex; flex-direction: column; outline: none;
   border-radius: var(--r-float);
-  background: var(--glass-thick);
-  -webkit-backdrop-filter: var(--glass-regular-filter);
-  backdrop-filter: var(--glass-regular-filter);
-  box-shadow: var(--glass-float);
+  background: var(--veil-thick);
+  -webkit-backdrop-filter: var(--veil-filter);
+  backdrop-filter: var(--veil-filter);
+  box-shadow: var(--veil-float);
   /* Opens and closes at once, as a macOS menu does, and as the pop-up's menu and search's
      results do — one rule for every menu. A 120ms fade-and-drop was tried here and flashed on
      his WebKitGTK (the compositor layer it needs is built on the first frame). */
@@ -1417,7 +1407,7 @@
 /* The check column: a Mac menu marks a choice that is on with a check before its name. */
 .row-menu-check { flex: none; width: 12px; margin: 0 -6px 0 -4px; font-size: var(--t-12); font-weight: 600; text-align: center; }
 .row-menu-chevron { flex: none; margin-right: -4px; font-size: var(--t-15); line-height: 1; color: var(--text-2); }
-.row-menu-item.is-active { background: var(--sys-blue-deep, #0068d6); color: #fff; }
+.row-menu-item.is-active { background: var(--sk-blue-deep); color: #fff; }
 .row-menu-item.is-active .row-menu-chevron { color: #fff; }
 /* The danger red that reads on a menu at 4.5:1; the system red read at 3.6:1. */
 .row-menu-item.is-danger { color: var(--danger); }
@@ -1428,9 +1418,9 @@
 .drive-row.is-menu .drive-row-actions { opacity: 1; }
 /* Selected, as Finder marks it: the accent behind the row, its text in white. */
 /* The deep accent: white names on the system blue read at 3.5:1. */
-.drive-row.is-selected { background: var(--accent-fill, #0068d6); }
+.drive-row.is-selected { background: var(--accent-fill); }
 .drive-row.is-selected .drive-name, .drive-row.is-selected .drive-meta { color: #fff; }
-.drive-rows.is-grid .drive-row.is-selected { background: color-mix(in srgb, var(--sys-blue, #0a84ff) 28%, transparent); box-shadow: inset 0 0 0 2px var(--sys-blue, #0a84ff); }
+.drive-rows.is-grid .drive-row.is-selected { background: color-mix(in srgb, var(--sk-blue) 28%, transparent); box-shadow: inset 0 0 0 2px var(--sk-blue); }
 .drive-rows.is-grid .drive-row.is-selected .drive-name { color: var(--text); }
 /* With focus elsewhere the selection stays, quietly — grey, the text its own colour. */
 /* "Focused" is a class the list sets as the focus comes into it and leaves, not :focus-within:
@@ -1501,8 +1491,8 @@
 .drive-meta.is-soon { color: var(--danger); }
 
 /* A folder or a folder up the path with something held over it, as Finder lights one. */
-.drive-row.is-drop { background: color-mix(in srgb, var(--sys-blue, #0a84ff) 16%, transparent); box-shadow: inset 0 0 0 2px var(--sys-blue, #0a84ff); }
-.crumb.is-drop { background: color-mix(in srgb, var(--sys-blue, #0a84ff) 16%, transparent); border-radius: 5px; }
+.drive-row.is-drop { background: color-mix(in srgb, var(--sk-blue) 16%, transparent); box-shadow: inset 0 0 0 2px var(--sk-blue); }
+.crumb.is-drop { background: color-mix(in srgb, var(--sk-blue) 16%, transparent); border-radius: 5px; }
 
 /* Recents' date headings, as Finder's and icloud.com's group them. */
 .drive-group { margin: 14px 0 4px; padding: 0 10px; color: var(--text); font-size: var(--t-13); font-weight: 700; }
@@ -1519,10 +1509,10 @@
 .sidebar-account[aria-current="true"] { background: var(--fill-selected); transition: none; }
 .sidebar-account:focus-visible { outline: var(--focus-ring); outline-offset: -1px; }
 .sidebar-account-name { font-size: var(--t-13); font-weight: 590; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-/* Apple's monogram: initials on a soft grey gradient disc. */
+/* A monogram: initials on a slate gradient disc (white on it at 4.6:1 or better). */
 .account-avatar {
   flex: none; display: grid; place-items: center; width: 30px; height: 30px; border-radius: 50%;
-  background: linear-gradient(180deg, #a5a5ab, #85858b); color: #fff;
+  background: linear-gradient(180deg, #6b7787, #556070); color: #fff;
   font-size: var(--t-12); font-weight: 600; letter-spacing: 0.02em;
   box-shadow: inset 0 var(--hairline) 0 rgba(255, 255, 255, 0.35);
 }
@@ -1555,7 +1545,7 @@
   display: flex; align-items: center; gap: 10px; min-height: 44px; padding: 7px 14px;
   font-size: var(--t-13);
 }
-/* Separators inset past the icon, as Apple draws them between rows of a group. */
+/* Separators inset past the icon, between rows of a group. */
 .settings-row + .settings-row { border-top: var(--hairline) solid color-mix(in srgb, var(--text) 7%, transparent); }
 .settings-row.is-stacked { flex-direction: column; align-items: stretch; gap: 8px; padding: 12px 14px; }
 .settings-row-line { display: flex; justify-content: space-between; gap: 10px; }
@@ -1576,7 +1566,7 @@
 /* The mark of a row no app's icon fits: a plain tile the apps' icons' size and shape. */
 .settings-glyph {
   flex: none; display: grid; place-items: center; width: 22px; height: 22px; border-radius: 5px;
-  color: #fff; background: linear-gradient(#a1a1a6, #8e8e93);
+  color: #fff; background: linear-gradient(#7a8796, #5a6472);
 }
 .settings-stack .settings-hint.settings-hint-wrap { white-space: normal; }
 .settings-row > .quiet { flex: none; }
@@ -1597,7 +1587,7 @@
 .web-access-off b { color: var(--text); font-weight: 600; }
 /* Advanced Data Protection waiting on an approval (components/DeviceApproval): the same calm
    page, with the device it is waiting on above it and where it stands under it. */
-.device-approval-glyph { display: block; margin: 0 auto 14px; color: var(--accent); }
+.device-approval-glyph { display: block; margin: 0 auto 14px; color: var(--accent-strong); }
 .web-access-off .device-approval-status { display: flex; align-items: center; justify-content: center; gap: 8px;
   min-height: 1.5em; color: var(--text-2); font-size: var(--t-13); margin: 4px 0 18px; }
 .device-approval-notice .spinner { flex: none; margin-top: 2px; }
@@ -1674,7 +1664,7 @@
   content: "!"; position: absolute; z-index: 1; right: -1px; bottom: -1px; width: 13px; height: 13px;
   display: grid; place-items: center; border-radius: 50%;
   background: var(--danger); color: #fff; font-size: 9px; font-weight: 800; line-height: 1;
-  box-shadow: 0 0 0 2px var(--glass-frost, var(--bg));
+  box-shadow: 0 0 0 2px var(--veil-frost, var(--bg));
 }
 /* Update now: a round glass button, always there, quiet until the pointer reaches it. */
 .account-update {
@@ -1798,7 +1788,7 @@
 .photo-frame-pick:hover { color: var(--text); }
 .photo-zoom { display: flex; align-items: center; gap: 10px; width: 100%; font-size: var(--t-12); color: var(--text-2); }
 .photo-zoom input { flex: 1; }
-.photo-problem { margin: 0; font-size: var(--t-12); color: var(--danger, #d70015); }
+.photo-problem { margin: 0; font-size: var(--t-12); color: var(--danger); }
 .photo-sheet-actions { display: flex; align-items: center; gap: 8px; width: 100%; }
 .photo-sheet-gap { flex: 1; }
 
@@ -1821,8 +1811,8 @@
   margin-top: calc(8px - var(--pane-top));
   margin-bottom: -20px;
   padding-top: 14px;
-  background: var(--glass-frost);
-  box-shadow: var(--glass-specular), 0 0 0 var(--hairline) var(--glass-edge);
+  background: var(--veil-frost);
+  box-shadow: var(--veil-rim), 0 0 0 var(--hairline) var(--veil-edge);
   border-radius: var(--r-plateau);
   border-right: 0;
 }
@@ -1887,7 +1877,7 @@
   background: var(--bg);
   -webkit-backdrop-filter: none;
   backdrop-filter: none;
-  box-shadow: var(--glass-specular), 0 0 0 var(--hairline) var(--glass-edge), var(--shadow-sheet);
+  box-shadow: var(--veil-rim), 0 0 0 var(--hairline) var(--veil-edge), var(--shadow-sheet);
 }
 .app-foot {
   margin-top: auto;
@@ -1936,12 +1926,12 @@
 .launch-tile {
   display: flex; flex-direction: column; align-items: flex-start; gap: 3px; min-width: 0;
   padding: 16px 16px 14px; border: 0; border-radius: 18px; text-align: left;
-  background: var(--glass-frost);
-  box-shadow: var(--glass-specular), 0 0 0 var(--hairline) var(--glass-edge);
+  background: var(--veil-frost);
+  box-shadow: var(--veil-rim), 0 0 0 var(--hairline) var(--veil-edge);
   color: var(--text); font: inherit; cursor: pointer;
 }
-.launch-tile:hover { background: color-mix(in srgb, var(--glass-frost) 88%, var(--text) 12%); }
-.launch-tile:active { background: color-mix(in srgb, var(--glass-frost) 82%, var(--text) 18%); }
+.launch-tile:hover { background: color-mix(in srgb, var(--veil-frost) 88%, var(--text) 12%); }
+.launch-tile:active { background: color-mix(in srgb, var(--veil-frost) 82%, var(--text) 18%); }
 .launch-tile:focus-visible { outline: var(--focus-ring); outline-offset: 2px; }
 .launch-icon { width: 56px; height: 56px; margin: 0 0 8px -4px; -webkit-user-drag: none; }
 .launch-name { font-size: var(--t-15); font-weight: 650; letter-spacing: -0.01em; }
@@ -1955,9 +1945,9 @@
 .launch-fresh-text { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .launch-dot {
   flex: none; width: 7px; height: 7px; border-radius: 50%;
-  background: var(--sys-green, #34c759);
+  background: var(--sk-green);
 }
-.launch-tile.is-idle .launch-dot { background: var(--sys-gray, #8e8e93); }
+.launch-tile.is-idle .launch-dot { background: var(--sk-gray); }
 .launch-tile.is-trouble .launch-fresh { color: var(--danger); }
 .launch-tile.is-trouble .launch-dot { background: var(--danger); }
 .launch-tile.is-working .launch-dot {
@@ -1976,7 +1966,7 @@
   display: flex; flex-direction: column; gap: 1px; min-height: 0; overflow-y: auto;
   padding: var(--source-pad);
 }
-.dx-glyph { flex: none; color: var(--accent); }
+.dx-glyph { flex: none; color: var(--accent-strong); }
 .dx-main { display: flex; flex-direction: column; min-width: 0; min-height: 0; }
 .dx-main > * { flex: 1; min-height: 0; }
 @media (max-width: 720px) {

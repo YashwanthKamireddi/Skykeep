@@ -28,7 +28,7 @@ for (const theme of ["light", "dark"]) {
   ok(look.bg === "rgba(0, 0, 0, 0)" && look.fontSize === look.lineSize && look.inLine, `${theme}: set in its line at the text's size  ${JSON.stringify(look)}`);
   const text = await page.locator(".note-rich").first().innerText();
   ok(/Dinner for #Recipes tonight/.test(text.replace(/\s+/g, " ")), `${theme}: the line reads through the tag  ${JSON.stringify(text.slice(0, 60))}`);
-  const wanted = theme === "light" ? "rgb(138, 104, 0)" : "rgb(255, 214, 0)";
+  const wanted = theme === "light" ? "rgb(122, 86, 0)" : "rgb(242, 179, 61)";
   ok(look.color === wanted, `${theme}: in the Notes accent  ${look.color}`);
   await page.waitForTimeout(300);
   ok((await page.evaluate(() => (window.__noteSaves ?? []).length)) === 0, `${theme}: opening it saves nothing`);
