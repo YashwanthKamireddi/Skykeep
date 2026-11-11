@@ -506,6 +506,17 @@ impl Library {
         Ok(())
     }
 
+    /// A list deleted (Apple has taken the delete): the list gone from the library with every
+    /// reminder in it, done ones included, so no count or smart list shows them meanwhile.
+    pub fn forget_reminder_list(&mut self, list_guid: &str) -> Result<()> {
+        let guids: Vec<String> = self
+            .reminders_in(list_guid, true)?
+            .into_iter()
+            .map(|r| r.guid)
+            .collect();
+        self.forget_reminders(&guids, &[list_guid.to_string()])
+    }
+
     /// Remove reminders and lists the server reports as gone.
     pub fn forget_reminders(
         &mut self,
@@ -1248,6 +1259,25 @@ mod tests {
         let mut lib = Library::in_memory().unwrap();
         lib.put_reminder_lists(&[list("l1")]).unwrap();
         lib
+    }
+
+    /// A deleted list leaves nothing behind: its reminders, done or not, go with it, and
+    /// another list's stay.
+    #[test]
+    fn a_forgotten_list_takes_its_reminders_and_only_them() {
+        let mut lib = Library::in_memory().unwrap();
+        lib.put_reminder_lists(&[list("a"), list("b")]).unwrap();
+        let mut a1 = reminder("a1", None, None);
+        a1.list_guid = "a".into();
+        let mut a2 = reminder("a2", None, Some(1));
+        a2.list_guid = "a".into();
+        let mut b1 = reminder("b1", None, None);
+        b1.list_guid = "b".into();
+        lib.put_reminders(&[a1, a2, b1]).unwrap();
+        lib.forget_reminder_list("a").unwrap();
+        assert!(lib.reminders_in("a", true).unwrap().is_empty());
+        assert_eq!(lib.reminders_in("b", true).unwrap().len(), 1);
+        assert!(lib.reminder_lists().unwrap().iter().all(|x| x.guid != "a"));
     }
 
     #[test]

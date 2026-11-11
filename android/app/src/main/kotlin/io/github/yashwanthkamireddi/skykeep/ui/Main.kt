@@ -287,7 +287,7 @@ private fun Home(
     }
     Health(s, sync.last[s.authority], syncing = s.authority in sync.active, firstRun = sync.busy, now = now, onClick = open)
   }
-  DriveCard(engine) { onTab(Tab.Drive) }
+  DriveCard(engine, online) { onTab(Tab.Drive) }
 }
 
 /**
@@ -295,10 +295,11 @@ private fun Home(
  * they're used), so its card says how much of iCloud is used, the one number that matters here.
  */
 @Composable
-private fun DriveCard(engine: uniffi.quince_mobile.Account, onClick: () -> Unit) {
+private fun DriveCard(engine: uniffi.quince_mobile.Account, online: Boolean, onClick: () -> Unit) {
   val context = LocalContext.current
-  val space by produceState<List<ULong>?>(null) {
-    value = runCatching { kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) { engine.driveSpace() } }.getOrNull()
+  // Asked again when the phone comes back online: offline, Apple can't say.
+  val space by produceState<List<ULong>?>(null, online) {
+    if (online) value = runCatching { kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) { engine.driveSpace() } }.getOrNull()
   }
   Surface(
     onClick = onClick, color = MaterialTheme.colorScheme.surfaceContainer, shape = MaterialTheme.shapes.large,

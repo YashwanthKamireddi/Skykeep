@@ -1,4 +1,5 @@
-//! Live, read-only: one Reminders List record, every field.
+//! Live, read-only: one Reminders List record, every field; or, given a name, every List
+//! record whose name has it (a test list's state after a change, for instance).
 use anyhow::{anyhow, Result};
 use serde_json::Value;
 #[tokio::main]
@@ -18,6 +19,7 @@ async fn main() -> Result<()> {
         "com.apple.reminders",
         client.service_params(),
     );
+    let named = std::env::args().nth(1);
     let walk = zc.all_records("Reminders", None).await?;
     for r in walk
         .records
@@ -25,9 +27,14 @@ async fn main() -> Result<()> {
         .filter(|r| {
             r["recordType"] == "List"
                 && r["fields"]["IsGroup"]["value"] != 1
-                && r["fields"].get("Color").is_some()
+                && match &named {
+                    Some(n) => r["fields"]["Name"]["value"]
+                        .as_str()
+                        .is_some_and(|s| s.contains(n.as_str())),
+                    None => r["fields"].get("Color").is_some(),
+                }
         })
-        .take(1)
+        .take(if named.is_some() { 20 } else { 1 })
     {
         let mut r = r.clone();
         if let Some(f) = r.get_mut("fields").and_then(Value::as_object_mut) {

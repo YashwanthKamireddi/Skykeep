@@ -308,18 +308,59 @@ impl Account {
         })
     }
 
+    /// A new list, called `title`, made at Apple and read back, as the desktop makes one.
+    pub fn reminder_list_create(&self, title: String) -> Result<(), EngineError> {
+        let (http, root, params) = self.reminders_context()?;
+        runtime()
+            .block_on(quince_icloud::reminders::create_list_cloudkit(
+                &http, &root, params, &title,
+            ))
+            .map_err(failed)?;
+        self.reminders_reread()
+    }
+
+    /// A list renamed at Apple and read back.
+    pub fn reminder_list_rename(&self, guid: String, title: String) -> Result<(), EngineError> {
+        let (http, root, params) = self.reminders_context()?;
+        runtime()
+            .block_on(quince_icloud::reminders::rename_list_cloudkit(
+                &http, &root, params, &guid, &title,
+            ))
+            .map_err(failed)?;
+        self.reminders_reread()
+    }
+
+    /// A list's colour, by Apple's name for it (red, orange, yellow, green, lightBlue, blue,
+    /// indigo, pink, purple, brown, gray, rose), set at Apple and read back.
+    pub fn reminder_list_colour(&self, guid: String, colour: String) -> Result<(), EngineError> {
+        let (http, root, params) = self.reminders_context()?;
+        runtime()
+            .block_on(quince_icloud::reminders::set_list_colour_cloudkit(
+                &http, &root, params, &guid, &colour,
+            ))
+            .map_err(failed)?;
+        self.reminders_reread()
+    }
+
+    /// A list deleted at Apple, with its reminders, and read back.
+    pub fn reminder_list_delete(&self, guid: String) -> Result<(), EngineError> {
+        let (http, root, params) = self.reminders_context()?;
+        runtime()
+            .block_on(quince_icloud::reminders::delete_list_cloudkit(
+                &http, &root, params, &guid,
+            ))
+            .map_err(failed)?;
+        // Gone here at once: Apple's change feed can lag the delete it just took, and a list
+        // left on screen until the next sync looked like the delete hadn't worked.
+        self.with_library(|l| l.forget_reminder_list(&guid))?;
+        self.reminders_reread()
+    }
+
     /// The changes made here sent to Apple, oldest first, then Apple's Reminders read and laid
     /// under whatever is still on its way, as the desktop does it.
     pub fn reminders_sync(&self) -> Result<RSync, EngineError> {
         let (lock, account) = self.library()?;
-        let (http, root, params) = {
-            let c = self.client.lock().map_err(failed)?;
-            let root = c
-                .session()
-                .service_url("ckdatabasews")
-                .ok_or_else(|| failed("Apple hasn't offered Reminders for this account."))?;
-            (c.http().clone(), root, c.service_params())
-        };
+        let (http, root, params) = self.reminders_context()?;
         runtime().block_on(async {
             let report =
                 quince_sync::queue::drain_as(&lock, shared::REMINDERS, &PASS, &account, |p| {
@@ -350,5 +391,31 @@ impl Account {
                 refused: report.refused.into_iter().map(|(_, why)| why).collect(),
             })
         })
+    }
+}
+
+/// What a call to Apple's Reminders needs: the client, CloudKit's address, the session's parameters.
+type Apple = (reqwest::Client, String, Vec<(String, String)>);
+
+impl Account {
+    fn reminders_context(&self) -> Result<Apple, EngineError> {
+        let c = self.client.lock().map_err(failed)?;
+        let root = c
+            .session()
+            .service_url("ckdatabasews")
+            .ok_or_else(|| failed("Apple hasn't offered Reminders for this account."))?;
+        Ok((c.http().clone(), root, c.service_params()))
+    }
+
+    /// Apple's Reminders read again after a list change that reached Apple. Failing, it is not
+    /// the change failing (it is made): the next sync brings the screen up to date.
+    fn reminders_reread(&self) -> Result<(), EngineError> {
+        let (lock, _) = self.library()?;
+        let (http, root, params) = self.reminders_context()?;
+        let _ = runtime().block_on(async {
+            let _pass = PASS.lock().await;
+            shared::refresh(&lock, &http, &root, params).await
+        });
+        Ok(())
     }
 }

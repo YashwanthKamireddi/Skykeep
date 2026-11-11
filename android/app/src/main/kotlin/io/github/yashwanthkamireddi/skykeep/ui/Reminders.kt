@@ -5,6 +5,9 @@ import androidx.compose.runtime.saveable.listSaver
 import androidx.compose.runtime.saveable.rememberSaveable
 import io.github.yashwanthkamireddi.skykeep.ui.theme.Palette
 import android.Manifest
+import androidx.compose.material3.DropdownMenuItem
+import androidx.compose.material3.DropdownMenu
+import androidx.compose.material3.AlertDialog
 import androidx.compose.ui.graphics.luminance
 import io.github.yashwanthkamireddi.skykeep.ui.theme.motion
 import io.github.yashwanthkamireddi.skykeep.ui.theme.Motion
@@ -164,6 +167,11 @@ fun RemindersPage(engine: Account) {
   var items by remember { mutableStateOf<List<RItem>>(emptyList()) }
   var showDone by remember { mutableStateOf(false) }
   var editing by remember { mutableStateOf<RItem?>(null) }
+  var listInfo by remember { mutableStateOf<RList?>(null) }
+  var newList by remember { mutableStateOf(false) }
+  var deleting by remember { mutableStateOf<RList?>(null) }
+  /** Lists being deleted: hidden at once, while Apple takes the delete (it reads every reminder first). */
+  var vanishing by remember { mutableStateOf<Set<String>>(emptySet()) }
   var problem by remember { mutableStateOf<String?>(null) }
   var generation by remember { mutableIntStateOf(0) }
 
@@ -191,6 +199,13 @@ fun RemindersPage(engine: Account) {
     syncReminders(context)
   }
 
+  /** A list made, renamed, recoloured or deleted at Apple, then everything read again. */
+  fun listChange(what: String, write: () -> Unit) = scope.launch {
+    runCatching { withContext(Dispatchers.IO) { write() } }
+      .onFailure { problem = (it as? uniffi.quince_mobile.EngineException.Failed)?.reason ?: "$what didn't reach iCloud." }
+    reload()
+  }
+
   // Alerts need the permission on Android 13 and later: asked once, when Reminders first opens.
   val notify = rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) {}
   LaunchedEffect(Unit) {
@@ -214,7 +229,7 @@ fun RemindersPage(engine: Account) {
     }
     val here = place
     if (here == null) {
-      Overview(counts, lists) { place = it; showDone = false }
+      Overview(counts, lists.filter { it.guid !in vanishing }, onAddList = { newList = true }) { place = it; showDone = false }
     } else {
       // The desktop's list header: back, Show Completed; the list's name large in its colour,
       // and how many reminders it has.
@@ -223,6 +238,17 @@ fun RemindersPage(engine: Account) {
         Spacer(Modifier.weight(1f))
         if (here.listGuid != null) {
           TextButton(onClick = { showDone = !showDone }) { Text(if (showDone) "Hide Completed" else "Show Completed") }
+          val list = lists.firstOrNull { it.guid == here.listGuid }
+          if (list != null) {
+            var menu by remember { mutableStateOf(false) }
+            Box {
+              IconButton(onClick = { menu = true }) { Icon(painterResource(R.drawable.ic_more), contentDescription = "List options") }
+              DropdownMenu(expanded = menu, onDismissRequest = { menu = false }) {
+                DropdownMenuItem(text = { Text("Show List Info") }, onClick = { menu = false; listInfo = list })
+                DropdownMenuItem(text = { Text("Delete List", color = MaterialTheme.colorScheme.error) }, onClick = { menu = false; deleting = list })
+              }
+            }
+          }
         }
       }
       Column(Modifier.padding(horizontal = 20.dp).padding(bottom = 8.dp)) {
@@ -273,6 +299,37 @@ fun RemindersPage(engine: Account) {
     }
   }
 
+  if (newList) ListInfo(null, onDismiss = { newList = false }) { title, _ ->
+    newList = false
+    if (title.isNotEmpty()) listChange("Making $title") { engine.reminderListCreate(title) }
+  }
+  listInfo?.let { l ->
+    ListInfo(l, onDismiss = { listInfo = null }) { title, colour ->
+      listInfo = null
+      listChange("Changing ${l.title}") {
+        if (title.isNotEmpty() && title != l.title) engine.reminderListRename(l.guid, title)
+        if (colour != null) engine.reminderListColour(l.guid, colour)
+      }
+      // The header shows the new name and colour at once; the lists are read again behind.
+      place = place?.copy(title = title.ifEmpty { l.title }, colour = colour?.let { c -> LIST_COLOURS.first { it.first == c }.second } ?: place!!.colour)
+    }
+  }
+  deleting?.let { l ->
+    AlertDialog(
+      onDismissRequest = { deleting = null },
+      title = { Text("Delete “${l.title}”?") },
+      text = { Text("The list and its reminders are deleted on all your devices.") },
+      confirmButton = {
+        TextButton(onClick = {
+          deleting = null; place = null
+          vanishing = vanishing + l.guid
+          listChange("Deleting ${l.title}") { engine.reminderListDelete(l.guid) }.invokeOnCompletion { vanishing = vanishing - l.guid }
+        }) { Text("Delete", color = MaterialTheme.colorScheme.error) }
+      },
+      dismissButton = { TextButton(onClick = { deleting = null }) { Text("Cancel") } },
+    )
+  }
+
   editing?.let { r ->
     EditSheet(r, lists, onDismiss = { editing = null }, onSave = { edit -> editing = null; change { engine.reminderEdit(r.guid, edit) } }, onDelete = {
       editing = null; change { engine.reminderDelete(r.guid) }
@@ -286,7 +343,7 @@ fun RemindersPage(engine: Account) {
  * its own colour and how many are open.
  */
 @Composable
-private fun Overview(counts: RCounts?, lists: List<RList>, open: (Place) -> Unit) {
+private fun Overview(counts: RCounts?, lists: List<RList>, onAddList: () -> Unit, open: (Place) -> Unit) {
   LazyColumn(contentPadding = PaddingValues(start = 16.dp, end = 16.dp, top = 20.dp, bottom = 24.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
     item { Text("Reminders", style = MaterialTheme.typography.headlineMedium, modifier = Modifier.padding(start = 4.dp, bottom = 4.dp)) }
     item {
@@ -334,6 +391,13 @@ private fun Overview(counts: RCounts?, lists: List<RList>, open: (Place) -> Unit
         }
       }
     }
+    item {
+      TextButton(onClick = onAddList) {
+        Icon(painterResource(R.drawable.ic_add), contentDescription = null, modifier = Modifier.size(18.dp))
+        Spacer(Modifier.width(8.dp))
+        Text("Add List")
+      }
+    }
   }
 }
 
@@ -362,6 +426,52 @@ private fun SmartTile(p: Place, n: Int?, modifier: Modifier, onClick: () -> Unit
       Text(p.title, style = MaterialTheme.typography.titleSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
     }
   }
+}
+
+/** Apple's twelve list colours, in its picker's order, by the names Apple stores (the desktop's). */
+private val LIST_COLOURS = listOf(
+  "red" to Color(0xFFFF3B30), "orange" to Color(0xFFFF9500), "yellow" to Color(0xFFFFCC00),
+  "green" to Color(0xFF34C759), "lightBlue" to Color(0xFF51AAF2), "blue" to Color(0xFF007AFF),
+  "indigo" to Color(0xFF5856D6), "pink" to Color(0xFFEA426A), "purple" to Color(0xFFC077DB),
+  "brown" to Color(0xFFA2845E), "gray" to Color(0xFF5B6770), "rose" to Color(0xFFD9A69F),
+)
+
+/**
+ * A list's name and colour, as Show List Info has them; with no list, a new one's name (Apple
+ * gives it its first colour; List Info changes it after). Answers the name and, if picked, the
+ * colour's name.
+ */
+@Composable
+private fun ListInfo(list: RList?, onDismiss: () -> Unit, onDone: (String, String?) -> Unit) {
+  var title by remember { mutableStateOf(list?.title ?: "") }
+  var colour by remember { mutableStateOf<String?>(null) }
+  val current = list?.colour?.let { colourOf(it) }
+  AlertDialog(
+    onDismissRequest = onDismiss,
+    title = { Text(if (list == null) "New List" else "List Info") },
+    text = {
+      Column(verticalArrangement = Arrangement.spacedBy(16.dp)) {
+        OutlinedTextField(title, { title = it }, singleLine = true, label = { Text("Name") }, modifier = Modifier.fillMaxWidth())
+        if (list != null) {
+          for (row in LIST_COLOURS.chunked(6)) {
+            Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+              for ((name, c) in row) {
+                val picked = colour == name || (colour == null && current == c)
+                Box(
+                  Modifier.size(32.dp).clip(CircleShape).background(c)
+                    .border(if (picked) 3.dp else 0.dp, MaterialTheme.colorScheme.onSurface, CircleShape)
+                    .clickable { colour = name }
+                    .semantics { contentDescription = name + if (picked) ", chosen" else "" },
+                )
+              }
+            }
+          }
+        }
+      }
+    },
+    confirmButton = { TextButton(onClick = { onDone(title.trim(), colour) }, enabled = title.isNotBlank()) { Text("Done") } },
+    dismissButton = { TextButton(onClick = onDismiss) { Text("Cancel") } },
+  )
 }
 
 private val dayFormat: DateTimeFormatter = DateTimeFormatter.ofLocalizedDate(FormatStyle.MEDIUM)
