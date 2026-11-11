@@ -352,9 +352,11 @@ jobs:
           if-no-files-found: error
 
   publish:
-    # Windows is either promoted (windows-proven) or built here (windows, then skipped otherwise):
-    # every needed job succeeded or was rightly skipped, none failed or was cancelled.
-    if: startsWith(github.ref, 'refs/tags/v') && !cancelled() && !failure()
+    # Whatever built and passed its own checks goes out; a platform whose build failed is left
+    # out, named in the run's summary, and added to the same release when its job is re-run
+    # (GitHub re-runs this job with it; every step below takes what is there). Each platform's
+    # own tests still decide whether its file exists at all.
+    if: startsWith(github.ref, 'refs/tags/v') && !cancelled()
     needs: [appimage, linux, windows-proven, windows, flatpak, android-sign]
     runs-on: ubuntu-24.04
     permissions:
@@ -384,22 +386,25 @@ jobs:
         run: |
           git -C source fetch --depth=1 origin "+refs/tags/$GITHUB_REF_NAME:refs/tags/$GITHUB_REF_NAME"
           notes=$(git -C source tag -l --format='%(contents:subject)%0a%0a%(contents:body)' "$GITHUB_REF_NAME" | sed -e '/-----BEGIN PGP SIGNATURE-----/,$d')
-          one() { find dist -type f -name "$1" | head -n1; }
-          appimage=$(one '*.AppImage'); nsis=$(one '*-setup.exe'); msi=$(one '*.msi')
-          for f in "$appimage" "$nsis" "$msi"; do
-            if [ -z "$f" ] || [ ! -s "$f.sig" ]; then echo "::error::no signed updater file for '$f'"; exit 1; fi
-          done
+          # Only an installer that is here, with its signature, is offered: an updater is never
+          # pointed at a file this release doesn't have.
           base="https://github.com/$REPO/releases/download/$GITHUB_REF_NAME"
-          entry() { jq -n --arg url "$base/$(basename "$1")" --rawfile sig "$1.sig" '{url: $url, signature: ($sig | rtrimstr("\n"))}'; }
+          platforms='{}'
+          add() {
+            f=$(find dist -type f -name "$2" | head -n1)
+            if [ -z "$f" ] || [ ! -s "$f.sig" ]; then echo "::warning::$1 is not in this release yet (its build did not pass)"; return; fi
+            platforms=$(jq --arg k "$1" --arg url "$base/$(basename "$f")" --rawfile sig "$f.sig" \
+              '. + {($k): {url: $url, signature: ($sig | rtrimstr("\n"))}}' <<< "$platforms")
+          }
+          add linux-x86_64-appimage '*.AppImage'
+          add windows-x86_64-nsis '*-setup.exe'
+          add windows-x86_64-msi '*.msi'
           jq -n \
             --arg version "${GITHUB_REF_NAME#v}" \
             --arg notes "$notes" \
             --arg date "$(date -u +%Y-%m-%dT%H:%M:%SZ)" \
-            --argjson appimage "$(entry "$appimage")" \
-            --argjson nsis "$(entry "$nsis")" \
-            --argjson msi "$(entry "$msi")" \
-            '{version: $version, notes: ($notes | gsub("^\\s+|\\s+$"; "")), pub_date: $date,
-              platforms: {"linux-x86_64-appimage": $appimage, "windows-x86_64-nsis": $nsis, "windows-x86_64-msi": $msi}}' \
+            --argjson platforms "$platforms" \
+            '{version: $version, notes: ($notes | gsub("^\\s+|\\s+$"; "")), pub_date: $date, platforms: $platforms}' \
             > dist/latest.json
           cat dist/latest.json
       # One-click downloads: a copy of each installer under a name without the version, so the
@@ -411,9 +416,9 @@ jobs:
           out="$RUNNER_TEMP/oneclick"; mkdir -p "$out"
           copy() {
             found=$(find dist -type f -name "$1")
-            if [ "$(printf '%s\n' "$found" | grep -c .)" -ne 1 ]; then
-              echo "::error::expected exactly one '$1' for $2, found: ${found:-none}"; exit 1
-            fi
+            n=$(printf '%s' "$found" | grep -c . || true)
+            if [ "$n" -eq 0 ]; then echo "::warning::$2 is not in this release yet (its build did not pass)"; return; fi
+            if [ "$n" -ne 1 ]; then echo "::error::expected one '$1' for $2, found: $found"; exit 1; fi
             cp "$found" "$out/$2"
           }
           copy '*-setup.exe' Skykeep-windows-x64-setup.exe
@@ -431,17 +436,27 @@ jobs:
       - name: The Flatpak under the release's name
         run: |
           found=$(find dist -type f -name '*.flatpak')
-          if [ "$(printf '%s\n' "$found" | grep -c .)" -ne 1 ]; then echo "::error::expected exactly one .flatpak, found: ${found:-none}"; exit 1; fi
+          n=$(printf '%s' "$found" | grep -c . || true)
+          if [ "$n" -eq 0 ]; then echo "::warning::the Flatpak is not in this release yet"; exit 0; fi
+          if [ "$n" -ne 1 ]; then echo "::error::expected one .flatpak, found: $found"; exit 1; fi
           mkdir -p dist/flatpak-release
           name="Skykeep-${GITHUB_REF_NAME#v}-x86_64.flatpak"
           mv "$found" "dist/flatpak-release/$name"
           (cd dist/flatpak-release && sha256sum "$name" > SHA256SUMS-flatpak.txt && cat SHA256SUMS-flatpak.txt)
-      - name: A draft release with every file
+      # The first run makes the draft; a re-run (a platform added later) adds its files to the
+      # same release and replaces latest.json and the checksum lists, which now name it too.
+      - name: The release, with every file that passed
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
-          { find dist -type f \( -name '*.deb' -o -name '*.rpm' -o -name '*.AppImage' -o -name '*.flatpak' -o -name '*.msi' -o -name '*-setup.exe' -o -name '*-android.apk' -o -name 'SHA256SUMS*' \
+          files=()
+          while IFS= read -r -d '' f; do files+=("$f"); done < <(
+            find dist -type f \( -name '*.deb' -o -name '*.rpm' -o -name '*.AppImage' -o -name '*.flatpak' -o -name '*.msi' -o -name '*-setup.exe' -o -name '*-android.apk' -o -name 'SHA256SUMS*' \
               -o -name '*.AppImage.sig' -o -name '*.msi.sig' -o -name '*-setup.exe.sig' -o -name 'latest.json' \) -print0
-            find "$RUNNER_TEMP/oneclick" -type f -print0; } \
-            | xargs -0 gh release create "$GITHUB_REF_NAME" --repo "$GITHUB_REPOSITORY" \
-                --draft --verify-tag --title "Skykeep ${GITHUB_REF_NAME#v}" --generate-notes
+            find "$RUNNER_TEMP/oneclick" -type f -print0)
+          if gh release view "$GITHUB_REF_NAME" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
+            gh release upload "$GITHUB_REF_NAME" --repo "$GITHUB_REPOSITORY" --clobber "${files[@]}"
+          else
+            gh release create "$GITHUB_REF_NAME" --repo "$GITHUB_REPOSITORY" \
+              --draft --verify-tag --title "Skykeep ${GITHUB_REF_NAME#v}" --generate-notes "${files[@]}"
+          fi
