@@ -130,7 +130,8 @@ jobs:
           - { name: "Fedora 45 (.rpm, ARM)", image: "fedora:45", pkg: "*.rpm", arch: arm64 }
     container:
       image: ${{ matrix.image }}
-      options: ${{ matrix.options || '' }}
+      # gnome-keyring 51 (Fedora 45) aborts where it may not lock its memory; a desktop lets it.
+      options: --cap-add=IPC_LOCK ${{ matrix.options || '' }}
     steps:
       - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
         with:
@@ -172,6 +173,8 @@ jobs:
           - { name: "openSUSE Tumbleweed", key: tumbleweed, image: "opensuse/tumbleweed", bundle: rpm }
     container:
       image: ${{ matrix.image }}
+      # gnome-keyring 51 (Fedora 45) aborts where it may not lock its memory; a desktop lets it.
+      options: --cap-add=IPC_LOCK
       # openSUSE's image declares no PATH. The runner builds each step's PATH from the image's
       # own plus what steps add (GITHUB_PATH, the rustup line below) — with none declared, a
       # step after one adds a directory got only that directory and no /usr/bin: "exec: sh:
@@ -237,6 +240,8 @@ jobs:
           - { name: "openSUSE Tumbleweed", key: tumbleweed, image: "opensuse/tumbleweed", bundle: rpm }
     container:
       image: ${{ matrix.image }}
+      # gnome-keyring 51 (Fedora 45) aborts where it may not lock its memory; a desktop lets it.
+      options: --cap-add=IPC_LOCK
       # As in `native`: openSUSE's image declares no PATH of its own.
       env:
         PATH: /usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
