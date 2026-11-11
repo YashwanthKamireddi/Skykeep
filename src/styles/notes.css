@@ -76,6 +76,13 @@
   font: inherit;
   text-align: left;
   cursor: default;
+  /* A row out of view is neither laid out nor painted, as Reminders' rows are: with 20,000
+     notes every row was laid out on every change to the list. Each skipped row holds the
+     height it last had, or a usual row's until it has been seen. Its hairline and selection
+     bar are inset shadows and its focus ring sits inside it, so the paint containment this
+     brings clips none of them. */
+  content-visibility: auto;
+  contain-intrinsic-size: auto 52px;
 }
 /* Rows are separated by a hairline that stops short of the selected row, above it and
    below it, as in Notes. */

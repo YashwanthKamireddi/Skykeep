@@ -416,15 +416,6 @@ export function RemindersView() {
   /** The reminder open now — read after an await, when the one open before it may have changed. */
   const openRef = useRef<string | null>(null);
   openRef.current = openGuid;
-  const [draft, setDraft] = useState("");
-  /** The line is added exactly as typed, its dates and marks left in the title (the preview's
-   *  Add as Typed). Cleared once the line changes or is added. */
-  const [literal, setLiteral] = useState(false);
-  const quick = useMemo<QuickReminder | null>(() => {
-    if (literal || !draft.trim()) return null;
-    const q = parseReminder(draft);
-    return understood(q) ? q : null;
-  }, [draft, literal]);
   const [newList, setNewList] = useState("");
   const [addingList, setAddingList] = useState(false);
   const [renaming, setRenaming] = useState<string | null>(null);
@@ -1313,14 +1304,10 @@ export function RemindersView() {
       : (lists[0]?.guid ?? null));
   const targetList = lists.find((l) => l.guid === targetListGuid) ?? null;
 
-  async function add(e: React.FormEvent) {
-    e.preventDefault();
-    const typed = draft.trim();
-    if (!typed || !targetListGuid) return;
-    // What the line said beyond its title, as the preview showed it.
-    const said = quick;
+  /** A line typed at the foot of the view, added; `false` when it could not be. */
+  async function add(typed: string, said: QuickReminder | null): Promise<boolean> {
+    if (!typed || !targetListGuid) return false;
     const title = said ? said.title : typed;
-    setLiteral(false);
     setSyncing(true);
     setError(null);
     // What the view implies, as on the phone: typed into Today or Scheduled it is due today,
@@ -1349,7 +1336,6 @@ export function RemindersView() {
         : viewImplied;
     // The row is there the moment Return is pressed, and the field is ready for the next.
     const standIn = `${STAND_IN}${Date.now()}`;
-    setDraft("");
     const tagged = selection.type === "tag" ? selection.name : null;
     const shownHere = inList || tagged !== null || kind === "today" || kind === "scheduled" || kind === "flagged" || kind === "all";
     if (shownHere) setItems((rows) => [
@@ -1374,11 +1360,12 @@ export function RemindersView() {
         await remindersApi.tagAdd(made, tagged).catch((e) => setError(messageOf(e)));
         void readExtras().catch(() => {});
       }
-      await readItems();
+      await readItemsRef.current();
+      return true;
     } catch (err) {
       setItems((rows) => rows.filter((r) => r.guid !== standIn));
-      setDraft((d) => d || typed);
       setError(messageOf(err));
+      return false;
     } finally {
       setSyncing(false);
     }
@@ -1861,50 +1848,18 @@ export function RemindersView() {
   /** Where a reminder typed at the foot of the view is filed, when that is a choice. */
   // Completed has nothing to add to, as on the Mac: a reminder begins open.
   const canAdd = (!gathered || (selection.type === "tag" && REMINDER_DETAIL_WRITES)) && smartKind !== "completed";
+  const addNow = useRef(add);
+  addNow.current = add;
+  const onAdd = useCallback((typed: string, said: QuickReminder | null) => addNow.current(typed, said), []);
   const addRow = targetListGuid && !searching && canAdd && (
-    <form className="rx-add" onSubmit={add}>
-      <span className="rx-tick ghost" aria-hidden="true">
-        <Glyph name="plus" />
-      </span>
-      <input
-        value={draft}
-        onChange={(e) => {
-          setDraft(e.target.value);
-          setLiteral(false);
-        }}
-        placeholder="New Reminder"
-        aria-label={
-          inList ? `Add a reminder to ${heading}` : `Add a reminder to ${targetList?.title ?? "a list"}`
-        }
-      />
-      {/* From a built-in view, where it lands is a real choice, so it is shown — but only
-          once something is being typed, not as a permanent control on the screen. */}
-      {!inList && targetList && lists.length > 1 && draft.trim() && (
-        <Picker
-          className="rx-add-target"
-          label="List to add to"
-          value={targetListGuid ?? ""}
-          onChange={chooseList}
-          options={lists.map((l) => ({ value: l.guid, label: l.title }))}
-        />
-      )}
-      {quick && (
-        <div className="rx-add-understood" role="status">
-          <span className="rx-add-reading">
-            {[
-              quick.dueAt !== null && dueLabel(quick.dueAt, false, quick.allDay).text,
-              quick.repeat && repeatWords(quick.repeat),
-              quick.priority === 1 ? "High priority" : quick.priority === 5 ? "Medium priority" : quick.priority === 9 ? "Low priority" : null,
-            ]
-              .filter(Boolean)
-              .join(" · ")}
-          </span>
-          <button type="button" className="rx-add-literal" onClick={() => setLiteral(true)}>
-            Add as Typed
-          </button>
-        </div>
-      )}
-    </form>
+    <AddReminder
+      onAdd={onAdd}
+      label={inList ? `Add a reminder to ${heading}` : `Add a reminder to ${targetList?.title ?? "a list"}`}
+      // From a built-in view, where it lands is a real choice, so it is shown.
+      lists={!inList && targetList && lists.length > 1 ? lists : null}
+      target={targetListGuid}
+      onChooseList={chooseList}
+    />
   );
 
   const rowActions = useRef<RowActions>(null!);
@@ -2439,6 +2394,93 @@ type ReminderRowProps = {
   kids: number;
   kidsHidden: boolean;
 };
+
+/**
+ * New Reminder at the foot of the view, keeping what is being typed to itself. Kept in the
+ * screen, each key drew the whole screen again: every section worked out anew and every row's
+ * props compared, ten thousand of them in a big list (desktop audit H7). Here a key draws this
+ * field and its preview, and the list is drawn when a reminder is added.
+ */
+const AddReminder = memo(function AddReminder({
+  onAdd, label, lists, target, onChooseList,
+}: {
+  onAdd: (typed: string, said: QuickReminder | null) => Promise<boolean>;
+  label: string;
+  /** The lists to choose from, when where it lands is a choice; otherwise null. */
+  lists: ReminderList[] | null;
+  target: string;
+  onChooseList: (guid: string) => void;
+}) {
+  const [draft, setDraft] = useState("");
+  /** The line is added exactly as typed, its dates and marks left in the title (the preview's
+   *  Add as Typed). Cleared once the line changes or is added. */
+  const [literal, setLiteral] = useState(false);
+  const quick = useMemo<QuickReminder | null>(() => {
+    if (literal || !draft.trim()) return null;
+    const q = parseReminder(draft);
+    return understood(q) ? q : null;
+  }, [draft, literal]);
+  const options = useMemo(() => lists?.map((l) => ({ value: l.guid, label: l.title })) ?? [], [lists]);
+  return (
+    <form
+      className="rx-add"
+      onSubmit={(e) => {
+        e.preventDefault();
+        const typed = draft.trim();
+        if (!typed) return;
+        // What the line said beyond its title, as the preview showed it.
+        const said = quick;
+        setLiteral(false);
+        // The field is ready for the next the moment Return is pressed; a line that could not
+        // be added comes back, unless something new was typed meanwhile.
+        setDraft("");
+        void onAdd(typed, said).then((added) => {
+          if (!added) setDraft((d) => d || typed);
+        });
+      }}
+    >
+      <span className="rx-tick ghost" aria-hidden="true">
+        <Glyph name="plus" />
+      </span>
+      <input
+        value={draft}
+        onChange={(e) => {
+          setDraft(e.target.value);
+          setLiteral(false);
+        }}
+        placeholder="New Reminder"
+        aria-label={label}
+      />
+      {/* From a built-in view, where it lands is a real choice, so it is shown — but only
+          once something is being typed, not as a permanent control on the screen. */}
+      {lists && draft.trim() && (
+        <Picker
+          className="rx-add-target"
+          label="List to add to"
+          value={target}
+          onChange={onChooseList}
+          options={options}
+        />
+      )}
+      {quick && (
+        <div className="rx-add-understood" role="status">
+          <span className="rx-add-reading">
+            {[
+              quick.dueAt !== null && dueLabel(quick.dueAt, false, quick.allDay).text,
+              quick.repeat && repeatWords(quick.repeat),
+              quick.priority === 1 ? "High priority" : quick.priority === 5 ? "Medium priority" : quick.priority === 9 ? "Low priority" : null,
+            ]
+              .filter(Boolean)
+              .join(" · ")}
+          </span>
+          <button type="button" className="rx-add-literal" onClick={() => setLiteral(true)}>
+            Add as Typed
+          </button>
+        </div>
+      )}
+    </form>
+  );
+});
 
 /**
  * One reminder's row, drawn again only when something it shows changes. Inline, every row of
