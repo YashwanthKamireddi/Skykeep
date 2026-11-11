@@ -122,16 +122,19 @@ struct Settings {
 }
 
 async fn settings(app: &AppHandle) -> Settings {
-    let data = app.state::<Data>();
-    let library = data.0.lock().await;
-    let folder = library
-        .state(FOLDER_KEY)
-        .ok()
-        .flatten()
-        .filter(|f| !f.is_empty())
-        .map(PathBuf::from);
-    let hidden = library.state(HIDDEN_KEY).ok().flatten().as_deref() == Some("1");
-    let drive = library.state(DRIVE_KEY).ok().flatten().as_deref() != Some("0");
+    // Read beside a sync pass, not in the writer's turn: Settings asks for the status while
+    // a Photos store can hold the writer for seconds (desktop audit H1).
+    let [folder, hidden, drive] = app
+        .state::<Data>()
+        .0
+        .read(|library| {
+            Ok([FOLDER_KEY, HIDDEN_KEY, DRIVE_KEY].map(|key| library.state(key).ok().flatten()))
+        })
+        .await
+        .unwrap_or_default();
+    let folder = folder.filter(|f| !f.is_empty()).map(PathBuf::from);
+    let hidden = hidden.as_deref() == Some("1");
+    let drive = drive.as_deref() != Some("0");
     Settings {
         folder,
         hidden,
@@ -150,18 +153,20 @@ async fn status(app: &AppHandle) -> Status {
         total,
         copied_bytes,
         total_bytes,
-    } = {
-        let data = app.state::<Data>();
-        let library = data.0.lock().await;
-        library.backup_progress(hidden).unwrap_or_default()
-    };
+    } = app
+        .state::<Data>()
+        .0
+        .read(|library| library.backup_progress(hidden))
+        .await
+        .unwrap_or_default();
     let drive_count = if DRIVE_RUNNING.load(Ordering::SeqCst) {
         DRIVE_NOW.lock().map(|c| *c).unwrap_or_default()
     } else {
-        let data = app.state::<Data>();
-        let library = data.0.lock().await;
-        let last = library
-            .state(DRIVE_LAST_KEY)
+        let last = app
+            .state::<Data>()
+            .0
+            .read(|library| library.state(DRIVE_LAST_KEY))
+            .await
             .ok()
             .flatten()
             .unwrap_or_default();

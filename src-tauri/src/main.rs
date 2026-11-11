@@ -743,7 +743,7 @@ async fn note_attachment_info(
     data: State<'_, Data>,
 ) -> UiResult<serde_json::Value> {
     let key = format!("notes.attachment.{id}");
-    if let Ok(Some(kept)) = data.0.lock().await.state(&key) {
+    if let Ok(Some(kept)) = data.0.read(|library| library.state(&key)).await {
         if let Ok(info) = serde_json::from_str::<serde_json::Value>(&kept) {
             return Ok(info);
         }
@@ -1255,7 +1255,15 @@ async fn auth_status(auth: State<'_, Auth>, data: State<'_, Data>) -> UiResult<S
     timing::mark("auth_status asked");
     // Busy (a resume, a sign-in, the timer's check): what was last known, rather than a wait.
     let facts = session_facts(&auth);
-    let owner = data.0.lock().await.state(ACCOUNT_KEY).ok().flatten();
+    // Beside a sync pass, never in the writer's turn: asked on every report change in every
+    // window, waiting behind a Photos store held each window's other reads behind it too
+    // (desktop audit H1).
+    let owner = data
+        .0
+        .read(|library| library.state(ACCOUNT_KEY))
+        .await
+        .ok()
+        .flatten();
     timing::mark("auth_status answered");
     Ok(Status {
         has_stored_session: facts.has_stored_session,
@@ -1996,16 +2004,11 @@ struct Unsent {
 
 #[tauri::command]
 async fn account_unsent(app: tauri::AppHandle, data: State<'_, Data>) -> UiResult<Unsent> {
-    let (changes, photos) = {
-        let library = data.0.lock().await;
-        (
-            library.outbox_count().map_err(|e| e.to_string())?,
-            library
-                .unfinished_uploads()
-                .map_err(|e| e.to_string())?
-                .len(),
-        )
-    };
+    let (changes, photos) = data
+        .0
+        .read(|library| Ok((library.outbox_count()?, library.unfinished_uploads()?.len())))
+        .await
+        .map_err(|e| e.to_string())?;
     Ok(Unsent {
         changes,
         photos,
@@ -2087,15 +2090,20 @@ struct AccountInfo {
 #[tauri::command]
 async fn account_info(auth: State<'_, Auth>, data: State<'_, Data>) -> UiResult<AccountInfo> {
     // The picture is the person's own card's — the card Contacts marks as theirs.
-    let photo_contact = {
-        let library = data.0.lock().await;
-        library
-            .state(quince_icloud::contacts::ME_KEY)
-            .ok()
-            .flatten()
-            .filter(|guid| !guid.is_empty())
-            .filter(|guid| library.contact_photo_source(guid).ok().flatten().is_some())
-    };
+    // Read beside a sync pass (asked after every pass in every window; see `auth_status`).
+    let photo_contact = data
+        .0
+        .read(|library| {
+            Ok(library
+                .state(quince_icloud::contacts::ME_KEY)
+                .ok()
+                .flatten()
+                .filter(|guid| !guid.is_empty())
+                .filter(|guid| library.contact_photo_source(guid).ok().flatten().is_some()))
+        })
+        .await
+        .ok()
+        .flatten();
     // Never behind the session's lock: see `session_facts`.
     let s = session_facts(&auth);
     Ok(AccountInfo {
@@ -2145,11 +2153,16 @@ struct Settings {
 
 #[tauri::command]
 async fn settings_get(data: State<'_, Data>) -> UiResult<Settings> {
-    let library = data.0.lock().await;
-    Ok(Settings {
-        reminder_alerts: alerts::allowed(&library, alerts::REMINDER_ALERTS),
-        event_alerts: alerts::allowed(&library, alerts::EVENT_ALERTS),
-    })
+    // Beside a sync pass, as every pure read is (see `auth_status`).
+    data.0
+        .read(|library| {
+            Ok(Settings {
+                reminder_alerts: alerts::allowed(library, alerts::REMINDER_ALERTS),
+                event_alerts: alerts::allowed(library, alerts::EVENT_ALERTS),
+            })
+        })
+        .await
+        .map_err(|e| e.to_string())
 }
 
 /// Turn a kind of alert on or off. Only the switches Settings shows can be set.
@@ -2321,10 +2334,11 @@ async fn event_alerts(
     auth: State<'_, Auth>,
     data: State<'_, Data>,
 ) -> UiResult<Vec<i64>> {
-    let event = {
-        let library = data.0.lock().await;
-        library.event(&guid).map_err(|e| e.to_string())?
-    };
+    let event = data
+        .0
+        .read(|library| library.event(&guid))
+        .await
+        .map_err(|e| e.to_string())?;
     let Some(event) = event else {
         return Ok(Vec::new());
     };
@@ -2345,10 +2359,11 @@ async fn event_guests(
     auth: State<'_, Auth>,
     data: State<'_, Data>,
 ) -> UiResult<Vec<quince_icloud::calendar::Guest>> {
-    let event = {
-        let library = data.0.lock().await;
-        library.event(&guid).map_err(|e| e.to_string())?
-    };
+    let event = data
+        .0
+        .read(|library| library.event(&guid))
+        .await
+        .map_err(|e| e.to_string())?;
     let Some(event) = event else {
         return Ok(Vec::new());
     };
@@ -2369,10 +2384,11 @@ async fn event_repeat(
     auth: State<'_, Auth>,
     data: State<'_, Data>,
 ) -> UiResult<Option<quince_icloud::calendar::EventRepeat>> {
-    let event = {
-        let library = data.0.lock().await;
-        library.event(&guid).map_err(|e| e.to_string())?
-    };
+    let event = data
+        .0
+        .read(|library| library.event(&guid))
+        .await
+        .map_err(|e| e.to_string())?;
     let Some(event) = event else { return Ok(None) };
     if dav::is_account_event(&event) {
         return Ok(dav::repeat_of(&data, &event).await);
@@ -2523,15 +2539,17 @@ async fn calendar_search(
     feeds_state: State<'_, Feeds>,
 ) -> UiResult<Vec<Event>> {
     let words = quince_core::fold::words(&query);
-    let (mut found, people) = {
-        let library = data.0.lock().await;
-        (
-            library.search_events(&query).map_err(|e| e.to_string())?,
-            library
-                .contacts_with_birthdays()
-                .map_err(|e| e.to_string())?,
-        )
-    };
+    // A read beside any sync pass, as every pure read is (see `auth_status`).
+    let (mut found, people) = data
+        .0
+        .read(|library| {
+            Ok((
+                library.search_events(&query)?,
+                library.contacts_with_birthdays()?,
+            ))
+        })
+        .await
+        .map_err(|e| e.to_string())?;
     if !words.is_empty() {
         let now = std::time::SystemTime::now()
             .duration_since(std::time::UNIX_EPOCH)
@@ -3598,11 +3616,11 @@ async fn resync_notes(
 
 /// One note, by record name. `None` once Apple no longer has it.
 async fn note_by_guid(data: &State<'_, Data>, guid: &str) -> Result<Note, String> {
-    let library = data.0.lock().await;
     // Wherever it is filed, Recently Deleted included: Delete Now and Recover act on notes
     // there, and looking only in "All" answered each of them "no longer in the library".
-    library
-        .note(guid)
+    data.0
+        .read(|library| library.note(guid))
+        .await
         .map_err(|e| e.to_string())?
         .ok_or_else(|| "That note is no longer in the local library.".into())
 }
@@ -6007,13 +6025,15 @@ async fn contact_photo(
     app: &tauri::AppHandle,
     guid: &str,
 ) -> Result<Photo, Box<dyn std::error::Error + Send + Sync>> {
-    let photo = {
-        let data = app.state::<Data>();
-        let library = data.0.lock().await;
-        library
-            .contact_photo_source(guid)?
-            .ok_or("that contact has no picture")?
-    };
+    // Beside a sync pass: one of these per face in view, and three at a time while warming
+    // after every pass, each in the writer's turn kept every window's reads queued behind
+    // whatever store was running (desktop audit H1).
+    let photo = app
+        .state::<Data>()
+        .0
+        .read(|library| library.contact_photo_source(guid))
+        .await?
+        .ok_or("that contact has no picture")?;
 
     // A picture shared by the person it belongs to arrives with no signature, and Apple's
     // own preference on those is that they update themselves. With nothing to tell a cached
