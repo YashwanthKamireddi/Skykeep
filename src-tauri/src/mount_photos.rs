@@ -345,7 +345,6 @@ impl Remote for PhotosRemote {
                     quince_icloud::photos::Flag::Deleted,
                     true,
                     app.state(),
-                    app.state(),
                 )
                 .await
                 .map(|_| ())

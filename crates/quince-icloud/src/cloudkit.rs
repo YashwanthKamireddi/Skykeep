@@ -23,6 +23,10 @@ const MAX_PAGES: usize = 200;
 /// The most records one lookup asks for: CloudKit's own limit for records/lookup.
 const LOOKUP_AT_ONCE: usize = 200;
 
+/// The most operations one records/modify carries: CloudKit's own limit, as icloud.com sends a
+/// selection.
+pub const MODIFY_AT_ONCE: usize = 200;
+
 pub struct ZoneClient<'a> {
     http: &'a reqwest::Client,
     base: String,
@@ -1380,40 +1384,47 @@ impl ZoneClient<'_> {
     /// Many records updated at once, as icloud.com sends a selection: up to 200 operations to a
     /// `records/modify`, not atomic — each record stands or falls alone — and a record whose
     /// change tag had moved (the phone changed it) tried once more on its fresh tag. Answers
-    /// each update's outcome in the order given: the record as it now is, or why not.
+    /// each update's outcome in the order given: the record as it now is, or why not — kept as
+    /// the error it was, so a caller can tell a record gone, or Apple out of reach, from a
+    /// refusal.
     pub async fn update_records(
         &self,
         zone: &str,
         record_type: &str,
         updates: &[(String, Option<String>, Value)],
-    ) -> Result<Vec<std::result::Result<Value, String>>> {
-        let mut out: Vec<std::result::Result<Value, String>> = Vec::with_capacity(updates.len());
-        for chunk in updates.chunks(200) {
-            let first = self.modify_many(zone, record_type, chunk).await?;
+    ) -> Result<Vec<Result<Value>>> {
+        let mut out: Vec<Result<Value>> = Vec::with_capacity(updates.len());
+        for chunk in updates.chunks(MODIFY_AT_ONCE) {
+            let mut answers = self.modify_many(zone, record_type, chunk).await?;
             // The stale ones, once more on the tag Apple has now.
-            let stale: Vec<usize> = first
+            let stale: Vec<usize> = answers
                 .iter()
                 .enumerate()
                 .filter(|(_, r)| matches!(r, Err(Error::Conflict)))
                 .map(|(i, _)| i)
                 .collect();
-            let mut answers: Vec<std::result::Result<Value, String>> = first
-                .into_iter()
-                .map(|r| r.map_err(|e| e.to_string()))
-                .collect();
             if !stale.is_empty() {
                 let names: Vec<&str> = stale.iter().map(|&i| chunk[i].0.as_str()).collect();
                 let fresh = self.lookup_tags(zone, &names).await?;
-                let again: Vec<(String, Option<String>, Value)> = stale
+                // One with no tag now is no longer there: gone, not written again untagged.
+                let (again, gone): (Vec<usize>, Vec<usize>) = stale
+                    .iter()
+                    .partition(|&&i| fresh.contains_key(&chunk[i].0));
+                for i in gone {
+                    answers[i] = Err(Error::NotFound);
+                }
+                let updates: Vec<(String, Option<String>, Value)> = again
                     .iter()
                     .map(|&i| {
                         let (name, _, fields) = &chunk[i];
                         (name.clone(), fresh.get(name).cloned(), fields.clone())
                     })
                     .collect();
-                let second = self.modify_many(zone, record_type, &again).await?;
-                for (&i, r) in stale.iter().zip(second) {
-                    answers[i] = r.map_err(|e| e.to_string());
+                if !updates.is_empty() {
+                    let second = self.modify_many(zone, record_type, &updates).await?;
+                    for (&i, r) in again.iter().zip(second) {
+                        answers[i] = r;
+                    }
                 }
             }
             out.extend(answers);
@@ -1486,6 +1497,10 @@ impl ZoneClient<'_> {
                                 || zone_was_busy(code, reason)
                             {
                                 Error::Conflict
+                            } else if code == "NOT_FOUND" || code == "UNKNOWN_ITEM" {
+                                // Gone at Apple, deleted for good elsewhere (or by an earlier
+                                // send of this same change): nothing left to write to.
+                                Error::NotFound
                             } else {
                                 Error::Protocol(format!("CloudKit refused the change: {reason}"))
                             },

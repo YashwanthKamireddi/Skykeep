@@ -56,6 +56,9 @@ pub use quince_sync::notes::{
 };
 #[cfg(test)]
 use quince_sync::notes::{send as send_note, NoteDelete, NoteMove, NoteSave};
+/// Photos' flag changes (Favorite, Hide, Delete, Recover, Delete for good): recorded, laid and
+/// sent by the code the phone's engine runs too (crates/quince-sync).
+pub use quince_sync::photos::PHOTOS;
 #[cfg(test)]
 use quince_sync::queue::{drain, transient};
 use quince_sync::queue::{drain_as, json, last_word, unreadable, Outcome, Report};
@@ -465,6 +468,9 @@ fn lay(l: &mut Library, p: &Pending) -> quince_core::Result<()> {
     if p.service == NOTES {
         return quince_sync::notes::lay(l, p);
     }
+    if p.service == PHOTOS {
+        return quince_sync::photos::lay(l, p);
+    }
     match (service_shown(&p.service), p.kind.as_str()) {
         (CONTACTS, "save") => {
             if let Ok(s) = serde_json::from_str::<ContactSave>(&p.payload) {
@@ -500,6 +506,10 @@ fn lay(l: &mut Library, p: &Pending) -> quince_core::Result<()> {
 /// Lay every change still waiting for `service` over what a sync pass just stored, in the
 /// order they were made.
 pub fn replay(library: &mut Library, service: &str) -> quince_core::Result<()> {
+    if service == PHOTOS {
+        // Photos' own, which also puts back a photo set aside that no delete waits for now.
+        return quince_sync::photos::replay(library);
+    }
     for p in library.outbox_pending(service)? {
         lay(library, &p)?;
     }
@@ -551,6 +561,14 @@ pub fn start(app: AppHandle) {
                         Outcome::Idle
                     } else {
                         drain_notes(&app).await
+                    },
+                ),
+                (
+                    PHOTOS,
+                    if held(PHOTOS, &waiting) {
+                        Outcome::Idle
+                    } else {
+                        drain_photos(&app).await
                     },
                 ),
                 (CONTACTS, drain_contacts(&app).await),
@@ -697,6 +715,34 @@ async fn drain_notes(app: &AppHandle) -> Outcome {
     if report.sent || !report.refused.is_empty() {
         let _ = crate::refresh_notes(&http, &root, params, &data).await;
     }
+    report.outcome
+}
+
+async fn drain_photos(app: &AppHandle) -> Outcome {
+    let auth = app.state::<Auth>();
+    let data = app.state::<Data>();
+    if waiting(&data, PHOTOS).await.is_clear() {
+        return Outcome::Idle;
+    }
+    let session = if crate::same_account(app).await {
+        cloudkit_context(&auth).await
+    } else {
+        Err(String::new())
+    };
+    let Ok((http, root, params)) = session else {
+        return Outcome::Later;
+    };
+    let Some(account) = crate::asked_as(&params) else {
+        return Outcome::Later;
+    };
+    // Held under the photos pass as each is sent, so no pass lands between Apple taking a
+    // change and its coming off the queue. Apple's answers are kept as each is taken (new
+    // versions, the date a deleted photo goes), so no pass is needed after.
+    let report = drain_as(&data.0, PHOTOS, &crate::PHOTOS_PASS, &account, |p| {
+        quince_sync::photos::send(&data.0, &http, &root, params.clone(), p)
+    })
+    .await;
+    tell_refused(app, PHOTOS, &report);
     report.outcome
 }
 
@@ -1330,6 +1376,11 @@ pub async fn outbox_discard(id: i64, app: AppHandle, data: State<'_, Data>) -> R
                 .find(|r| r.change.id == id)
                 .map(|r| r.change.service);
             l.outbox_discard(id)?;
+            // A photo a refused delete-for-good had set aside is back already, unless the
+            // refusal was a fault in sending: let go of, it is put back here either way.
+            if queue.as_deref() == Some(PHOTOS) {
+                quince_sync::photos::replay(l)?;
+            }
             // A pass finds nothing new to lay over a calendar whose tag has not moved, so what
             // was given up on is taken back off it here.
             let account = queue

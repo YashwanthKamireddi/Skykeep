@@ -67,8 +67,8 @@ pub enum PFlag {
     Expunged,
 }
 
-/// The photos pass: a pass from Apple and a flag change never run at once, so a pass never
-/// reads a photo between the library's change and Apple's answer.
+/// The photos pass: a pass from Apple and a flag change being sent never run at once, so no
+/// pass is stored between Apple taking a change and the change coming off the queue.
 static PASS: tokio::sync::Mutex<()> = tokio::sync::Mutex::const_new(());
 
 /// A grid's photos as one compact index: ids in order, each one's date (unix seconds), and its
@@ -133,6 +133,11 @@ pub struct PSync {
     /// Apple is still preparing the library: nothing read yet.
     pub preparing: bool,
     pub photos: u32,
+    /// Flag changes made here still on their way (Apple out of reach): sent on a later sync.
+    pub waiting: u32,
+    /// Why Apple turned down each change this sync sent and did not take: those photos are
+    /// back as they were.
+    pub refused: Vec<String>,
 }
 
 fn source(v: PView) -> Source {
@@ -166,16 +171,30 @@ impl Account {
 
 #[uniffi::export]
 impl Account {
-    /// A pass from Apple's library into the phone's, as the desktop reads it.
+    /// The flag changes made here sent to Apple, oldest first, then a pass from Apple's library
+    /// into the phone's, laid under whatever is still on its way, as the desktop does both.
     pub fn photos_sync(&self) -> Result<PSync, EngineError> {
-        let (lock, _) = self.library()?;
+        use quince_sync::photos::{self as shared, PHOTOS};
+        let (lock, account) = self.library()?;
         let (http, root, params) = self.photos_context()?;
-        let pass = runtime()
+        let (report, pass) = runtime()
             .block_on(async {
+                // Sent first: Android may stop the app at any point, and what is queued waits
+                // safely in the library until a pass gets this far.
+                let report = quince_sync::queue::drain_as(&lock, PHOTOS, &PASS, &account, |p| {
+                    shared::send(&lock, &http, &root, params.clone(), p)
+                })
+                .await;
                 let _one = PASS.lock().await;
-                quince_sync::photos::refresh(&lock, &http, &root, params).await
+                shared::refresh(&lock, &http, &root, params.clone())
+                    .await
+                    .map(|pass| (report, pass))
             })
             .map_err(failed)?;
+        let waiting = runtime()
+            .block_on(async { lock.lock().await.outbox_pending(PHOTOS) })
+            .map_err(failed)?
+            .len();
         remember(pass.links);
         let photos = runtime()
             .block_on(async {
@@ -191,6 +210,8 @@ impl Account {
             more: pass.more,
             preparing: pass.preparing,
             photos: u32::try_from(photos).unwrap_or(u32::MAX),
+            waiting: u32::try_from(waiting).unwrap_or(u32::MAX),
+            refused: report.refused.into_iter().map(|(_, why)| why).collect(),
         })
     }
 
@@ -215,8 +236,10 @@ impl Account {
     }
 
     /// Favorite, Hide, Delete, Recover or (from Recently Deleted) delete for good, on these
-    /// photos: shown at once, sent to Apple in batches, and any Apple refuses put back; the
-    /// desktop's exact code. Answers how many changed; an error names how many could not.
+    /// photos: recorded and shown at once, and sent behind by the next Photos sync (which sends
+    /// what waits before it reads), offline or not; the desktop's exact code. Answers how many
+    /// photos are now so (none for a delete for good: gone from view); an error says why
+    /// nothing was recorded.
     pub fn photos_set_flag(
         &self,
         ids: Vec<String>,
@@ -224,7 +247,6 @@ impl Account {
         on: bool,
     ) -> Result<u32, EngineError> {
         let (lock, _) = self.library()?;
-        let (http, root, params) = self.photos_context()?;
         let flag = match flag {
             PFlag::Favorite => quince_icloud::photos::Flag::Favorite,
             PFlag::Hidden => quince_icloud::photos::Flag::Hidden,
@@ -232,14 +254,10 @@ impl Account {
             PFlag::Expunged => quince_icloud::photos::Flag::Expunged,
         };
         let changed = runtime()
-            .block_on(quince_sync::photos::set_flags(
-                &lock,
-                &PASS,
-                (&http, &root, params),
-                ids,
-                flag,
-                on,
-            ))
+            .block_on(async {
+                let mut l = lock.lock().await;
+                quince_sync::photos::record_flags(&mut l, &ids, flag, on)
+            })
             .map_err(failed)?;
         Ok(u32::try_from(changed.len()).unwrap_or(u32::MAX))
     }

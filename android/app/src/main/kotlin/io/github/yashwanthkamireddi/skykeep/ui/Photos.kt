@@ -326,7 +326,11 @@ fun PhotosPage(engine: AccountInterface) {
     if (to == "hidden") unlock(context) { hiddenOpen = true; key = "hidden" } else key = to
   }
 
-  /** A flag on photos: the grid shows it at once (the index is read again), then Apple is told. */
+  /**
+   * A flag on photos: recorded and shown at once (the index is read again), then sent by a
+   * Photos sync, which sends what waits before it reads. Asked for once the Undo has had its
+   * moment: a change undone before it went is taken off the queue, and Apple hears nothing.
+   */
   fun flag(ids: List<String>, f: PFlag, on: Boolean, undo: String? = null) = scope.launch {
     selected = emptySet()
     val result = runCatching { withContext(Dispatchers.IO) { engine.photosSetFlag(ids, f, on) } }
@@ -339,6 +343,7 @@ fun PhotosPage(engine: AccountInterface) {
         generation++
       }
     }
+    if (result.isSuccess) syncPhotos(context)
   }
 
   BackHandler(enabled = collections || selected.isNotEmpty() || key != "library") {

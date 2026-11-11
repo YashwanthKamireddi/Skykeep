@@ -1848,6 +1848,103 @@ impl Library {
     }
 }
 
+/// Photos deleted for good here that Apple has not yet confirmed: out of the `photos` table —
+/// so no view, count, search or folder shows them — but kept whole, each as it was with the
+/// library it is in, until Apple has them gone (then forgotten) or refuses (then put back).
+/// Made where first used, as the walk's tables are.
+const ASIDE_TABLE: &str = "
+    CREATE TABLE IF NOT EXISTS photos_aside (
+        id    TEXT PRIMARY KEY,
+        zone  TEXT,
+        photo TEXT NOT NULL
+    ) STRICT;
+";
+
+impl Library {
+    fn aside_table(&self) -> Result<()> {
+        self.conn.execute_batch(ASIDE_TABLE)?;
+        Ok(())
+    }
+
+    /// These photos, those the library holds, taken out of every view and kept aside. One set
+    /// aside before and since brought back by a pass is set aside again as the pass left it.
+    pub fn set_photos_aside(&mut self, ids: &[String]) -> Result<()> {
+        self.aside_table()?;
+        let tx = self.conn.savepoint()?;
+        for id in ids {
+            let found = tx
+                .query_row(
+                    &format!("SELECT {COLUMNS}, zone FROM photos WHERE id = ?1"),
+                    params![id],
+                    |r| Ok((row_to_photo(r)?, r.get::<_, Option<String>>(28)?)),
+                )
+                .optional()?;
+            let Some((photo, zone)) = found else {
+                continue;
+            };
+            let json = serde_json::to_string(&photo).map_err(std::io::Error::other)?;
+            tx.execute(
+                "INSERT OR REPLACE INTO photos_aside (id, zone, photo) VALUES (?1, ?2, ?3)",
+                params![id, zone, json],
+            )?;
+            tx.execute("DELETE FROM photos WHERE id = ?1", params![id])?;
+        }
+        tx.commit()?;
+        Ok(())
+    }
+
+    /// Photos set aside, put back as they were — unless a pass has brought one back meanwhile,
+    /// which is newer — and no longer aside.
+    pub fn bring_photos_back(&mut self, ids: &[String]) -> Result<()> {
+        self.aside_table()?;
+        let mut back: Vec<(Option<String>, Photo)> = Vec::new();
+        for id in ids {
+            let found = self
+                .conn
+                .query_row(
+                    "SELECT zone, photo FROM photos_aside WHERE id = ?1",
+                    params![id],
+                    |r| Ok((r.get::<_, Option<String>>(0)?, r.get::<_, String>(1)?)),
+                )
+                .optional()?;
+            if let Some((zone, json)) = found {
+                if let Ok(photo) = serde_json::from_str::<Photo>(&json) {
+                    back.push((zone, photo));
+                }
+            }
+        }
+        self.atomically(|l| {
+            for (zone, photo) in &back {
+                if l.photo(&photo.id)?.is_none() {
+                    l.put_photos_in(zone.as_deref(), std::slice::from_ref(photo))?;
+                }
+            }
+            l.forget_photos_aside(ids)
+        })
+    }
+
+    /// Photos set aside, gone for good: Apple has them deleted.
+    pub fn forget_photos_aside(&mut self, ids: &[String]) -> Result<()> {
+        self.aside_table()?;
+        let tx = self.conn.savepoint()?;
+        for id in ids {
+            tx.execute("DELETE FROM photos_aside WHERE id = ?1", params![id])?;
+        }
+        tx.commit()?;
+        Ok(())
+    }
+
+    /// Every photo set aside, by id.
+    pub fn photos_aside(&self) -> Result<Vec<String>> {
+        self.aside_table()?;
+        let mut stmt = self
+            .conn
+            .prepare("SELECT id FROM photos_aside ORDER BY id")?;
+        let rows = stmt.query_map([], |r| r.get(0))?;
+        Ok(rows.collect::<std::result::Result<_, _>>()?)
+    }
+}
+
 #[cfg(test)]
 pub(crate) mod tests {
     use super::*;
@@ -2811,5 +2908,33 @@ mod scale_tests {
             )
             .unwrap();
         assert_eq!(hits, 1);
+    }
+
+    /// A photo set aside leaves every view, and its count, but is kept whole — the Shared
+    /// Library it is in with it — to be put back exactly as it was, or forgotten.
+    #[test]
+    fn a_photo_set_aside_is_out_of_sight_and_comes_back_whole() {
+        let mut lib = Library::in_memory().unwrap();
+        let mut kept = photo("A", 100);
+        kept.deleted = true;
+        kept.title = Some("Harbour".into());
+        lib.put_photos_in(Some("SharedSync-1"), &[kept.clone()])
+            .unwrap();
+        lib.put_photos(&[photo("B", 200)]).unwrap();
+        lib.set_photos_aside(&["A".into(), "B".into(), "nowhere".into()])
+            .unwrap();
+        assert!(lib.photo("A").unwrap().is_none());
+        assert!(lib.photos(View::RecentlyDeleted).unwrap().is_empty());
+        assert!(lib.photos(View::Library).unwrap().is_empty());
+        assert_eq!(lib.photos_aside().unwrap(), vec!["A", "B"]);
+        lib.bring_photos_back(&["A".into()]).unwrap();
+        assert_eq!(lib.photo("A").unwrap(), Some(kept));
+        assert_eq!(
+            lib.photo_zone("A").unwrap().as_deref(),
+            Some("SharedSync-1")
+        );
+        lib.forget_photos_aside(&["B".into()]).unwrap();
+        assert!(lib.photos_aside().unwrap().is_empty());
+        assert!(lib.photo("B").unwrap().is_none(), "forgotten");
     }
 }
