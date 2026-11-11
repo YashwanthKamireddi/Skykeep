@@ -543,11 +543,15 @@ fn failed(e: impl std::fmt::Display + std::fmt::Debug) -> EngineError {
 /// The phone's own log, through Android's `liblog`; nothing elsewhere.
 mod drive;
 mod notes;
+mod pass;
 mod photos;
 mod reminders;
 pub use drive::DItem;
 pub use notes::{NDoc, NFolder, NItem, NSpan, NSync};
-pub use photos::{PAlbum, PBackup, PIndex, PItem, PSize, PSync, PView};
+pub use pass::{DataAccessNow, DataState, SessionState};
+pub use photos::{
+    PAlbum, PBackup, PIndex, PItem, PLibrary, PLibraryChoice, PSharedAlbum, PSize, PSync, PView,
+};
 pub use reminders::{RCounts, REdit, RItem, RList, RSync, RView};
 
 mod log {

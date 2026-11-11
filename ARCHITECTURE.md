@@ -19,7 +19,7 @@ event names (`quince://synced`) and some comments. Don't rename them.
    │                                                 │
    └──────────────────────┬──────────────────────────┘
                           ▼
- quince-sync    library lock, change queue; Notes, Reminders, Photos: record, lay, send, refresh
+ quince-sync    library lock, change queue; Notes, Reminders, Photos: record, lay, send; the sync pass
  quince-vfs     Drive and Photos as folders (FUSE, Cloud Files); Drive write-back
  quince-icloud  each Apple service: request, parse, encode, apply into the library
  quince-core    the library: SQLite schema and migrations, search, outbox table, export
@@ -65,9 +65,19 @@ fetched in one `Library::atomically` transaction, so a reader sees all of it or 
 store takes `lock_for_pass`, writes Apple's records, and then replays every change still in
 the outbox over them (`quince_sync::reminders::replay` and its kin), in the same transaction.
 Without the replay, a pass landing while an edit waits would show Apple's older version. Each
-service keeps its own sync token; `refresh.rs` also forces a full walk once a day
-(`FULL_SYNC_EVERY`). One service failing leaves the others alone: the failure is recorded in
-`quince_core::health` and the last good data stays on screen.
+service keeps its own sync token, and a full walk is forced once a day (`FULL_SYNC_EVERY`). One
+service failing leaves the others alone: the failure is recorded in `quince_core::health` and
+the last good data stays on screen.
+
+**`quince_sync::pass`** is that pass, the same on both platforms: the desktop's `refresh.rs`
+and the phone's `quince-mobile` both run Notes, Reminders and Photos through it (Calendar,
+Contacts and Drive use its `store` and `token`). It checks the owner under the lock it stores
+with, against the account the pass's own session parameters ask as; picks a full walk or a
+delta; leaves a service Advanced Data Protection holds alone (`Paused`, Apple not asked); turns
+a panic into that service's failure; records failures; and reads Photos' readiness, Shared
+Albums and the Shared Library after the library. Before every pass both platforms call
+`quince_auth::Client::ensure_session` (`keep.rs`): the heartbeat, then a resume when Apple says
+the session lapsed, asking Apple at most once a minute and not at all once Apple has ended it.
 
 **When a pass runs** is `src-tauri/src/push.rs`:
 
@@ -212,7 +222,9 @@ How each service lands on the phone:
   sent as a merge against it.
 - **Notes, Reminders and Photos** live in the engine's library and use the desktop's own
   `quince-sync` code. Their adapters (`NotesSync.kt`, `RemindersSync.kt`, `PhotosSync.kt`)
-  store nothing; they give Android a schedule and run an engine pass.
+  store nothing; they give Android a schedule and run an engine pass (`quince_sync::pass`, as
+  the desktop runs it). Photos' collections list Shared Albums (looked at and shared, never
+  changed) and, with a Shared Library, the desktop's library switcher.
 - **Drive** appears in the Files app through a `DocumentsProvider` (`DriveProvider.kt`). A file
   is read in parts as the app reads it (a proxy file descriptor over `quince_vfs::Cache`, ranged
   reads from `quince_icloud::drive_parts`, shared with the desktop folder). A file an app writes
@@ -223,6 +235,14 @@ How each service lands on the phone:
   sync to a worker and wait for it, periodic syncs are WorkManager's, photo backup has its own
   worker started by MediaStore, and Send to iPhone is a user-initiated job on Android 14+.
   Every piece of work is named for the engine's account tag.
+- **The session** is kept alive before every sync (`Account::ensure_session`). When Apple ends
+  it (it wants the password or a code), the account's work stops and one notification says to
+  sign in again (`SessionEnded.kt`); signing in clears it.
+- **Advanced Data Protection:** Home reads where the approval stands from what the phone holds
+  (`data_access_standing`, no request) and asks for it only when the person presses Approve
+  (`data_access_ask`, then `data_access_follow`), as the desktop's `data_access.rs` does. A
+  service waiting on it is reported as waiting, nothing in its queue is sent, and it is not
+  retried until the approval lands.
 
 ## Threads and async
 
@@ -239,8 +259,9 @@ How each service lands on the phone:
 - **Android:** one tokio runtime for the process (two workers, `runtime()` in
   `quince-mobile`). Exported calls block on it; Kotlin calls them from `Dispatchers.IO`.
 - **Panics:** release builds keep `panic = "unwind"`. `Library::atomically` rolls back a
-  transaction that panics, a command that panics fails alone, and `drain_checked` turns a panic
-  in a send into a refused change.
+  transaction that panics, a command that panics fails alone, a pass that panics fails alone
+  (`quince_sync::pass::guarded`), and `drain_checked` turns a panic in a send into a refused
+  change.
 
 ## Where each service lives
 

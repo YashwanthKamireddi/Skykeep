@@ -16,14 +16,18 @@ object Outcome {
    * items iCloud couldn't take stay on this phone alone, and `why` (the first one's reason): said
    * for as long as it is true, not only by the sync that found it.
    */
-  data class Last(val at: Long, val ok: Boolean, val said: String, val okAt: Long, val onlyHere: Int = 0, val why: String? = null)
+  data class Last(
+    val at: Long, val ok: Boolean, val said: String, val okAt: Long, val onlyHere: Int = 0, val why: String? = null,
+    /** Advanced Data Protection holds it until the person approves: waiting, not failed. */
+    val paused: Boolean = false,
+  )
 
   private fun prefs(context: Context): SharedPreferences =
     context.applicationContext.getSharedPreferences(FILE, Context.MODE_PRIVATE)
 
   fun record(
     context: Context, authority: String, ok: Boolean, said: String, held: Int = 0,
-    onlyHere: Int = 0, why: String? = null,
+    onlyHere: Int = 0, why: String? = null, paused: Boolean = false,
   ) {
     prefs(context).edit()
       .putLong("$authority.at", System.currentTimeMillis())
@@ -32,7 +36,9 @@ object Outcome {
       .putInt("$authority.held", held)
       .putInt("$authority.onlyHere", onlyHere)
       .putString("$authority.why", why)
-      .apply { if (ok) putLong("$authority.okAt", System.currentTimeMillis()) }
+      .putBoolean("$authority.paused", paused)
+      // Waiting on an approval read nothing: the last clean sync stays the one before it.
+      .apply { if (ok && !paused) putLong("$authority.okAt", System.currentTimeMillis()) }
       .apply()
   }
 
@@ -58,6 +64,7 @@ object Outcome {
     return Last(
       p.getLong("$authority.at", 0), p.getBoolean("$authority.ok", false), said, p.getLong("$authority.okAt", 0),
       p.getInt("$authority.onlyHere", 0), p.getString("$authority.why", null),
+      p.getBoolean("$authority.paused", false),
     )
   }
 

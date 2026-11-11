@@ -195,7 +195,7 @@ private val SERVICES = listOf(
 )
 
 /** Something on a card the person should act on or know: a failed sync, or items only here. */
-private fun Outcome.Last?.needsYou() = this != null && (!ok || onlyHere > 0)
+private fun Outcome.Last?.needsYou() = this != null && (!ok || paused || onlyHere > 0)
 
 /**
  * Home: the account, then one card per service, the ones that need the person first. Each card
@@ -261,6 +261,7 @@ private fun Home(
       }) { Text("Apply Them") }
     }
   }
+  DataProtection(engine, sync.last, onApproved = onSync)
   // Phone makers' battery savers pause apps that aren't opened often, and a sync with them. Said
   // only when it has happened: nothing synced cleanly for two days, though Skykeep has synced
   // before.
@@ -327,6 +328,60 @@ private fun DriveCard(engine: uniffi.quince_mobile.AccountInterface, online: Boo
   }
 }
 
+/** The app's names for the services Advanced Data Protection holds, by the engine's. */
+private val PROTECTED = mapOf("notes" to "Notes", "reminders" to "Reminders", "photos" to "Photos", "drive" to "Drive")
+
+/** "Notes", "Notes and Photos", "Notes, Reminders and Photos". */
+private fun spoken(names: List<String>): String =
+  if (names.size <= 1) names.firstOrNull() ?: "Your data" else names.dropLast(1).joinToString(", ") + " and " + names.last()
+
+/**
+ * Advanced Data Protection, as the desktop asks for it (data_access.rs): with it on, Apple lets
+ * this phone read Notes, Reminders, Photos and Drive only once the person approves on one of
+ * their own devices, for about an hour at a time. Background syncs never ask (each request
+ * shows a notice on their devices), and while it waits those services aren't asked of Apple at
+ * all; this is the one place it is asked for, when the person presses the button. One approval
+ * covers every service; once it lands, they sync.
+ */
+@Composable
+private fun DataProtection(engine: uniffi.quince_mobile.AccountInterface, last: Map<String, Outcome.Last?>, onApproved: () -> Unit) {
+  val scope = rememberCoroutineScope()
+  var now by remember { mutableStateOf<uniffi.quince_mobile.DataAccessNow?>(null) }
+  var asking by remember { mutableStateOf(false) }
+  // From what the phone holds alone, read again whenever a sync says something new.
+  LaunchedEffect(last) { now = withContext(Dispatchers.IO) { runCatching { engine.dataAccessStanding() }.getOrNull() } }
+  val n = now ?: return
+  if (n.state == uniffi.quince_mobile.DataState.OPEN && !asking) return
+  val what = spoken(n.services.mapNotNull { PROTECTED[it] })
+  val text = when {
+    asking || n.state == uniffi.quince_mobile.DataState.WAITING ->
+      "Check your iPhone, iPad or Mac and allow Skykeep. $what will sync as soon as you do."
+    n.state == uniffi.quince_mobile.DataState.WEB_ACCESS_OFF ->
+      "Advanced Data Protection is on, and Access iCloud Data on the Web is off. Turn it on in iCloud settings on your iPhone to sync here."
+    n.state == uniffi.quince_mobile.DataState.NOT_SENT ->
+      "Apple couldn't show the request on your devices. Make sure your iPhone is signed in to iCloud, then try again."
+    else -> "Advanced Data Protection keeps $what until you approve Skykeep on one of your devices. Everything on this phone stays."
+  } + (n.problem?.let { " $it" } ?: "")
+  Notice(text) {
+    if (n.state != uniffi.quince_mobile.DataState.WEB_ACCESS_OFF) {
+      Button(enabled = !asking, onClick = {
+        scope.launch {
+          asking = true
+          var step = withContext(Dispatchers.IO) { engine.dataAccessAsk() }
+          now = step
+          // Approved on a device: followed until the keys are here (five minutes at most).
+          if (step.state == uniffi.quince_mobile.DataState.WAITING) {
+            step = withContext(Dispatchers.IO) { engine.dataAccessFollow() }
+            now = step
+          }
+          asking = false
+          if (step.state == uniffi.quince_mobile.DataState.OPEN) onApproved()
+        }
+      }) { Text(if (asking) "Waiting for Approval" else "Approve on your iPhone") }
+    }
+  }
+}
+
 /** One service's sync health, in the design's words, as one stop for TalkBack. */
 @Composable
 private fun Health(s: Service, last: Outcome.Last?, syncing: Boolean, firstRun: Boolean, now: Long, onClick: () -> Unit) {
@@ -337,6 +392,8 @@ private fun Health(s: Service, last: Outcome.Last?, syncing: Boolean, firstRun: 
     syncing -> "Syncing" to false
     last == null && firstRun -> "Setting up" to false
     last == null -> "Not synced yet" to false
+    // Advanced Data Protection: waiting on the person, not failing (the approval is above).
+    last.paused -> "Waiting for your approval" to false
     last.ok -> "Up to date · ${ago(last.at, now)}" to false
     signIn -> "Sign in again" to true
     else -> "Will try again" to true
@@ -344,12 +401,14 @@ private fun Health(s: Service, last: Outcome.Last?, syncing: Boolean, firstRun: 
   val detail = when {
     last == null && firstRun -> "The first sync can take a little while. You can keep using your phone."
     last == null -> null
+    last.paused -> "What's on this phone stays, and changes you make here wait to be sent." +
+      (if (last.okAt > 0) " Last synced ${ago(last.okAt, now)}." else "")
     last.ok -> null
     signIn -> "Your Apple sign-in has expired. Nothing is lost, and changes waiting to send are kept."
     else -> "Apple didn't answer. Skykeep will try again on its own." + (if (last.okAt > 0) " Last synced ${ago(last.okAt, now)}." else "")
   }
   // What the adapter counted ("124 contacts"), without its per-sync change tally.
-  val counts = last?.takeIf { it.ok }?.said?.substringBefore(" · ")
+  val counts = last?.takeIf { it.ok && !it.paused }?.said?.substringBefore(" · ")
   Surface(
     onClick = onClick,
     color = colours.surfaceContainer,

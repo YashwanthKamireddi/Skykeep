@@ -89,6 +89,9 @@ pub struct RSync {
     pub waiting: u32,
     /// Changes Apple refused, each with its reason, for the person.
     pub refused: Vec<String>,
+    /// Advanced Data Protection holds Reminders until the person approves on one of their
+    /// devices: nothing was asked of Apple, and nothing is retried before then.
+    pub paused: bool,
 }
 
 fn item(r: Reminder) -> RItem {
@@ -137,13 +140,21 @@ impl Account {
             quince_sync::queue::asked_as(&c.service_params())
                 .ok_or_else(|| failed("Sign in to see your reminders."))?
         };
+        Ok((self.library_for(&account)?, account))
+    }
+
+    /// `account`'s library (as the library names accounts), opened once and again only for
+    /// another account. A sync passes the account its session asks as, read in the same look
+    /// as the rest of what the pass needs (`pass::Apple`), never in a second one.
+    pub(crate) fn library_for(&self, account: &str) -> Result<Arc<LibraryLock>, EngineError> {
+        let account = account.to_string();
         let mut open = self
             .library
             .lock()
             .unwrap_or_else(std::sync::PoisonError::into_inner);
         if let Some((who, lock)) = open.as_ref() {
             if *who == account {
-                return Ok((Arc::clone(lock), account));
+                return Ok(Arc::clone(lock));
             }
         }
         let dir = self.dir.join("libraries").join(&account);
@@ -161,8 +172,8 @@ impl Account {
             }
             Ok::<_, EngineError>(())
         })?;
-        *open = Some((account.clone(), Arc::clone(&lock)));
-        Ok((lock, account))
+        *open = Some((account, Arc::clone(&lock)));
+        Ok(lock)
     }
 
     fn with_library<T>(
@@ -362,20 +373,37 @@ impl Account {
     /// The changes made here sent to Apple, oldest first, then Apple's Reminders read and laid
     /// under whatever is still on its way, as the desktop does it.
     pub fn reminders_sync(&self) -> Result<RSync, EngineError> {
-        let (lock, account) = self.library()?;
-        let (http, root, params) = self.reminders_context()?;
+        // The session and whose library it is, read in one look: an account switched between
+        // two looks once stored one account's reminders in the other's library.
+        let apple = self.apple("reminders")?;
+        let lock = self.library_of(&apple)?;
         runtime().block_on(async {
-            let report =
-                quince_sync::queue::drain_as(&lock, shared::REMINDERS, &PASS, &account, |p| {
-                    shared::send(&lock, &http, &root, params.clone(), p)
-                })
-                .await;
-            {
-                let _pass = PASS.lock().await;
-                shared::refresh(&lock, &http, &root, params.clone())
+            let waits = apple.waiting.contains(&shared::REMINDERS);
+            // Held by Advanced Data Protection: nothing is sent (Apple would only refuse it, and
+            // the queue would try again and again); it waits, kept, for the approval.
+            let report = match apple.cloudkit.as_deref() {
+                Some(root) if !waits => {
+                    quince_sync::queue::drain_as(
+                        &lock,
+                        shared::REMINDERS,
+                        &PASS,
+                        &apple.account,
+                        |p| shared::send(&lock, &apple.http, root, apple.params.clone(), p),
+                    )
                     .await
-                    .map_err(failed)?;
-            }
+                }
+                _ => quince_sync::queue::Report {
+                    outcome: quince_sync::queue::Outcome::Later,
+                    sent: false,
+                    refused: Vec::new(),
+                },
+            };
+            // Whose library, a whole walk once a day, a panic kept to it: the desktop's pass.
+            let pass = self
+                .pass(quince_sync::pass::REMINDERS, &apple, &lock, &PASS)
+                .await;
+            let paused =
+                crate::pass::settled(&pass, "Apple hasn't offered Reminders for this account.")?;
             // What the library holds now, not what this pass changed: a pass from a token
             // brings only what changed ("1 reminders in 1 lists", it once said).
             let l = lock.lock().await;
@@ -392,6 +420,7 @@ impl Account {
                 reminders: count(open),
                 waiting: count(waiting),
                 refused: report.refused.into_iter().map(|(_, why)| why).collect(),
+                paused,
             })
         })
     }
@@ -413,12 +442,9 @@ impl Account {
     /// Apple's Reminders read again after a list change that reached Apple. Failing, it is not
     /// the change failing (it is made): the next sync brings the screen up to date.
     fn reminders_reread(&self) -> Result<(), EngineError> {
-        let (lock, _) = self.library()?;
-        let (http, root, params) = self.reminders_context()?;
-        let _ = runtime().block_on(async {
-            let _pass = PASS.lock().await;
-            shared::refresh(&lock, &http, &root, params).await
-        });
+        let apple = self.apple("reminders")?;
+        let lock = self.library_of(&apple)?;
+        let _ = runtime().block_on(self.pass(quince_sync::pass::REMINDERS, &apple, &lock, &PASS));
         Ok(())
     }
 }

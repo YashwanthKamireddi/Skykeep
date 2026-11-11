@@ -19,6 +19,7 @@ import androidx.work.WorkManager
 import androidx.work.WorkerParameters
 import androidx.work.workDataOf
 import io.github.yashwanthkamireddi.skykeep.Engine
+import uniffi.quince_mobile.SessionState
 import java.util.concurrent.ConcurrentHashMap
 import java.util.concurrent.TimeUnit
 import kotlin.time.Duration
@@ -143,7 +144,19 @@ object SyncWork {
       return WorkResult.success()
     }
     if (input.getBoolean(PERIODIC, false) && !wanted(account, authority)) return WorkResult.success()
-    val pass = lane(authority).withLock { withContext(Dispatchers.IO) { pass(context, engine, account, authority) } }
+    // The session kept alive before the pass, as the desktop keeps it: taken up again by itself
+    // when it lapsed. Ended by Apple, nothing more is tried until the person signs in again;
+    // before, every sync after the cookies lapsed failed quietly for good.
+    val tag = Work.tagOf(context, account) ?: return WorkResult.success()
+    if (SessionEnded.ended(context, tag)) return WorkResult.success()
+    when (withContext(Dispatchers.IO) { engine.ensureSession() }) {
+      SessionState.ALIVE -> {}
+      // Offline, or Apple busy: the same backoff as a pass that couldn't reach Apple.
+      SessionState.AWAY -> return if (attempt < 5) WorkResult.retry() else WorkResult.success()
+      SessionState.CODE, SessionState.SIGN_IN -> { SessionEnded.mark(context, tag); return WorkResult.success() }
+      SessionState.SIGNED_OUT -> return WorkResult.success()
+    }
+    val pass =lane(authority).withLock { withContext(Dispatchers.IO) { pass(context, engine, account, authority) } }
     return when (pass) {
       Pass.Done -> WorkResult.success()
       Pass.More -> { now(context, account, authority); WorkResult.success() }

@@ -34,8 +34,8 @@ internal fun photosPass(context: Context, engine: uniffi.quince_mobile.AccountIn
     done.more -> "${done.photos} photos so far, more on the next sync"
     else -> "${done.photos} photos"
   }
-  Outcome.record(context, authority, true, said)
-  kotlinx.coroutines.runBlocking { PhotoBackup.now(context) }
+  Outcome.record(context, authority, true, said, paused = done.paused)
+  if (!done.paused) kotlinx.coroutines.runBlocking { PhotoBackup.now(context) }
   if (done.more) Pass.More else Pass.Done
 } catch (x: Exception) {
   if (!x.fromEngine()) throw x

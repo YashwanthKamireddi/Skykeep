@@ -30,8 +30,9 @@ internal fun notesPass(context: Context, engine: uniffi.quince_mobile.AccountInt
     if (done.waiting > 0u) add("${done.waiting} changes to send again")
     if (done.refused.isNotEmpty()) add("${done.refused.size} not taken by iCloud: ${done.refused.first()}")
   }.joinToString(" · ")
-  Outcome.record(context, authority, true, said)
-  if (done.waiting > 0u) Pass.Again else Pass.Done
+  Outcome.record(context, authority, true, said, paused = done.paused)
+  // Waiting on an approval is not tried again on a timer: it goes once the person approves.
+  if (done.waiting > 0u && !done.paused) Pass.Again else Pass.Done
 } catch (x: Exception) {
   if (!x.fromEngine()) throw x
   Outcome.record(context, authority, false, x.reason("Notes couldn't be read."))
