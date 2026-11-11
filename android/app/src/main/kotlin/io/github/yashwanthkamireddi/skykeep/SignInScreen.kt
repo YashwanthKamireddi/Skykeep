@@ -1,5 +1,20 @@
 package io.github.yashwanthkamireddi.skykeep
 
+import io.github.yashwanthkamireddi.skykeep.R
+import androidx.compose.ui.text.input.VisualTransformation
+import androidx.compose.ui.res.painterResource
+import androidx.compose.ui.platform.LocalContext
+import androidx.compose.material3.Surface
+import androidx.compose.foundation.verticalScroll
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.layout.systemBarsPadding
+import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.offset
+import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.Image
+import android.net.Uri
+import android.content.Intent
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.fillMaxWidth
@@ -42,12 +57,15 @@ private sealed interface Step {
 }
 
 /**
- * Signing in with the Apple Account: the desktop app's own sign-in, in Android's form. Fields
- * carry autofill hints, so a password manager fills them; the code field takes the six digits
- * from the SMS keyboard suggestion. Every call runs off the main thread.
+ * Signing in with the Apple Account: the desktop app's own sign-in, in Android's form. Opaque and
+ * plain (never over glass), Skykeep's own mark at the top, and exactly what happens to the
+ * password said under the fields. Fields carry autofill hints, so a password manager fills
+ * them; the code field takes the six digits from the SMS keyboard suggestion. Every call runs
+ * off the main thread.
  */
 @Composable
 fun SignInScreen(account: Account, onSignedIn: () -> Unit) {
+  val context = LocalContext.current
   var step by remember { mutableStateOf<Step>(Step.Credentials) }
   var appleId by remember { mutableStateOf("") }
   var password by remember { mutableStateOf("") }
@@ -70,13 +88,14 @@ fun SignInScreen(account: Account, onSignedIn: () -> Unit) {
   }
 
   Column(
-    Modifier.fillMaxWidth().imePadding().padding(horizontal = 32.dp, vertical = 96.dp).widthIn(max = 420.dp),
+    Modifier.fillMaxSize().systemBarsPadding().imePadding().verticalScroll(rememberScrollState())
+      .padding(horizontal = 28.dp).padding(top = 32.dp, bottom = 24.dp).widthIn(max = 460.dp),
     verticalArrangement = Arrangement.spacedBy(16.dp),
-    horizontalAlignment = Alignment.Start,
   ) {
-    Text("Sign in with your Apple Account", style = MaterialTheme.typography.headlineSmall)
+    Image(painterResource(R.mipmap.ic_launcher_foreground), contentDescription = "Skykeep", modifier = Modifier.size(88.dp).offset(x = (-16).dp))
     when (step) {
       Step.Credentials -> {
+        Text("Sign in with your Apple Account", style = MaterialTheme.typography.headlineMedium)
         OutlinedTextField(
           value = appleId, onValueChange = { appleId = it }, label = { Text("Email or phone number") },
           singleLine = true, enabled = !busy,
@@ -92,30 +111,57 @@ fun SignInScreen(account: Account, onSignedIn: () -> Unit) {
             password = ""
           }
         }
+        var shown by remember { mutableStateOf(false) }
         OutlinedTextField(
           value = password, onValueChange = { password = it }, label = { Text("Password") },
-          singleLine = true, enabled = !busy, visualTransformation = PasswordVisualTransformation(),
+          singleLine = true, enabled = !busy,
+          visualTransformation = if (shown) VisualTransformation.None else PasswordVisualTransformation(),
+          trailingIcon = {
+            TextButton(onClick = { shown = !shown }) { Text(if (shown) "Hide" else "Show") }
+          },
           keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Password, imeAction = ImeAction.Go),
           keyboardActions = KeyboardActions(onGo = { submit() }),
           modifier = Modifier.fillMaxWidth().semantics { contentType = ContentType.Password },
         )
-        Button(onClick = { submit() }, enabled = !busy && appleId.isNotBlank() && password.isNotEmpty()) {
-          Text("Sign In")
+        Button(
+          onClick = { submit() }, enabled = !busy && appleId.isNotBlank() && password.isNotEmpty(),
+          modifier = Modifier.fillMaxWidth().height(52.dp),
+        ) { if (busy) CircularProgressIndicator(Modifier.size(20.dp), strokeWidth = 2.dp, color = MaterialTheme.colorScheme.onPrimary) else Text("Sign In") }
+        error?.let { Text(it, color = MaterialTheme.colorScheme.error, style = MaterialTheme.typography.bodyMedium) }
+        TextButton(onClick = {
+          runCatching { context.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse("https://iforgot.apple.com")).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)) }
+        }) { Text("Forgot password? (opens Apple's page)") }
+        // What happens to the password, each part literally true of this build.
+        Surface(color = MaterialTheme.colorScheme.surfaceContainer, shape = MaterialTheme.shapes.large) {
+          Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+            Text("How your password is handled", style = MaterialTheme.typography.titleSmall)
+            Text(
+              "Skykeep signs in the way Apple's own sign-in does (SRP): it proves your password to Apple without sending it. To stay signed in, it keeps your password and session sealed with a key in this phone's Android Keystore, left out of backups, and erases them when you sign out. It talks only to Apple.",
+              style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+          }
         }
+        Text("Skykeep is not made by or affiliated with Apple.", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
       }
       Step.Code -> {
-        Text("Enter the six-digit code shown on your other Apple devices.", style = MaterialTheme.typography.bodyMedium)
+        Text("Enter the code", style = MaterialTheme.typography.headlineMedium)
+        Text(
+          "Apple sent a six-digit code to your iPhone, iPad or Mac. Allow the sign-in there, then type the code here.",
+          style = MaterialTheme.typography.bodyLarge, color = MaterialTheme.colorScheme.onSurfaceVariant,
+        )
         val submit = { run { account.submitCode(code); scope.launch { onSignedIn() } } }
         OutlinedTextField(
           value = code, onValueChange = { v -> code = v.filter(Char::isDigit).take(6); if (code.length == 6) submit() },
           label = { Text("Code") }, singleLine = true, enabled = !busy,
+          textStyle = MaterialTheme.typography.headlineSmall.copy(letterSpacing = androidx.compose.ui.unit.TextUnit(0.3f, androidx.compose.ui.unit.TextUnitType.Em)),
           keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.NumberPassword, imeAction = ImeAction.Done),
           modifier = Modifier.fillMaxWidth().semantics { contentType = ContentType.SmsOtpCode },
         )
+        if (busy) CircularProgressIndicator(Modifier.size(24.dp))
+        error?.let { Text(it, color = MaterialTheme.colorScheme.error, style = MaterialTheme.typography.bodyMedium) }
         TextButton(onClick = { run { account.resendToDevices() } }, enabled = !busy) { Text("Send a new code") }
+        TextButton(onClick = { step = Step.Credentials; code = ""; error = null }, enabled = !busy) { Text("Use a different account") }
       }
     }
-    if (busy) CircularProgressIndicator(Modifier.padding(top = 8.dp))
-    error?.let { Text(it, color = MaterialTheme.colorScheme.error, style = MaterialTheme.typography.bodyMedium) }
   }
 }

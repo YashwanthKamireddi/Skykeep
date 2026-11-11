@@ -3,6 +3,9 @@ package io.github.yashwanthkamireddi.skykeep.ui
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.material3.Surface
+import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.PaddingValues
+import androidx.compose.foundation.selection.toggleable
 import io.github.yashwanthkamireddi.skykeep.ui.theme.mark
 import io.github.yashwanthkamireddi.skykeep.ui.theme.AppTheme
 import androidx.compose.foundation.Image
@@ -167,8 +170,8 @@ fun MainScreens(engine: uniffi.quince_mobile.Account, onSignedOut: () -> Unit) {
             when {
               page == Page.Contacts -> ContactsPage(account)
               page == Page.Calendar -> AppTheme(Palette.App.Calendar) { CalendarPage(account) }
-              tab == Tab.Home -> Home(engine, account, sync, onSync = ::now, onOpen = { page = it }, onTab = { tab = it; page = null })
               page == Page.Settings -> SettingsPage(engine, account, onSignedOut)
+              tab == Tab.Home -> Home(engine, account, sync, onSync = ::now, onOpen = { page = it }, onTab = { tab = it; page = null })
             }
           }
         }
@@ -469,7 +472,7 @@ private fun SyncSwitch(account: Account?, authority: String, title: String, deta
 private fun SettingsPage(engine: uniffi.quince_mobile.Account, account: Account?, onSignedOut: () -> Unit) {
   val context = LocalContext.current
   val scope = rememberCoroutineScope()
-  Text("Settings", style = MaterialTheme.typography.headlineSmall)
+  Text("Settings", style = MaterialTheme.typography.headlineLarge)
   // Off unless turned on; from that moment on, never the whole camera roll at once.
   var backup by remember { mutableStateOf(io.github.yashwanthkamireddi.skykeep.sync.PhotoBackup.on(context)) }
   val media = if (android.os.Build.VERSION.SDK_INT >= 33) arrayOf(android.Manifest.permission.READ_MEDIA_IMAGES, android.Manifest.permission.READ_MEDIA_VIDEO)
@@ -477,62 +480,64 @@ private fun SettingsPage(engine: uniffi.quince_mobile.Account, account: Account?
   val askMedia = androidx.activity.compose.rememberLauncherForActivityResult(androidx.activity.result.contract.ActivityResultContracts.RequestMultiplePermissions()) { granted ->
     if (granted.values.all { it }) { backup = true; io.github.yashwanthkamireddi.skykeep.sync.PhotoBackup.set(context, true) }
   }
-  Row(verticalAlignment = Alignment.CenterVertically) {
-    Column(Modifier.weight(1f)) {
-      Text("Back up new photos", style = MaterialTheme.typography.titleSmall)
-      Text("Photos and videos you take on this phone from now on go to iCloud Photos.", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
-    }
-    androidx.compose.material3.Switch(backup, { on ->
-      if (on) askMedia.launch(media) else { backup = false; io.github.yashwanthkamireddi.skykeep.sync.PhotoBackup.set(context, false) }
-    })
-  }
-  if (backup) {
-    var cellular by remember { mutableStateOf(io.github.yashwanthkamireddi.skykeep.sync.PhotoBackup.mobileData(context)) }
-    Row(verticalAlignment = Alignment.CenterVertically) {
-      Column(Modifier.weight(1f)) {
-        Text("Use mobile data", style = MaterialTheme.typography.bodyMedium)
-        Text("Off: photos wait for Wi-Fi.", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+  var cellular by remember { mutableStateOf(io.github.yashwanthkamireddi.skykeep.sync.PhotoBackup.mobileData(context)) }
+  SectionLabel("Photos")
+  Surface(color = MaterialTheme.colorScheme.surfaceContainer, shape = MaterialTheme.shapes.large) {
+    Column {
+      SwitchRow("Back up new photos", "Photos and videos you take on this phone from now on go to iCloud Photos.", backup) { on ->
+        if (on) askMedia.launch(media) else { backup = false; io.github.yashwanthkamireddi.skykeep.sync.PhotoBackup.set(context, false) }
       }
-      androidx.compose.material3.Switch(cellular, { cellular = it; io.github.yashwanthkamireddi.skykeep.sync.PhotoBackup.setMobileData(context, it) })
+      if (backup) {
+        HorizontalDivider(Modifier.padding(start = 16.dp), color = MaterialTheme.colorScheme.outlineVariant)
+        SwitchRow("Use mobile data", "Off: photos wait for Wi-Fi.", cellular) { cellular = it; io.github.yashwanthkamireddi.skykeep.sync.PhotoBackup.setMobileData(context, it) }
+      }
     }
   }
-  Text("Sync every", style = MaterialTheme.typography.titleSmall)
+  SectionLabel("Sync")
   var every by remember { mutableLongStateOf(syncEvery(context)) }
-  for ((seconds, label) in listOf(3_600L to "Hour", 3 * 3_600L to "3 hours", 6 * 3_600L to "6 hours", 12 * 3_600L to "12 hours", 86_400L to "Day")) {
+  val choices = listOf(3_600L to "About every hour", 3 * 3_600L to "About every 3 hours", 6 * 3_600L to "About every 6 hours", 12 * 3_600L to "About every 12 hours", 86_400L to "About once a day")
+  GroupCard(choices, inset = 16) { (seconds, label) ->
     Row(
       Modifier.fillMaxWidth().selectable(selected = every == seconds, role = Role.RadioButton, onClick = {
         every = seconds
         setSyncEvery(context, account, seconds)
-      }).padding(vertical = 4.dp),
+      }).padding(horizontal = 16.dp, vertical = 12.dp),
       verticalAlignment = Alignment.CenterVertically,
     ) {
+      Text(label, style = MaterialTheme.typography.bodyLarge, modifier = Modifier.weight(1f))
       RadioButton(selected = every == seconds, onClick = null)
-      Spacer(Modifier.width(12.dp))
-      Text(label, style = MaterialTheme.typography.bodyLarge)
     }
   }
   Text(
-    "A change made on this phone is sent at once, whatever this is set to.",
-    style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant,
+    "Android picks the exact moment, to save battery. A change made on this phone is sent at once, whatever this is set to.",
+    style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.padding(horizontal = 4.dp),
   )
-  HorizontalDivider()
-  Text("Privacy", style = MaterialTheme.typography.titleSmall)
-  Text(
-    "Your password is used to sign in with Apple and is never stored. Skykeep keeps a sign-in session in this phone's secure keystore and talks only to Apple.",
-    style = MaterialTheme.typography.bodyMedium,
-  )
-  HorizontalDivider()
-  Text("About", style = MaterialTheme.typography.titleSmall)
-  Text("Skykeep is free and open source.", style = MaterialTheme.typography.bodyMedium)
-  TextButton(onClick = {
-    context.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse("https://github.com/YashwanthKamireddi/Skykeep")))
-  }) { Text("Source Code on GitHub") }
-  HorizontalDivider()
+  SectionLabel("Privacy")
+  Surface(color = MaterialTheme.colorScheme.surfaceContainer, shape = MaterialTheme.shapes.large) {
+    Text(
+      "Skykeep talks only to Apple: no Skykeep account, no ads, no analytics, no crash reports. It signs in the way Apple's own sign-in does (SRP), proving your password to Apple without sending it. To stay signed in, it keeps your password and session sealed with a key in this phone's Android Keystore, left out of backups, and erases them when you sign out. Your library is stored in this app's own storage on this phone.",
+      style = MaterialTheme.typography.bodyMedium, modifier = Modifier.padding(16.dp),
+    )
+  }
+  SectionLabel("About")
+  val version = remember { runCatching { context.packageManager.getPackageInfo(context.packageName, 0).versionName }.getOrNull() }
+  Surface(color = MaterialTheme.colorScheme.surfaceContainer, shape = MaterialTheme.shapes.large) {
+    Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
+      Text("Skykeep${version?.let { " $it" } ?: ""}", style = MaterialTheme.typography.titleMedium)
+      Text("Free and open source (GPL-3.0), made by an independent developer. Not made by or affiliated with Apple. iCloud, iPhone and Apple are trademarks of Apple Inc.", style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
+      TextButton(onClick = {
+        context.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse("https://github.com/YashwanthKamireddi/Skykeep")))
+      }, contentPadding = PaddingValues(0.dp)) { Text("Source code on GitHub") }
+    }
+  }
+  Spacer(Modifier.height(8.dp))
   var leaving by remember { mutableStateOf(false) }
   var unsent by remember { mutableIntStateOf(0) }
   var working by remember { mutableStateOf(false) }
   var trouble by remember { mutableStateOf<String?>(null) }
   OutlinedButton(
+    modifier = Modifier.fillMaxWidth(),
+    colors = ButtonDefaults.outlinedButtonColors(contentColor = MaterialTheme.colorScheme.error),
     enabled = !working,
     onClick = {
       scope.launch {
@@ -582,6 +587,22 @@ private fun SettingsPage(engine: uniffi.quince_mobile.Account, account: Account?
         }
       },
     )
+  }
+}
+
+/** A setting that is on or off: its name, what it means, and Android's switch; the whole row toggles. */
+@Composable
+private fun SwitchRow(title: String, detail: String, on: Boolean, onChange: (Boolean) -> Unit) {
+  Row(
+    Modifier.fillMaxWidth().toggleable(on, role = Role.Switch, onValueChange = onChange).padding(horizontal = 16.dp, vertical = 12.dp),
+    verticalAlignment = Alignment.CenterVertically,
+  ) {
+    Column(Modifier.weight(1f)) {
+      Text(title, style = MaterialTheme.typography.bodyLarge)
+      Text(detail, style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
+    }
+    Spacer(Modifier.width(12.dp))
+    androidx.compose.material3.Switch(on, onCheckedChange = null)
   }
 }
 

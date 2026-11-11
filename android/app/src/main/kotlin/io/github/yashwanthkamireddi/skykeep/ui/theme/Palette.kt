@@ -30,7 +30,8 @@ object Palette {
     val outline: Long, val outlineVariant: Long,
     val error: Long, val onError: Long, val errorContainer: Long, val onErrorContainer: Long,
     val inverseSurface: Long, val inverseOnSurface: Long, val inversePrimary: Long,
-    /** Brand sky for icons and graphics (never body text in light mode). */
+    /** Icons and graphics in the brand's blue: sky on dark; on light, the deeper blue (sky is
+     *  2.6:1 on the light background, under the 3:1 an icon needs). */
     val accent: Long,
   )
 
@@ -47,7 +48,7 @@ object Palette {
     outline = 0xFF6F7987, outlineVariant = 0xFFC8D0DA,
     error = 0xFFB3261E, onError = WHITE, errorContainer = 0xFFF9DEDC, onErrorContainer = 0xFF410E0B,
     inverseSurface = 0xFF2A313B, inverseOnSurface = OFF_WHITE, inversePrimary = SKY,
-    accent = SKY,
+    accent = BLUE,
   )
 
   val dark = Roles(

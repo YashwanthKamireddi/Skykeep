@@ -46,7 +46,7 @@ class PaletteContrastTest {
     need(4.5, "$name onError on error", p.onError, p.error)
     need(4.5, "$name onErrorContainer on errorContainer", p.onErrorContainer, p.errorContainer)
     need(4.5, "$name inverseOnSurface on inverseSurface", p.inverseOnSurface, p.inverseSurface)
-    need(3.0, "$name accent (icons) on surface", p.accent, if (name == "light") Palette.INK else p.surface)
+    for ((s, bg) in surfaces) need(3.0, "$name accent (icons) on $s", p.accent, bg)
     for ((label, colour) in Palette.Smart.run {
       listOf("today" to TODAY, "scheduled" to SCHEDULED, "all" to ALL, "flagged" to FLAGGED, "completed" to COMPLETED)
     }) {
