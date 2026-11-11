@@ -123,11 +123,20 @@ object ContactsSync {
       while (c.moveToNext()) {
         val rawId = c.getLong(0)
         val source = c.getString(1)
-        val base = c.getString(2)?.let(::personFromJson)
+        val made = c.getString(2) == MADE_HERE
+        val base = if (made) null else c.getString(2)?.let(::personFromJson)
         val deleted = c.getInt(3) != 0
         when {
           // Made and deleted here before it was ever sent: nothing for iCloud.
           deleted && source == null -> dropped += rawId
+          // Made here and deleted before iCloud said it had it: deleted there too, if it got
+          // there (the engine finds no card and takes it as done otherwise).
+          deleted && made -> changes += Change(rawId, ContactChange(ChangeKind.DELETE, source!!, null, null, null))
+          // Made here, its first send not answered yet (unreachable, refused for now, or the
+          // process gone between choosing its id and sending): sent again as the same new card.
+          // Without its mark it read as a card this phone knew nothing of, and was rewritten
+          // from iCloud, which didn't have it: deleted.
+          made -> changes += Change(rawId, ContactChange(ChangeKind.CREATE, source!!, readPerson(cr, rawId, source, null), null, photoEdit(cr, rawId, null)))
           base == null && source != null -> unknown += rawId
           deleted -> changes += Change(rawId, ContactChange(ChangeKind.DELETE, source!!, null, base, null))
           source == null -> {
@@ -136,7 +145,7 @@ object ContactsSync {
             val guid = java.util.UUID.randomUUID().toString().uppercase()
             cr.update(
               RawContacts.CONTENT_URI.asAdapter(account),
-              android.content.ContentValues().apply { put(RawContacts.SOURCE_ID, guid) },
+              android.content.ContentValues().apply { put(RawContacts.SOURCE_ID, guid); put(RawContacts.SYNC2, MADE_HERE) },
               "${RawContacts._ID}=?", arrayOf(rawId.toString()),
             )
             changes += Change(rawId, ContactChange(ChangeKind.CREATE, guid, readPerson(cr, rawId, guid, null), null, photoEdit(cr, rawId, null)))
@@ -362,6 +371,13 @@ object ContactsSync {
       jobTitle = jobTitle, department = department, groups = base?.groups ?: emptyList(),
     )
   }
+
+  /**
+   * A card made on this phone and not yet known to be in iCloud: kept in its base's place
+   * (SYNC2), as a card has no base until iCloud has it. The reading pass writes the real base
+   * over it once the card comes back from iCloud.
+   */
+  private const val MADE_HERE = "made-here"
 
   /** Android's TYPE_CUSTOM, the same number for every kind. */
   private const val CUSTOM = 0

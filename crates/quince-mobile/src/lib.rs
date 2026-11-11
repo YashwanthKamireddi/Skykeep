@@ -135,7 +135,7 @@ pub struct CodeOptions {
 }
 
 /// A way to reach someone: `phone`, `email`, `url` or `address`, with Apple's label.
-#[derive(uniffi::Record)]
+#[derive(uniffi::Record, Clone)]
 pub struct Method {
     pub kind: String,
     pub label: Option<String>,
@@ -143,7 +143,7 @@ pub struct Method {
 }
 
 /// A person in the iCloud address book, as Android's Contacts will hold them.
-#[derive(uniffi::Record)]
+#[derive(uniffi::Record, Clone)]
 pub struct Person {
     /// Apple's id for the card: the raw contact's source id, so a sync finds it again.
     pub guid: String,
@@ -409,6 +409,29 @@ fn event_of(e: &Ev, guid: &str, etag: Option<String>) -> quince_core::calendar::
         notes: e.notes.clone(),
         etag: etag.or_else(|| e.etag.clone()),
     }
+}
+
+/// The kinds of detail the phone's contacts hold and edit. Every other kind Apple keeps on a
+/// card (related names, dates, social profiles, instant messaging) the phone never reads.
+const PHONE_KINDS: [&str; 4] = ["phone", "email", "url", "address"];
+
+/// An edit as the engine sends it: the phone's own kinds as edited, every other kind as the
+/// base had it. Without this, a card edited on the phone lost at Apple every related name,
+/// date, profile and messaging handle, since they were absent from the edit and present in
+/// the base, which reads as removed.
+fn keep_unmodelled(edit: &Person, base: Option<&Person>) -> Person {
+    let mut out = edit.clone();
+    out.methods
+        .retain(|m| PHONE_KINDS.contains(&m.kind.as_str()));
+    if let Some(base) = base {
+        out.methods.extend(
+            base.methods
+                .iter()
+                .filter(|m| !PHONE_KINDS.contains(&m.kind.as_str()))
+                .cloned(),
+        );
+    }
+    out
 }
 
 /// A person as the engine's contact, under `guid`. The photo is never touched from here: the
@@ -937,9 +960,6 @@ impl Account {
                         }
                     },
                     ChangeKind::Create => {
-                        if current.is_some() {
-                            return Ok(ChangeOutcome::Saved);
-                        }
                         let person = change.person.as_ref().ok_or_else(|| {
                             quince_icloud::Error::Protocol(
                                 "a new contact with nothing in it".into(),
@@ -949,6 +969,22 @@ impl Account {
                             with_photo(contact_of(person, &change.guid), change.photo.as_ref())?,
                             person,
                         );
+                        // Already made (an answer lost, or edited here again before the phone
+                        // read it back): this is the card as the phone has it now, sent as an
+                        // edit of iCloud's, so a later edit to a new card is never dropped.
+                        if let Some(there) = &current {
+                            return c::update_card(
+                                &http,
+                                &root,
+                                params.clone(),
+                                &ledger,
+                                &card,
+                                Some(there),
+                                None,
+                            )
+                            .await
+                            .map(|()| ChangeOutcome::Saved);
+                        }
                         c::create_card_named(
                             &http,
                             &root,
@@ -961,9 +997,10 @@ impl Account {
                         .map(|()| ChangeOutcome::Saved)
                     }
                     ChangeKind::Update => {
-                        let person = change.person.as_ref().ok_or_else(|| {
+                        let edit = change.person.as_ref().ok_or_else(|| {
                             quince_icloud::Error::Protocol("an edit with nothing in it".into())
                         })?;
+                        let person = &keep_unmodelled(edit, change.base.as_ref());
                         match &current {
                             // Deleted in iCloud while edited here: kept as a new card.
                             None => {
@@ -1145,9 +1182,10 @@ impl Account {
                             .map(|()| ChangeOutcome::Saved),
                     },
                     ChangeKind::Create => {
-                        if current.is_some() {
-                            return Ok(ChangeOutcome::Saved);
-                        }
+                        // Already made (an answer lost, or edited here again before the phone
+                        // read it back): put as the phone has it now, over iCloud's version,
+                        // so a later edit to a new event is never dropped.
+                        let etag = current.as_ref().and_then(|now| now.etag.clone());
                         let ev = change.event.as_ref().ok_or_else(|| {
                             quince_icloud::Error::Protocol("a new event with nothing in it".into())
                         })?;
@@ -1162,7 +1200,7 @@ impl Account {
                             until: r.until.clone(),
                         });
                         cal.put_event_full(
-                            &event_of(ev, &change.guid, None),
+                            &event_of(ev, &change.guid, etag),
                             None,
                             None,
                             repeat.as_ref().map(Some),
@@ -1301,5 +1339,72 @@ mod log_tests {
         );
         assert!(out.ends_with("source: dns })"), "{out}");
         assert_eq!(super::log::redact("no address here"), "no address here");
+    }
+}
+
+#[cfg(test)]
+mod contact_edit_tests {
+    use super::{keep_unmodelled, Method, Person};
+
+    fn person(methods: &[(&str, &str)]) -> Person {
+        Person {
+            guid: "G".into(),
+            etag: None,
+            first_name: Some("Ada".into()),
+            middle_name: None,
+            last_name: None,
+            company: None,
+            is_company: false,
+            birthday: None,
+            notes: None,
+            methods: methods
+                .iter()
+                .map(|(kind, value)| Method {
+                    kind: (*kind).into(),
+                    label: None,
+                    value: (*value).into(),
+                })
+                .collect(),
+            prefix: None,
+            suffix: None,
+            nickname: None,
+            phonetic_first_name: None,
+            phonetic_last_name: None,
+            job_title: None,
+            department: None,
+            groups: vec![],
+            photo: None,
+        }
+    }
+
+    /// The phone edits phones, emails, links and addresses; a card's related names, dates,
+    /// profiles and messaging handles go to Apple as the base had them, never as removed.
+    #[test]
+    fn an_edit_keeps_what_the_phone_never_shows() {
+        let base = person(&[
+            ("phone", "1"),
+            ("related", "Mum"),
+            ("date", "2020-01-01"),
+            ("im", "ada"),
+        ]);
+        let edit = person(&[("phone", "2"), ("email", "a@example.com")]);
+        let sent = keep_unmodelled(&edit, Some(&base));
+        let kinds: Vec<(&str, &str)> = sent
+            .methods
+            .iter()
+            .map(|m| (m.kind.as_str(), m.value.as_str()))
+            .collect();
+        assert_eq!(
+            kinds,
+            [
+                ("phone", "2"),
+                ("email", "a@example.com"),
+                ("related", "Mum"),
+                ("date", "2020-01-01"),
+                ("im", "ada")
+            ]
+        );
+        // Without a base, the edit is sent as it is.
+        assert_eq!(keep_unmodelled(&edit, None).methods.len(), 2);
     }
 }

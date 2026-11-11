@@ -48,6 +48,9 @@ object CalendarSync {
   private const val MASS = 25
 
   /** How rows are written here (SYNC_DATA3): an older one is rewritten from iCloud on the next sync. */
+
+  /** An event made on this phone and not yet known to be in iCloud (SYNC_DATA5). */
+  private const val MADE_HERE = "made-here"
   private const val FORMAT = "2"
 
   /** The span read: a month back and a year ahead, both days included, in the phone's zone. */
@@ -87,7 +90,7 @@ object CalendarSync {
       arrayOf(
         Events._ID, Events._SYNC_ID, Events.SYNC_DATA2, Events.DELETED, Events.CALENDAR_ID, Events.TITLE,
         Events.EVENT_LOCATION, Events.DESCRIPTION, Events.DTSTART, Events.DTEND, Events.DURATION,
-        Events.ALL_DAY, Events.EVENT_TIMEZONE, Events.RRULE,
+        Events.ALL_DAY, Events.EVENT_TIMEZONE, Events.RRULE, Events.SYNC_DATA5,
       ),
       "${Events.ACCOUNT_TYPE}=? AND ${Events.ACCOUNT_NAME}=? AND (${Events.DIRTY}=1 OR ${Events.DELETED}=1)",
       arrayOf(account.type, account.name), null,
@@ -97,6 +100,7 @@ object CalendarSync {
         val sync = c.getString(1)
         val base = c.getString(2)?.let(::evFromJson)
         val deleted = c.getInt(3) != 0
+        val made = c.getString(14) == MADE_HERE
         val calendar = guidOf[c.getLong(4)]
         fun ev(guid: String) = Ev(
           guid = guid, calendarGuid = calendar ?: "", title = c.getString(5) ?: "",
@@ -104,31 +108,40 @@ object CalendarSync {
           allDay = c.getInt(11) != 0, timezone = c.getString(12), notes = c.getString(7)?.takeIf { it.isNotBlank() },
           etag = base?.etag,
         ).let { e -> times(e, c.getLong(8), if (c.isNull(9)) null else c.getLong(9), c.getString(10)) }
+        /** A new event sent as `guid`: its repeat read the way the engine reads an .ics rule. */
+        fun create(guid: String) {
+          val read = c.getString(13)?.takeIf { it.isNotBlank() }?.let { rule ->
+            val e = ev("")
+            readRepeat(rule, e.startsAt, e.allDay, e.timezone, ZoneId.systemDefault().id)
+          }
+          if (read is RepeatRead.Refused) {
+            refused += rowId to "${read.reason} Change its repeat to one iCloud can keep, and it will be sent."
+          } else {
+            changes += Change(rowId, EventChange(ChangeKind.CREATE, guid, ev(guid), null, (read as? RepeatRead.Repeats)?.repeat))
+          }
+        }
         when {
           deleted && sync == null -> dropped += rowId
+          // Made here and deleted before iCloud said it had it: deleted there too, if it got there.
+          deleted && made -> changes += Change(rowId, EventChange(ChangeKind.DELETE, sync!!, null, null, null))
+          // Made here, its first send not answered yet: sent again as the same new event. Without
+          // its mark it read as an event this phone knew nothing of, was rewritten from iCloud,
+          // which didn't have it, and was deleted.
+          made && sync != null && calendar != null -> create(sync)
           // Changed with no base (an event written before bases were kept): never sent; read again.
           base == null && sync != null -> unknown += rowId
           deleted -> changes += Change(rowId, EventChange(ChangeKind.DELETE, sync!!, null, base, null))
           calendar == null -> refused += rowId to "This event's calendar isn't an iCloud calendar."
           sync == null -> {
-            // The phone's repeat, read by the engine as an .ics file or CalDAV rule is read.
-            val read = c.getString(13)?.takeIf { it.isNotBlank() }?.let { rule ->
-              val e = ev("")
-              readRepeat(rule, e.startsAt, e.allDay, e.timezone, ZoneId.systemDefault().id)
-            }
-            if (read is RepeatRead.Refused) {
-              refused += rowId to "${read.reason} Change its repeat to one iCloud can keep, and it will be sent."
-            } else {
-              val repeat = (read as? RepeatRead.Repeats)?.repeat
-              // New here: its id chosen now and kept, so a send repeated after a lost answer
-              // finds the event made rather than making a second.
-              val guid = java.util.UUID.randomUUID().toString().uppercase()
-              cr.update(
-                Events.CONTENT_URI.asAdapter(account), ContentValues().apply { put(Events._SYNC_ID, guid) },
-                "${Events._ID}=?", arrayOf(rowId.toString()),
-              )
-              changes += Change(rowId, EventChange(ChangeKind.CREATE, guid, ev(guid), null, repeat))
-            }
+            // New here: its id chosen now and kept, and marked as made here until iCloud has it,
+            // so a send repeated after a lost answer finds the event made rather than making a
+            // second, and a send that didn't land is made again, never taken for unknown.
+            val guid = java.util.UUID.randomUUID().toString().uppercase()
+            cr.update(
+              Events.CONTENT_URI.asAdapter(account), ContentValues().apply { put(Events._SYNC_ID, guid); put(Events.SYNC_DATA5, MADE_HERE) },
+              "${Events._ID}=?", arrayOf(rowId.toString()),
+            )
+            create(guid)
           }
           else -> changes += Change(rowId, EventChange(ChangeKind.UPDATE, sync, ev(sync), base, null))
         }
@@ -347,6 +360,8 @@ object CalendarSync {
     put(Events.SYNC_DATA2, evJson(e))
     put(Events.SYNC_DATA3, FORMAT)
     putNull(Events.SYNC_DATA4)
+    // In iCloud now (it came back from it): no longer one made here and waiting.
+    putNull(Events.SYNC_DATA5)
     put(Events.TITLE, e.title)
     put(Events.EVENT_LOCATION, e.location)
     put(Events.DESCRIPTION, e.notes)
