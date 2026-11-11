@@ -103,6 +103,11 @@
     <color type="primary" scheme_preference="dark">#0B2A4A</color>
   </branding>
   <releases>
+    <release version="0.1.21" date="2026-11-11">
+      <description>
+        <p>Notes keeps what you typed when you quit, close its window or sign out. Two Apple Accounts on one computer never mix: reminder and event alerts, the Hidden album's lock, calendar subscriptions and unfinished downloads stay with their own account, and signing in as someone else starts clean. Favorite, Hide and Delete in Photos are kept safely until iCloud has them, even if Skykeep closes first. Lists open faster with large libraries, each app's window loads only its own app, and typing with an input method no longer acts on half-typed words. Skykeep has its own colours and sign-in, an Open-Source Licences window in Settings, and an updated SQLite with a security fix.</p>
+      </description>
+    </release>
     <release version="0.1.20" date="2026-11-10">
       <description>
         <p>Saving over a file in the iCloud Drive folder keeps it the same file in iCloud, so apps on your other devices that follow it, such as a password manager's database or a document left open, still have it, and its earlier versions stay in iCloud. Notes can put a link on the words you select, with Ctrl+K or from the Aa menu, and offers a link you have just copied. Open at Login waits for the tray before keeping the window closed. When iCloud is busy, an app's tile says so in a few words, and Calendar asks again on its own when a connection stalls.</p>
