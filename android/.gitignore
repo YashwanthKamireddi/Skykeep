@@ -16,4 +16,6 @@ local.properties
 # Built from crates/quince-mobile, never committed: the engine for each ABI and its Kotlin side.
 app/src/main/jniLibs/
 app/src/main/kotlin/uniffi/
+# Made by the build from the engine's crates (engineLicences).
+app/src/main/res/raw/engine_licences.json
 .kotlin/

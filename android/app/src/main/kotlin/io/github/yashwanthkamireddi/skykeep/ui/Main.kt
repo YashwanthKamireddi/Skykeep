@@ -100,7 +100,7 @@ private enum class Tab(val label: String, val icon: Int, val app: Palette.App?) 
 }
 
 /** A page opened from Home rather than the bar: Contacts' or Calendar's settings. */
-private enum class Page { Contacts, Calendar, Settings }
+private enum class Page { Contacts, Calendar, Settings, Licences }
 
 /**
  * Skykeep once set up. The using happens in the phone's own Contacts and Calendar apps; here are
@@ -145,7 +145,9 @@ fun MainScreens(engine: uniffi.quince_mobile.Account, onSignedOut: () -> Unit) {
     },
   ) { inner ->
     // Reminders, Notes and Photos scroll their own lists (they can be long); the rest are one column.
-    if (page == null && (tab == Tab.Reminders || tab == Tab.Notes || tab == Tab.Photos || tab == Tab.Drive)) {
+    if (page == Page.Licences) {
+      Box(Modifier.padding(inner).fillMaxSize()) { LicencesPage { page = Page.Settings } }
+    } else if (page == null && (tab == Tab.Reminders || tab == Tab.Notes || tab == Tab.Photos || tab == Tab.Drive)) {
       Box(Modifier.padding(inner).fillMaxSize()) {
         when (tab) {
           Tab.Notes -> AppTheme(Palette.App.Notes) { NotesPage(engine) }
@@ -170,7 +172,7 @@ fun MainScreens(engine: uniffi.quince_mobile.Account, onSignedOut: () -> Unit) {
             when {
               page == Page.Contacts -> ContactsPage(account)
               page == Page.Calendar -> AppTheme(Palette.App.Calendar) { CalendarPage(account) }
-              page == Page.Settings -> SettingsPage(engine, account, onSignedOut)
+              page == Page.Settings -> SettingsPage(engine, account, onSignedOut) { page = Page.Licences }
               tab == Tab.Home -> Home(engine, account, sync, onSync = ::now, onOpen = { page = it }, onTab = { tab = it; page = null })
             }
           }
@@ -469,7 +471,7 @@ private fun SyncSwitch(account: Account?, authority: String, title: String, deta
 }
 
 @Composable
-private fun SettingsPage(engine: uniffi.quince_mobile.Account, account: Account?, onSignedOut: () -> Unit) {
+private fun SettingsPage(engine: uniffi.quince_mobile.Account, account: Account?, onSignedOut: () -> Unit, onLicences: () -> Unit) {
   val context = LocalContext.current
   val scope = rememberCoroutineScope()
   Text("Settings", style = MaterialTheme.typography.headlineLarge)
@@ -528,6 +530,7 @@ private fun SettingsPage(engine: uniffi.quince_mobile.Account, account: Account?
       TextButton(onClick = {
         context.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse("https://github.com/YashwanthKamireddi/Skykeep")))
       }, contentPadding = PaddingValues(0.dp)) { Text("Source code on GitHub") }
+      TextButton(onClick = onLicences, contentPadding = PaddingValues(0.dp)) { Text("Open-source licences") }
     }
   }
   Spacer(Modifier.height(8.dp))

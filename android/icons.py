@@ -63,3 +63,8 @@ for out, name in MAP.items():
     f'    android:width="24dp" android:height="24dp" android:viewportWidth="24" android:viewportHeight="24">{body}\n'
     f'</vector>\n')
   print(out, name, len(paths))
+
+# Lucide's licence, shipped with its icons and shown in Settings › Open-source licences.
+import shutil
+shutil.copyfile("node_modules/lucide-react/LICENSE", "android/app/src/main/res/raw/lucide_license.txt")
+print("lucide licence copied")

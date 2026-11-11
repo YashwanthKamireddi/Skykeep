@@ -2,6 +2,7 @@ plugins {
   alias(libs.plugins.android.application)
   alias(libs.plugins.compose.compiler)
   alias(libs.plugins.kotlin.serialization)
+  alias(libs.plugins.aboutlibraries)
 }
 
 android {
@@ -117,4 +118,27 @@ val bindings = tasks.register<Exec>("engineBindings") {
     "--language", "kotlin", "--no-format", "--out-dir", file("src/main/kotlin").path,
   )
 }
-tasks.named("preBuild") { dependsOn(bindings) }
+// The engine's crates and their licences (cargo-about, about.toml at the top of the repository),
+// written into the app for Settings › Open-source licences beside the Android libraries'.
+val engineLicences = tasks.register<Exec>("engineLicences") {
+  workingDir = repo
+  val out = file("src/main/res/raw/engine_licences.json")
+  inputs.file(File(repo, "Cargo.lock"))
+  inputs.file(File(repo, "about.toml"))
+  outputs.file(out)
+  commandLine(
+    "cargo", "about", "generate", "--format", "json", "--fail",
+    "-m", "crates/quince-mobile/Cargo.toml", "--target", "aarch64-linux-android", "-o", out.path,
+  )
+}
+tasks.named("preBuild") { dependsOn(bindings, engineLicences) }
+
+// The app's libraries and their licences, written into the app (res/raw/aboutlibraries.json)
+// for Settings › Open-source licences. From the build's own dependency list, offline: nothing is
+// fetched, and a library with no licence stated fails the build rather than ship unlisted.
+aboutLibraries {
+  offlineMode = true
+  library {
+    duplicationMode = com.mikepenz.aboutlibraries.plugin.DuplicateMode.MERGE
+  }
+}

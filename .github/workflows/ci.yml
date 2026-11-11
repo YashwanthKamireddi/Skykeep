@@ -191,6 +191,10 @@ jobs:
           workspaces: ". -> target-android"
           save-if: ${{ github.ref == 'refs/heads/main' }}
       - run: cargo install cargo-ndk --version 4.1.2 --locked
+      # The engine's crate licences are written into the app at build time (about.toml).
+      - uses: taiki-e/install-action@cfdb7ed4ccc7c7dce37759eae89dc5674b469b39 # v2.90.3
+        with:
+          tool: cargo-about@0.9.3
       - name: The app, its device tests and its unit tests
         working-directory: android
         # The runner's newest NDK (its own variable, not the workflow's env context).
