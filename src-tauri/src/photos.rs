@@ -44,10 +44,16 @@ fn lock_hidden() {
     HIDDEN_OPEN.store(false, std::sync::atomic::Ordering::SeqCst);
 }
 
+/// Whether Hidden is unlocked now: what the library's reads are told, so a hidden photo in
+/// Recently Deleted (and its count, and its picture made ahead) stays behind the same lock.
+fn hidden_open() -> bool {
+    HIDDEN_OPEN.load(std::sync::atomic::Ordering::SeqCst)
+}
+
 /// Hidden's photos are asked for: only once it is unlocked.
 fn hidden_allowed(source: &quince_core::photos::Source) -> UiResult<()> {
     let hidden = matches!(source, quince_core::photos::Source::View(View::Hidden));
-    if hidden && !HIDDEN_OPEN.load(std::sync::atomic::Ordering::SeqCst) {
+    if hidden && !hidden_open() {
         return Err("The Hidden album is locked.".into());
     }
     Ok(())
@@ -1002,7 +1008,7 @@ pub fn prepare(app: AppHandle) {
             let from = after.clone();
             let Ok((page, next)) = data
                 .0
-                .read(|l| l.grid_shapes(shown.view, from.as_ref(), GRID_PAGE))
+                .read(|l| l.grid_shapes_shown(shown.view, from.as_ref(), GRID_PAGE, hidden_open()))
                 .await
             else {
                 return;
@@ -1379,8 +1385,9 @@ pub fn content_type(bytes: &[u8], size: Size) -> &'static str {
 #[tauri::command]
 pub async fn photos_list(view: View, data: State<'_, Data>) -> UiResult<Vec<Photo>> {
     hidden_allowed(&quince_core::photos::Source::View(view))?;
+    let open = hidden_open();
     data.0
-        .read(|library| library.photos(view))
+        .read(|library| library.photos_shown(view, open))
         .await
         .map_err(|e| e.to_string())
 }
@@ -1395,8 +1402,9 @@ pub async fn photos_index(
     data: State<'_, Data>,
 ) -> UiResult<quince_core::photos::PhotoIndex> {
     hidden_allowed(&source)?;
+    let open = hidden_open();
     data.0
-        .read(|library| library.photo_index(&source, order))
+        .read(|library| library.photo_index_shown(&source, order, open))
         .await
         .map_err(|e| e.to_string())
 }
@@ -1423,8 +1431,9 @@ pub async fn photos_page(
     data: State<'_, Data>,
 ) -> UiResult<Vec<Photo>> {
     hidden_allowed(&source)?;
+    let open = hidden_open();
     data.0
-        .read(|library| library.photo_page(&source, order, after.as_ref(), limit))
+        .read(|library| library.photo_page_shown(&source, order, after.as_ref(), limit, open))
         .await
         .map_err(|e| e.to_string())
 }
@@ -2175,8 +2184,9 @@ pub async fn photo_open_map(id: String, app: AppHandle, data: State<'_, Data>) -
 pub async fn photos_counts(app: AppHandle, data: State<'_, Data>) -> UiResult<Vec<(View, i64)>> {
     work(app.clone());
     keep_ahead(app);
+    let open = hidden_open();
     data.0
-        .read(|library| library.photo_counts())
+        .read(|library| library.photo_counts_shown(open))
         .await
         .map_err(|e| e.to_string())
 }
@@ -3502,7 +3512,8 @@ mod tests {
     }
 
     /// Pictures are made ahead for every photo a grid can show — Hidden and Recently Deleted
-    /// too, not the library alone — each once, the view being looked at first.
+    /// too, not the library alone — each once, the view being looked at first; Hidden's (and a
+    /// hidden photo's in Recently Deleted) only while Hidden is unlocked.
     #[test]
     fn hidden_and_deleted_are_made_ahead_too_the_view_shown_first() {
         let photo = |id: &str, t: i64, hidden: bool, deleted: bool| -> Photo {
@@ -3518,14 +3529,17 @@ mod tests {
             photo("H1", 20, true, false),
             photo("H2", 10, true, false),
             photo("D1", 5, false, true),
+            photo("D2", 4, true, true),
         ])
         .unwrap();
         // Read a page at a time — one photo at a time here — as `prepare` reads them.
-        let ids = |first| -> Vec<String> {
+        let shapes = |first, open| -> Vec<String> {
             let mut out = Vec::new();
             let mut after = None;
             loop {
-                let (page, next) = lib.grid_shapes(first, after.as_ref(), 1).unwrap();
+                let (page, next) = lib
+                    .grid_shapes_shown(first, after.as_ref(), 1, open)
+                    .unwrap();
                 out.extend(page.into_iter().map(|p| p.id));
                 match next {
                     Some(n) => after = Some(n),
@@ -3533,11 +3547,21 @@ mod tests {
                 }
             }
         };
-        assert_eq!(ids(None), ["L1", "H1", "H2", "D1"]);
-        assert_eq!(ids(Some(View::Hidden)), ["H1", "H2", "L1", "D1"]);
-        assert_eq!(ids(Some(View::Library)), ["L1", "H1", "H2", "D1"]);
+        let ids = |first| shapes(first, true);
+        assert_eq!(ids(None), ["L1", "H1", "H2", "D1", "D2"]);
+        assert_eq!(ids(Some(View::Hidden)), ["H1", "H2", "L1", "D1", "D2"]);
+        assert_eq!(ids(Some(View::Library)), ["L1", "H1", "H2", "D1", "D2"]);
         // A view inside the library (Favorites) adds nothing the library does not have.
-        assert_eq!(ids(Some(View::Favorites)), ["L1", "H1", "H2", "D1"]);
+        assert_eq!(ids(Some(View::Favorites)), ["L1", "H1", "H2", "D1", "D2"]);
+        // Locked: nothing hidden is made into a picture on disk, whichever view is shown.
+        for first in [None, Some(View::Hidden), Some(View::RecentlyDeleted)] {
+            let locked = shapes(first, false);
+            assert!(
+                locked.iter().all(|id| id == "L1" || id == "D1"),
+                "{locked:?}"
+            );
+            assert_eq!(locked.len(), 2);
+        }
     }
 
     /// The steps made ahead are the ones the window asks for (fitSrc, tileSrc, viewSrc).
