@@ -488,6 +488,7 @@ private fun SettingsPage(engine: uniffi.quince_mobile.AccountInterface, account:
     }
   }
   var cellular by remember { mutableStateOf(io.github.yashwanthkamireddi.skykeep.sync.PhotoBackup.mobileData(context)) }
+  var charging by remember { mutableStateOf(io.github.yashwanthkamireddi.skykeep.sync.PhotoBackup.whileCharging(context)) }
   SectionLabel("Photos")
   Surface(color = MaterialTheme.colorScheme.surfaceContainer, shape = MaterialTheme.shapes.large) {
     Column {
@@ -497,6 +498,8 @@ private fun SettingsPage(engine: uniffi.quince_mobile.AccountInterface, account:
       if (backup) {
         HorizontalDivider(Modifier.padding(start = 16.dp), color = MaterialTheme.colorScheme.outlineVariant)
         SwitchRow("Use mobile data", "Off: photos wait for Wi-Fi.", cellular) { cellular = it; io.github.yashwanthkamireddi.skykeep.sync.PhotoBackup.setMobileData(context, it) }
+        HorizontalDivider(Modifier.padding(start = 16.dp), color = MaterialTheme.colorScheme.outlineVariant)
+        SwitchRow("Only while charging", "Photos wait until this phone is charging.", charging) { charging = it; io.github.yashwanthkamireddi.skykeep.sync.PhotoBackup.setWhileCharging(context, it) }
       }
     }
   }

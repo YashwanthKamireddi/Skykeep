@@ -77,6 +77,8 @@ class MainActivity : ComponentActivity() {
                 }
               }
             }
+            // Drive saves an earlier run held and had not sent yet go now.
+            if (kept) io.github.yashwanthkamireddi.skykeep.sync.DriveWrites.resume(applicationContext)
           }
           when (stage) {
             Stage.Starting -> Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) { CircularProgressIndicator() }

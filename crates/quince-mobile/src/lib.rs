@@ -620,6 +620,39 @@ pub struct Account {
             std::sync::Arc<quince_sync::library_lock::LibraryLock>,
         )>,
     >,
+    /// iCloud Drive files read in parts for the Files app (drive.rs): where the parts are kept
+    /// and how much disk they may take, as the app set it.
+    drive_parts: std::sync::Mutex<Option<(std::path::PathBuf, u64)>>,
+    /// The parts kept, and whose they are: opened per account, as the library is.
+    drive_cache: std::sync::Mutex<Option<(String, std::sync::Arc<quince_vfs::Cache>)>>,
+    /// Drive's download links in use, each asked of Apple once while it lasts.
+    drive_links: std::sync::Arc<quince_icloud::drive_parts::Links>,
+    /// Files written by other apps through the Files app and not yet at Apple (drive.rs):
+    /// the desktop folder's own journal, opened per account.
+    drive_writes: std::sync::Mutex<Option<(String, std::sync::Arc<quince_vfs::writes::Writes>)>>,
+}
+
+/// The HTTP client, a service's address and the session's query: one call to Apple's needs.
+pub(crate) type Service = (reqwest::Client, String, Vec<(String, String)>);
+
+impl Account {
+    /// The session, even after a call that held it panicked: the panic failed that one call
+    /// (UniFFI turns it into an exception), and every later one would otherwise fail too,
+    /// `has_session` answering "signed out" until the app was killed.
+    pub(crate) fn client(&self) -> std::sync::MutexGuard<'_, quince_auth::Client> {
+        self.client
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
+    }
+
+    /// What a call to Apple needs, taken from the session and the lock let go of at once: a
+    /// read that takes a minute never holds sign-in, a sync of another service, or the app's
+    /// screens waiting behind it. `None` when Apple hasn't offered `service`.
+    pub(crate) fn service(&self, service: &str) -> Option<Service> {
+        let c = self.client();
+        let root = c.session().service_url(service)?;
+        Some((c.http().clone(), root, c.service_params()))
+    }
 }
 
 #[uniffi::export]
@@ -632,6 +665,10 @@ impl Account {
             client: std::sync::Mutex::new(client),
             dir: std::path::PathBuf::from(state_dir),
             library: std::sync::Mutex::new(None),
+            drive_parts: std::sync::Mutex::new(None),
+            drive_cache: std::sync::Mutex::new(None),
+            drive_links: std::sync::Arc::new(quince_icloud::drive_parts::Links::new()),
+            drive_writes: std::sync::Mutex::new(None),
         }))
     }
 
@@ -639,13 +676,13 @@ impl Account {
     /// Whether a session is kept on the phone: answered from the phone alone, so the app can
     /// open the library at once and let [`Account::reopen`] check with Apple behind it.
     pub fn has_session(&self) -> bool {
-        self.client.lock().is_ok_and(|c| c.has_stored_session())
+        self.client().has_stored_session()
     }
 
     /// Where the app goes, as the desktop decides it: offline with a session kept is the
     /// library; only Apple refusing the session, or nothing kept, is sign-in.
     pub fn reopen(&self) -> Result<Reopened, EngineError> {
-        let mut c = self.client.lock().map_err(failed)?;
+        let mut c = self.client();
         Ok(match runtime().block_on(c.reopen()).map_err(failed)? {
             quince_auth::Reopen::Library => Reopened::Library,
             quince_auth::Reopen::Code => Reopened::Code,
@@ -654,12 +691,12 @@ impl Account {
     }
 
     pub fn resume(&self) -> Result<bool, EngineError> {
-        let mut c = self.client.lock().map_err(failed)?;
+        let mut c = self.client();
         runtime().block_on(c.resume()).map_err(failed)
     }
 
     pub fn sign_in(&self, apple_id: String, password: String) -> Result<SignIn, EngineError> {
-        let mut c = self.client.lock().map_err(failed)?;
+        let mut c = self.client();
         match runtime()
             .block_on(c.sign_in(&apple_id, &password))
             .map_err(failed)?
@@ -670,7 +707,7 @@ impl Account {
     }
 
     pub fn code_options(&self) -> Result<CodeOptions, EngineError> {
-        let mut c = self.client.lock().map_err(failed)?;
+        let mut c = self.client();
         let o = runtime().block_on(c.two_factor_options()).map_err(failed)?;
         Ok(CodeOptions {
             trusted_devices: o.trusted_device_count,
@@ -689,24 +726,24 @@ impl Account {
 
     /// The code shown on a trusted device.
     pub fn submit_code(&self, code: String) -> Result<(), EngineError> {
-        let mut c = self.client.lock().map_err(failed)?;
+        let mut c = self.client();
         runtime()
             .block_on(c.submit_two_factor(&code))
             .map_err(failed)
     }
 
     pub fn resend_to_devices(&self) -> Result<(), EngineError> {
-        let mut c = self.client.lock().map_err(failed)?;
+        let mut c = self.client();
         runtime().block_on(c.resend_to_devices()).map_err(failed)
     }
 
     pub fn send_sms(&self, phone_id: u64) -> Result<(), EngineError> {
-        let mut c = self.client.lock().map_err(failed)?;
+        let mut c = self.client();
         runtime().block_on(c.send_sms(phone_id)).map_err(failed)
     }
 
     pub fn submit_sms_code(&self, phone_id: u64, code: String) -> Result<(), EngineError> {
-        let mut c = self.client.lock().map_err(failed)?;
+        let mut c = self.client();
         runtime()
             .block_on(c.submit_sms_code(phone_id, &code))
             .map_err(failed)
@@ -714,7 +751,7 @@ impl Account {
 
     /// The Apple Account signed in, as Android's account list names it.
     pub fn apple_id(&self) -> Option<String> {
-        let c = self.client.lock().ok()?;
+        let c = self.client();
         c.session().apple_id.clone()
     }
 
@@ -722,7 +759,7 @@ impl Account {
     /// the same for every spelling of the Apple ID, different for every other account. Android's
     /// account for this Apple Account carries it, so a sync never runs for another account's.
     pub fn account_tag(&self) -> Option<String> {
-        let c = self.client.lock().ok()?;
+        let c = self.client();
         quince_sync::queue::asked_as(&c.service_params())
     }
 
@@ -733,16 +770,12 @@ impl Account {
 
     /// The whole iCloud address book: the people, and the lists (Android's labels) they are in.
     pub fn address_book(&self) -> Result<Book, EngineError> {
-        let c = self.client.lock().map_err(failed)?;
-        let root = c
-            .session()
-            .service_url("contacts")
+        let (http, root, params) = self
+            .service("contacts")
             .ok_or_else(|| failed("Apple hasn't offered a contacts service for this account."))?;
         let (book, _) = runtime()
             .block_on(quince_icloud::contacts::fetch_book_with_tokens(
-                c.http(),
-                &root,
-                c.service_params(),
+                &http, &root, params,
             ))
             .map_err(failed)?;
         let mut details: std::collections::HashMap<String, quince_core::contacts::ContactDetails> =
@@ -815,7 +848,7 @@ impl Account {
     /// own smaller copy for lists from this one.
     pub fn contact_photo(&self, photo: PhotoRef, size: u32) -> Result<Vec<u8>, EngineError> {
         let (http, params) = {
-            let c = self.client.lock().map_err(failed)?;
+            let c = self.client();
             (c.http().clone(), c.service_params())
         };
         let bytes = runtime()
@@ -832,7 +865,7 @@ impl Account {
     pub fn save_lists(&self, changes: Vec<ListChange>) -> Result<Vec<ListOutcome>, EngineError> {
         use quince_icloud::contacts as c;
         let (http, root, params) = {
-            let cl = self.client.lock().map_err(failed)?;
+            let cl = self.client();
             let root = cl.session().service_url("contacts").ok_or_else(|| {
                 failed("Apple hasn't offered a contacts service for this account.")
             })?;
@@ -926,7 +959,7 @@ impl Account {
         changes: Vec<ContactChange>,
     ) -> Result<Vec<ChangeOutcome>, EngineError> {
         use quince_icloud::contacts as c;
-        let client = self.client.lock().map_err(failed)?;
+        let client = self.client();
         let root = client
             .session()
             .service_url("contacts")
@@ -1086,19 +1119,12 @@ impl Account {
         to: String,
         tz: String,
     ) -> Result<CalendarWindow, EngineError> {
-        let c = self.client.lock().map_err(failed)?;
-        let root = c
-            .session()
-            .service_url("calendar")
+        let (http, root, params) = self
+            .service("calendar")
             .ok_or_else(|| failed("Apple hasn't offered a calendar service for this account."))?;
         let snap = runtime()
             .block_on(quince_icloud::sync::fetch_calendar(
-                c.http(),
-                &root,
-                c.service_params(),
-                &from,
-                &to,
-                &tz,
+                &http, &root, params, &from, &to, &tz,
             ))
             .map_err(failed)?;
         Ok(CalendarWindow {
@@ -1146,7 +1172,7 @@ impl Account {
         tz: String,
     ) -> Result<Vec<ChangeOutcome>, EngineError> {
         use quince_icloud::calendar::{self as k, CalendarClient, EventRepeat, Scope};
-        let client = self.client.lock().map_err(failed)?;
+        let client = self.client();
         let root = client
             .session()
             .service_url("calendar")
@@ -1295,16 +1321,17 @@ impl Account {
     /// clears its caches beside it.
     pub fn forget_account(&self) -> Result<(), EngineError> {
         let session = {
-            let c = self.client.lock().map_err(failed)?;
+            let c = self.client();
             quince_sync::queue::asked_as(&c.service_params())
         };
+        self.forget_drive_parts();
         // Closed first, so nothing writes into the folder as it goes. Whose it is comes from the
         // session, or else from the library open (a session already half gone still names its
         // library); with neither, nothing can be said to be removed, and the person is told.
         let open = self
             .library
             .lock()
-            .map_err(failed)?
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
             .take()
             .map(|(who, _)| who);
         let account = session.or(open).ok_or_else(|| {
@@ -1319,7 +1346,9 @@ impl Account {
 
     /// Signs out here: the session forgotten on this phone, its secrets deleted.
     pub fn sign_out(&self) -> Result<(), EngineError> {
-        let mut c = self.client.lock().map_err(failed)?;
+        // Drive's parts read here are the session's: never served to whoever signs in next.
+        self.forget_drive_parts();
+        let mut c = self.client();
         c.sign_out().map_err(failed)
     }
 }
