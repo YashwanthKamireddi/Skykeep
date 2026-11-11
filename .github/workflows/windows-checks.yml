@@ -22,6 +22,10 @@ on:
       - ".uiverify/**"
   # By hand, on any branch: the same two checks.
   workflow_dispatch:
+  # Every Monday, a full build and test of everything, so a tool that changed or a system past
+  # its end of life shows up mid-week, never on release day.
+  schedule:
+    - cron: "0 6 * * 1"
 
 concurrency:
   group: windows-checks-${{ github.sha }}

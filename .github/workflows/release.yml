@@ -1,18 +1,13 @@
 # A release, from one tag: `git tag v0.2.0 && git push origin v0.2.0`.
-#   appimage — the .AppImage, built in an Ubuntu 22.04 container (appimage.yml), so it runs on
-#             22.04 and everything newer; nothing in it may need more than 22.04's glibc 2.35;
-#   linux   — .deb and .rpm, built on Ubuntu 24.04 (its libheif is new enough). None is kept
-#             unless it runs: the .deb is installed on the build machine and started headless
-#             under Xvfb; the .rpm is installed with dnf in a clean Fedora 41 container and
-#             started the same way; the .AppImage is started with --appimage-extract-and-run
-#             (no FUSE needed) after the .deb is removed, then with no network at all in clean
-#             Ubuntu 22.04 and Fedora 41 containers, as the AppImage catalog starts it.
-#             "Started" means the program is still running some seconds later — not merely
-#             that it links;
+#   linux   — the AppImage, the .deb and .rpm (x86_64 and 64-bit ARM), the Flatpak and the
+#             signed APK (linux.yml: each installed and started, the AppImage also offline on
+#             Ubuntu 22.04 and Fedora 41); or, when the commit's Linux checks already did all
+#             that (linux-checks.yml), their files, promoted as they are;
 #   windows — the Windows pipeline (windows.yml): its tests, the .msi and .exe, the smoke test;
 #             or, when the commit's Windows checks already did all that, their signed installers;
-#   publish — every file in one draft release with its checksums, for a person to read over
-#             and publish. Nothing is published by itself. Each installer is also attached
+#   publish — every file that passed in one draft release with its checksums, for a person to
+#             read over and publish; a platform whose build failed is added when re-run.
+#             Nothing is published by itself. Each installer is also attached
 #             under a name without the version (Skykeep-linux-amd64.deb and so on), which is
 #             what the README's releases/latest/download/ links point at.
 #
@@ -38,169 +33,55 @@ on:
 permissions:
   contents: read
 
-# Android's build tools at one exact version, so the APK's checks never meet a newer tool's
-# output unannounced (11 Nov: build-tools 37 renamed "Signer #1" and broke the signing check).
-env:
-  BUILD_TOOLS: "37.0.0"
-
 jobs:
-  appimage:
-    uses: ./.github/workflows/appimage.yml
-    with:
-      updater: true
-      artifact: skykeep-appimage
+  # Linux and Android as Linux checks (linux-checks.yml) built and proved them on this very
+  # commit's push to main: its files are this release's, promoted rather than built again.
+  # Only when there is no such run does the release build them itself (the `linux` job below).
+  linux-proven:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    permissions:
+      actions: read
+    outputs:
+      proven: ${{ steps.ask.outputs.proven }}
+    steps:
+      - id: ask
+        env:
+          GH_TOKEN: ${{ github.token }}
+          SHA: ${{ github.sha }}
+          REPO: ${{ github.repository }}
+        run: |
+          run=$(gh api "repos/$REPO/actions/workflows/linux-checks.yml/runs?head_sha=$SHA&status=success&event=push&branch=main&per_page=1" \
+            -q '.workflow_runs[0] | select(.head_sha == env.SHA and .event == "push" and .head_branch == "main") | .id' 2>/dev/null || true)
+          if [ -z "$run" ]; then
+            echo "no successful Linux checks on a push of $SHA to main: the release builds Linux and Android itself"
+            echo "proven=false" >> "$GITHUB_OUTPUT"; exit 0
+          fi
+          for a in skykeep-appimage skykeep-appimage-sums skykeep-linux-x64 skykeep-linux-arm64 skykeep-x86_64.flatpak android; do
+            if ! gh run download "$run" --repo "$REPO" --name "$a" --dir "promoted/$a"; then
+              echo "run $run lacks $a (older run, or expired): the release builds them itself"
+              echo "proven=false" >> "$GITHUB_OUTPUT"; exit 0
+            fi
+          done
+          ls promoted/skykeep-appimage/*.AppImage.sig promoted/android/*-android.apk promoted/skykeep-x86_64.flatpak/*.flatpak
+          echo "Linux checks run $run passed on $SHA: its files are this release's"
+          echo "proven=true" >> "$GITHUB_OUTPUT"
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        if: steps.ask.outputs.proven == 'true'
+        with:
+          name: skykeep-linux-proven
+          path: promoted
+          if-no-files-found: error
+
+  linux:
+    needs: linux-proven
+    if: needs.linux-proven.outputs.proven != 'true'
+    uses: ./.github/workflows/linux.yml
     secrets:
       TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
       TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
-
-  # On x86_64 and on 64-bit ARM (Linux on Apple Silicon Macs): each architecture's .deb and .rpm,
-  # built on a machine of that architecture and started there. The AppImage is x86_64 only.
-  linux:
-    needs: appimage
-    strategy:
-      fail-fast: false
-      matrix:
-        include:
-          - { arch: x64, runner: ubuntu-24.04 }
-          - { arch: arm64, runner: ubuntu-24.04-arm }
-    runs-on: ${{ matrix.runner }}
-    timeout-minutes: 60
-    steps:
-      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-      # The updater binds each signature to the version the program was built as, and
-      # latest.json names the tag's: they must be the same, or every update would be refused.
-      - name: The tag is the version built
-        if: startsWith(github.ref, 'refs/tags/v')
-        run: |
-          built=$(node -p 'require("./src-tauri/tauri.conf.json").version')
-          if [ "v$built" != "$GITHUB_REF_NAME" ]; then
-            echo "::error::tag $GITHUB_REF_NAME, but tauri.conf.json says $built"
-            exit 1
-          fi
-      - name: Build dependencies
-        run: |
-          sudo apt-get -o Acquire::Retries=5 update
-          sudo apt-get -o Acquire::Retries=5 install -y --no-install-recommends \
-            libwebkit2gtk-4.1-dev libgtk-3-dev libayatana-appindicator3-dev librsvg2-dev \
-            libsecret-1-dev libheif-dev libheif-plugin-libde265 libfuse3-dev pkg-config patchelf rpm file \
-            libgstreamer1.0-dev libgstreamer-plugins-base1.0-dev \
-            gstreamer1.0-plugins-base gstreamer1.0-plugins-good gstreamer1.0-libav \
-            xvfb xauth dbus
-          # The GStreamer plugins are here for two reasons: the AppImage carries the ones
-          # installed on this machine (bundleMediaFramework), and the launch checks below run
-          # the program as it will run for someone playing a video.
-      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
-        with:
-          node-version: 22
-          cache: npm
-      - uses: dtolnay/rust-toolchain@b725eda525362e7cf34af9a7243cac1e3f01a7ec # stable
-      - uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2.9.3
-      - run: npm ci
-      - name: Build the packages
-        # The build machine's paths are never written into the program. The .deb and .rpm are
-        # updated by package managers, so nothing here is signed; the AppImage is (appimage).
-        env:
-          RUSTFLAGS: --remap-path-prefix=${{ github.workspace }}=skykeep
-        run: npx tauri build --bundles deb,rpm
-      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
-        if: matrix.arch == 'x64'
-        with:
-          name: skykeep-appimage
-          path: target/release/bundle/appimage
-      # One check for every package: the program is started headless with --background (no
-      # window is asked for unless sign-in needs one), on its own session bus, in an empty home,
-      # and must still be running 8 s later. `timeout` ending it (124) is the pass; any other
-      # exit means it died on start. Its output is printed either way.
-      - name: Write the launch check
-        run: |
-          cat > "$RUNNER_TEMP/stays-up.sh" <<'SH'
-          #!/bin/bash
-          # stays-up.sh <label> <command…>: the command must still be running after $SECS s (8).
-          set -u
-          label=$1; shift
-          secs=${SECS:-8}
-          HOME=$(mktemp -d); XDG_RUNTIME_DIR=$(mktemp -d)
-          export HOME XDG_RUNTIME_DIR RUST_BACKTRACE=1
-          chmod 700 "$XDG_RUNTIME_DIR"
-          log=$(mktemp)
-          timeout --kill-after=5 "$secs" dbus-run-session -- xvfb-run -a -s "-screen 0 1280x800x24" "$@" >"$log" 2>&1
-          rc=$?
-          cat "$log"
-          if [ "$rc" -ne 124 ]; then echo "::error::$label exited on start (code $rc)"; exit 1; fi
-          if grep -q "panicked at" "$log"; then echo "::error::$label panicked"; exit 1; fi
-          echo "$label: still running after $secs s"
-          SH
-          chmod +x "$RUNNER_TEMP/stays-up.sh"
-      - name: The .deb installs and its program starts
-        run: |
-          deb=$(ls target/release/bundle/deb/*.deb)
-          dpkg-deb -f "$deb" Depends
-          # "./": apt takes a bare relative path for a package name ("Unable to locate package").
-          sudo apt-get -o Acquire::Retries=5 install -y "./$deb"
-          prog=$(dpkg -L "$(dpkg-deb -f "$deb" Package)" | grep -m1 '^/usr/bin/')
-          echo "installed: $prog"
-          if ldd "$prog" | grep "not found"; then exit 1; fi
-          "$RUNNER_TEMP/stays-up.sh" deb "$prog" --background
-      - name: The .rpm installs and its program starts, on Fedora
-        run: |
-          rpm -qpR target/release/bundle/rpm/*.rpm
-          docker run --rm -v "$PWD/target/release/bundle/rpm:/pkgs:ro" -v "$RUNNER_TEMP:/check:ro" fedora:41 bash -euc '
-            dnf -y -q install /pkgs/*.rpm xorg-x11-server-Xvfb xorg-x11-xauth dbus-daemon which
-            prog=$(rpm -ql "$(rpm -qp --qf "%{NAME}" /pkgs/*.rpm)" | grep -m1 "^/usr/bin/")
-            echo "installed: $prog"
-            if ldd "$prog" | grep "not found"; then exit 1; fi
-            /check/stays-up.sh rpm "$prog" --background
-          '
-      - name: The .AppImage starts, with the .deb removed
-        if: matrix.arch == 'x64'
-        run: |
-          sudo apt-get remove -y "$(dpkg-deb -f target/release/bundle/deb/*.deb Package)"
-          app=$(ls target/release/bundle/appimage/*.AppImage)
-          chmod +x "$app"
-          "$RUNNER_TEMP/stays-up.sh" AppImage "$app" --appimage-extract-and-run --background
-      # As the AppImage catalog runs it: no network at all, in clean containers of the oldest
-      # Ubuntu LTS it is built for and of a newer distribution, started as a person starts it
-      # (no arguments: the window opens) and still up 15 s later. Each container first gets
-      # what every desktop has and an AppImage leaves to it (GL, X11, fonts, ALSA: linuxdeploy's
-      # excludelist) and the check's own Xvfb and D-Bus, then runs with --network none.
-      - name: The .AppImage starts offline, on Ubuntu 22.04 and Fedora 41
-        if: matrix.arch == 'x64'
-        run: |
-          app=$(ls target/release/bundle/appimage/*.AppImage)
-          chmod +x "$app"
-          offline() { # offline <image> <install command>
-            docker rm -f desk >/dev/null 2>&1 || true
-            docker run --name desk "$1" bash -euc "$2"
-            docker commit desk "desk-${1//:/-}" >/dev/null
-            docker rm desk >/dev/null
-            docker run --rm --network none -e SECS=15 \
-              -v "$PWD/$(dirname "$app"):/app:ro" -v "$RUNNER_TEMP:/check:ro" "desk-${1//:/-}" \
-              bash -euc 'cd "$(mktemp -d)" && /app/'"$(basename "$app")"' --appimage-extract >/dev/null
-                /check/stays-up.sh "AppImage on $(. /etc/os-release && echo "$PRETTY_NAME"), offline" "$PWD/squashfs-root/AppRun"'
-          }
-          offline ubuntu:22.04 'export DEBIAN_FRONTEND=noninteractive; apt-get -o Acquire::Retries=5 update -qq
-            apt-get -o Acquire::Retries=5 install -y -qq --no-install-recommends xvfb xauth dbus libgl1 libegl1 libgles2 \
-              libfontconfig1 fonts-dejavu-core libx11-6 libx11-xcb1 libxcb1 libdrm2 libharfbuzz0b \
-              libfribidi0 libfreetype6 libasound2 libgpg-error0 >/dev/null'
-          offline fedora:41 'dnf -y -q install --setopt=install_weak_deps=False \
-            xorg-x11-server-Xvfb xorg-x11-xauth dbus-daemon which mesa-libGL mesa-libEGL \
-            libglvnd-gles fontconfig dejavu-sans-fonts libX11 libX11-xcb libxcb libdrm harfbuzz \
-            fribidi freetype alsa-lib libgpg-error'
-      - name: Checksums
-        run: |
-          cd target/release/bundle
-          if [ "${{ matrix.arch }}" = x64 ]; then sums=SHA256SUMS-linux.txt; else sums=SHA256SUMS-linux-arm64.txt; fi
-          # shellcheck disable=SC2046
-          sha256sum deb/*.deb rpm/*.rpm $(ls appimage/*.AppImage 2>/dev/null) | sed 's#  [a-z]*/#  #' > "$sums"
-          cat "$sums"
-      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
-        with:
-          name: skykeep-linux-${{ matrix.arch }}
-          path: |
-            target/release/bundle/deb/*.deb
-            target/release/bundle/rpm/*.rpm
-            target/release/bundle/SHA256SUMS-linux*.txt
-          if-no-files-found: error
+      ANDROID_KEYSTORE: ${{ secrets.ANDROID_KEYSTORE }}
+      ANDROID_KEYSTORE_PASSWORD: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
 
   # Build once: when this exact commit passed the Windows checks (windows-checks.yml, by SHA:
   # tests, Explorer test, installers signed for the updater, installed and started, MSIX), the
@@ -256,108 +137,13 @@ jobs:
       TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
       TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
 
-  # The Flatpak bundle, built offline in the Flathub container and proven to install and start.
-  # Attached to the release for anyone who installs Flatpaks by hand (not Flathub).
-  flatpak:
-    uses: ./.github/workflows/flatpak.yml
-
-  # Skykeep for Android, built without its key: R8's release build, unsigned. The key never
-  # reaches a job that runs the repository's build (Gradle plugins, the engine's build scripts,
-  # cargo-about), as the updater's key doesn't (see sign-updater.yml).
-  android-build:
-    runs-on: ubuntu-24.04
-    timeout-minutes: 50
-    permissions:
-      contents: read
-    steps:
-      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-      - uses: actions/setup-java@77dd5b2ce225ea11469928ac317850245a74ae78 # v6.2.0
-        with:
-          distribution: temurin
-          java-version: 17
-      - run: rustup target add aarch64-linux-android x86_64-linux-android
-      - run: cargo install cargo-ndk --version 4.1.2 --locked
-      - uses: taiki-e/install-action@cfdb7ed4ccc7c7dce37759eae89dc5674b469b39 # v2.90.3
-        with:
-          tool: cargo-about@0.9.3
-      - name: The release build, unsigned
-        working-directory: android
-        run: ANDROID_NDK_HOME="$ANDROID_NDK_LATEST_HOME" ./gradlew --no-daemon assembleRelease
-      - name: Its version is the release's
-        run: |
-          # The version the app was built from; on a tag, also the tag's.
-          want=$(jq -r .version src-tauri/tauri.conf.json)
-          if [[ "$GITHUB_REF" == refs/tags/v* && "v$want" != "$GITHUB_REF_NAME" ]]; then
-            echo "::error::tag $GITHUB_REF_NAME, but tauri.conf.json says $want"; exit 1
-          fi
-          tools="$ANDROID_HOME/build-tools/$BUILD_TOOLS"
-          [ -x "$tools/aapt2" ] || yes | "$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager" "build-tools;$BUILD_TOOLS" >/dev/null
-          got=$("$tools/aapt2" dump badging android/app/build/outputs/apk/release/app-release-unsigned.apk | sed -n "s/.*versionName='\([^']*\)'.*/\1/p" | head -n1)
-          if [ "$got" != "$want" ]; then echo "::error::the app says '$got', the release is $want"; exit 1; fi
-      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
-        with:
-          name: android-unsigned
-          path: android/app/build/outputs/apk/release/app-release-unsigned.apk
-          if-no-files-found: error
-
-  # Signed with Android's own tools from the runner's SDK, in a job that installs and runs
-  # nothing of the repository's: only the finished APK and the key meet here.
-  android-sign:
-    needs: android-build
-    runs-on: ubuntu-24.04
-    timeout-minutes: 10
-    permissions:
-      contents: read
-    steps:
-      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
-        with:
-          name: android-unsigned
-          path: unsigned
-      - name: Signed, and checked
-        env:
-          KEYSTORE: ${{ secrets.ANDROID_KEYSTORE }}
-          KS_PW: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
-        run: |
-          # Each step says what failed: zipalign -c and a grep that finds nothing exit quietly,
-          # and 0.1.22's rehearsal stopped here with no word of which.
-          set -o pipefail
-          tools="$ANDROID_HOME/build-tools/$BUILD_TOOLS"
-          [ -x "$tools/aapt2" ] || yes | "$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager" "build-tools;$BUILD_TOOLS" >/dev/null
-          key="$RUNNER_TEMP/release.p12"
-          ( umask 077; printf '%s' "$KEYSTORE" | base64 -d > "$key" ) || { echo "::error::ANDROID_KEYSTORE is not base64"; exit 1; }
-          [ -s "$key" ] || { echo "::error::ANDROID_KEYSTORE is empty"; exit 1; }
-          mkdir -p android
-          out="android/Skykeep-${GITHUB_REF_NAME#v}-android.apk"
-          # Aligned already by the build (16 KB pages for the engine's libraries); checked, not redone.
-          if ! "$tools/zipalign" -c -v -P 16 4 unsigned/app-release-unsigned.apk > "$RUNNER_TEMP/align.txt"; then
-            grep -v "(OK" "$RUNNER_TEMP/align.txt" | tail -n 20
-            echo "::error::the APK is not aligned"; exit 1
-          fi
-          "$tools/apksigner" sign --ks "$key" --ks-pass env:KS_PW --ks-key-alias skykeep --out "$out" unsigned/app-release-unsigned.apk \
-            || { rm -f "$key"; echo "::error::apksigner could not sign with the key"; exit 1; }
-          rm -f "$key"
-          "$tools/apksigner" verify --print-certs "$out" > "$RUNNER_TEMP/certs.txt" || { echo "::error::the signed APK does not verify"; exit 1; }
-          # Signed by Skykeep's own key and no other: its certificate's SHA-256, as the README
-          # publishes it. apksigner names the signer "Signer #1" or, from build-tools 37,
-          # "V3.0 Signer"; the digest line is the same in both.
-          want=610a64506d95da6cce75ff0e40b85902fa41e40d001bba87bf4070fecbf23afb
-          grep -E "certificate (DN|SHA-256 digest):" "$RUNNER_TEMP/certs.txt"
-          got=$(sed -n 's/.*certificate SHA-256 digest: \([0-9a-f]*\).*/\1/p' "$RUNNER_TEMP/certs.txt" | sort -u)
-          [ "$got" = "$want" ] || { cat "$RUNNER_TEMP/certs.txt"; echo "::error::signed by '$got', not Skykeep's key"; exit 1; }
-          (cd android && sha256sum "$(basename "$out")" > SHA256SUMS-android.txt && cat SHA256SUMS-android.txt)
-      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
-        with:
-          name: android
-          path: android/
-          if-no-files-found: error
-
   publish:
     # Whatever built and passed its own checks goes out; a platform whose build failed is left
     # out, named in the run's summary, and added to the same release when its job is re-run
     # (GitHub re-runs this job with it; every step below takes what is there). Each platform's
     # own tests still decide whether its file exists at all.
     if: startsWith(github.ref, 'refs/tags/v') && !cancelled()
-    needs: [appimage, linux, windows-proven, windows, flatpak, android-sign]
+    needs: [linux-proven, linux, windows-proven, windows]
     runs-on: ubuntu-24.04
     permissions:
       contents: write
