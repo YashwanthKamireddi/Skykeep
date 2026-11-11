@@ -1407,12 +1407,15 @@ pub use quince_sync::queue::ACCOUNT_KEY;
 /// What of an account lives in the data folder beside the session: its library, and every
 /// cache and queue made from it. Moved as one when another account signs in.
 ///
-/// Calendar subscriptions (`subscriptions.json`, `subscriptions/`) are not here: they are
-/// public files this computer was asked to fetch, nothing of Apple's or the account's (see
-/// `calendar_unsubscribe`), and stay with the computer as its settings do.
-const ACCOUNT_FILES: [&str; 16] = [
+/// Calendar subscriptions (`subscriptions.json`, `subscriptions/`) are here too: the feeds
+/// are public, but which ones a person follows (a team's rota, a school's term dates) says
+/// something about them, and on a shared computer it was shown to whoever signed in next.
+/// Reloaded whenever the account changes (`load_subscriptions`).
+const ACCOUNT_FILES: [&str; 18] = [
     "library.db",
     "library.db-wal",
+    "subscriptions.json",
+    "subscriptions",
     "library.db-shm",
     "photos",
     "photos-folder-cache",
@@ -1769,6 +1772,10 @@ async fn signed_in_as(
         let _ = client.sign_out();
         return Err(e);
     }
+    // The account's own subscriptions, now that its files are the ones in place.
+    if app.try_state::<Feeds>().is_some() {
+        load_subscriptions(app).await;
+    }
     LIVE.store(true, Ordering::SeqCst);
     if let Some(auth) = app.try_state::<Auth>() {
         *auth
@@ -2041,6 +2048,8 @@ async fn auth_sign_out(keep: bool, app: tauri::AppHandle, auth: State<'_, Auth>)
         // The screens' readers let go of the file before it is deleted.
         data.0.forget_readers();
         let removed = remove_account(&mut library, &state_dir(&app));
+        // Its subscriptions went with its files: none left in memory to show or fetch.
+        app.state::<Feeds>().subs.lock().await.clear();
         drop(library);
         drop(client);
         let app = app.clone();
@@ -2709,36 +2718,42 @@ fn now_unix() -> i64 {
         .map_or(0, |d| i64::try_from(d.as_secs()).unwrap_or(0))
 }
 
+/// The subscriptions kept in the data folder, read into memory: at launch, and again whenever
+/// the files there change hands (an account signing in claims its own and sets another's
+/// aside; Remove copy deletes them), so the list shown and fetched is always the account's.
+async fn load_subscriptions(app: &tauri::AppHandle) {
+    let here = jiff::tz::TimeZone::system();
+    let kept: Vec<Subscription> =
+        std::fs::read_to_string(state_dir(app).join("subscriptions.json"))
+            .ok()
+            .and_then(|t| serde_json::from_str(&t).ok())
+            .unwrap_or_default();
+    {
+        let state = app.state::<Feeds>();
+        let mut subs = state.subs.lock().await;
+        *subs = kept
+            .into_iter()
+            .map(|s| {
+                let feed = feed_file(&feeds_dir(app), &s.id)
+                    .and_then(|f| std::fs::read_to_string(f).ok())
+                    .and_then(|t| feeds::parse(&t, &here).ok());
+                (s, feed)
+            })
+            .collect();
+    }
+    // The subscribed calendars are the calendar's alone to read again.
+    app.emit(
+        SYNCED,
+        refresh::status_changed(&app.state::<Data>().0, &["calendar"]).await,
+    )
+    .ok();
+}
+
 /// Read the subscriptions kept on disk, then fetch each when it is due — never before the
 /// person has subscribed to something, so a new install reaches no host but Apple's.
 fn spawn_subscriptions(app: tauri::AppHandle) {
     tauri::async_runtime::spawn(async move {
-        let here = jiff::tz::TimeZone::system();
-        let kept: Vec<Subscription> =
-            std::fs::read_to_string(state_dir(&app).join("subscriptions.json"))
-                .ok()
-                .and_then(|t| serde_json::from_str(&t).ok())
-                .unwrap_or_default();
-        {
-            let state = app.state::<Feeds>();
-            let mut subs = state.subs.lock().await;
-            *subs = kept
-                .into_iter()
-                .map(|s| {
-                    let feed =
-                        std::fs::read_to_string(feeds_dir(&app).join(format!("{}.ics", s.id)))
-                            .ok()
-                            .and_then(|t| feeds::parse(&t, &here).ok());
-                    (s, feed)
-                })
-                .collect();
-        }
-        // The subscribed calendars are the calendar's alone to read again.
-        app.emit(
-            SYNCED,
-            refresh::status_changed(&app.state::<Data>().0, &["calendar"]).await,
-        )
-        .ok();
+        load_subscriptions(&app).await;
         loop {
             let due: Vec<Subscription> = app
                 .state::<Feeds>()
