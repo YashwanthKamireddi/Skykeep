@@ -259,7 +259,10 @@ impl Library {
         Ok(rows.collect::<rusqlite::Result<Vec<_>>>()?)
     }
 
-    /// Events overlapping `[from, to)`, from enabled calendars only.
+    /// Events overlapping `[from, to)`, from every calendar. Apple's `enabled` is only whether
+    /// icloud.com's web calendar ticks a calendar: Apple's own apps ignore it, and so does this.
+    /// Showing and hiding is the Calendar window's own (its ticks). Filtering on it left a
+    /// calendar unticked on the web listed and ticked here with every day empty (#33).
     ///
     /// Overlap rather than containment: a meeting that started before the window but is
     /// still running belongs in today's view.
@@ -269,8 +272,7 @@ impl Library {
         let mut stmt = self.conn.prepare(&format!(
             "SELECT {} FROM events e
              JOIN calendars c ON c.guid = e.calendar_guid
-             WHERE c.enabled = 1
-               AND ((e.floating = 0 AND e.starts_at < ?2 AND e.ends_at > ?1)
+             WHERE ((e.floating = 0 AND e.starts_at < ?2 AND e.ends_at > ?1)
                  OR (e.floating = 1 AND e.starts_at < ?2 + ?3 AND e.ends_at > ?1 - ?3))",
             prefixed("e.")
         ))?;
@@ -673,18 +675,20 @@ mod tests {
         assert_eq!(guids, vec!["straddling", "inside"]);
     }
 
+    /// A calendar unticked in icloud.com's web calendar (`enabled: false`) still shows its
+    /// events here, as on the iPhone and the Mac (#33).
     #[test]
-    fn disabled_calendars_are_hidden_from_the_view() {
+    fn a_calendar_off_on_the_web_still_shows_its_events() {
         let mut lib = seeded();
         lib.put_events(&[event("ev-1", "cal-1", 100, 200)]).unwrap();
         assert_eq!(lib.events_between(0, 1_000).unwrap().len(), 1);
 
-        let mut hidden = calendar("cal-1", "Work");
-        hidden.enabled = false;
-        lib.put_calendars(&[hidden, calendar("cal-2", "Home")])
+        let mut off_on_the_web = calendar("cal-1", "Work");
+        off_on_the_web.enabled = false;
+        lib.put_calendars(&[off_on_the_web, calendar("cal-2", "Home")])
             .unwrap();
 
-        assert!(lib.events_between(0, 1_000).unwrap().is_empty());
+        assert_eq!(lib.events_between(0, 1_000).unwrap().len(), 1);
     }
 
     #[test]
