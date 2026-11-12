@@ -305,7 +305,10 @@ jobs:
           # The package's own dependencies, from its PKGBUILD, as makepkg -s would install them.
           # shellcheck disable=SC1091
           (cd packaging/arch && source ./PKGBUILD && pacman -S --noconfirm --needed --asdeps "${depends[@]}" "${makedepends[@]}")
-          su builder -c "cd '$GITHUB_WORKSPACE/packaging/arch' && CARGO_BUILD_JOBS=4 makepkg -f --noconfirm"
+          # This job proves the PKGBUILD builds, installs and runs; the speed of the binary is
+          # the releases' to prove. So it compiles with many code units and no LTO (2 to 3 times
+          # faster on a 4-core runner) — the release profile's settings, not its code, change.
+          su builder -c "cd '$GITHUB_WORKSPACE/packaging/arch' && CARGO_BUILD_JOBS=4 CARGO_PROFILE_RELEASE_LTO=false CARGO_PROFILE_RELEASE_CODEGEN_UNITS=16 makepkg -f --noconfirm"
       - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: arch-package
