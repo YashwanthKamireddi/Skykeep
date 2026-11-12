@@ -103,6 +103,11 @@
     <color type="primary" scheme_preference="dark">#0B2A4A</color>
   </branding>
   <releases>
+    <release version="0.1.23" date="2026-11-12">
+      <description>
+        <p>On Windows, each app opens from its tile in Skykeep's window again. Calendar shows the events of every calendar, including those unticked in the Calendar on icloud.com, which Skykeep listed but left empty. Skykeep's window, Settings, sign-in and all of Notes now come in German and Simplified Chinese, with a language picker in Settings. The button that shows and hides each app's sidebar now matches the rest of the toolbar.</p>
+      </description>
+    </release>
     <release version="0.1.22" date="2026-11-11">
       <description>
         <p>Notes keeps what you typed when you quit, close its window or sign out. Two Apple Accounts on one computer never mix: reminder and event alerts, the Hidden album's lock, calendar subscriptions and unfinished downloads stay with their own account, and signing in as someone else starts clean. Favorite, Hide and Delete in Photos are kept safely until iCloud has them, even if Skykeep closes first. Lists open faster with large libraries, each app's window loads only its own app, and typing with an input method no longer acts on half-typed words. Skykeep has its own colours and sign-in, an Open-Source Licences window in Settings, and an updated SQLite with a security fix.</p>
