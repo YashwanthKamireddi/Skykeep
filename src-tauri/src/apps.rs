@@ -513,11 +513,13 @@ mod tests {
         let exempt = ["window_ready"];
         let mut offenders = Vec::new();
         for (file, source) in sources {
+            // As written, whatever the checkout's line endings (Windows checks out \r\n).
+            let source = source.replace("\r\n", "\n");
             // The code, not its tests (this test names the makers it looks for).
             let code = source
                 .split("#[cfg(test)]\nmod tests {")
                 .next()
-                .unwrap_or(source);
+                .unwrap_or(&source);
             for part in code.split("#[tauri::command]").skip(1) {
                 // The function the attribute marks, up to its closing brace at line start.
                 let Some(start) = part.find("fn ") else {
