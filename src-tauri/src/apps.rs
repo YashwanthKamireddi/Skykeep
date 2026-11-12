@@ -352,8 +352,11 @@ fn own_app_id(window: &tauri::WebviewWindow, id: &str) {
 }
 
 /// Open an app's window from the interface (the tray, a search result for another app).
+/// Async, as every command that can make a window: a synchronous command runs on the main
+/// thread, and making a window there waits on the event loop it is blocking. On Windows that
+/// deadlocked, and the launcher's tiles opened nothing (#33); the tray, on the loop, worked.
 #[tauri::command]
-pub fn app_open(key: String, app: AppHandle) {
+pub async fn app_open(key: String, app: AppHandle) {
     open(&app, &key);
 }
 
@@ -375,7 +378,7 @@ pub fn reveal(app: &AppHandle, key: &str, reveal: &serde_json::Value) {
 
 /// [`reveal`], asked from a page.
 #[tauri::command]
-pub fn app_reveal(key: String, reveal: serde_json::Value, app: AppHandle) {
+pub async fn app_reveal(key: String, reveal: serde_json::Value, app: AppHandle) {
     self::reveal(&app, &key, &reveal);
 }
 
@@ -478,12 +481,67 @@ pub fn close_all(app: &AppHandle) {
 
 /// Skykeep's window, asked from a page (an app's account card, Ctrl+,).
 #[tauri::command]
-pub fn settings_open(app: AppHandle) {
+pub async fn settings_open(app: AppHandle) {
     open_skykeep(&app);
 }
 
 #[cfg(test)]
 mod tests {
+
+    /// No synchronous command can make a window. A synchronous command runs on the main thread,
+    /// and making a window there waits on the event loop it blocks: on Windows the launcher's
+    /// tiles opened nothing (#33). Read from the sources, so a new command is held to it too.
+    #[test]
+    fn no_synchronous_command_can_make_a_window() {
+        let makers = [
+            "WebviewWindowBuilder",
+            "make(",
+            "open(&app",
+            "reveal(&app",
+            "show_window(",
+            "make_main(",
+            "capture(",
+            "new_event(",
+            "open_skykeep(",
+        ];
+        let sources = [
+            ("apps.rs", include_str!("apps.rs")),
+            ("intake.rs", include_str!("intake.rs")),
+            ("main.rs", include_str!("main.rs")),
+        ];
+        // Called only by the main window, about itself: it exists, so show_window shows it.
+        let exempt = ["window_ready"];
+        let mut offenders = Vec::new();
+        for (file, source) in sources {
+            // The code, not its tests (this test names the makers it looks for).
+            let code = source
+                .split("#[cfg(test)]\nmod tests {")
+                .next()
+                .unwrap_or(source);
+            for part in code.split("#[tauri::command]").skip(1) {
+                // The function the attribute marks, up to its closing brace at line start.
+                let Some(start) = part.find("fn ") else {
+                    continue;
+                };
+                let head = &part[..start];
+                let body = part[start..].split("\n}").next().unwrap_or("");
+                if head.contains("async") {
+                    continue;
+                }
+                let name: String = body[3..]
+                    .chars()
+                    .take_while(|c| *c == '_' || c.is_alphanumeric())
+                    .collect();
+                if !exempt.contains(&name.as_str()) && makers.iter().any(|m| body.contains(m)) {
+                    offenders.push(format!("{file}: {name}"));
+                }
+            }
+        }
+        assert!(
+            offenders.is_empty(),
+            "synchronous commands that can make a window: {offenders:?}"
+        );
+    }
 
     #[test]
     fn every_app_has_its_own_icon() {

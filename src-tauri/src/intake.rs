@@ -295,8 +295,9 @@ pub fn intake_capture_close(app: AppHandle) {
 
 /// From the quick-capture window when Skykeep is not signed in: the main window, where the
 /// sign-in is.
+/// Async: it can make Skykeep's window (see apps::app_open).
 #[tauri::command]
-pub fn intake_open_main(app: AppHandle) {
+pub async fn intake_open_main(app: AppHandle) {
     crate::show_window(&app);
 }
 
