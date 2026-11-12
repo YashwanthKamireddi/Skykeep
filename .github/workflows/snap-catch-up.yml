@@ -1,0 +1,50 @@
+# The Snap Store, brought up to the latest release by itself. A release publishes its snap
+# (stores.yml → snap.yml), but that needs the Snap Store to answer GitHub's runners, and on
+# 11 and 12 Nov it did not for hours: 0.1.22 and 0.1.23 never reached Snap users, who stayed on
+# 0.1.20. Every day this compares the store's stable version with the latest release and, when
+# the store is behind, builds, checks and publishes that release's snap (snap.yml, unchanged).
+# A store that does not answer is simply asked again the next day.
+name: Snap catch-up
+
+on:
+  schedule:
+    - cron: "30 3 * * *"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: snap-catch-up
+  cancel-in-progress: false
+
+jobs:
+  behind:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    outputs:
+      tag: ${{ steps.compare.outputs.tag }}
+    steps:
+      - id: compare
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          tag=$(gh api "repos/$GITHUB_REPOSITORY/releases/latest" --jq .tag_name)
+          store=$(curl -sf -m 60 --retry 3 --retry-delay 20 -H 'Snap-Device-Series: 16' \
+            'https://api.snapcraft.io/v2/snaps/info/skykeep?fields=version' \
+            | jq -r '[."channel-map"[] | select(.channel.risk == "stable" and .channel.architecture == "amd64") | .version][0] // empty') || true
+          if [ -z "$store" ]; then
+            echo "::warning::the Snap Store did not answer; asking again tomorrow"; exit 0
+          fi
+          echo "latest release ${tag#v}, Snap Store stable $store"
+          if [ "${tag#v}" != "$store" ]; then echo "tag=$tag" >> "$GITHUB_OUTPUT"; fi
+
+  snap:
+    needs: behind
+    if: needs.behind.outputs.tag != ''
+    uses: ./.github/workflows/snap.yml
+    with:
+      tag: ${{ needs.behind.outputs.tag }}
+      publish: true
+    secrets:
+      SNAPCRAFT_STORE_CREDENTIALS: ${{ secrets.SNAPCRAFT_STORE_CREDENTIALS }}
