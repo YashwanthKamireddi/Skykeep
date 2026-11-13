@@ -114,9 +114,19 @@ bindings and licence file are ignored by git; never commit them.
 ```
 
 builds the interface (`npm run build`) and the app (`cargo build -p quince-app`), then opens
-`target/debug/quince-app`. There is no dev server: the app always serves its own built bundle,
-as a release does. `cargo build` embeds whatever is in `dist/`, so if you build by hand, run
-`npm run build` first or you will be looking at a stale interface.
+`target/debug/quince-app`, serving its own built bundle as a release does. `cargo build` embeds
+whatever is in `dist/`, so if you build by hand, run `npm run build` first or you will be
+looking at a stale interface.
+
+For interface work, run it live instead:
+
+```sh
+npm run live
+```
+
+The app loads the interface from Vite's dev server, so a change to `src/` shows in the open
+window as soon as it is saved. A change to Rust is not picked up by itself: stop it and run
+`npm run live` again.
 
 Useful environment variables:
 
