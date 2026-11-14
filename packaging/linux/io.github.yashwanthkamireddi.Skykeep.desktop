@@ -1,0 +1,14 @@
+# Skykeep's main window, as a dock finds it. The window says this file's name as its app ID
+# (io.github.yashwanthkamireddi.Skykeep), and docks that match a window to its launcher by that
+# name (on Hyprland, niri and other wlroots desktops) found no such file in a .deb or .rpm,
+# whose menu entry Tauri names Skykeep.desktop, and showed the window with no icon. So the .deb
+# and .rpm carry this one too, hidden from menus: Skykeep.desktop stays the one people see.
+# The Arch package and the Flatpak name their menu entry this way already, and don't use it.
+[Desktop Entry]
+Type=Application
+Name=Skykeep
+Exec=skykeep %U
+Icon=io.github.yashwanthkamireddi.Skykeep
+Terminal=false
+NoDisplay=true
+StartupWMClass=io.github.yashwanthkamireddi.Skykeep
