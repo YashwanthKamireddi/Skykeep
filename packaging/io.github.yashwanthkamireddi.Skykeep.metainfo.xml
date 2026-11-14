@@ -103,6 +103,11 @@
     <color type="primary" scheme_preference="dark">#0B2A4A</color>
   </branding>
   <releases>
+    <release version="0.1.24" date="2026-11-14">
+      <description>
+        <p>Custom smart lists made in Reminders show their reminders again: a list of tags matching any of them showed empty, and Skykeep now reads every rule Reminders offers, from tags and lists to include or leave out to each Date and Time choice. Other programs can tick a reminder off, put it back or open it in Reminders from the command line. On Linux, docks show the main window with its icon when Skykeep is installed from the .deb or .rpm.</p>
+      </description>
+    </release>
     <release version="0.1.23" date="2026-11-12">
       <description>
         <p>On Windows, each app opens from its tile in Skykeep's window again. Calendar shows the events of every calendar, including those unticked in the Calendar on icloud.com, which Skykeep listed but left empty. Skykeep's window, Settings, sign-in and all of Notes now come in German and Simplified Chinese, with a language picker in Settings. The button that shows and hides each app's sidebar now matches the rest of the toolbar.</p>
