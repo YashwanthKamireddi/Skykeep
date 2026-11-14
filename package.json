@@ -5,6 +5,7 @@
   "type": "module",
   "scripts": {
     "dev": "vite",
+    "live": "tauri dev --no-watch --config '{\"build\":{\"devUrl\":\"http://localhost:5273\",\"beforeDevCommand\":\"npm run dev\"}}'",
     "build": "tsc --noEmit && vite build",
     "preview": "vite preview",
     "licences": "node scripts/licences.mjs",
