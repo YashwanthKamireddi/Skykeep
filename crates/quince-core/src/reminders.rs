@@ -2599,11 +2599,14 @@ pub struct SmartFilter {
     pub match_all: bool,
     pub tags: Option<TagFilter>,
     pub date: Option<DateFilter>,
+    pub time: Option<TimeFilter>,
     /// Apple's scale: 1 high, 5 medium, 9 low, 0 none.
     pub priorities: Vec<i64>,
     pub flagged: Option<bool>,
-    /// List record names.
+    /// List record names: a reminder in one of these.
     pub lists: Vec<String>,
+    /// List record names a reminder must not be in.
+    pub exclude_lists: Vec<String>,
     /// Keys, or values, this decoder did not understand.
     pub unknown: Vec<String>,
 }
@@ -2617,6 +2620,10 @@ pub struct TagFilter {
     pub all: bool,
     /// "Any tag": a reminder carrying at least one.
     pub any_tag: bool,
+    /// Lower-cased, without `#`: tags a reminder must not carry.
+    pub exclude: Vec<String>,
+    /// "Untagged": a reminder carrying none.
+    pub untagged: bool,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
@@ -2629,13 +2636,52 @@ pub enum DateFilter {
     /// Due before now and not done.
     Overdue,
     /// Due within `[from, to)`, Unix seconds.
-    Range { from: i64, to: i64 },
-    /// Due within the next `count` units from the start of today (`past`: the last ones).
+    Range {
+        from: i64,
+        to: i64,
+    },
+    /// Due within the next `count` units from the start of today (`past`: the last ones);
+    /// `past_due` also takes in what is overdue.
     Relative {
         count: i64,
         unit: String,
         past: bool,
+        #[serde(default)]
+        past_due: bool,
     },
+    /// No due date.
+    NoDate,
+    /// Due today, not before.
+    TodayOnly,
+    /// Due on this day, before it, after it, or within these days (`YYYY-MM-DD`, both ends in).
+    OnDay {
+        day: String,
+    },
+    BeforeDay {
+        day: String,
+    },
+    AfterDay {
+        day: String,
+    },
+    Days {
+        from: String,
+        to: String,
+    },
+}
+
+/// A smart list's Time rule: when in the day a reminder is due.
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub enum TimeFilter {
+    /// Due at a time, not all day.
+    Any,
+    /// No time: all day, or no date at all.
+    NoTime,
+    /// 6:00 to 12:00, 12:00 to 17:00, 17:00 to 21:00, 21:00 to 6:00, as Reminders says them.
+    Morning,
+    Afternoon,
+    Evening,
+    Night,
 }
 
 /// Seconds between the Unix epoch and Apple's.
@@ -2752,25 +2798,41 @@ impl SmartFilter {
                     _ => out.unknown.push(key.clone()),
                 },
                 "lists" | "listIDs" | "listIdentifiers" => {
-                    let ids = match value {
-                        serde_json::Value::Object(o) => o
-                            .iter()
-                            .filter(|(k, _)| k.to_ascii_lowercase().contains("list"))
-                            .flat_map(|(_, v)| strings_in(v))
-                            .collect(),
-                        other => strings_in(other),
-                    };
-                    out.lists.extend(ids.into_iter().map(|id| {
+                    let record = |id: String| {
                         if id.contains('/') {
                             id
                         } else {
                             format!("List/{}", id.to_ascii_uppercase())
                         }
-                    }));
+                    };
+                    match value {
+                        // Apple's form: {"include": [...], "exclude": [...], "operation"}. One
+                        // reminder is in one list, so the operation changes nothing here.
+                        serde_json::Value::Object(o)
+                            if o.contains_key("include") || o.contains_key("exclude") =>
+                        {
+                            let ids = |k: &str| o.get(k).map(strings_in).unwrap_or_default();
+                            out.lists.extend(ids("include").into_iter().map(record));
+                            out.exclude_lists
+                                .extend(ids("exclude").into_iter().map(record));
+                        }
+                        serde_json::Value::Object(o) => out.lists.extend(
+                            o.iter()
+                                .filter(|(k, _)| k.to_ascii_lowercase().contains("list"))
+                                .flat_map(|(_, v)| strings_in(v))
+                                .map(record),
+                        ),
+                        other => out.lists.extend(strings_in(other).into_iter().map(record)),
+                    }
                 }
                 "hashtags" | "tags" | "hashtagLabels" => {
-                    out.tags = Some(decode_tags(value, &mut out.unknown))
+                    let t = decode_tags(value, &mut out.unknown);
+                    // Apple keeps the rule with nothing chosen in it: then it holds nothing back.
+                    let empty =
+                        t.names.is_empty() && t.exclude.is_empty() && !t.any_tag && !t.untagged;
+                    out.tags = (!empty).then_some(t);
                 }
+                "time" => out.time = decode_time(value, &mut out.unknown),
                 "date" | "dueDate" => out.date = decode_date(value, &mut out.unknown),
                 other => out.unknown.push(other.to_string()),
             }
@@ -2783,16 +2845,25 @@ impl SmartFilter {
         let mut checks: Vec<bool> = Vec::new();
         if let Some(t) = &self.tags {
             let has = |n: &String| tags.contains(n);
-            checks.push(if t.any_tag && t.names.is_empty() {
+            let included = if t.untagged {
+                tags.is_empty()
+            } else if t.any_tag && t.names.is_empty() {
                 !tags.is_empty()
+            } else if t.names.is_empty() {
+                // Only tags to leave out: everything else is in.
+                !t.exclude.is_empty()
             } else if t.all {
                 t.names.iter().all(has)
             } else {
                 t.names.iter().any(has)
-            });
+            };
+            checks.push(included && !t.exclude.iter().any(has));
         }
         if let Some(d) = &self.date {
             checks.push(date_holds(d, r, now));
+        }
+        if let Some(t) = self.time {
+            checks.push(time_holds(t, r));
         }
         if !self.priorities.is_empty() {
             checks.push(
@@ -2804,11 +2875,11 @@ impl SmartFilter {
         if let Some(f) = self.flagged {
             checks.push(r.flagged == f);
         }
-        if !self.lists.is_empty() {
+        if !self.lists.is_empty() || !self.exclude_lists.is_empty() {
+            let is = |l: &String| l.eq_ignore_ascii_case(&r.list_guid);
             checks.push(
-                self.lists
-                    .iter()
-                    .any(|l| l.eq_ignore_ascii_case(&r.list_guid)),
+                (self.lists.is_empty() || self.lists.iter().any(is))
+                    && !self.exclude_lists.iter().any(is),
             );
         }
         if checks.is_empty() {
@@ -2822,40 +2893,169 @@ impl SmartFilter {
     }
 }
 
+/// A smart list's tag rule, in any of the forms Apple has written: today
+/// `{"hashtags": {"include": [...], "exclude": [...], "operation": "and" | "or"}}`, `{"any": ""}`
+/// for any tag, `{"untagged": ""}` for none; before, `{"hashtags": [...]}` (every one of them)
+/// or a bare list. The nested form was read as no tags at all, so a smart list of tags showed
+/// empty (#36). Forms as remctl reads them from Apple's own lists (viticci/remctl).
 fn decode_tags(value: &serde_json::Value, unknown: &mut Vec<String>) -> TagFilter {
-    let mut t = TagFilter {
-        all: false,
-        ..Default::default()
-    };
+    let mut t = TagFilter::default();
+    // An operation named in the rule; without one, a list of names means all of them.
+    let mut operation: Option<bool> = None;
     match value {
         serde_json::Value::Object(o) => {
             for (k, v) in o {
                 let lower = k.to_ascii_lowercase();
-                if lower.contains("operation") || lower == "mode" || lower == "match" {
-                    match all_or_any(v) {
-                        Some(all) => t.all = all,
-                        None => unknown.push(format!("tags.{k}")),
+                let flag = v.as_bool() == Some(true) || v.as_str() == Some("");
+                match lower.as_str() {
+                    "include" => t.names.extend(strings_in(v).iter().map(|n| tag_key(n))),
+                    "exclude" => t.exclude.extend(strings_in(v).iter().map(|n| tag_key(n))),
+                    "untagged" if flag => t.untagged = true,
+                    _ if lower.contains("any") && flag => t.any_tag = true,
+                    _ if lower.contains("operation") || lower == "mode" || lower == "match" => {
+                        match all_or_any(v) {
+                            Some(all) => operation = Some(all),
+                            None => unknown.push(format!("tags.{k}")),
+                        }
                     }
-                } else if lower.contains("any") && v.as_bool().is_some() {
-                    t.any_tag = v.as_bool().unwrap_or(false);
-                } else if v.is_array() || v.is_string() {
-                    t.names.extend(strings_in(v).iter().map(|n| tag_key(n)));
-                } else {
-                    unknown.push(format!("tags.{k}"));
+                    // Apple's current form nests the rule under "hashtags" once more.
+                    _ if v.is_object() => {
+                        let inner = decode_tags(v, unknown);
+                        t.names.extend(inner.names);
+                        t.exclude.extend(inner.exclude);
+                        t.any_tag |= inner.any_tag;
+                        t.untagged |= inner.untagged;
+                        operation = operation.or(Some(inner.all));
+                    }
+                    _ if v.is_array() || v.is_string() => {
+                        t.names.extend(strings_in(v).iter().map(|n| tag_key(n)));
+                    }
+                    _ => unknown.push(format!("tags.{k}")),
                 }
             }
         }
         serde_json::Value::Bool(true) => t.any_tag = true,
         other => t.names.extend(strings_in(other).iter().map(|n| tag_key(n))),
     }
-    t.names.sort();
-    t.names.dedup();
+    t.all = operation.unwrap_or(true);
+    for names in [&mut t.names, &mut t.exclude] {
+        names.retain(|n| !n.is_empty());
+        names.sort();
+        names.dedup();
+    }
     t
+}
+
+/// A day as a smart list writes it (`31-12-2026`, or `2026-12-31`, `31/12/2026`, `2026/12/31`),
+/// as `YYYY-MM-DD`.
+fn filter_day(v: &serde_json::Value) -> Option<String> {
+    let text = v.as_str()?.trim();
+    let parts: Vec<&str> = text.split(['-', '/']).collect();
+    let [a, b, c] = parts.as_slice() else {
+        return None;
+    };
+    let (y, m, d) = if a.len() == 4 { (a, b, c) } else { (c, b, a) };
+    let date = jiff::civil::Date::new(y.parse().ok()?, m.parse().ok()?, d.parse().ok()?).ok()?;
+    Some(date.to_string())
+}
+
+/// The Date rule as Apple's Reminders writes it (forms from viticci/remctl, and a list made in
+/// Reminders on 14 Nov): `{"any": ""}`, `{"noDate": ""}`, `{"today": includePastDue}`,
+/// `{"onDate" | "beforeDate" | "afterDate": day}`, `{"dateRange": [day, day]}` and
+/// `{"relativeRange": {direction, magnitude, units, includePastDue}}`.
+fn apple_date(value: &serde_json::Value) -> Option<DateFilter> {
+    let o = value.as_object()?;
+    let only = |k: &str| o.len() == 1 && o.contains_key(k);
+    if only("any") {
+        return Some(DateFilter::Any);
+    }
+    if only("noDate") {
+        return Some(DateFilter::NoDate);
+    }
+    if let Some(past_due) = o.get("today").and_then(serde_json::Value::as_bool) {
+        return Some(if past_due {
+            DateFilter::Today
+        } else {
+            DateFilter::TodayOnly
+        });
+    }
+    if let Some(day) = o.get("onDate").and_then(filter_day) {
+        return Some(DateFilter::OnDay { day });
+    }
+    if let Some(day) = o.get("beforeDate").and_then(filter_day) {
+        return Some(DateFilter::BeforeDay { day });
+    }
+    if let Some(day) = o.get("afterDate").and_then(filter_day) {
+        return Some(DateFilter::AfterDay { day });
+    }
+    if let Some([from, to]) = o
+        .get("dateRange")
+        .and_then(serde_json::Value::as_array)
+        .map(Vec::as_slice)
+    {
+        return Some(DateFilter::Days {
+            from: filter_day(from)?,
+            to: filter_day(to)?,
+        });
+    }
+    let r = o.get("relativeRange")?.as_object()?;
+    let direction = r.get("direction")?.as_str()?.to_ascii_lowercase();
+    Some(DateFilter::Relative {
+        count: r.get("magnitude")?.as_i64()?,
+        unit: r.get("units")?.as_str()?.to_ascii_lowercase(),
+        past: ["past", "previous", "last", "before"]
+            .iter()
+            .any(|w| direction.contains(w)),
+        past_due: r
+            .get("includePastDue")
+            .and_then(serde_json::Value::as_bool)
+            .unwrap_or(false),
+    })
+}
+
+/// The Time rule: `{"any" | "morning" | "afternoon" | "evening" | "night" | "noTime": ""}`.
+fn decode_time(value: &serde_json::Value, unknown: &mut Vec<String>) -> Option<TimeFilter> {
+    let found = value.as_object().filter(|o| o.len() == 1).and_then(|o| {
+        Some(match o.keys().next()?.as_str() {
+            "any" => TimeFilter::Any,
+            "noTime" => TimeFilter::NoTime,
+            "morning" => TimeFilter::Morning,
+            "afternoon" => TimeFilter::Afternoon,
+            "evening" => TimeFilter::Evening,
+            "night" => TimeFilter::Night,
+            _ => return None,
+        })
+    });
+    if found.is_none() {
+        unknown.push(format!("time {value}"));
+    }
+    found
+}
+
+/// Whether a reminder is due when a Time rule says, by its due time in this computer's zone.
+fn time_holds(t: TimeFilter, r: &Reminder) -> bool {
+    let timed = r.due_at.filter(|_| !r.all_day);
+    let Some(due) = timed else {
+        return t == TimeFilter::NoTime;
+    };
+    let hour = jiff::Timestamp::from_second(due)
+        .map_or(0, |ts| ts.to_zoned(jiff::tz::TimeZone::system()).hour());
+    match t {
+        TimeFilter::Any => true,
+        TimeFilter::NoTime => false,
+        TimeFilter::Morning => (6..12).contains(&hour),
+        TimeFilter::Afternoon => (12..17).contains(&hour),
+        TimeFilter::Evening => (17..21).contains(&hour),
+        TimeFilter::Night => !(6..21).contains(&hour),
+    }
 }
 
 fn decode_date(value: &serde_json::Value, unknown: &mut Vec<String>) -> Option<DateFilter> {
     if value.as_bool() == Some(true) {
         return Some(DateFilter::Any);
+    }
+    if let Some(found) = apple_date(value) {
+        return Some(found);
     }
     let kind = value
         .as_str()
@@ -2897,6 +3097,7 @@ fn decode_date(value: &serde_json::Value, unknown: &mut Vec<String>) -> Option<D
             count,
             unit,
             past: k.contains("past") || k.contains("last") || count < 0,
+            past_due: false,
         }),
         (k, _, _) if k.contains("today") => Some(DateFilter::Today),
         (k, _, _) if k.contains("overdue") || k.contains("past") => Some(DateFilter::Overdue),
@@ -2912,7 +3113,7 @@ fn decode_date(value: &serde_json::Value, unknown: &mut Vec<String>) -> Option<D
 
 fn date_holds(d: &DateFilter, r: &Reminder, now: i64) -> bool {
     let Some(due) = r.due_at else {
-        return false;
+        return *d == DateFilter::NoDate;
     };
     let zone = jiff::tz::TimeZone::system();
     let today = jiff::Timestamp::from_second(now)
@@ -2934,8 +3135,16 @@ fn date_holds(d: &DateFilter, r: &Reminder, now: i64) -> bool {
             }
         }
         DateFilter::Range { from, to } => due >= *from && due < *to,
-        DateFilter::Relative { count, unit, past } => {
+        DateFilter::Relative {
+            count,
+            unit,
+            past,
+            past_due,
+        } => {
             let Some(today) = today else { return false };
+            if *past_due && due < day_start(today) {
+                return true;
+            }
             let n = count.abs().clamp(0, 10_000);
             let span = match unit.as_str() {
                 u if u.starts_with("week") => jiff::Span::new().weeks(n),
@@ -2952,6 +3161,43 @@ fn date_holds(d: &DateFilter, r: &Reminder, now: i64) -> bool {
                 due >= start && due < to
             }
         }
+        DateFilter::NoDate => false,
+        DateFilter::TodayOnly => today.is_some_and(|t| due_day(r, due) == Some(t)),
+        DateFilter::OnDay { day } => same_day(r, due, day, |a, b| a == b),
+        DateFilter::BeforeDay { day } => same_day(r, due, day, |a, b| a < b),
+        DateFilter::AfterDay { day } => same_day(r, due, day, |a, b| a > b),
+        DateFilter::Days { from, to } => {
+            same_day(r, due, from, |a, b| a >= b) && same_day(r, due, to, |a, b| a <= b)
+        }
+    }
+}
+
+/// The day a reminder is due: an all-day one's own day (kept at midnight UTC), a timed one's
+/// day on this computer's clock.
+fn due_day(r: &Reminder, due: i64) -> Option<jiff::civil::Date> {
+    let zone = if r.all_day {
+        jiff::tz::TimeZone::UTC
+    } else {
+        jiff::tz::TimeZone::system()
+    };
+    Some(
+        jiff::Timestamp::from_second(due)
+            .ok()?
+            .to_zoned(zone)
+            .date(),
+    )
+}
+
+/// Compares the day a reminder is due with a `YYYY-MM-DD` day.
+fn same_day(
+    r: &Reminder,
+    due: i64,
+    day: &str,
+    holds: impl Fn(jiff::civil::Date, jiff::civil::Date) -> bool,
+) -> bool {
+    match (due_day(r, due), day.parse::<jiff::civil::Date>()) {
+        (Some(due), Ok(day)) => holds(due, day),
+        _ => false,
     }
 }
 
@@ -3710,6 +3956,169 @@ mod detail_tests {
         assert!(ids("{}").is_empty(), "no criteria holds nothing");
     }
 
+    /// Apple's rules as its Reminders writes them today (forms from viticci/remctl): tags nested
+    /// as include, exclude and an operation, "any tag", "untagged", and lists to include or
+    /// leave out. The first is #36: a list of two tags, matching any, showed empty.
+    #[test]
+    fn apples_current_rules_are_read() {
+        let lib = library();
+        let ids = |f: &str| -> Vec<String> {
+            let filter = SmartFilter::decode(f);
+            assert!(
+                filter.unknown.is_empty(),
+                "{f} read whole: {:?}",
+                filter.unknown
+            );
+            let mut v: Vec<String> = lib
+                .reminders_matching(&filter, 0)
+                .unwrap()
+                .into_iter()
+                .map(|r| r.guid)
+                .collect();
+            v.sort();
+            v
+        };
+        let tags = |rule: &str| format!(r#"{{"hashtags":{{"hashtags":{rule}}},"operation":"or"}}"#);
+        assert_eq!(
+            ids(&tags(
+                r##"{"include":["#home","Work"],"exclude":[],"operation":"or"}"##
+            )),
+            vec!["Reminder/1", "Reminder/2"],
+            "either tag (#36)"
+        );
+        assert_eq!(
+            ids(&tags(
+                r#"{"include":["work","home"],"exclude":[],"operation":"and"}"#
+            )),
+            vec!["Reminder/2"],
+            "both tags"
+        );
+        assert_eq!(
+            ids(&tags(
+                r#"{"include":["work"],"exclude":["home"],"operation":"or"}"#
+            )),
+            vec!["Reminder/1"],
+            "one tag, not the other"
+        );
+        assert_eq!(
+            ids(r#"{"hashtags":{"any":""}}"#),
+            vec!["Reminder/1", "Reminder/2"]
+        );
+        assert_eq!(ids(r#"{"hashtags":{"untagged":""}}"#), vec!["Reminder/4"]);
+        assert_eq!(
+            ids(r#"{"lists":{"include":["B"],"exclude":[],"operation":"or"}}"#),
+            vec!["Reminder/2", "Reminder/4"]
+        );
+        assert_eq!(
+            ids(r#"{"lists":{"include":[],"exclude":["List/B"]}}"#),
+            vec!["Reminder/1"]
+        );
+    }
+
+    /// A smart list made in Reminders on an iPhone (14 Nov), its FilterData as iCloud keeps it:
+    /// read whole, its empty tag rule holding nothing back, and every rule applied.
+    #[test]
+    fn a_list_made_in_reminders_is_read_whole() {
+        let json = r#"{"flagged":true,"time":{"any":""},"lists":{"include":["FED5023E-668F-4670-89CB-2B7765A41F53"],"exclude":[]},"operation":"and","priorities":["high"],"hashtags":{"hashtags":{"exclude":[],"include":[],"operation":"and"}},"date":{"any":""}}"#;
+        let f = SmartFilter::decode(json);
+        assert!(f.unknown.is_empty(), "{:?}", f.unknown);
+        assert!(
+            f.tags.is_none(),
+            "a tag rule with no tags chosen holds nothing back"
+        );
+        assert_eq!(f.date, Some(DateFilter::Any));
+        assert_eq!(f.time, Some(TimeFilter::Any));
+        assert_eq!(f.lists, vec!["List/FED5023E-668F-4670-89CB-2B7765A41F53"]);
+
+        let list = "List/FED5023E-668F-4670-89CB-2B7765A41F53";
+        let mut fits = reminder("R", list);
+        fits.flagged = true;
+        fits.priority = 1;
+        fits.due_at = Some(1_800_000_000);
+        assert!(f.holds(&fits, &[], 0));
+        let mut all_day = fits.clone();
+        all_day.all_day = true;
+        assert!(!f.holds(&all_day, &[], 0), "Time: Any wants a time of day");
+        let mut elsewhere = fits.clone();
+        elsewhere.list_guid = "List/OTHER".into();
+        assert!(!f.holds(&elsewhere, &[], 0));
+    }
+
+    #[test]
+    fn apples_date_and_time_rules_hold() {
+        let decode = |j: &str| {
+            let f = SmartFilter::decode(j);
+            assert!(f.unknown.is_empty(), "{j}: {:?}", f.unknown);
+            f
+        };
+        assert_eq!(
+            decode(r#"{"date":{"noDate":""}}"#).date,
+            Some(DateFilter::NoDate)
+        );
+        assert_eq!(
+            decode(r#"{"date":{"today":false}}"#).date,
+            Some(DateFilter::TodayOnly)
+        );
+        assert_eq!(
+            decode(r#"{"date":{"today":true}}"#).date,
+            Some(DateFilter::Today)
+        );
+        assert_eq!(
+            decode(r#"{"date":{"onDate":"31-12-2026"}}"#).date,
+            Some(DateFilter::OnDay {
+                day: "2026-12-31".into()
+            })
+        );
+        assert_eq!(
+            decode(r#"{"date":{"dateRange":["01-12-2026","31-12-2026"]}}"#).date,
+            Some(DateFilter::Days {
+                from: "2026-12-01".into(),
+                to: "2026-12-31".into()
+            })
+        );
+        assert!(matches!(
+            decode(r#"{"date":{"relativeRange":{"direction":"future","magnitude":2,"units":"week","includePastDue":true}}}"#).date,
+            Some(DateFilter::Relative { count: 2, past: false, past_due: true, .. })
+        ));
+
+        // A day's rule, on an all-day reminder: its own day, whatever this computer's zone.
+        let mut day = reminder("D", "L");
+        day.all_day = true;
+        day.due_at = Some(1_798_675_200); // 2026-12-31 00:00 UTC
+        assert!(date_holds(
+            &DateFilter::OnDay {
+                day: "2026-12-31".into()
+            },
+            &day,
+            0
+        ));
+        assert!(date_holds(
+            &DateFilter::BeforeDay {
+                day: "2027-01-01".into()
+            },
+            &day,
+            0
+        ));
+        assert!(!date_holds(
+            &DateFilter::AfterDay {
+                day: "2026-12-31".into()
+            },
+            &day,
+            0
+        ));
+        let undated = reminder("U", "L");
+        assert!(date_holds(&DateFilter::NoDate, &undated, 0));
+        assert!(!date_holds(&DateFilter::Any, &undated, 0));
+
+        assert!(time_holds(TimeFilter::NoTime, &undated));
+        assert!(time_holds(TimeFilter::NoTime, &day));
+        assert!(!time_holds(TimeFilter::Any, &day));
+        assert_eq!(
+            decode(r#"{"time":{"evening":""}}"#).time,
+            Some(TimeFilter::Evening)
+        );
+    }
+
     #[test]
     fn date_filters_hold_against_the_clock() {
         let now = 1_800_000_000;
@@ -3722,6 +4131,7 @@ mod detail_tests {
             count: 7,
             unit: "day".into(),
             past: false,
+            past_due: false,
         };
         due.due_at = Some(now + 3 * 86_400);
         assert!(date_holds(&week, &due, now));
