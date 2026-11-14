@@ -71,6 +71,88 @@ pub fn new_asked(args: &[String]) -> Option<&'static str> {
         .map(|(kind, _, _)| *kind)
 }
 
+/// A reminder named on a command line by another program — a desktop bar's widget, a launcher,
+/// a script — so it is ticked off, put back or shown through Skykeep's own edit path, and the
+/// change reaches Apple through the outbox as one made in Reminders does (#35):
+/// `--complete-reminder <id>`, `--uncomplete-reminder <id>`, or `--reminder <id>` (alone or
+/// with `--app reminders`) to open Reminders on it. Each also takes `--flag=<id>`.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum ReminderAsk {
+    Complete(String),
+    Uncomplete(String),
+    Show(String),
+}
+
+/// The value after `flag` (`flag <v>` or `flag=<v>`), if there is one that is not another flag.
+fn value_of(args: &[String], flag: &str) -> Option<String> {
+    let with = format!("{flag}=");
+    args.iter()
+        .enumerate()
+        .find_map(|(i, a)| {
+            a.strip_prefix(&with)
+                .map(ToString::to_string)
+                .or_else(|| (a == flag).then(|| args.get(i + 1).cloned()).flatten())
+        })
+        .filter(|v| !v.is_empty() && !v.starts_with("--"))
+}
+
+/// What a command line asks of one reminder, if anything.
+pub fn reminder_asked(args: &[String]) -> Option<ReminderAsk> {
+    value_of(args, "--complete-reminder")
+        .map(ReminderAsk::Complete)
+        .or_else(|| value_of(args, "--uncomplete-reminder").map(ReminderAsk::Uncomplete))
+        .or_else(|| value_of(args, "--reminder").map(ReminderAsk::Show))
+}
+
+/// Do what [`reminder_asked`] found. A tick is made as the notification's Mark as Completed
+/// makes it (`crate::set_done`: shown and queued together, a repeating one moving to its next
+/// date), after the session is taken up again, so it reaches Apple even when this launch opened
+/// no window. Asked for what is already so, it does nothing, so a widget can repeat itself.
+pub fn on_reminder(app: &AppHandle, ask: ReminderAsk) {
+    let app = app.clone();
+    tauri::async_runtime::spawn(async move {
+        let data = app.state::<crate::Data>();
+        let (id, done) = match &ask {
+            ReminderAsk::Complete(id) => (id, Some(true)),
+            ReminderAsk::Uncomplete(id) => (id, Some(false)),
+            ReminderAsk::Show(id) => (id, None),
+        };
+        let found = data.0.lock().await.reminder(id).ok().flatten();
+        let Some(reminder) = found else {
+            quiet!("a command line named a reminder the library does not hold");
+            return;
+        };
+        let Some(done) = done else {
+            reveal(
+                &app,
+                "reminders",
+                &serde_json::json!({
+                    "screen": "reminders",
+                    "id": reminder.guid,
+                    "within": reminder.list_guid,
+                }),
+            );
+            return;
+        };
+        if reminder.completed_at.is_some() == done {
+            return;
+        }
+        let auth = app.state::<crate::Auth>();
+        if let Err(e) = crate::auth_resume(app.clone(), app.state::<crate::Auth>()).await {
+            quiet!("the session could not be taken up for a command line's tick: {e}");
+        }
+        if let Err(e) =
+            crate::set_done(&auth, &data, &reminder.guid, &reminder.list_guid, done).await
+        {
+            quiet!("a command line's reminder could not be ticked: {e}");
+            return;
+        }
+        // Reminders' window, if open, shows it at once.
+        let report = crate::refresh::status_changed(&data.0, &["reminders"]).await;
+        app.emit(crate::SYNCED, &report).ok();
+    });
+}
+
 /// The calendar and contact files a command line hands over — opened from a file manager,
 /// as a path (`%F`, Windows) or a `file://` URI (`%U`) — made absolute against `cwd`, the
 /// directory the launch came from. Only files of the kinds Skykeep opens are taken; any
@@ -614,6 +696,41 @@ mod tests {
         );
         assert!(silent.is_empty());
         assert!(started.elapsed() < Duration::from_secs(1));
+    }
+
+    #[test]
+    fn another_program_can_name_a_reminder() {
+        assert_eq!(
+            reminder_asked(&args(&["skykeep", "--complete-reminder", "R1"])),
+            Some(ReminderAsk::Complete("R1".into()))
+        );
+        assert_eq!(
+            reminder_asked(&args(&["skykeep", "--uncomplete-reminder=R2"])),
+            Some(ReminderAsk::Uncomplete("R2".into()))
+        );
+        assert_eq!(
+            reminder_asked(&args(&[
+                "skykeep",
+                "--app",
+                "reminders",
+                "--reminder",
+                "R3"
+            ])),
+            Some(ReminderAsk::Show("R3".into()))
+        );
+        // No id, or another flag where the id should be: nothing is asked.
+        assert_eq!(
+            reminder_asked(&args(&["skykeep", "--complete-reminder"])),
+            None
+        );
+        assert_eq!(
+            reminder_asked(&args(&["skykeep", "--reminder", "--app", "reminders"])),
+            None
+        );
+        assert_eq!(
+            reminder_asked(&args(&["skykeep", "--app", "reminders"])),
+            None
+        );
     }
 
     #[test]

@@ -107,6 +107,12 @@ pub fn arrived(app: &AppHandle, args: &[String], cwd: &Path) -> bool {
         crate::send::send(app, files);
         return true;
     }
+    // A reminder named by another program: ticked, put back or shown, with no window of its
+    // own unless it was to be shown (#35).
+    if let Some(ask) = crate::apps::reminder_asked(args) {
+        crate::apps::on_reminder(app, ask);
+        return true;
+    }
     if let Some(kind) = crate::apps::new_asked(args) {
         // An event is made in Calendar's own window, with its days and times; the others in
         // the one-field capture.
