@@ -1,4 +1,5 @@
 import { memo, useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { t, activeLanguage, useI18n, type Key } from "../lib/i18n";
 import { AppFoot } from "../components/AppFoot";
 import { overlayOpen, useActiveRef, useScreenActive } from "../lib/screen";
 import { useModalFocus } from "../lib/focus";
@@ -32,7 +33,7 @@ import { startDownload } from "../lib/downloads";
 import { listen } from "@tauri-apps/api/event";
 import { Picker } from "../components/Picker";
 import { RowMenu } from "../components/RowMenu";
-import { dateText, timeText } from "../lib/when";
+import { dateLocale, dateText, timeText } from "../lib/when";
 import { Clock, Cloud, Trash2 } from "lucide-react";
 import { useReveal } from "../lib/reveal";
 import { keepSame } from "../lib/same";
@@ -44,10 +45,10 @@ import { icloudSize } from "../lib/icloudSize";
 
 /** iCloud Drive's own four orders, as its "by Name" menu offers them. */
 const SORTS = [
-  { key: "name", label: "Name" },
-  { key: "date", label: "Date" },
-  { key: "kind", label: "Kind" },
-  { key: "size", label: "Size" },
+  { key: "name", label: "drive.sort.name" as Key },
+  { key: "date", label: "drive.sort.date" as Key },
+  { key: "kind", label: "drive.sort.kind" as Key },
+  { key: "size", label: "drive.sort.size" as Key },
 ] as const;
 type SortKey = (typeof SORTS)[number]["key"];
 const SORT_KEY = "quince.drive.sort";
@@ -103,7 +104,7 @@ const modified = (seconds: number | null, now = new Date()) => {
       new Date(d.getFullYear(), d.getMonth(), d.getDate()).getTime()) / 864e5,
   );
   if (days === 0 || days === 1) {
-    return `${days === 0 ? "Today" : "Yesterday"}, ${timeText(d, { hour: "numeric", minute: "2-digit" })}`;
+    return t(days === 0 ? "drive.todayAt" : "drive.yesterdayAt", { time: timeText(d, { hour: "numeric", minute: "2-digit" }) });
   }
   return dateText(d, { day: "numeric", month: "short", year: "numeric" });
 };
@@ -152,7 +153,7 @@ function DriveTrash({ onClose, onRecovered }: { onClose: () => void; onRecovered
         setError(
           refused.length === 1
             ? refused[0].reason
-            : `${refused.length} of ${gone.length} items could not be ${recover ? "recovered" : "deleted"}: ${refused[0].reason}`,
+            : t(recover ? "drive.someNotRecovered" : "drive.someNotDeleted", { count: refused.length, total: gone.length, reason: refused[0].reason }),
         );
         await read();
       }
@@ -164,8 +165,8 @@ function DriveTrash({ onClose, onRecovered }: { onClose: () => void; onRecovered
   const recover = (items: TrashItem[]) => out(items, true);
   const [confirm, confirmSheet] = useConfirm();
   const destroy = (items: TrashItem[]) => {
-    const what = items.length === 1 ? `\u201c${driveName(items[0])}\u201d` : `these ${items.length} items`;
-    void confirm({ title: `Delete ${what} now?`, body: "You can\u2019t undo this.", action: "Delete", danger: true, symbol: "trash" }).then(
+    const title = items.length === 1 ? t("drive.deleteNamed", { name: driveName(items[0]) }) : t("drive.deleteMany", { count: items.length });
+    void confirm({ title, body: t("drive.cantUndo"), action: t("drive.delete"), danger: true, symbol: "trash" }).then(
       (sure) => sure && void out(items, false),
     );
   };
@@ -173,8 +174,8 @@ function DriveTrash({ onClose, onRecovered }: { onClose: () => void; onRecovered
   return (
     <div className="drive drive-trash">
       <header className="pane-head drive-bar">
-        <PaneTitle before={<nav className="crumbs" aria-label="Folder path"><button className="crumb" onClick={onClose}>iCloud Drive</button></nav>}>
-          <button className="crumb" aria-current>Recently Deleted</button>
+        <PaneTitle before={<nav className="crumbs" aria-label={t("drive.folderPath")}><button className="crumb" onClick={onClose}>{t("drive.icloudDrive")}</button></nav>}>
+          <button className="crumb" aria-current>{t("drive.recentlyDeleted")}</button>
         </PaneTitle>
         {rows && rows.length > 0 && (
           <div className="toolbar-group">
@@ -183,8 +184,8 @@ function DriveTrash({ onClose, onRecovered }: { onClose: () => void; onRecovered
           </div>
         )}
       </header>
-      {rows === null && <EmptyState busy>Loading…</EmptyState>}
-      {rows && rows.length === 0 && !error && <EmptyState>Nothing in Recently Deleted.</EmptyState>}
+      {rows === null && <EmptyState busy>{t("drive.loading")}</EmptyState>}
+      {rows && rows.length === 0 && !error && <EmptyState>{t("drive.deletedEmpty")}</EmptyState>}
       {confirmSheet}
       {rows && rows.length > 0 && (
         <ul className="drive-rows">
@@ -199,7 +200,7 @@ function DriveTrash({ onClose, onRecovered }: { onClose: () => void; onRecovered
                     {driveName(item)}
                   </span>
                   <span className="drive-meta drive-kind">
-                    {item.restorePath ? `From ${item.restorePath.split("/").slice(0, -1).join("/") || "Drive"}` : kindName(item)}
+                    {item.restorePath ? t("drive.fromFolder", { folder: item.restorePath.split("/").slice(0, -1).join("/") || t("drive.title") }) : kindName(item)}
                   </span>
                   <span className="drive-meta">{isContainer(item) ? "" : fileSize(item.size)}</span>
                   <span className={`drive-meta${daysLeft(item.expiresAt) !== null && (daysLeft(item.expiresAt) ?? 99) <= 3 ? " is-soon" : ""}`}>
@@ -207,7 +208,7 @@ function DriveTrash({ onClose, onRecovered }: { onClose: () => void; onRecovered
                   </span>
                 </span>
                 <span className="drive-row-actions is-shown">
-                  <button className="link" onClick={() => void recover([item])}>Recover</button>
+                  <button className="link" onClick={() => void recover([item])}>{t("drive.recover")}</button>
                   <button className="link danger" onClick={() => destroy([item])}>Delete Now</button>
                 </span>
               </div>
@@ -255,12 +256,12 @@ function DriveRecents({ onClose }: { onClose: () => void }) {
   return (
     <div className="drive drive-recents">
       <header className="pane-head drive-bar">
-        <PaneTitle before={<nav className="crumbs" aria-label="Folder path"><button className="crumb" onClick={onClose}>iCloud Drive</button></nav>}>
-          <button className="crumb" aria-current>Recents</button>
+        <PaneTitle before={<nav className="crumbs" aria-label={t("drive.folderPath")}><button className="crumb" onClick={onClose}>{t("drive.icloudDrive")}</button></nav>}>
+          <button className="crumb" aria-current>{t("drive.recents")}</button>
         </PaneTitle>
       </header>
-      {rows === null && <EmptyState busy>Loading…</EmptyState>}
-      {rows && rows.length === 0 && !error && <EmptyState>Files you open show here, newest first.</EmptyState>}
+      {rows === null && <EmptyState busy>{t("drive.loading")}</EmptyState>}
+      {rows && rows.length === 0 && !error && <EmptyState>{t("drive.recentsEmpty")}</EmptyState>}
       {groups.map((g) => (
         <section key={g.heading} aria-label={g.heading}>
           <h2 className="drive-group">{g.heading}</h2>
@@ -305,7 +306,7 @@ function DriveRecents({ onClose }: { onClose: () => void }) {
         <RowMenu
           at={menu}
           onClose={() => setMenu(null)}
-          entries={[{ label: "Download a Copy", run: () => void download(menu.item) }]}
+          entries={[{ label: t("drive.downloadCopy"), run: () => void download(menu.item) }]}
         />
       )}
     </div>
@@ -321,10 +322,10 @@ export function groupRecents(rows: RecentItem[], now = new Date()): { heading: s
     const when = new Date((item.openedAt ?? 0) * 1000);
     const ago = Math.round((today - midnight(when)) / 864e5);
     const heading =
-      ago <= 0 ? "Today"
-      : ago === 1 ? "Yesterday"
-      : ago <= 7 ? "Previous 7 Days"
-      : ago <= 30 ? "Previous 30 Days"
+      ago <= 0 ? t("drive.today")
+      : ago === 1 ? t("drive.yesterday")
+      : ago <= 7 ? t("drive.previous7")
+      : ago <= 30 ? t("drive.previous30")
       : dateText(when, when.getFullYear() === now.getFullYear() ? { month: "long" } : { month: "long", year: "numeric" });
     const last = out[out.length - 1];
     if (last?.heading === heading) last.items.push(item);
@@ -343,20 +344,14 @@ const openedText = (s: number | null) => {
 };
 
 /** What a file's kind is called, as icloud.com's File Info names it. */
-const KINDS: Record<string, string> = {
-  pdf: "PDF document", png: "PNG image", jpg: "JPEG image", jpeg: "JPEG image", heic: "HEIC image",
-  gif: "GIF image", webp: "WebP image", mp4: "MPEG-4 movie", mov: "QuickTime movie", mp3: "MP3 audio",
-  m4a: "Apple MPEG-4 audio", wav: "WAVE audio", txt: "Plain text document", md: "Markdown document",
-  csv: "Comma-separated values", json: "JSON document", zip: "ZIP archive", html: "HTML document",
-  docx: "Office Open XML word processing document", doc: "Microsoft Word document",
-  xlsx: "Office Open XML spreadsheet", pptx: "Office Open XML presentation",
-  pages: "Pages document", numbers: "Numbers spreadsheet", key: "Keynote presentation",
-};
+const KIND_EXTS = new Set(["pdf", "png", "jpg", "jpeg", "heic", "gif", "webp", "mp4", "mov", "mp3", "m4a", "wav", "txt", "md",
+  "csv", "json", "zip", "html", "docx", "doc", "xlsx", "pptx", "pages", "numbers", "key"]);
 function kindName(item: DriveItem) {
-  if (item.kind === "FOLDER") return "Folder";
-  if (item.kind === "APP_LIBRARY") return "Application Library";
+  if (item.kind === "FOLDER") return t("drive.folder");
+  if (item.kind === "APP_LIBRARY") return t("drive.appLibrary");
   const ext = (item.extension ?? "").toLowerCase();
-  return KINDS[ext] ?? (ext ? `${ext.toUpperCase()} file` : "Document");
+  if (KIND_EXTS.has(ext)) return t(`drive.kinds.${ext === "jpeg" ? "jpg" : ext}` as Key);
+  return ext ? t("drive.extFile", { ext: ext.toUpperCase() }) : t("drive.document");
 }
 
 /** File Info, as icloud.com shows it: the mark, the name, then what it is and where. */
@@ -371,23 +366,23 @@ function InfoSheet({ item, where, thumb, onClose }: { item: DriveItem; where: st
     window.addEventListener("keydown", onKey);
     return () => { window.clearTimeout(id); window.removeEventListener("keydown", onKey); };
   }, [onClose]);
-  const when = (s: number | null) => (s === null ? "—" : new Date(s * 1000).toLocaleString(undefined, { dateStyle: "medium", timeStyle: "short" }));
+  const when = (s: number | null) => (s === null ? "—" : new Date(s * 1000).toLocaleString(dateLocale(), { dateStyle: "medium", timeStyle: "short" }));
   const rows: [string, string][] = [
-    ["Kind", kindName(item)],
+    [t("drive.info.kind"), kindName(item)],
     ...(isContainer(item)
-      ? item.childCount === null ? [] : [["Contents", `${item.childCount} item${item.childCount === 1 ? "" : "s"}`] as [string, string]]
-      : [["Size", fileSize(item.size)] as [string, string]]),
-    ["Where", where],
-    ["Created", when(item.createdAt)],
-    ["Modified", when(item.modifiedAt ?? item.createdAt)],
+      ? item.childCount === null ? [] : [[t("drive.info.contents"), t(item.childCount === 1 ? "drive.itemOne" : "drive.itemMany", { count: item.childCount })] as [string, string]]
+      : [[t("drive.info.size"), fileSize(item.size)] as [string, string]]),
+    [t("drive.info.where"), where],
+    [t("drive.info.created"), when(item.createdAt)],
+    [t("drive.info.modified"), when(item.modifiedAt ?? item.createdAt)],
   ];
   return (
     <Portal>
     <div className="modal-veil" onClick={onClose}>
-      <div ref={sheet} className="modal-sheet info-sheet" role="dialog" aria-modal="true" aria-label={isContainer(item) ? "Folder Info" : "File Info"} onClick={(e) => e.stopPropagation()}>
+      <div ref={sheet} className="modal-sheet info-sheet" role="dialog" aria-modal="true" aria-label={isContainer(item) ? t("drive.info.folderInfo") : t("drive.info.fileInfo")} onClick={(e) => e.stopPropagation()}>
         <header className="info-head">
-          <h2>{isContainer(item) ? "Folder Info" : "File Info"}</h2>
-          <button ref={done} className="link info-done" onClick={onClose}>Done</button>
+          <h2>{isContainer(item) ? t("drive.info.folderInfo") : t("drive.info.fileInfo")}</h2>
+          <button ref={done} className="link info-done" onClick={onClose}>{t("drive.info.done")}</button>
         </header>
         <div className={`info-mark${thumb ? " has-thumb" : ""}`} aria-hidden="true">
           {thumb ? <img src={thumb} alt="" draggable={false} /> : <FileGlyph kind={item.kind} extension={item.extension} />}
@@ -415,22 +410,19 @@ function daysLeft(expiresAt: number | null): number | null {
  * in this folder, whatever the case.
  */
 export function nameProblem(full: string, isFile: boolean, siblings: DriveItem[], self?: DriveItem): string | null {
-  const kind = isFile ? "file" : "folder";
-  if (!full.trim()) return `The name \u201c${full}\u201d is invalid. Please choose a different name.`;
-  if (full.startsWith(".")) return `The name of your ${kind} shouldn\u2019t begin with a \u201c.\u201d (dot). Please choose a different name.`;
-  if (/[:\n\r]/.test(full)) {
-    return `The name \u201c${full}\u201d can\u2019t be used. Try using a name with fewer characters, or with no punctuation marks.`;
-  }
+  if (!full.trim()) return t("drive.nameInvalid", { name: full });
+  if (full.startsWith(".")) return t(isFile ? "drive.nameDotFile" : "drive.nameDotFolder");
+  if (/[:\n\r]/.test(full)) return t("drive.nameCantUse", { name: full });
   const lower = full.toLocaleLowerCase();
   const taken = siblings.some((i) => i !== self && i.drivewsid !== self?.drivewsid && driveName(i).toLocaleLowerCase() === lower);
-  return taken ? `The name \u201c${full}\u201d is already taken. Please choose a different name.` : null;
+  return taken ? t("drive.nameTaken", { name: full }) : null;
 }
 
 /** "21 days", "1 day", "Today" — icloud.com's Time Left. */
 function timeLeft(expiresAt: number | null): string {
   const d = daysLeft(expiresAt);
   if (d === null) return "";
-  return d === 0 ? "Today" : `${d} day${d === 1 ? "" : "s"}`;
+  return d === 0 ? t("drive.today") : t(d === 1 ? "drive.daysLeftOne" : "drive.daysLeftMany", { count: d });
 }
 
 type Crumb = { id: string; name: string };
@@ -458,21 +450,21 @@ const KEPT = "kept";
 
 /** A folder changed since it was shown, said as it now stands: what is in it, and what is new. */
 export function folderNowWords(now: FolderNow): string {
-  const n = (k: number, one: string) => `${k} ${one}${k === 1 ? "" : "s"}`;
+  const items = (k: number) => t(k === 1 ? "drive.itemOne" : "drive.itemMany", { count: k });
   const since = [
-    now.added ? `${n(now.added, "item")} added` : "",
-    now.changed ? `${n(now.changed, "item")} changed` : "",
-    now.gone ? `${n(now.gone, "item")} removed` : "",
+    now.added ? t("drive.nowAdded", { items: items(now.added) }) : "",
+    now.changed ? t("drive.nowChanged", { items: items(now.changed) }) : "",
+    now.gone ? t("drive.nowRemoved", { items: items(now.gone) }) : "",
   ].filter(Boolean);
-  const said = since.length > 1 ? `${since.slice(0, -1).join(", ")} and ${since[since.length - 1]}` : since[0];
-  const holds = `This folder now has ${n(now.items, "item")}`;
-  return said
-    ? `${holds}, with ${said} since it was shown here, on another device. It goes to Recently Deleted with everything in it.`
-    : `${holds}. It changed since it was shown here, on another device. It goes to Recently Deleted with everything in it.`;
+  const said = new Intl.ListFormat(activeLanguage(), { type: "conjunction" }).format(since);
+  const holds = t("drive.nowHolds", { items: items(now.items) });
+  return since.length ? t("drive.nowChangedSince", { holds, said }) : t("drive.nowChangedPlain", { holds });
 }
 
 export function DriveView() {
-  const [trail, setTrail] = useState<Crumb[]>([{ id: DRIVE_ROOT, name: "Drive" }]);
+  // Through the hook, so the screen draws again in a language chosen while it is open.
+  useI18n();
+  const [trail, setTrail] = useState<Crumb[]>([{ id: DRIVE_ROOT, name: t("drive.title") }]);
   // Asked before a folder that changed since it was shown is deleted.
   const [confirm, confirmSheet] = useConfirm();
   /**
@@ -614,7 +606,7 @@ export function DriveView() {
       }
       setInTrash(false);
       setInRecents(false);
-      setTrail([{ id: DRIVE_ROOT, name: "Drive" }, ...crumbs]);
+      setTrail([{ id: DRIVE_ROOT, name: t("drive.title") }, ...crumbs]);
       revealing.current = r.id;
       setSelected(r.id);
     })();
@@ -888,7 +880,7 @@ export function DriveView() {
       return;
     }
     setError(null);
-    void startDownload(chosen, chosen.length === 1 ? driveName(chosen[0]) : `${chosen.length} items`);
+    void startDownload(chosen, chosen.length === 1 ? driveName(chosen[0]) : t("drive.itemMany", { count: chosen.length }));
   }, [download]);
 
 
@@ -960,7 +952,7 @@ export function DriveView() {
             const sure = await confirm({
               title: `Delete “${driveName(item)}”?`,
               body: folderNowWords(removed),
-              action: "Delete Anyway",
+              action: t("drive.deleteAnyway"),
               danger: true,
               symbol: "trash",
             });
@@ -978,7 +970,7 @@ export function DriveView() {
           for (const id of refused) next.delete(goneKey(from, id));
           return next;
         });
-        if (reason) setError(list.length === 1 ? reason : `${refused.length} of ${list.length} items could not be deleted: ${reason}`);
+        if (reason) setError(list.length === 1 ? reason : t("drive.someNotDeleted", { count: refused.length, total: list.length, reason }));
       }
       if (refused.length < list.length) await refresh();
     },
@@ -1058,7 +1050,7 @@ export function DriveView() {
           for (const id of refused) next.delete(goneKey(from, id));
           return next;
         });
-        setError(going.length === 1 ? reason : `${refused.length} of ${going.length} items could not be moved: ${reason}`);
+        setError(going.length === 1 ? reason : t("drive.someNotMoved", { count: refused.length, total: going.length, reason }));
       }
       if (refused.length < going.length) await refresh();
       settle(batch);
@@ -1162,7 +1154,7 @@ export function DriveView() {
         }
       }
       if (refused.length) {
-        setError(copying.length === 1 ? reason : `${refused.length} of ${copying.length} items could not be copied: ${reason}`);
+        setError(copying.length === 1 ? reason : t("drive.someNotCopied", { count: refused.length, total: copying.length, reason }));
       }
     },
     [refresh]
@@ -1309,7 +1301,7 @@ export function DriveView() {
         uploads.edit((u) =>
           u.batch !== batch || ["done", "failed", "cancelled", "planned"].includes(u.state)
             ? null
-            : { ...u, state: u.folder ? "failed" : "cancelled", error: "Stopped before it finished" },
+            : { ...u, state: u.folder ? "failed" : "cancelled", error: t("drive.stopped") },
         );
       }
     },
@@ -1405,7 +1397,7 @@ export function DriveView() {
         const chosen = await pickOpen({
           multiple: true,
           directory: folders,
-          title: folders ? "Upload folders to iCloud Drive" : "Upload to iCloud Drive",
+          title: folders ? t("drive.uploadFolders") : t("drive.uploadFiles"),
         });
         if (!chosen) return;
         await upload(chosen);
@@ -1745,18 +1737,18 @@ export function DriveView() {
    */
   const frame = (pane: React.ReactNode) => (
     <div className="dx">
-      <aside className="dx-side" aria-label="Drive">
+      <aside className="dx-side" aria-label={t("drive.title")}>
         <button className="source-row" aria-current={!inTrash && !inRecents} onClick={() => { setInTrash(false); setInRecents(false); }}>
           <Cloud className="dx-glyph" size={16} strokeWidth={1.8} aria-hidden="true" />
-          <span className="source-name">iCloud Drive</span>
+          <span className="source-name">{t("drive.icloudDrive")}</span>
         </button>
         <button className="source-row" aria-current={inRecents} onClick={() => { setInTrash(false); setInRecents(true); }}>
           <Clock className="dx-glyph" size={16} strokeWidth={1.8} aria-hidden="true" />
-          <span className="source-name">Recents</span>
+          <span className="source-name">{t("drive.recents")}</span>
         </button>
         <button className="source-row" aria-current={inTrash} onClick={() => { setInRecents(false); setInTrash(true); }}>
           <Trash2 className="dx-glyph" size={16} strokeWidth={1.8} aria-hidden="true" />
-          <span className="source-name">Recently Deleted</span>
+          <span className="source-name">{t("drive.recentlyDeleted")}</span>
         </button>
         <AppFoot />
       </aside>
@@ -1832,7 +1824,7 @@ export function DriveView() {
           className="drive-title"
           before={
             trail.length > 1 && (
-              <nav className="crumbs" aria-label="Folder path">
+              <nav className="crumbs" aria-label={t("drive.folderPath")}>
                 {trail.slice(0, -1).map((crumb, i) => (
                   <span key={crumb.id}>
                     {i > 0 && <span className="crumb-sep" aria-hidden="true">›</span>}
@@ -1848,7 +1840,8 @@ export function DriveView() {
               {loaded
                 ? (() => {
                     const n = rows.length;
-                    return `${n} item${n === 1 ? "" : "s"}${available ? `, ${available} available` : ""}`;
+                    const items = t(n === 1 ? "drive.itemOne" : "drive.itemMany", { count: n });
+                    return available ? t("drive.itemsAvailable", { items, available }) : items;
                   })()
                 : "\u00a0"}
             </span>
@@ -1861,40 +1854,40 @@ export function DriveView() {
           <Picker
             pullDown
             className="drive-view"
-            label="View as"
+            label={t("drive.viewAs")}
             value={grid ? "grid" : "list"}
             onChange={(v) => chooseView(v === "grid")}
-            options={[{ value: "grid", label: "Grid" }, { value: "list", label: "List" }]}
+            options={[{ value: "grid", label: t("drive.grid") }, { value: "list", label: t("drive.list") }]}
           />
           <Picker
             pullDown
             className="drive-sort"
-            label="Sort by"
+            label={t("drive.sortBy")}
             value={sortBy}
             onChange={(v) => chooseSort(v as SortKey)}
-            options={SORTS.map((o) => ({ value: o.key, label: `by ${o.label}` }))}
+            options={SORTS.map((o) => ({ value: o.key, label: t("drive.byOption", { name: t(o.label) }) }))}
           />
           </span>
           <span className="toolbar-group">
           <button
             className="tool has-label with-glyph"
-            title="New Folder"
+            title={t("drive.newFolder")}
             onClick={() => setCreatingFolder(true)}
             disabled={creatingFolder}
           >
             <ActionGlyph name="newFolder" />
-            New Folder
+            {t("drive.newFolder")}
           </button>
           {/* What is selected, saved to Downloads — a file, a folder as its whole tree, or
               several — as icloud.com's toolbar offers it; nothing selected, nothing to save. */}
           <button
             className="tool has-label with-glyph"
-            title={pickedItems.length ? "Download a copy of what is selected" : "Select something to download"}
+            title={pickedItems.length ? t("drive.downloadSelected") : t("drive.selectToDownload")}
             onClick={() => downloadItems(pickedItems)}
             disabled={pickedItems.length === 0}
           >
             <ActionGlyph name="download" />
-            Download
+            {t("drive.download")}
           </button>
           </span>
           <span className="upload-menu-wrap">
@@ -1905,7 +1898,7 @@ export function DriveView() {
               onClick={() => setUploadMenu((open) => !open)}
             >
               <ActionGlyph name="upload" />
-              Upload
+              {t("drive.upload")}
             </button>
             {uploadMenu && (
               <span
@@ -1914,10 +1907,10 @@ export function DriveView() {
                 onKeyDown={(e) => e.key === "Escape" && setUploadMenu(false)}
               >
                 <button role="menuitem" autoFocus onClick={() => void chooseAndUpload(false)}>
-                  Files
+                  {t("drive.files")}
                 </button>
                 <button role="menuitem" onClick={() => void chooseAndUpload(true)}>
-                  Folder
+                  {t("drive.folderOption")}
                 </button>
               </span>
             )}
@@ -1937,10 +1930,10 @@ export function DriveView() {
                 key={key}
                 className={`drive-col${sortBy === key ? " is-on" : ""}${key === "name" ? " is-name" : ""}`}
                 aria-pressed={sortBy === key}
-                title={sortBy === key ? "Click to reverse the order" : `Sort by ${SORTS.find((o) => o.key === key)?.label}`}
+                title={sortBy === key ? t("drive.reverseOrder") : t("drive.sortByName", { name: t(SORTS.find((o) => o.key === key)?.label ?? "drive.sort.name") })}
                 onClick={() => chooseSort(key, true)}
               >
-                {SORTS.find((o) => o.key === key)?.label}
+                {t(SORTS.find((o) => o.key === key)?.label ?? "drive.sort.name")}
                 {sortBy === key && <span className="drive-col-turn" aria-hidden="true">{reversed ? " ⌃" : " ⌄"}</span>}
               </button>
             ))}
@@ -1998,8 +1991,8 @@ export function DriveView() {
                     setCreatingFolder(false);
                   }
                 }}
-                placeholder="Untitled Folder"
-                aria-label="New folder name"
+                placeholder={t("drive.untitledFolder")}
+                aria-label={t("drive.newFolderName")}
               />
             </form>
           </li>
@@ -2021,7 +2014,7 @@ export function DriveView() {
         <EmptyState busy>Opening {here.name}…</EmptyState>
       )}
       {loaded && !loading && items.length === 0 && !creatingFolder && !error && (
-        <EmptyState>This folder is empty.</EmptyState>
+        <EmptyState>{t("drive.emptyFolder")}</EmptyState>
       )}
 
       {moving && (
@@ -2037,11 +2030,11 @@ export function DriveView() {
       {asking && (
         <ConfirmSheet<"keep" | "replace">
           title={asking.items.length === 1
-            ? `\u201c${driveName(asking.items[0])}\u201d is already in this folder`
-            : `${asking.items.length} items with these names are already in this folder`}
+            ? t("drive.alreadyHereOne", { name: driveName(asking.items[0]) })
+            : t("drive.alreadyHereMany", { count: asking.items.length })}
           choices={[
-            { label: "Keep Both", value: "keep", primary: true, focus: true },
-            { label: "Replace", value: "replace", danger: true },
+            { label: t("drive.keepBoth"), value: "keep", primary: true, focus: true },
+            { label: t("drive.replace"), value: "replace", danger: true },
           ]}
           onAnswer={(how) => asking.answer(how)}
           onCancel={() => asking.answer(null)}
@@ -2057,35 +2050,35 @@ export function DriveView() {
             onClose={() => setMenu(null)}
             entries={many ? [
               // Files and folders alike, as one download into Downloads.
-              { label: `Download ${many.length} Copies`, run: () => downloadItems(many) },
-              ...(many.some(copyable) ? [{ label: "Copy", run: () => void copyItems(many) }] : []),
-              { label: "Move to Folder", run: () => setMoving(many) },
+              { label: t("drive.downloadCopies", { count: many.length }), run: () => downloadItems(many) },
+              ...(many.some(copyable) ? [{ label: t("drive.copy"), run: () => void copyItems(many) }] : []),
+              { label: t("drive.moveToFolder"), run: () => setMoving(many) },
               null,
-              { label: `Delete ${many.length} Items`, danger: true, run: () => void removeAll(many) },
+              { label: t("drive.deleteItems", { count: many.length }), danger: true, run: () => void removeAll(many) },
             ] : [
               // Keep on This Computer, as Finder's Keep Downloaded: only where the iCloud Drive
               // folder is up, which is where a kept file lives.
               ...(kept
                 ? [
                     {
-                      label: "Keep on This Computer",
+                      label: t("drive.keepOnComputer"),
                       checked: kept.has(menu.item.drivewsid),
                       run: () => void keep(menu.item, !kept.has(menu.item.drivewsid)),
                     },
                     null,
                   ]
                 : []),
-              { label: isContainer(menu.item) ? "Open" : "Download a Copy", run: () => openItem(menu.item) },
+              { label: isContainer(menu.item) ? t("drive.open") : t("drive.downloadCopy"), run: () => openItem(menu.item) },
               // A folder, whole, into Downloads.
-              ...(isContainer(menu.item) ? [{ label: "Download a Copy", run: () => downloadItems([menu.item]) }] : []),
-              { label: "Get Info", run: () => setInfo(menu.item) },
+              ...(isContainer(menu.item) ? [{ label: t("drive.downloadCopy"), run: () => downloadItems([menu.item]) }] : []),
+              { label: t("drive.getInfo"), run: () => setInfo(menu.item) },
               null,
-              ...(isContainer(menu.item) ? [] : [{ label: "Duplicate", run: () => void duplicate(menu.item) }]),
-              ...(copyable(menu.item) ? [{ label: "Copy", run: () => void copyItems([menu.item]) }] : []),
-              { label: "Rename", run: () => setRenaming(menu.item.drivewsid) },
-              { label: "Move to Folder", run: () => setMoving([menu.item]) },
+              ...(isContainer(menu.item) ? [] : [{ label: t("drive.duplicate"), run: () => void duplicate(menu.item) }]),
+              ...(copyable(menu.item) ? [{ label: t("drive.copy"), run: () => void copyItems([menu.item]) }] : []),
+              { label: t("drive.rename"), run: () => setRenaming(menu.item.drivewsid) },
+              { label: t("drive.moveToFolder"), run: () => setMoving([menu.item]) },
               null,
-              { label: "Delete", danger: true, run: () => void remove(menu.item) },
+              { label: t("drive.delete"), danger: true, run: () => void remove(menu.item) },
             ]}
           />
         );
@@ -2101,8 +2094,8 @@ export function DriveView() {
             at={spaceMenu}
             onClose={() => setSpaceMenu(null)}
             entries={[
-              { label: "New Folder", run: () => setCreatingFolder(true) },
-              ...(theirs || ours ? [null, { label: "Paste", run: () => void paste(false) }] : []),
+              { label: t("drive.newFolder"), run: () => setCreatingFolder(true) },
+              ...(theirs || ours ? [null, { label: t("drive.paste"), run: () => void paste(false) }] : []),
             ]}
           />
         );
@@ -2147,7 +2140,7 @@ type DriveRowActions = {
 /** What a folder holds, or a file weighs, in the Size column. */
 const sizeText = (item: DriveItem) =>
   isContainer(item)
-    ? item.childCount === null ? "" : `${item.childCount} item${item.childCount === 1 ? "" : "s"}`
+    ? item.childCount === null ? "" : t(item.childCount === 1 ? "drive.itemOne" : "drive.itemMany", { count: item.childCount })
     : fileSize(item.size);
 
 /**
@@ -2216,7 +2209,7 @@ const DriveRow = memo(function DriveRow({
             className="drive-rename-input"
             autoFocus
             defaultValue={driveName(item)}
-            aria-label={`Rename ${driveName(item)}`}
+            aria-label={t("drive.renameItem", { name: driveName(item) })}
             // The name without its extension is what is selected, as Finder selects it, so
             // typing keeps ".pdf".
             onFocus={(e) => {
@@ -2286,9 +2279,9 @@ const DriveRow = memo(function DriveRow({
         <span className="drive-row-actions">
           <button
             className="icon-button small drive-action"
-            aria-label={`Actions for ${driveName(item)}`}
+            aria-label={t("drive.actionsFor", { name: driveName(item) })}
             aria-haspopup="menu"
-            title="More"
+            title={t("drive.more")}
             disabled={busy}
             onClick={(e) => {
               const r = e.currentTarget.getBoundingClientRect();
@@ -2332,9 +2325,9 @@ function QuickLook({ item, thumb, busy, onOpen, onClose }: {
           {when && <p className="drive-peek-facts">Modified {when}</p>}
           <div className="drive-peek-actions">
             <button className="primary" disabled={busy} onClick={onOpen}>
-              {container ? "Open" : busy ? "Downloading…" : "Download a Copy"}
+              {container ? t("drive.open") : busy ? t("drive.downloading") : t("drive.downloadCopy")}
             </button>
-            <button className="quiet" onClick={onClose}>Close</button>
+            <button className="quiet" onClick={onClose}>{t("drive.close")}</button>
           </div>
         </div>
       </div>
@@ -2359,7 +2352,7 @@ function MoveDialog({
   onCancel: () => void;
   onMove: (destinationId: string) => void;
 }) {
-  const [trail, setTrail] = useState<Crumb[]>([{ id: DRIVE_ROOT, name: "Drive" }]);
+  const [trail, setTrail] = useState<Crumb[]>([{ id: DRIVE_ROOT, name: t("drive.title") }]);
   const [folders, setFolders] = useState<DriveItem[]>([]);
   const [loading, setLoading] = useState(false);
 
@@ -2428,12 +2421,12 @@ function MoveDialog({
         className="modal-sheet move-sheet"
         role="dialog"
         aria-modal="true"
-        aria-label={items.length === 1 ? `Move ${driveName(items[0])}` : `Move ${items.length} Items`}
+        aria-label={items.length === 1 ? t("drive.moveOne", { name: driveName(items[0]) }) : t("drive.moveMany", { count: items.length })}
         onClick={(e) => e.stopPropagation()}
       >
         <h2>Move {what}</h2>
 
-        <nav className="crumbs" aria-label="Destination folder">
+        <nav className="crumbs" aria-label={t("drive.destinationFolder")}>
           {trail.map((crumb, i) => (
             <span key={crumb.id}>
               {i > 0 && (
@@ -2481,10 +2474,10 @@ function MoveDialog({
             disabled={alreadyHere}
             onClick={() => onMove(here.id)}
           >
-            Move here
+            {t("drive.moveHere")}
           </button>
           <button className="quiet" ref={cancelRef} onClick={onCancel}>
-            Cancel
+            {t("drive.cancel")}
           </button>
         </div>
       </div>
