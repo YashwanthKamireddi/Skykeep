@@ -1998,7 +1998,7 @@
   max-width: none; margin: 0; padding: 0;
 }
 .prefs-side {
-  display: flex; flex-direction: column; gap: 12px; min-width: 0; min-height: 0; overflow-y: auto;
+  display: flex; flex-direction: column; gap: 2px; min-width: 0; min-height: 0; overflow-y: auto;
   margin: 8px 0 8px 8px; padding: 10px 8px;
   background: var(--veil-frost);
   box-shadow: var(--veil-rim), 0 0 0 var(--hairline) var(--veil-edge);
@@ -2041,6 +2041,15 @@
 @container settings-page (min-width: 1400px) { .prefs-main .launcher-grid { grid-template-columns: repeat(6, minmax(0, 1fr)); } }
 @container settings-page (max-width: 700px) { .prefs-main .launcher-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
 .prefs-main .launch-tile { border-radius: var(--r-plateau); }
+/* A row's button: one width for all of them, so a column of Save, Show, Clear lines up. */
+.prefs-pane .settings-row > button.quiet { min-width: 84px; justify-content: center; }
+.prefs-app-icon { width: 24px; height: 24px; flex: none; }
+/* What the iPhone is doing, part by part: a light and a word, as it changes. */
+.prefs-state { display: inline-flex; align-items: center; gap: 8px; color: var(--text-2); font-size: var(--t-13); font-variant-numeric: tabular-nums; white-space: nowrap; }
+.prefs-light { width: 8px; height: 8px; border-radius: 50%; background: var(--sk-gray, #8e8e93); }
+.prefs-state.is-live { color: var(--text); }
+.prefs-state.is-live .prefs-light { background: #30d158; box-shadow: 0 0 0 3px color-mix(in srgb, #30d158 22%, transparent); }
+.prefs-state.is-wait .prefs-light { background: #ff9f0a; }
 
 /* Narrow: the sections in a row along the top, scrolled sideways. */
 @container settings-page (max-width: 700px) {

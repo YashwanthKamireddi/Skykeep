@@ -211,7 +211,17 @@
     "includeDrive": "包含 iCloud 云盘",
     "home": "概览",
     "privacy": "隐私",
-    "sections": "设置分区"
+    "sections": "设置分区",
+    "iphoneNow": "当前状态",
+    "iphoneConnection": "iPhone",
+    "iphoneCameraPart": "摄像头",
+    "iphoneMicrophonePart": "麦克风",
+    "iphoneStateNotConnected": "未连接",
+    "iphoneStateOpenApp": "请在 iPhone 上打开 Skykeep",
+    "iphoneStateConnected": "已通过数据线连接",
+    "iphoneStateLive": "使用中",
+    "iphoneStatePaused": "已暂停",
+    "iphoneStateOff": "关闭"
   },
   "signin": {
     "title": "连接您的 iCloud",

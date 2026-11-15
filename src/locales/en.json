@@ -211,7 +211,17 @@
     "includeDrive": "Include iCloud Drive",
     "home": "Home",
     "privacy": "Privacy",
-    "sections": "Settings sections"
+    "sections": "Settings sections",
+    "iphoneNow": "Right now",
+    "iphoneConnection": "iPhone",
+    "iphoneCameraPart": "Camera",
+    "iphoneMicrophonePart": "Microphone",
+    "iphoneStateNotConnected": "Not connected",
+    "iphoneStateOpenApp": "Open Skykeep on it",
+    "iphoneStateConnected": "Connected by cable",
+    "iphoneStateLive": "Live",
+    "iphoneStatePaused": "Paused",
+    "iphoneStateOff": "Off"
   },
   "signin": {
     "title": "Connect your iCloud",

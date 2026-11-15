@@ -33,7 +33,10 @@ import {
 import { checkedFreshness, useSync } from "../lib/sync";
 import { useUpdateStatus } from "../lib/updates";
 import { setTheme, storedTheme, type Theme } from "../lib/theme";
-import { AppIcon } from "../components/AppIcon";
+import remindersIcon from "../assets/apps/reminders.svg";
+import driveIcon from "../assets/apps/drive.svg";
+import photosIcon from "../assets/apps/photos.svg";
+import calendarIcon from "../assets/apps/calendar.svg";
 import { Launcher } from "../components/Launcher";
 import { AccountAvatar, useNotKept } from "../components/Account";
 import { Picker } from "../components/Picker";
@@ -153,7 +156,7 @@ function FolderRow({
   const trouble = Boolean(problem || folder?.waiting?.failure);
   return (
     <div className="settings-row">
-      <AppIcon app={app} />
+      <AppMark app={app} />
       <span className="settings-label settings-stack">
         {label}
         <span className={`settings-hint${trouble ? " is-trouble" : ""}`} title={folder?.on ? folder.path : undefined}>
@@ -339,7 +342,7 @@ function BackupRow({ onError }: { onError: (m: string) => void }) {
         )}
       </div>
       <div className="backup-source" aria-label={t("settings.photosInBackup")} role="group">
-        <AppIcon app="photos" />
+        <AppMark app="photos" />
         <span className="settings-label settings-stack">
           {t("sidebar.photos")}
           <span className="settings-hint" aria-live="polite">{photosLine}</span>
@@ -353,7 +356,7 @@ function BackupRow({ onError }: { onError: (m: string) => void }) {
         </button>
       </div>
       <div className="backup-source" aria-label={t("settings.driveInBackup")} role="group">
-        <AppIcon app="drivews" />
+        <AppMark app="drivews" />
         <span className="settings-label settings-stack">
           {t("settings.icloudDrive")}
           <span className={`settings-hint${state?.driveNote ? " is-trouble" : ""}`} aria-live="polite">
@@ -502,6 +505,16 @@ function IphoneCard({
 }) {
   const { t } = useI18n();
   const [busy, setBusy] = useState(false);
+  const inUse = status?.state === "inUse" || status?.state === "cameraPaused" || status?.state === "micOnly";
+  // While it's in use and this section is open, how quick the picture and sound are, read
+  // each second from the link's own counters (a local read; nothing leaves the computer).
+  useEffect(() => {
+    if (!inUse) return undefined;
+    const tick = window.setInterval(() => {
+      iphoneApi.status().then((s) => setStatus((was) => (JSON.stringify(was) === JSON.stringify(s) ? was : s)), () => {});
+    }, 1000);
+    return () => window.clearInterval(tick);
+  }, [inUse, setStatus]);
   if (!status || status.state === "unavailable") return null;
   const on = status.state !== "off";
   const hint = !on
@@ -536,44 +549,73 @@ function IphoneCard({
       setBusy(false);
     }
   };
+  // Each part as it is now: a light (green live, amber waiting, grey off) and a word.
+  type Light = "live" | "wait" | "off";
+  const connection: [Light, string] =
+    status.state === "none" ? ["off", t("settings.iphoneStateNotConnected")]
+    : status.state === "plugged" ? ["wait", t("settings.iphoneStateOpenApp")]
+    : ["live", t("settings.iphoneStateConnected")];
+  const ms = (v: number | null) => (v == null ? "" : ` · ${Math.round(v)} ms`);
+  const camera: [Light, string] =
+    status.state === "inUse" ? ["live", t("settings.iphoneStateLive") + ms(status.cameraMs)]
+    : status.state === "cameraPaused" ? ["wait", t("settings.iphoneStatePaused")]
+    : ["off", t("settings.iphoneStateOff")];
+  const microphone: [Light, string] = inUse
+    ? ["live", t("settings.iphoneStateLive") + ms(status.microphoneMs)]
+    : ["off", t("settings.iphoneStateOff")];
+  const Row = ({ label, light: [light, word] }: { label: string; light: [Light, string] }) => (
+    <div className="settings-row">
+      <span className="settings-label">{label}</span>
+      <span className={`prefs-state is-${light}`}>
+        <span className="prefs-light" aria-hidden="true" />
+        {word}
+      </span>
+    </div>
+  );
   return (
     <Pane id="iphone" title={t("settings.iphone")}>
       <div className="settings-group">
-      <div className="settings-row">
-        <AppIcon app="iphone" />
-        <span className="settings-label settings-stack">
-          {t("settings.iphoneCamera")}
-          <span className="settings-hint" aria-live="polite">
-            {hint}
-          </span>
-        </span>
-        <button
-          className="switch"
-          role="switch"
-          aria-checked={on}
-          aria-label={t("settings.iphoneCamera")}
-          disabled={busy}
-          onClick={toggle}
-        >
-          <span className="switch-knob" />
-        </button>
-      </div>
-      {on && status.everyApp !== "ready" && (
         <div className="settings-row">
           <span className="settings-label settings-stack">
-            {t("settings.iphoneEveryApp")}
-            <span className="settings-hint">
-              {status.everyApp === "install" ? t("settings.iphoneEveryAppInstall") : t("settings.iphoneEveryAppHint")}
+            {t("settings.iphoneCamera")}
+            <span className="settings-hint" aria-live="polite">
+              {hint}
             </span>
           </span>
-          {status.everyApp === "setUp" && (
-            <button className="quiet" onClick={setUp} disabled={busy}>
-              {busy ? t("settings.iphoneSettingUp") : t("settings.iphoneSetUp")}
-            </button>
-          )}
+          <button
+            className="switch"
+            role="switch"
+            aria-checked={on}
+            aria-label={t("settings.iphoneCamera")}
+            disabled={busy}
+            onClick={toggle}
+          >
+            <span className="switch-knob" />
+          </button>
+        </div>
+        {on && status.everyApp !== "ready" && (
+          <div className="settings-row">
+            <span className="settings-label settings-stack">
+              {t("settings.iphoneEveryApp")}
+              <span className="settings-hint">
+                {status.everyApp === "install" ? t("settings.iphoneEveryAppInstall") : t("settings.iphoneEveryAppHint")}
+              </span>
+            </span>
+            {status.everyApp === "setUp" && (
+              <button className="quiet" onClick={setUp} disabled={busy}>
+                {busy ? t("settings.iphoneSettingUp") : t("settings.iphoneSetUp")}
+              </button>
+            )}
+          </div>
+        )}
+      </div>
+      {on && (
+        <div className="settings-group" role="group" aria-label={t("settings.iphoneNow")} aria-live="polite">
+          <Row label={t("settings.iphoneConnection")} light={connection} />
+          <Row label={t("settings.iphoneCameraPart")} light={camera} />
+          <Row label={t("settings.iphoneMicrophonePart")} light={microphone} />
         </div>
       )}
-      </div>
     </Pane>
   );
 }
@@ -889,7 +931,7 @@ export function SettingsView({ onSignOut }: { onSignOut: (keep: boolean) => Prom
                 ] as const
               ).map(([key, label, icon]) => (
                 <div className="settings-row" key={key}>
-                  <AppIcon app={icon} />
+                  <img className="prefs-app-icon" src={icon === "reminders" ? remindersIcon : calendarIcon} alt="" draggable={false} />
                   <span className="settings-label">{label}</span>
                   <button
                     className="switch"
@@ -1077,6 +1119,13 @@ export function SettingsView({ onSignOut }: { onSignOut: (keep: boolean) => Prom
       )}
     </div>
   );
+}
+
+/** An app's own icon, the one on its tile in Home and in the launcher. */
+const MARKS: Record<string, string> = { drivews: driveIcon, photos: photosIcon, reminders: remindersIcon, calendar: calendarIcon };
+function AppMark({ app }: { app: string }) {
+  const src = MARKS[app];
+  return src ? <img className="prefs-app-icon" src={src} alt="" draggable={false} /> : null;
 }
 
 type PaneId = "home" | "backup" | "computer" | "iphone" | "notifications" | "general" | "privacy" | "updates";

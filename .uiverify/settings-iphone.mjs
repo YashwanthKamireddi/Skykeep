@@ -46,6 +46,9 @@ const tell = (page, change) => page.evaluate((c) => { window.__iphone = { ...win
   await tell(page, { state: "inUse" });
   await card(page).getByText("Your iPhone is this computer's camera and microphone.").waitFor({ timeout: 2000 });
   ok(true, "in use: says so");
+  await tell(page, { state: "inUse", cameraMs: 62.4, microphoneMs: 48.6 });
+  await card(page).getByText("Live · 62 ms").waitFor({ timeout: 3000 });
+  ok(await card(page).getByText("Live · 49 ms").isVisible() && await card(page).getByText("Connected by cable").isVisible(), "in use: each part live, with how quick its picture and sound are");
   await tell(page, { state: "cameraPaused" });
   await card(page).getByText("The camera pauses while your iPhone is locked", { exact: false }).waitFor({ timeout: 2000 });
   ok(true, "iOS paused the camera: says why, and that the microphone stays on");
