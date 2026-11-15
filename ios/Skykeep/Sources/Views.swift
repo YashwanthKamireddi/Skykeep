@@ -13,6 +13,8 @@ struct SkykeepApp: App {
                 .onChange(of: phase) { _, now in
                     let active = now == .active
                     model.pip.onScreen.withLock { $0 = active }
+                    // Back from Control Center or the Video Effects picker.
+                    if active { model.camera.effectsChanged() }
                 }
                 .preferredColorScheme(.dark)
         }

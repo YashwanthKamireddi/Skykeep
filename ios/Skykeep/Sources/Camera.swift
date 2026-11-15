@@ -196,7 +196,15 @@ final class Camera: NSObject, @unchecked Sendable, AVCaptureVideoDataOutputSampl
         let rate = { (f: AVCaptureDevice.Format) in min(60, f.videoSupportedFrameRateRanges.map(\.maxFrameRate).max() ?? 0) }
         // Full-quality readout before frame rate: binned formats combine sensor pixels and look
         // softer than the Camera app. Among those, the highest rate up to 60.
-        let best = candidates.max { a, b in
+        // With Apple's Portrait or Studio Light turned on (Video Effects), only formats that can
+        // apply them: the effect matters more to the person than 60 frames a second.
+        let effects = AVCaptureDevice.isPortraitEffectEnabled || AVCaptureDevice.isStudioLightEnabled
+        let usable = effects
+            ? candidates.filter { $0.isPortraitEffectSupported || $0.isStudioLightSupported }
+            : candidates
+        let pool = usable.isEmpty ? candidates : usable
+        effectsApplied = effects
+        let best = pool.max { a, b in
             (a.isVideoBinned ? 0 : 1, rate(a)) < (b.isVideoBinned ? 0 : 1, rate(b))
         }
         guard let format = best, (try? device.lockForConfiguration()) != nil else { return }
@@ -220,6 +228,22 @@ final class Camera: NSObject, @unchecked Sendable, AVCaptureVideoDataOutputSampl
     }
 
     private var pressureObservation: NSKeyValueObservation?
+    /// Whether the format was chosen for Apple's video effects.
+    private var effectsApplied = false
+
+    /// After the Video Effects picker: a format that can apply what was turned on (or the
+    /// fastest again when it was turned off).
+    func effectsChanged() {
+        sessionQueue.async { [self] in
+            let effects = AVCaptureDevice.isPortraitEffectEnabled || AVCaptureDevice.isStudioLightEnabled
+            guard effects != effectsApplied, let d = input?.device else { return }
+            session.beginConfiguration()
+            choose(format: d)
+            session.commitConfiguration()
+            wantKeyframe.withLock { $0 = true }
+            log.notice("video effects \(effects ? "on" : "off", privacy: .public): format chosen again")
+        }
+    }
 
     private func watchPressure(_ device: AVCaptureDevice) {
         pressureObservation = device.observe(\.systemPressureState, options: [.new]) { [weak self] d, _ in
