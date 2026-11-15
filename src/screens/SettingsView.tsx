@@ -479,6 +479,7 @@ function PhotoCacheCap({ onError }: { onError: (m: string) => void }) {
 function IphoneRow() {
   const { t } = useI18n();
   const [status, setStatus] = useState<IphoneStatus | null>(null);
+  const [busy, setBusy] = useState(false);
   useEffect(() => {
     let live = true;
     const read = () => iphoneApi.status().then((s) => live && setStatus(s), () => {});
@@ -498,15 +499,43 @@ function IphoneRow() {
         : status.state === "plugged"
         ? t("settings.iphonePlugged")
         : t("settings.iphoneNone");
+  const setUp = async () => {
+    setBusy(true);
+    try {
+      const everyApp = await iphoneApi.everyApp();
+      setStatus((s) => (s ? { ...s, everyApp } : s));
+    } catch {
+      /* the row says what is still true */
+    } finally {
+      setBusy(false);
+    }
+  };
   return (
-    <div className="settings-row">
-      <span className="settings-label settings-stack">
-        {t("settings.iphoneCamera")}
-        <span className="settings-hint" aria-live="polite">
-          {hint}
+    <>
+      <div className="settings-row">
+        <span className="settings-label settings-stack">
+          {t("settings.iphoneCamera")}
+          <span className="settings-hint" aria-live="polite">
+            {hint}
+          </span>
         </span>
-      </span>
-    </div>
+      </div>
+      {status.everyApp !== "ready" && (
+        <div className="settings-row">
+          <span className="settings-label settings-stack">
+            {t("settings.iphoneEveryApp")}
+            <span className="settings-hint">
+              {status.everyApp === "install" ? t("settings.iphoneEveryAppInstall") : t("settings.iphoneEveryAppHint")}
+            </span>
+          </span>
+          {status.everyApp === "setUp" && (
+            <button className="quiet" onClick={setUp} disabled={busy}>
+              {busy ? t("settings.iphoneSettingUp") : t("settings.iphoneSetUp")}
+            </button>
+          )}
+        </div>
+      )}
+    </>
   );
 }
 

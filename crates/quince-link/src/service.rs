@@ -33,6 +33,21 @@ pub enum Status {
 pub struct Service {
     pub status: Arc<Mutex<Status>>,
     pub report: Arc<Mutex<Report>>,
+    devices: Arc<Devices>,
+    /// The open link to each phone, so it can be started again.
+    links: Arc<Mutex<std::collections::HashMap<u64, usbmux::Socket>>>,
+}
+
+impl Service {
+    /// Starts the camera again: after the webcam device is made, the next picture goes there.
+    /// The links close and reconnect at once (plug and go), and the phone sends its format and
+    /// a keyframe as it does to any computer that connects.
+    pub fn start_camera_again(&self) {
+        self.devices.forget_camera();
+        for (_, link) in self.links.lock().unwrap().drain() {
+            let _ = link.shutdown(std::net::Shutdown::Both);
+        }
+    }
 }
 
 /// Told each new status.
@@ -55,8 +70,14 @@ pub fn start(changed: impl Fn(Status) + Send + Sync + 'static) -> Service {
     let status = Arc::new(Mutex::new(Status::NoPhone));
     let report = Arc::new(Mutex::new(Report::default()));
     let devices = Arc::new(Devices::default());
+    let links = Arc::new(Mutex::new(std::collections::HashMap::new()));
     let serving = Arc::new(Mutex::new(HashSet::<u64>::new()));
-    let (s, r) = (status.clone(), report.clone());
+    let (s, r, d0, l0) = (
+        status.clone(),
+        report.clone(),
+        devices.clone(),
+        links.clone(),
+    );
     std::thread::Builder::new()
         .name("iphone-watch".into())
         .spawn(move || loop {
@@ -64,17 +85,18 @@ pub fn start(changed: impl Fn(Status) + Send + Sync + 'static) -> Service {
                 if !serving.lock().unwrap().insert(phone) {
                     return;
                 }
-                let (s, r, d, serving, c) = (
+                let (s, r, d, serving, c, l) = (
                     s.clone(),
                     r.clone(),
-                    devices.clone(),
+                    d0.clone(),
                     serving.clone(),
                     changed.clone(),
+                    l0.clone(),
                 );
                 let _ = std::thread::Builder::new()
                     .name("iphone-link".into())
                     .spawn(move || {
-                        serve_while_plugged(phone, &s, &c, &r, &d);
+                        serve_while_plugged(phone, &s, &c, &r, &d, &l);
                         serving.lock().unwrap().remove(&phone);
                         if serving.lock().unwrap().is_empty() {
                             set(&s, &c, Status::NoPhone);
@@ -89,7 +111,12 @@ pub fn start(changed: impl Fn(Status) + Send + Sync + 'static) -> Service {
             std::thread::sleep(Duration::from_secs(5));
         })
         .expect("a thread can start");
-    Service { status, report }
+    Service {
+        status,
+        report,
+        devices,
+        links,
+    }
 }
 
 fn serve_while_plugged(
@@ -98,11 +125,15 @@ fn serve_while_plugged(
     changed: &Changed,
     report: &Arc<Mutex<Report>>,
     devices: &Arc<Devices>,
+    links: &Mutex<std::collections::HashMap<u64, usbmux::Socket>>,
 ) {
     loop {
         match usbmux::connect(phone, PORT) {
             Ok(link) => {
                 let Ok(reader) = link.try_clone() else { return };
+                if let Ok(handle) = link.try_clone() {
+                    links.lock().unwrap().insert(phone, handle);
+                }
                 set(status, changed, Status::InUse);
                 let paused = |p: bool| {
                     set(
@@ -126,7 +157,10 @@ fn serve_while_plugged(
                 set(status, changed, Status::Plugged);
             }
             // Unplugged (or usbmuxd gone): this phone's loop ends; plugging in starts a new one.
-            Err(_) => return,
+            Err(_) => {
+                links.lock().unwrap().remove(&phone);
+                return;
+            }
         }
         std::thread::sleep(Duration::from_secs(1));
     }

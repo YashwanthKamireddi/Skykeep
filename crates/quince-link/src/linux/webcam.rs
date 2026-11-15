@@ -146,6 +146,10 @@ impl Webcam {
         })
     }
 
+    pub fn size(&self) -> (usize, usize) {
+        (self.width, self.height)
+    }
+
     /// Writes one picture. A program reading slower than pictures come gets the newest.
     pub fn show(&mut self, picture: &Picture) -> Result<()> {
         if picture.width as usize != self.width || picture.height as usize != self.height {

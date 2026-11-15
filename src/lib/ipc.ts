@@ -1221,6 +1221,8 @@ export type IphoneStatus = {
   state: "unavailable" | "none" | "plugged" | "inUse" | "cameraPaused";
   cameraMs: number | null;
   microphoneMs: number | null;
+  /** The camera for every program (a webcam device): "setUp" is one admin prompt away. */
+  everyApp: "ready" | "setUp" | "install";
 };
 
 /** Each change of the iPhone's state. */
@@ -1228,6 +1230,8 @@ export const IPHONE_CHANGED = "quince://iphone";
 
 export const iphoneApi = {
   status: () => invoke<IphoneStatus>("iphone_status"),
+  /** One admin prompt; answers what is true after (cancelled leaves "setUp"). */
+  everyApp: () => invoke<IphoneStatus["everyApp"]>("iphone_every_app"),
 };
 
 export const photoCacheApi = {

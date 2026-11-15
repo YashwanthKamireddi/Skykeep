@@ -73,6 +73,12 @@ impl Devices {
         Ok(m)
     }
 
+    /// The next picture format makes the camera afresh (and finds the webcam device if it
+    /// was just made).
+    pub fn forget_camera(&self) {
+        *self.camera.lock().unwrap() = None;
+    }
+
     /// The phone went away: the camera shows black until it's back (the microphone is silent
     /// by itself once its buffer runs dry).
     pub fn phone_gone(&self) {

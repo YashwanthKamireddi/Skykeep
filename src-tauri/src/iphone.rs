@@ -33,6 +33,64 @@ pub struct IphoneStatus {
     /// Capture on the phone to pictures reaching programs here, half of them within, in ms.
     camera_ms: Option<f64>,
     microphone_ms: Option<f64>,
+    /// The camera for every program (the webcam device): "ready", "setUp" (one admin prompt
+    /// away) or "install" (the system has no v4l2loopback module to make it with).
+    every_app: &'static str,
+}
+
+/// The module's settings, in files of their own: the device is made at every start-up, named
+/// as Skykeep finds it, a capture device only while Skykeep sets a format (Chrome's need),
+/// with two buffers so no picture waits behind another.
+#[cfg(all(target_os = "linux", feature = "iphone"))]
+const SET_UP: &str = r#"set -e
+printf 'v4l2loopback\n' > /etc/modules-load.d/skykeep-iphone-camera.conf
+printf 'options v4l2loopback devices=1 exclusive_caps=1 max_buffers=2 card_label="iPhone Camera"\n' > /etc/modprobe.d/skykeep-iphone-camera.conf
+if ! grep -q '^v4l2loopback ' /proc/modules; then modprobe v4l2loopback; fi
+"#;
+
+#[cfg(all(target_os = "linux", feature = "iphone"))]
+fn every_app() -> &'static str {
+    if quince_link::linux::webcam::find().is_some() {
+        "ready"
+    } else if std::process::Command::new("modinfo")
+        .args(["-n", "v4l2loopback"])
+        .output()
+        .is_ok_and(|o| o.status.success())
+    {
+        "setUp"
+    } else {
+        "install"
+    }
+}
+
+/// Makes the iPhone camera a webcam device every program sees, from now on: one admin prompt
+/// (polkit) writes the module's two settings files and loads it. Answers what's true after.
+#[tauri::command]
+pub async fn iphone_every_app() -> Result<&'static str, String> {
+    #[cfg(all(target_os = "linux", feature = "iphone"))]
+    {
+        if every_app() != "setUp" {
+            return Ok(every_app());
+        }
+        let done = tauri::async_runtime::spawn_blocking(|| {
+            std::process::Command::new("pkexec")
+                .args(["/bin/sh", "-c", SET_UP])
+                .status()
+        })
+        .await
+        .map_err(|e| e.to_string())?
+        .map_err(|e| format!("couldn't ask for permission: {e}"))?;
+        if !done.success() {
+            // Cancelled at the prompt, or refused: nothing changed.
+            return Ok(every_app());
+        }
+        if let Some(link) = LINK.get() {
+            link.start_camera_again();
+        }
+        Ok(every_app())
+    }
+    #[cfg(not(all(target_os = "linux", feature = "iphone")))]
+    Err("unavailable".into())
 }
 
 #[tauri::command]
@@ -55,11 +113,13 @@ pub fn iphone_status() -> IphoneStatus {
             state,
             camera_ms: ms(report.picture_delays.as_ref()),
             microphone_ms: ms(report.sound_delays.as_ref()),
+            every_app: every_app(),
         };
     }
     IphoneStatus {
-        state: "none",
+        state: "unavailable",
         camera_ms: None,
         microphone_ms: None,
+        every_app: "install",
     }
 }

@@ -7498,6 +7498,7 @@ fn main() {
         })
         .invoke_handler(tauri::generate_handler![
             iphone::iphone_status,
+            iphone::iphone_every_app,
             data_access::data_access_status,
             data_access::data_access_ask,
             account_refresh,
