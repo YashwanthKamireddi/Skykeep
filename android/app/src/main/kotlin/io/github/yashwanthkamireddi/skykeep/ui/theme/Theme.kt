@@ -13,7 +13,7 @@ import androidx.compose.runtime.staticCompositionLocalOf
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.unit.dp
 
-private fun Palette.Roles.scheme(dark: Boolean): ColorScheme {
+internal fun Palette.Roles.toColorScheme(dark: Boolean): ColorScheme {
   fun c(v: Long) = Color(v)
   // Skykeep has no third hue: tertiary takes the secondary roles. No surface tint, so tonal
   // elevation never washes a surface blue. Bright and dim: the plain surface.
@@ -62,7 +62,7 @@ private val SkykeepShapes = Shapes(
 fun SkykeepTheme(dark: Boolean = isSystemInDarkTheme(), content: @Composable () -> Unit) {
   val roles = if (dark) Palette.dark else Palette.light
   CompositionLocalProvider(LocalAccent provides Color(roles.accent)) {
-    MaterialTheme(colorScheme = roles.scheme(dark), shapes = SkykeepShapes, typography = Typography, content = content)
+    MaterialTheme(colorScheme = roles.toColorScheme(dark), shapes = SkykeepShapes, typography = Typography, content = content)
   }
 }
 

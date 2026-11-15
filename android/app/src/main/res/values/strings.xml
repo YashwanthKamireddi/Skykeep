@@ -2,4 +2,11 @@
     <string name="app_name">Skykeep</string>
     <!-- The Share sheet entry: what it does, as the desktop's right-click menu says it. -->
     <string name="send_to_iphone">Send to iPhone</string>
+    <!-- Home screen widgets -->
+    <string name="widget_reminders_name">Reminders</string>
+    <string name="widget_reminders_description">View, complete and add iCloud reminders from your home screen</string>
+    <string name="widget_quick_add_name">Quick Reminder</string>
+    <string name="widget_quick_add_description">Add a new iCloud reminder in one tap and see your open count</string>
+    <string name="widget_agenda_name">Agenda</string>
+    <string name="widget_agenda_description">Upcoming events from your synced iCloud calendars</string>
 </resources>

@@ -5,5 +5,7 @@
 -keep class com.sun.jna.** { *; }
 -keep class * implements com.sun.jna.** { *; }
 -keep class uniffi.** { *; }
+# Glance widget actions instantiate ActionCallback subclasses by reflection.
+-keep class * implements androidx.glance.appwidget.action.ActionCallback { <init>(); }
 -dontwarn java.awt.**
 -dontwarn com.sun.jna.**
