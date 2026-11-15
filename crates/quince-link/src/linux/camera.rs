@@ -175,12 +175,16 @@ fn run(
         })
         .register()?;
 
-    let format = format_pod(width, height, fps);
+    let nv12 = format_pod(VideoFormat::NV12, width, height, fps);
+    let i420 = format_pod(VideoFormat::I420, width, height, fps);
     stream.connect(
         spa::utils::Direction::Output,
         None,
         pw::stream::StreamFlags::DRIVER | pw::stream::StreamFlags::MAP_BUFFERS,
-        &mut [Pod::from_bytes(&format).unwrap()],
+        &mut [
+            Pod::from_bytes(&nv12).unwrap(),
+            Pod::from_bytes(&i420).unwrap(),
+        ],
     )?;
 
     let loop_ = mainloop.clone();
@@ -265,14 +269,16 @@ fn write_i420(picture: &Picture, out: &mut [u8]) {
     }
 }
 
-fn format_pod(width: u32, height: u32, fps: u32) -> Vec<u8> {
-    let _ = VideoInfoRaw::new();
+/// One picture format the camera offers, listed on its own: browsers (Chromium's PipeWire
+/// camera) read one plain format per entry, as webcams list them, and skip a camera whose
+/// formats come as one choice.
+fn format_pod(format: VideoFormat, width: u32, height: u32, fps: u32) -> Vec<u8> {
     let obj = object! {
         SpaTypes::ObjectParamFormat,
         ParamType::EnumFormat,
         property!(FormatProperties::MediaType, Id, MediaType::Video),
         property!(FormatProperties::MediaSubtype, Id, MediaSubtype::Raw),
-        property!(FormatProperties::VideoFormat, Choice, Enum, Id, VideoFormat::NV12, VideoFormat::NV12, VideoFormat::I420),
+        property!(FormatProperties::VideoFormat, Id, format),
         property!(FormatProperties::VideoSize, Rectangle, Rectangle { width, height }),
         property!(FormatProperties::VideoFramerate, Fraction, Fraction { num: fps, denom: 1 }),
     };
