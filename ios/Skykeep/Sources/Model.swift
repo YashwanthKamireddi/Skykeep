@@ -50,7 +50,7 @@ final class Model {
             Task { @MainActor in self?.linkChanged(state) }
         }
         guard use(.back) || use(.front) else { status = .failed("This iPhone has no camera Skykeep can use."); return }
-        if micOn { try? microphone.start() }
+        if micOn { startMicrophone() }
         pip.attach()
         link.start(greeting: greeting())
         let center = NotificationCenter.default
@@ -96,9 +96,18 @@ final class Model {
         camera.setZoom(toShown: pinchStart * scale)
     }
 
+    private func startMicrophone() {
+        do {
+            try microphone.start()
+        } catch {
+            log.error("microphone failed to start: \(error.localizedDescription)")
+            micOn = false
+        }
+    }
+
     func toggleMic() {
         micOn.toggle()
-        if micOn { try? microphone.start() } else { microphone.stop() }
+        if micOn { startMicrophone() } else { microphone.stop() }
     }
 
     /// Apple's rotation coordinator: the angle that keeps the horizon level for the picture

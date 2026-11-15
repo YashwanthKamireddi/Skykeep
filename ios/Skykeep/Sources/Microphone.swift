@@ -34,12 +34,22 @@ final class Microphone: @unchecked Sendable {
         }
         engine.attach(sink)
         engine.connect(input, to: sink, format: format)
-        // Voice processing runs input and output as one unit: with no output path it fails
-        // every few milliseconds. A silent one keeps it whole; nothing is played.
-        engine.mainMixerNode.outputVolume = 0
         self.sink = sink
+        // Voice processing runs input and output as one unit, and with no output path it logs
+        // a render error every few milliseconds; a silent output keeps it whole. If the engine
+        // won't start with it, it starts without: sound always comes first.
+        engine.mainMixerNode.outputVolume = 0
         engine.prepare()
-        try engine.start()
+        do {
+            try engine.start()
+        } catch {
+            log.error("microphone with a silent output failed: \(error.localizedDescription); without it")
+            engine.stop()
+            engine.disconnectNodeOutput(engine.mainMixerNode)
+            engine.prepare()
+            try engine.start()
+        }
+        log.notice("microphone running at \(format.sampleRate) Hz, \(format.channelCount) channel(s)")
     }
 
     func stop() {
