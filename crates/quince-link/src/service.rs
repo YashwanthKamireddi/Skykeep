@@ -25,6 +25,9 @@ pub enum Status {
     Plugged,
     /// The computer is using the phone's camera and microphone.
     InUse,
+    /// Connected, but iOS stopped the camera: the phone is locked, or another app is in front
+    /// without picture in picture. The microphone goes on.
+    CameraPaused,
 }
 
 pub struct Service {
@@ -101,7 +104,20 @@ fn serve_while_plugged(
             Ok(link) => {
                 let Ok(reader) = link.try_clone() else { return };
                 set(status, changed, Status::InUse);
-                if let Err(e) = receiver::serve(reader, link, report.clone(), devices.clone()) {
+                let paused = |p: bool| {
+                    set(
+                        status,
+                        changed,
+                        if p {
+                            Status::CameraPaused
+                        } else {
+                            Status::InUse
+                        },
+                    )
+                };
+                if let Err(e) =
+                    receiver::serve(reader, link, report.clone(), devices.clone(), &paused)
+                {
                     eprintln!("iPhone link closed: {e:#}");
                 }
                 set(status, changed, Status::Plugged);

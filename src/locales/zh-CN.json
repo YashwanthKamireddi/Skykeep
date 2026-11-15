@@ -108,6 +108,7 @@
     "iphoneNone": "用数据线连接 iPhone，并在 iPhone 上打开 Skykeep。",
     "iphonePlugged": "在 iPhone 上打开 Skykeep。",
     "iphoneInUse": "你的 iPhone 正在用作此电脑的摄像头和麦克风。",
+    "iphoneCameraPaused": "iPhone 锁定或打开其他 App 时，摄像头会暂停，麦克风仍然开启。",
     "driveFolder": "云盘文件夹",
     "driveFolderFilesHint": "在“文件”及其他应用中访问您的 iCloud 云盘",
     "driveFolderExplorerHint": "在“文件资源管理器”及其他应用中访问您的 iCloud 云盘",

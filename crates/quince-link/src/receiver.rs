@@ -91,8 +91,9 @@ pub fn serve(
     ask: impl Write + Send + 'static,
     report: Arc<Mutex<Report>>,
     devices: Arc<Devices>,
+    camera_paused: &(dyn Fn(bool) + Sync),
 ) -> Result<()> {
-    let result = session(from_phone, ask, report, &devices);
+    let result = session(from_phone, ask, report, &devices, camera_paused);
     devices.phone_gone();
     result
 }
@@ -102,6 +103,7 @@ fn session(
     ask: impl Write + Send + 'static,
     report: Arc<Mutex<Report>>,
     devices: &Arc<Devices>,
+    camera_paused: &(dyn Fn(bool) + Sync),
 ) -> Result<()> {
     // Packets are read in pieces; a buffer makes that one system call per many packets.
     let mut from_phone = std::io::BufReader::with_capacity(1 << 20, from_phone);
@@ -235,6 +237,16 @@ fn session(
             }
             Kind::Control => {
                 let reply: serde_json::Value = packet.json().unwrap_or_default();
+                // iOS stopped the camera (the phone locked, or another app in front with no
+                // picture in picture): black, not the last picture frozen, and said why.
+                match reply["camera"].as_str() {
+                    Some("paused") => {
+                        devices.phone_gone();
+                        camera_paused(true);
+                    }
+                    Some("live") => camera_paused(false),
+                    _ => {}
+                }
                 if let (Some(sent), Some(phone)) = (reply["pong"].as_i64(), reply["phone"].as_i64())
                 {
                     let round_trip = now_us() - sent;

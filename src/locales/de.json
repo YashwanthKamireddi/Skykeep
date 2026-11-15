@@ -108,6 +108,7 @@
     "iphoneNone": "Schließe dein iPhone per Kabel an und öffne Skykeep darauf.",
     "iphonePlugged": "Öffne Skykeep auf deinem iPhone.",
     "iphoneInUse": "Dein iPhone ist die Kamera und das Mikrofon dieses Computers.",
+    "iphoneCameraPaused": "Die Kamera pausiert, solange dein iPhone gesperrt ist oder eine andere App darauf geöffnet ist. Das Mikrofon bleibt an.",
     "driveFolder": "Drive-Ordner",
     "driveFolderFilesHint": "Dein iCloud Drive in Dateien und jeder anderen App",
     "driveFolderExplorerHint": "Dein iCloud Drive im Datei-Explorer und jeder anderen App",

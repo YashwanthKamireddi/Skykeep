@@ -153,7 +153,7 @@ fn programs_see_the_phones_camera_and_microphone_with_little_delay() {
     let report = Arc::new(Mutex::new(receiver::Report::default()));
     {
         let (r, w, report) = (link.try_clone().unwrap(), link, report.clone());
-        std::thread::spawn(move || receiver::serve(r, w, report, Default::default()));
+        std::thread::spawn(move || receiver::serve(r, w, report, Default::default(), &|_| {}));
     }
 
     // Wait for the camera to appear: its first picture, or give up.
@@ -245,7 +245,7 @@ fn a_program_keeps_the_camera_across_an_unplug() {
             report.clone(),
             devices.clone(),
         );
-        let session = std::thread::spawn(move || receiver::serve(r, w, report, devices));
+        let session = std::thread::spawn(move || receiver::serve(r, w, report, devices, &|_| {}));
         (phone, session)
     };
     let wait_for = |n: u64| {

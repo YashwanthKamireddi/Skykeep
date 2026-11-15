@@ -26,6 +26,10 @@ final class Model {
     private var rotation: AVCaptureDevice.RotationCoordinator?
     private var rotationWatch: [NSKeyValueObservation] = []
     private var pinchStart: Double = 1
+    /// iOS stopped the camera (the phone locked, or another app took the screen with no
+    /// picture in picture). The computer is told, so it shows black and says why.
+    private(set) var cameraPaused = false
+    private var interruptions: [NSObjectProtocol] = []
 
     func start() async {
         let cameraOK = await AVCaptureDevice.requestAccess(for: .video)
@@ -49,6 +53,15 @@ final class Model {
         if micOn { try? microphone.start() }
         pip.attach()
         link.start(greeting: greeting())
+        let center = NotificationCenter.default
+        interruptions = [
+            center.addObserver(forName: AVCaptureSession.wasInterruptedNotification, object: camera.session, queue: .main) { [weak self] _ in
+                MainActor.assumeIsolated { self?.setCameraPaused(true) }
+            },
+            center.addObserver(forName: AVCaptureSession.interruptionEndedNotification, object: camera.session, queue: .main) { [weak self] _ in
+                MainActor.assumeIsolated { self?.setCameraPaused(false) }
+            },
+        ]
     }
 
     /// The preview on screen, so the rotation coordinator can turn it and the picture together.
@@ -107,10 +120,24 @@ final class Model {
         })
     }
 
+    private func setCameraPaused(_ paused: Bool) {
+        cameraPaused = paused
+        log.notice("camera \(paused ? "paused by iOS" : "live again")")
+        link.send(cameraState())
+        // A computer that connects later is told the state first thing.
+        link.setGreeting(greeting(), sendNow: false)
+        if !paused { camera.requestKeyframe() }
+    }
+
+    private func cameraState() -> Data {
+        Wire.message(.control, ["camera": cameraPaused ? "paused" : "live"])
+    }
+
     private func greeting() -> [Data] {
         [
             Wire.message(.hello, ["version": Wire.version, "name": "iPhone"]),
             Wire.message(.videoFormat, ["codec": "h264", "width": Int(Camera.width), "height": Int(Camera.height), "fps": Int(camera.fps)]),
+            cameraState(),
         ]
     }
 

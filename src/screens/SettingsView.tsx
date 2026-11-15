@@ -493,7 +493,9 @@ function IphoneRow() {
   const hint =
     status.state === "inUse"
       ? t("settings.iphoneInUse")
-      : status.state === "plugged"
+      : status.state === "cameraPaused"
+        ? t("settings.iphoneCameraPaused")
+        : status.state === "plugged"
         ? t("settings.iphonePlugged")
         : t("settings.iphoneNone");
   return (

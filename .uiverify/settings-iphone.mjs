@@ -44,6 +44,12 @@ const row = (page) => page.locator(".settings-row", { hasText: "iPhone as camera
   await row(page).getByText("Your iPhone is this computer's camera and microphone.").waitFor({ timeout: 2000 });
   ok(true, "in use: says so");
   ok((await row(page).locator("button").count()) === 0, "nothing to press: it works by itself");
+  await page.evaluate(() => {
+    window.__iphone = { state: "cameraPaused", cameraMs: null, microphoneMs: 26 };
+    window.__emit("quince://iphone", null);
+  });
+  await row(page).getByText("The camera pauses while your iPhone is locked or another app is open on it.", { exact: false }).waitFor({ timeout: 2000 });
+  ok(true, "iOS paused the camera: says why, and that the microphone stays on");
   await ctx.close();
 }
 await b.close();

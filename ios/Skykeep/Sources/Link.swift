@@ -49,10 +49,10 @@ final class Link: @unchecked Sendable {
     }
 
     /// Changes what a newly connected computer is told first (the picture size, for one).
-    func setGreeting(_ packets: [Data]) {
+    func setGreeting(_ packets: [Data], sendNow: Bool = true) {
         queue.async { [self] in
             greeting = packets
-            if let c = connection { packets.forEach { c.send(content: $0, completion: .idempotent) } }
+            if sendNow, let c = connection { packets.forEach { c.send(content: $0, completion: .idempotent) } }
         }
     }
 
@@ -112,6 +112,13 @@ final class Link: @unchecked Sendable {
                 guard let self else { return }
                 self.queue.async { self.picturesInFlight -= 1 }
             })
+        }
+    }
+
+    /// A message for the computer (the camera paused or live); never dropped.
+    func send(_ packet: Data) {
+        queue.async { [self] in
+            connection?.send(content: packet, completion: .idempotent)
         }
     }
 
