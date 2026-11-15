@@ -66,12 +66,12 @@ final class Microphone: @unchecked Sendable {
             return out
         }
         guard let converter,
-              let source = AVAudioPCMBuffer(pcmFormat: format, bufferListNoCopy: list),
+              let input = AVAudioPCMBuffer(pcmFormat: format, bufferListNoCopy: list),
               let dest = AVAudioPCMBuffer(pcmFormat: target, frameCapacity: AVAudioFrameCount(Double(frames) * 48_000 / format.sampleRate) + 16)
         else { return Data() }
         // The converter asks for input synchronously, inside convert(), on this thread.
         nonisolated(unsafe) var given = false
-        nonisolated(unsafe) let source = source
+        nonisolated(unsafe) let source = input
         _ = converter.convert(to: dest, error: nil) { _, status in
             if given { status.pointee = .noDataNow; return nil }
             given = true
