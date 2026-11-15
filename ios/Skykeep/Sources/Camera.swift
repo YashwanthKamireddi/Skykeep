@@ -46,6 +46,9 @@ final class Camera: NSObject, @unchecked Sendable, AVCaptureVideoDataOutputSampl
     private let wantKeyframe = OSAllocatedUnfairLock(initialState: true)
     private var lastKeyframe: CMTime = .zero
     private var zoomObservation: NSKeyValueObservation?
+    /// Where the phone's share of the delay goes, logged every few seconds: sensor to this
+    /// callback, this callback to encoded, and whether pictures are being fitted (portrait).
+    private var timing = (frames: 0, toApp: 0.0, encode: 0.0, fitted: 0)
 
     /// The device for a side: the back's combined camera when the phone has one.
     static func device(_ side: Side) -> AVCaptureDevice? {
@@ -245,6 +248,14 @@ final class Camera: NSObject, @unchecked Sendable, AVCaptureVideoDataOutputSampl
         }
         guard let encoder else { return }
         let pts = CMSampleBufferGetPresentationTimeStamp(sample)
+        let arrived = CACurrentMediaTime()
+        timing.frames += 1
+        timing.toApp += arrived - pts.seconds
+        if image !== captured { timing.fitted += 1 }
+        if timing.frames == 300 {
+            log.notice("camera timing over 300 frames: sensor to app \(self.timing.toApp / 3, privacy: .public) ms, encode \(self.timing.encode / 3, privacy: .public) ms, fitted \(self.timing.fitted, privacy: .public)")
+            timing = (0, 0, 0, 0)
+        }
         // The capture moment on the shared clock: now, less how long ago the sensor took it.
         let capturedUs = Wire.nowUs() - Int64((CACurrentMediaTime() - pts.seconds) * 1_000_000)
         var force = wantKeyframe.withLock { v in defer { v = false }; return v }
@@ -255,6 +266,7 @@ final class Camera: NSObject, @unchecked Sendable, AVCaptureVideoDataOutputSampl
                                         frameProperties: options, infoFlagsOut: nil) { [weak self] status, _, encoded in
             if status != noErr { log.error("encoding failed: \(status)") }
             guard status == noErr, let encoded, let self else { return }
+            self.timing.encode += CACurrentMediaTime() - arrived
             let (unit, key) = Self.annexB(encoded)
             guard !unit.isEmpty else { return }
             self.onPicture?(Wire.packet(.video, flags: key ? Wire.keyframe : 0, capturedUs: capturedUs, body: unit), key)
