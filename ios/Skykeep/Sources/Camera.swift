@@ -215,6 +215,14 @@ final class Camera: NSObject, @unchecked Sendable, AVCaptureVideoDataOutputSampl
         }
     }
 
+    /// Encoder settings from best picture down to the setup proven on every phone: a phone's
+    /// encoder that refuses one (in low-latency mode some do) steps to the next, so pictures
+    /// always flow.
+    private static let presets: [(bitRate: Int, qualityFirst: Bool)] = [
+        (40_000_000, true), (24_000_000, true), (16_000_000, false),
+    ]
+    private var preset = 0
+
     private func makeEncoder() -> VTCompressionSession? {
         let spec: [CFString: Any] = [kVTVideoEncoderSpecification_EnableLowLatencyRateControl: true]
         var made: VTCompressionSession?
@@ -240,8 +248,10 @@ final class Camera: NSObject, @unchecked Sendable, AVCaptureVideoDataOutputSampl
         VTSessionSetProperty(s, key: kVTCompressionPropertyKey_MaxKeyFrameIntervalDuration, value: NSNumber(value: 2))
         // The cable carries far more than this: 40 Mbit/s keeps 1080p60 close to what the
         // Camera app shows, and the encoder spends its time on quality (it stays real time).
-        VTSessionSetProperty(s, key: kVTCompressionPropertyKey_AverageBitRate, value: NSNumber(value: 40_000_000))
-        VTSessionSetProperty(s, key: kVTCompressionPropertyKey_PrioritizeEncodingSpeedOverQuality, value: kCFBooleanFalse)
+        let p = Self.presets[min(preset, Self.presets.count - 1)]
+        VTSessionSetProperty(s, key: kVTCompressionPropertyKey_AverageBitRate, value: NSNumber(value: p.bitRate))
+        VTSessionSetProperty(s, key: kVTCompressionPropertyKey_PrioritizeEncodingSpeedOverQuality,
+                             value: p.qualityFirst ? kCFBooleanFalse : kCFBooleanTrue)
         VTCompressionSessionPrepareToEncodeFrames(s)
         return s
     }
@@ -288,7 +298,7 @@ final class Camera: NSObject, @unchecked Sendable, AVCaptureVideoDataOutputSampl
               let image = landscape(captured) else { return }
         if encoder == nil {
             encoder = makeEncoder()
-            log.notice("encoder \(self.encoder == nil ? "failed" : "ready", privacy: .public)")
+            log.notice("encoder \(self.encoder == nil ? "failed" : "ready", privacy: .public) at preset \(self.preset, privacy: .public)")
         }
         guard let encoder else { return }
         let pts = CMSampleBufferGetPresentationTimeStamp(sample)
@@ -306,14 +316,21 @@ final class Camera: NSObject, @unchecked Sendable, AVCaptureVideoDataOutputSampl
         if (pts - lastKeyframe).seconds >= 2 { force = true }
         if force { lastKeyframe = pts }
         let options = force ? [kVTEncodeFrameOptionKey_ForceKeyFrame: true] as CFDictionary : nil
-        VTCompressionSessionEncodeFrame(encoder, imageBuffer: image, presentationTimeStamp: pts, duration: .invalid,
+        let accepted = VTCompressionSessionEncodeFrame(encoder, imageBuffer: image, presentationTimeStamp: pts, duration: .invalid,
                                         frameProperties: options, infoFlagsOut: nil) { [weak self] status, _, encoded in
-            if status != noErr { log.error("encoding failed: \(status)") }
+            if status != noErr { log.error("encoding failed: \(status, privacy: .public)") }
             guard status == noErr, let encoded, let self else { return }
             self.timing.encode += CACurrentMediaTime() - arrived
             let (unit, key) = Self.annexB(encoded)
             guard !unit.isEmpty else { return }
             self.onPicture?(Wire.packet(.video, flags: key ? Wire.keyframe : 0, capturedUs: capturedUs, body: unit), key)
+        }
+        if accepted != noErr {
+            log.error("the encoder refused a picture (\(accepted, privacy: .public)) at preset \(self.preset, privacy: .public); stepping down")
+            VTCompressionSessionInvalidate(encoder)
+            self.encoder = nil
+            preset = min(preset + 1, Self.presets.count - 1)
+            wantKeyframe.withLock { $0 = true }
         }
     }
 
