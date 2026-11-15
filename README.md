@@ -151,10 +151,12 @@ show black until you turn it back on.
 
 **If a program shows no picture**
 
-- Reload the page or restart the program after first setting it up: a browser keeps a camera
-  it couldn't open earlier.
+- Restart the program after first setting it up. Chromium keeps a camera it couldn't open
+  until the whole browser restarts (`chrome://restart`); reloading the page isn't enough.
 - The iPhone Camera webcam device can be read by one program at a time: close the camera in
-  one program before choosing it in another.
+  one program before choosing it in another. In Chromium, turning on
+  `chrome://flags/#enable-webrtc-pipewire-camera` reads it through PipeWire instead, which
+  programs can share.
 
 ## Official downloads
 
