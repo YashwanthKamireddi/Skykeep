@@ -159,7 +159,7 @@ fn programs_see_the_phones_camera_and_microphone_with_little_delay() {
                 w,
                 report,
                 Arc::new(receiver::Devices::pipewire_only()),
-                &|_| {},
+                &|_: receiver::CameraState| {},
             )
         });
     }
@@ -252,7 +252,9 @@ fn a_program_keeps_the_camera_across_an_unplug() {
             report.clone(),
             devices.clone(),
         );
-        let session = std::thread::spawn(move || receiver::serve(r, w, report, devices, &|_| {}));
+        let session = std::thread::spawn(move || {
+            receiver::serve(r, w, report, devices, &|_: receiver::CameraState| {})
+        });
         (phone, session)
     };
     let wait_for = |n: u64| {

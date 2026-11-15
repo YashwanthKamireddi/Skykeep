@@ -88,6 +88,15 @@ impl Devices {
     }
 }
 
+/// The phone's camera, as the phone says: sending, paused by iOS (locked, or another app in
+/// front without picture in picture), or turned off by the person (microphone only).
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum CameraState {
+    Live,
+    Paused,
+    Off,
+}
+
 /// What a session leaves behind for the person (and the tests) to read.
 #[derive(Default)]
 pub struct Report {
@@ -109,7 +118,7 @@ pub fn serve(
     ask: impl Write + Send + 'static,
     report: Arc<Mutex<Report>>,
     devices: Arc<Devices>,
-    camera_paused: &(dyn Fn(bool) + Sync),
+    camera_paused: &(dyn Fn(CameraState) + Sync),
 ) -> Result<()> {
     let result = session(from_phone, ask, report, &devices, camera_paused);
     devices.phone_gone();
@@ -121,7 +130,7 @@ fn session(
     ask: impl Write + Send + 'static,
     report: Arc<Mutex<Report>>,
     devices: &Arc<Devices>,
-    camera_paused: &(dyn Fn(bool) + Sync),
+    camera_paused: &(dyn Fn(CameraState) + Sync),
 ) -> Result<()> {
     // Packets are read in pieces; a buffer makes that one system call per many packets.
     let mut from_phone = std::io::BufReader::with_capacity(1 << 20, from_phone);
@@ -260,9 +269,13 @@ fn session(
                 match reply["camera"].as_str() {
                     Some("paused") => {
                         devices.phone_gone();
-                        camera_paused(true);
+                        camera_paused(CameraState::Paused);
                     }
-                    Some("live") => camera_paused(false),
+                    Some("off") => {
+                        devices.phone_gone();
+                        camera_paused(CameraState::Off);
+                    }
+                    Some("live") => camera_paused(CameraState::Live),
                     _ => {}
                 }
                 if let (Some(sent), Some(phone)) = (reply["pong"].as_i64(), reply["phone"].as_i64())

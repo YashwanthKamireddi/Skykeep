@@ -10,7 +10,7 @@ use std::collections::HashSet;
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
-use crate::receiver::{self, Devices, Report};
+use crate::receiver::{self, CameraState, Devices, Report};
 use crate::usbmux;
 
 pub const PORT: u16 = 47820;
@@ -28,6 +28,8 @@ pub enum Status {
     /// Connected, but iOS stopped the camera: the phone is locked, or another app is in front
     /// without picture in picture. The microphone goes on.
     CameraPaused,
+    /// Connected, the camera turned off on the phone: the iPhone is only the microphone.
+    MicOnly,
 }
 
 pub struct Service {
@@ -135,14 +137,14 @@ fn serve_while_plugged(
                     links.lock().unwrap().insert(phone, handle);
                 }
                 set(status, changed, Status::InUse);
-                let paused = |p: bool| {
+                let paused = |c: CameraState| {
                     set(
                         status,
                         changed,
-                        if p {
-                            Status::CameraPaused
-                        } else {
-                            Status::InUse
+                        match c {
+                            CameraState::Live => Status::InUse,
+                            CameraState::Paused => Status::CameraPaused,
+                            CameraState::Off => Status::MicOnly,
                         },
                     )
                 };

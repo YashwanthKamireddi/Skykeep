@@ -109,6 +109,7 @@
     "iphonePlugged": "Öffne Skykeep auf deinem iPhone.",
     "iphoneInUse": "Dein iPhone ist die Kamera und das Mikrofon dieses Computers.",
     "iphoneCameraPaused": "Die Kamera pausiert, solange dein iPhone gesperrt ist oder eine andere App darauf geöffnet ist. Das Mikrofon bleibt an.",
+    "iphoneMicOnly": "Dein iPhone ist das Mikrofon dieses Computers. Seine Kamera ist aus.",
     "iphoneEveryApp": "In jeder App anzeigen",
     "iphoneEveryAppHint": "Chrome, Zoom und Discord suchen nach einer Webcam. Fragt einmal nach deinem Passwort.",
     "iphoneEveryAppInstall": "Installiere v4l2loopback aus der Software deines Systems, um es in jeder App anzuzeigen.",

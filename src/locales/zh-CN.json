@@ -109,6 +109,7 @@
     "iphonePlugged": "在 iPhone 上打开 Skykeep。",
     "iphoneInUse": "你的 iPhone 正在用作此电脑的摄像头和麦克风。",
     "iphoneCameraPaused": "iPhone 锁定或打开其他 App 时，摄像头会暂停，麦克风仍然开启。",
+    "iphoneMicOnly": "你的 iPhone 正在用作此电脑的麦克风，摄像头已关闭。",
     "iphoneEveryApp": "在所有 App 中显示",
     "iphoneEveryAppHint": "Chrome、Zoom 和 Discord 只查找网络摄像头。只需输入一次密码。",
     "iphoneEveryAppInstall": "如需在所有 App 中显示，请从系统软件中安装 v4l2loopback。",

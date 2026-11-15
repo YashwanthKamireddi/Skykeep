@@ -18,6 +18,8 @@ final class Model {
     private(set) var hasFront = false
     private(set) var micOn = true
     private(set) var hdr = true
+    /// Off: the iPhone is only the computer's microphone (less heat and battery).
+    private(set) var cameraOn = true
 
     let camera = Camera()
     let pip = PictureInPicture()
@@ -111,6 +113,21 @@ final class Model {
         }
     }
 
+    func toggleCamera() {
+        cameraOn.toggle()
+        if cameraOn {
+            if let device = Camera.device(side) { camera.use(device) }
+        } else {
+            camera.stop()
+        }
+        link.send(cameraState())
+        link.setGreeting(greeting(), sendNow: false)
+    }
+
+    func showMicModes() {
+        Microphone.showModes()
+    }
+
     func toggleHDR() {
         hdr.toggle()
         camera.setHDR(hdr)
@@ -150,7 +167,7 @@ final class Model {
     }
 
     private func cameraState() -> Data {
-        Wire.message(.control, ["camera": cameraPaused ? "paused" : "live"])
+        Wire.message(.control, ["camera": !cameraOn ? "off" : cameraPaused ? "paused" : "live"])
     }
 
     private func greeting() -> [Data] {

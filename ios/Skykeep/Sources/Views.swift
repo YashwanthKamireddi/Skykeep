@@ -40,8 +40,20 @@ struct CameraScreen: View {
                         .onEnded { _ in pinching = false }
                 )
             VStack {
-                StatusPill(status: model.status)
-                    .padding(.top, 8)
+                HStack(alignment: .top) {
+                    StatusPill(status: model.status)
+                    Spacer()
+                    topControls
+                }
+                .padding(.top, 8)
+                if !model.cameraOn {
+                    Spacer()
+                    Label("Microphone only", systemImage: "mic.fill")
+                        .font(.title3.weight(.semibold))
+                        .padding(.horizontal, 20)
+                        .padding(.vertical, 12)
+                        .glassEffect(.regular, in: .capsule)
+                }
                 Spacer()
                 controls
                     .padding(.bottom, 24)
@@ -54,7 +66,7 @@ struct CameraScreen: View {
     private var controls: some View {
         GlassEffectContainer(spacing: 16) {
             HStack(spacing: 16) {
-                if model.side == .back && model.presets.count > 1 {
+                if model.cameraOn && model.side == .back && model.presets.count > 1 {
                     HStack(spacing: 4) {
                         ForEach(model.presets, id: \.self) { preset in
                             let active = isActive(preset)
@@ -74,18 +86,7 @@ struct CameraScreen: View {
                     .glassEffectID("zoom", in: glass)
                 }
 
-                Button(action: model.toggleHDR) {
-                    Text("HDR")
-                        .font(.footnote.weight(.semibold))
-                        .strikethrough(!model.hdr)
-                        .foregroundStyle(model.hdr ? Color.yellow : Color.white)
-                        .frame(width: 52, height: 52)
-                }
-                .buttonStyle(.glass)
-                .buttonBorderShape(.circle)
-                .accessibilityLabel(model.hdr ? "Turn HDR off for less delay" : "Turn HDR on for a better picture")
-
-                if model.hasFront {
+                if model.cameraOn && model.hasFront {
                     Button(action: model.flip) {
                         Image(systemName: "arrow.triangle.2.circlepath.camera")
                             .font(.title3)
@@ -96,6 +97,16 @@ struct CameraScreen: View {
                     .accessibilityLabel(model.side == .front ? "Use the back camera" : "Use the front camera")
                 }
 
+                Button(action: model.toggleCamera) {
+                    Image(systemName: model.cameraOn ? "video.fill" : "video.slash.fill")
+                        .font(.title3)
+                        .contentTransition(.symbolEffect(.replace))
+                        .frame(width: 52, height: 52)
+                }
+                .buttonStyle(.glass)
+                .buttonBorderShape(.circle)
+                .accessibilityLabel(model.cameraOn ? "Turn the camera off: microphone only" : "Turn the camera on")
+
                 Button(action: model.toggleMic) {
                     Image(systemName: model.micOn ? "mic.fill" : "mic.slash.fill")
                         .font(.title3)
@@ -105,6 +116,34 @@ struct CameraScreen: View {
                 .buttonStyle(.glass)
                 .buttonBorderShape(.circle)
                 .accessibilityLabel(model.micOn ? "Turn the microphone off" : "Turn the microphone on")
+            }
+        }
+    }
+
+    /// HDR and the microphone mode, small at the top, where the Camera app keeps its own.
+    private var topControls: some View {
+        GlassEffectContainer(spacing: 8) {
+            HStack(spacing: 8) {
+                Button(action: model.toggleHDR) {
+                    Text("HDR")
+                        .font(.caption.weight(.semibold))
+                        .strikethrough(!model.hdr)
+                        .foregroundStyle(model.hdr ? Color.yellow : Color.white)
+                        .frame(width: 40, height: 40)
+                }
+                .buttonStyle(.glass)
+                .buttonBorderShape(.circle)
+                .disabled(!model.cameraOn)
+                .accessibilityLabel(model.hdr ? "Turn HDR off for less delay" : "Turn HDR on for a better picture")
+
+                Button(action: model.showMicModes) {
+                    Image(systemName: "waveform")
+                        .font(.footnote.weight(.semibold))
+                        .frame(width: 40, height: 40)
+                }
+                .buttonStyle(.glass)
+                .buttonBorderShape(.circle)
+                .accessibilityLabel("Microphone mode: Standard, Voice Isolation or Wide Spectrum")
             }
         }
     }

@@ -496,6 +496,8 @@ function IphoneRow() {
       ? t("settings.iphoneInUse")
       : status.state === "cameraPaused"
         ? t("settings.iphoneCameraPaused")
+        : status.state === "micOnly"
+          ? t("settings.iphoneMicOnly")
         : status.state === "plugged"
         ? t("settings.iphonePlugged")
         : t("settings.iphoneNone");

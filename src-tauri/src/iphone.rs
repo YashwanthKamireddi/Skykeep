@@ -28,7 +28,8 @@ pub fn start(app: &tauri::AppHandle) {
 pub struct IphoneStatus {
     /// "unavailable" (this build or system has no iPhone link), "none" (no iPhone on a cable),
     /// "plugged" (Skykeep isn't open on it), "inUse", or "cameraPaused" (iOS stopped the
-    /// camera: the phone locked or another app in front; the microphone goes on).
+    /// camera: the phone locked or another app in front; the microphone goes on), or
+    /// "micOnly" (the camera turned off on the phone).
     state: &'static str,
     /// Capture on the phone to pictures reaching programs here, half of them within, in ms.
     camera_ms: Option<f64>,
@@ -103,6 +104,7 @@ pub fn iphone_status() -> IphoneStatus {
             Status::Plugged => "plugged",
             Status::InUse => "inUse",
             Status::CameraPaused => "cameraPaused",
+            Status::MicOnly => "micOnly",
         };
         let report = link.report.lock().unwrap();
         let ms = |d: Option<&std::sync::Arc<std::sync::Mutex<quince_link::stats::Delays>>>| {
