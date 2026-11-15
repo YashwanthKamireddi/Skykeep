@@ -112,6 +112,8 @@ modules:
           install -Dm644 packaging/icons/apps/${app,,}.svg \
             "${FLATPAK_DEST}/share/icons/hicolor/scalable/apps/${FLATPAK_ID}.$app.svg"
         done
+        # The same icons as PNG at every size, for launchers that draw no SVG (make.py, #18).
+        cp -r packaging/icons/apps/hicolor/. "${FLATPAK_DEST}/share/icons/hicolor/"
 
       - install -Dm644 ${FLATPAK_ID}.metainfo.xml ${FLATPAK_DEST}/share/metainfo/${FLATPAK_ID}.metainfo.xml
 

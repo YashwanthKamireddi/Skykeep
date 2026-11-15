@@ -123,6 +123,10 @@ package() {
     install -Dm644 "packaging/icons/apps/$app.svg" \
       "$pkgdir/usr/share/icons/hicolor/scalable/apps/io.github.yashwanthkamireddi.Skykeep.${app^}.svg"
   done
+  # The same icons as PNG at every size, for launchers that draw no SVG (make.py, #18).
+  find packaging/icons/apps/hicolor -name '*.png' -printf '%P\n' | while read -r png; do
+    install -Dm644 "packaging/icons/apps/hicolor/$png" "$pkgdir/usr/share/icons/hicolor/$png"
+  done
   # In the desktop's own search: GNOME Shell's provider, KRunner's D-Bus plugin, and the bus
   # entry that starts Skykeep hidden when either searches and it is not running.
   # The provider names the .deb's launcher (Skykeep.desktop); here it is the app ID's.

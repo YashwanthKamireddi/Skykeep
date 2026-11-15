@@ -67,4 +67,15 @@ for app in APPS:
         dirs += struct.pack("<BBBBHHII", s % 256, s % 256, 0, 0, 1, 32, len(image), offset + len(data))
         data += image
     open(f"{OUT}/{app}.ico", "wb").write(struct.pack("<HHH", 0, 1, len(images)) + dirs + data)
+# Each app's icon at every size the launchers ask for, as PNG, in the icon theme's own layout
+# (hicolor/<n>x<n>/apps/<identifier>.<App>.png), copied whole into /usr/share/icons by every Linux
+# package. The SVG alone is not enough: the icon theme spec asks each app for at least a 48 px
+# PNG, and launchers that draw no SVG (or look only in sized folders) showed every app blank
+# while Skykeep's own icon, PNG at every size, showed (#18).
+import os
+for app in APPS:
+    for s in (16, 24, 32, 48, 64, 128, 256, 512):
+        d = f"{OUT}/hicolor/{s}x{s}/apps"
+        os.makedirs(d, exist_ok=True)
+        open(f"{d}/io.github.yashwanthkamireddi.Skykeep.{app.capitalize()}.png", "wb").write(png(f"{OUT}/{app}.svg", s))
 print("sizes ok")
