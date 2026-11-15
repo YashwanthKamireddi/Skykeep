@@ -167,6 +167,13 @@ unsafe fn pack_nv12(f: *const AVFrame) -> Result<Picture> {
     })
 }
 
+impl Decoder {
+    /// Forgets everything decoded so far, so decoding can start again at a keyframe.
+    pub fn flush(&mut self) {
+        unsafe { avcodec_flush_buffers(self.ctx) }
+    }
+}
+
 impl Drop for Decoder {
     fn drop(&mut self) {
         unsafe {

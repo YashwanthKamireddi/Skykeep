@@ -2,6 +2,7 @@
 //! their own thread so a picture being decoded never holds sound back.
 
 use std::io::{Read, Write};
+use std::sync::atomic::{AtomicBool, AtomicI64, Ordering};
 use std::sync::mpsc::{sync_channel, TrySendError};
 use std::sync::{Arc, Mutex};
 
@@ -11,7 +12,7 @@ use crate::linux::camera::Camera;
 use crate::linux::decode::Decoder;
 use crate::linux::mic::Mic;
 use crate::protocol::{Hello, Kind, Packet, VideoFormat, KEYFRAME};
-use crate::stats::Delays;
+use crate::stats::{now_us, Delays};
 
 /// Pictures waiting for the decoder. Decoding takes a few milliseconds and pictures come every
 /// 16, so more than this waiting means the decoder can't keep up: the waiting ones are
@@ -48,10 +49,48 @@ pub fn serve(
     report.lock().unwrap().name = hello.name.clone();
 
     let ask = Arc::new(Mutex::new(ask));
+
+    // The phone stamps captures with its own clock. Over the cable a ping's round trip is well
+    // under a millisecond, so the two clocks are matched to within that: the delays read true,
+    // and the camera's and microphone's timing line up.
+    let offset = Arc::new(AtomicI64::new(0));
+    let best_round_trip = AtomicI64::new(i64::MAX);
+    {
+        let ask = ask.clone();
+        std::thread::Builder::new()
+            .name("iphone-clock".into())
+            .spawn(move || {
+                for i in 0u64.. {
+                    let ping =
+                        Packet::message(Kind::Control, &serde_json::json!({ "ping": now_us() }));
+                    let mut a = ask.lock().unwrap();
+                    if ping.write_to(&mut *a).and_then(|_| a.flush()).is_err() {
+                        break;
+                    }
+                    drop(a);
+                    // Five quick pings to start with, then one now and then for drift.
+                    std::thread::sleep(std::time::Duration::from_millis(if i < 5 {
+                        200
+                    } else {
+                        10_000
+                    }));
+                }
+            })?;
+    }
     let mut mic: Option<Mic> = None;
     let mut pictures: Option<std::sync::mpsc::SyncSender<Packet>> = None;
     let mut decoder_thread = None;
     let mut skipping = false;
+    // Set by the decoder when a picture couldn't be decoded: the ones after it can't be either,
+    // so pictures wait for a keyframe, which is asked for at once.
+    let broken = Arc::new(AtomicBool::new(false));
+    let ask_keyframe = |report: &Arc<Mutex<Report>>| -> Result<()> {
+        report.lock().unwrap().keyframes_asked += 1;
+        let mut a = ask.lock().unwrap();
+        Packet::message(Kind::Control, &serde_json::json!({ "keyframe": true }))
+            .write_to(&mut *a)?;
+        Ok(a.flush()?)
+    };
 
     while let Some(packet) = Packet::read_from(&mut from_phone)? {
         match packet.kind {
@@ -66,7 +105,10 @@ pub fn serve(
                     }
                     mic = Some(m);
                 }
-                mic.as_ref().unwrap().hear(&packet.body, packet.captured_us);
+                mic.as_ref().unwrap().hear(
+                    &packet.body,
+                    packet.captured_us - offset.load(Ordering::Relaxed),
+                );
             }
             Kind::VideoFormat => {
                 let format: VideoFormat = packet.json()?;
@@ -76,21 +118,35 @@ pub fn serve(
                 }
                 let (tx, rx) = sync_channel::<Packet>(WAITING);
                 let name = format!("{} Camera", hello.name);
-                let report = report.clone();
+                let (for_decoder, broken_flag, clock) =
+                    (report.clone(), broken.clone(), offset.clone());
                 decoder_thread = Some(
                     std::thread::Builder::new()
                         .name("iphone-decode".into())
                         .spawn(move || {
-                            if let Err(e) = decode_pictures(format, &name, rx, report) {
+                            if let Err(e) = decode_pictures(
+                                format,
+                                &name,
+                                rx,
+                                for_decoder,
+                                &broken_flag,
+                                &clock,
+                            ) {
                                 eprintln!("iPhone camera stopped: {e:#}");
                             }
                         })?,
                 );
                 pictures = Some(tx);
-                skipping = false;
+                // A new decoder starts at a keyframe (a lens change sends a new format mid-stream).
+                skipping = true;
+                ask_keyframe(&report)?;
             }
             Kind::Video => {
                 let Some(tx) = &pictures else { continue };
+                if broken.swap(false, Ordering::Relaxed) {
+                    skipping = true;
+                    ask_keyframe(&report)?;
+                }
                 if skipping && packet.flags & KEYFRAME == 0 {
                     continue;
                 }
@@ -99,16 +155,23 @@ pub fn serve(
                     Ok(()) => {}
                     Err(TrySendError::Full(_)) => {
                         skipping = true;
-                        report.lock().unwrap().keyframes_asked += 1;
-                        let mut a = ask.lock().unwrap();
-                        Packet::message(Kind::Control, &serde_json::json!({ "keyframe": true }))
-                            .write_to(&mut *a)?;
-                        a.flush()?;
+                        ask_keyframe(&report)?;
                     }
                     Err(TrySendError::Disconnected(_)) => bail!("the camera stopped"),
                 }
             }
-            Kind::Hello | Kind::Control => {}
+            Kind::Control => {
+                let reply: serde_json::Value = packet.json().unwrap_or_default();
+                if let (Some(sent), Some(phone)) = (reply["pong"].as_i64(), reply["phone"].as_i64())
+                {
+                    let round_trip = now_us() - sent;
+                    if round_trip < best_round_trip.load(Ordering::Relaxed) {
+                        best_round_trip.store(round_trip, Ordering::Relaxed);
+                        offset.store(phone - (sent + round_trip / 2), Ordering::Relaxed);
+                    }
+                }
+            }
+            Kind::Hello => {}
         }
     }
     drop(pictures);
@@ -123,6 +186,8 @@ fn decode_pictures(
     name: &str,
     rx: std::sync::mpsc::Receiver<Packet>,
     report: Arc<Mutex<Report>>,
+    broken: &AtomicBool,
+    clock: &AtomicI64,
 ) -> Result<()> {
     let mut decoder = Decoder::new(format.codec)?;
     let camera = Camera::start(name, format.width, format.height, format.fps)?;
@@ -132,10 +197,19 @@ fn decode_pictures(
         r.picture_delays = Some(camera.delays.clone());
     }
     for packet in rx {
-        if let Some(picture) = decoder.decode(&packet.body)? {
-            if picture.width == format.width && picture.height == format.height {
-                camera.show(picture, packet.captured_us);
+        match decoder.decode(&packet.body) {
+            Ok(Some(picture))
+                if picture.width == format.width && picture.height == format.height =>
+            {
+                camera.show(picture, packet.captured_us - clock.load(Ordering::Relaxed));
                 report.lock().unwrap().pictures += 1;
+            }
+            Ok(_) => {}
+            Err(e) => {
+                // One damaged picture: start again cleanly at the next keyframe.
+                eprintln!("iPhone camera: {e:#}; waiting for a keyframe");
+                decoder.flush();
+                broken.store(true, Ordering::Relaxed);
             }
         }
     }

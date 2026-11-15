@@ -77,6 +77,9 @@ final class Camera: NSObject, @unchecked Sendable, AVCaptureVideoDataOutputSampl
             }
             if let c = output.connection(with: .video) {
                 if c.isVideoRotationAngleSupported(0) { c.videoRotationAngle = 0 }
+                // Stabilization holds frames back to smooth them: tens of milliseconds a webcam
+                // can't spare, and a camera on a stand doesn't shake.
+                if c.isVideoStabilizationSupported { c.preferredVideoStabilizationMode = .off }
                 if c.isVideoMirroringSupported { c.automaticallyAdjustsVideoMirroring = false; c.isVideoMirrored = lens.front }
             }
             session.commitConfiguration()

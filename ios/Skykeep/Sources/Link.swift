@@ -86,6 +86,10 @@ final class Link: @unchecked Sendable {
                 for (kind, body) in self.reader.feed(data) where kind == .control {
                     let ask = (try? JSONSerialization.jsonObject(with: body)) as? [String: Any]
                     if ask?["keyframe"] as? Bool == true { self.onKeyframeNeeded?() }
+                    // The computer matches its clock to the phone's, so capture times read true.
+                    if let ping = ask?["ping"] as? Int64 {
+                        c.send(content: Wire.message(.control, ["pong": ping, "phone": Wire.nowUs()]), completion: .idempotent)
+                    }
                 }
             }
             if done || error != nil { c.cancel(); return }
