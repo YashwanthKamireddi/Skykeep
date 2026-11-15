@@ -1,3 +1,4 @@
+import { t } from "../lib/i18n";
 import { useEffect, useRef, useState } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
@@ -70,7 +71,7 @@ export function QuickCapture({ initial }: { initial: Kind }) {
         } else {
           const folders = (await api.noteFolders()).filter((f) => f.guid !== TRASH_FOLDER && f.guid !== DEFAULT_FOLDER);
           if (!live) return;
-          setWhere([{ value: DEFAULT_FOLDER, label: "Notes" }, ...folders.map((f) => ({ value: f.guid, label: f.title }))]);
+          setWhere([{ value: DEFAULT_FOLDER, label: t("quick.notes") }, ...folders.map((f) => ({ value: f.guid, label: f.title }))]);
           setTarget(DEFAULT_FOLDER);
         }
       } catch {
@@ -125,7 +126,6 @@ export function QuickCapture({ initial }: { initial: Kind }) {
     }
   }
 
-  const noun = kind === "note" ? "Note" : "Reminder";
   return (
     <main
       className="qc"
@@ -148,8 +148,8 @@ export function QuickCapture({ initial }: { initial: Kind }) {
         <input
           ref={field}
           className="qc-field"
-          aria-label={`New ${noun}`}
-          placeholder={`New ${noun}`}
+          aria-label={kind === "note" ? t("quick.newNote") : t("quick.newReminder")}
+          placeholder={kind === "note" ? t("quick.newNote") : t("quick.newReminder")}
           value={text}
           disabled={state === "saving"}
           onChange={(e) => setText(e.target.value)}
@@ -168,25 +168,25 @@ export function QuickCapture({ initial }: { initial: Kind }) {
           />
         ) : where ? (
           <span className="qc-note">
-            {kind === "reminder" ? "No lists yet. Make one in Reminders first." : "Notes"}
+            {kind === "reminder" ? t("quick.noLists") : t("quick.notes")}
           </span>
         ) : (
           <span />
         )}
         <span className="qc-note" role="status">
           {state === "saving" ? (
-            "Saving…"
+            t("quick.saving")
           ) : state === "signin" ? (
             <>
-              Sign in to Skykeep first.{" "}
+              {t("quick.signInFirst")}{" "}
               <button type="button" className="link qc-link" onClick={() => void intakeApi.openMain()}>
-                Open Skykeep
+                {t("quick.openSkykeep")}
               </button>
             </>
           ) : error ? (
             <span className="qc-error">{error}</span>
           ) : (
-            "Enter to add"
+            t("quick.enterToAdd")
           )}
         </span>
       </div>

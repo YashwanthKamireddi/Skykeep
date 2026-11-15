@@ -1,3 +1,4 @@
+import { t } from "../lib/i18n";
 import { useEffect, useRef, useState } from "react";
 import { Progress } from "./Spinner";
 import { FileGlyph } from "./FileGlyph";
@@ -48,7 +49,7 @@ export function DownloadTray() {
     void api.downloadReveal(path).catch((e) => toast({ message: messageOf(e), tone: "error" }));
 
   return (
-    <section className="upload-tray download-tray" aria-label="Downloads" aria-live="polite">
+    <section className="upload-tray download-tray" aria-label={t("downloads.title")} aria-live="polite">
       <header className="upload-tray-head">
         <span className="upload-tray-title">{heading(views)}</span>
         {active ? (
@@ -58,12 +59,12 @@ export function DownloadTray() {
               className="quiet upload-tray-close"
               onClick={() => views.filter((v) => v.running).forEach((v) => void cancelDownload(v.batch))}
             >
-              Cancel
+              {t("downloads.cancel")}
             </button>
           </span>
         ) : (
           <button className="quiet upload-tray-close" onClick={dismissFinished} aria-label="Close downloads">
-            Done
+            {t("downloads.done")}
           </button>
         )}
       </header>
@@ -86,17 +87,17 @@ export function DownloadTray() {
                   {v.note && <span className="upload-where" title={v.note}>{v.note}</span>}
                 </span>
                 <span className="upload-state">
-                  {v.tone === "done" ? <span aria-label="Downloaded">✓</span> : v.status}
+                  {v.tone === "done" ? <span aria-label={t("downloads.downloaded")}>✓</span> : v.status}
                 </span>
                 <span className="download-actions">
                   {v.again && (
                     <button className="quiet download-show" onClick={() => void downloadAgain(v.batch)}>
-                      {v.again}
+                      {t(v.again === "Resume" ? "downloads.resume" : "downloads.tryAgain")}
                     </button>
                   )}
                   {v.reveal && (
                     <button className="quiet download-show" onClick={() => reveal(v.reveal!)}>
-                      Show in Folder
+                      {t("downloads.showInFolder")}
                     </button>
                   )}
                 </span>
@@ -104,7 +105,7 @@ export function DownloadTray() {
                   <button
                     className="icon-button small round upload-stop"
                     aria-expanded={open === v.batch}
-                    aria-label={open === v.batch ? "Hide what didn’t download" : "Show what didn’t download"}
+                    aria-label={open === v.batch ? t("downloads.hideFailed") : t("downloads.showFailed")}
                     onClick={() => setOpen(open === v.batch ? null : v.batch)}
                   >
                     {open === v.batch ? "▾" : "▸"}
@@ -113,8 +114,8 @@ export function DownloadTray() {
                   // One download has one Cancel — the head's.
                   <button
                     className="icon-button small round upload-stop"
-                    aria-label={`Cancel ${v.title}`}
-                    title="Cancel"
+                    aria-label={t("uploads.cancelName", { name: v.title })}
+                    title={t("uploads.cancel")}
                     onClick={() => void cancelDownload(v.batch)}
                   >
                     ✕
@@ -122,8 +123,8 @@ export function DownloadTray() {
                 ) : v.forgettable ? (
                   <button
                     className="icon-button small round upload-stop"
-                    aria-label={`Forget ${v.title}`}
-                    title="Don’t offer to resume this"
+                    aria-label={t("downloads.forgetName", { name: v.title })}
+                    title={t("downloads.dontOfferTitle")}
                     onClick={() => void forgetDownload(v.batch, v.forgettable!)}
                   >
                     ✕
@@ -143,7 +144,7 @@ export function DownloadTray() {
                   {v.forgettable && (
                     <li>
                       <button className="quiet download-show" onClick={() => void forgetDownload(v.batch, v.forgettable!)}>
-                        Don’t Offer to Resume
+                        {t("downloads.dontOffer")}
                       </button>
                     </li>
                   )}

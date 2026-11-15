@@ -7,6 +7,7 @@
  * held one by one (for their bytes), and only the first NAMED failures by name.
  */
 import type { DownloadEvent, DownloadReport, DriveItem } from "./ipc";
+import { t } from "./i18n.ts";
 
 /** How many failures a line names; past this they are counted. */
 export const NAMED = 200;
@@ -130,6 +131,8 @@ export type LineView = {
   /** How far, 0–100; null while it is not known how much there is. */
   percent: number | null;
   status: string;
+  /** Stopped to be resumed later: told apart by this, never by the words said for it. */
+  paused: boolean;
   tone: Tone;
   /** A sentence under the name: why it stopped, when it did. */
   note: string | null;
@@ -173,35 +176,35 @@ export function view(line: DownloadLine): LineView {
   if (running) {
     // Still counting what is in it: a count that would only grow is not a total yet.
     const status = line.planned
-      ? `${line.done} of ${line.planned.files}`
+      ? t("downloads.doneOf", { done: line.done, total: line.planned.files })
       : line.found
-        ? `Preparing… ${line.found} found`
-        : "Preparing…";
-    return { ...base, percent, status, tone: "sending", note: null, again: null };
+        ? t("downloads.preparingFound", { count: line.found })
+        : t("downloads.preparing");
+    return { ...base, percent, status, paused: false, tone: "sending", note: null, again: null };
   }
   const again = resumable ? "Resume" : "Try Again";
-  if (line.paused) return { ...base, percent: null, status: "Paused", tone: "cancelled", note: null, again };
-  if (line.error) return { ...base, percent: null, status: "Didn’t download", tone: "failed", note: line.error, again };
+  if (line.paused) return { ...base, percent: null, status: t("downloads.paused"), paused: true, tone: "cancelled", note: null, again };
+  if (line.error) return { ...base, percent: null, status: t("downloads.didntDownload"), paused: false, tone: "failed", note: line.error, again };
   const problem = line.report?.problem ?? null;
-  if (problem) return { ...base, percent: null, status: line.done ? `${line.done} downloaded` : "Stopped", tone: "failed", note: problem, again };
+  if (problem) return { ...base, percent: null, status: line.done ? t("downloads.someDownloaded", { count: line.done }) : t("downloads.stopped"), paused: false, tone: "failed", note: problem, again };
   if (line.report?.cancelled) {
-    return { ...base, percent: null, status: line.done ? `Cancelled after ${line.done}` : "Cancelled", tone: "cancelled", note: null, again };
+    return { ...base, percent: null, status: line.done ? t("downloads.cancelledAfter", { count: line.done }) : t("downloads.cancelled"), paused: false, tone: "cancelled", note: null, again };
   }
   if (line.failedCount > 0) {
-    return { ...base, percent: null, status: `${line.failedCount} didn’t download`, tone: "failed", note: null, again };
+    return { ...base, percent: null, status: t("downloads.someDidntDownload", { count: line.failedCount }), paused: false, tone: "failed", note: null, again };
   }
-  return { ...base, percent: 100, status: "Downloaded", tone: "done", note: null, again: null };
+  return { ...base, percent: 100, status: t("downloads.downloaded"), paused: false, tone: "done", note: null, again: null };
 }
 
 /** The tray's head: what is happening, across every line. */
 export function heading(views: LineView[]): string {
   const running = views.filter((v) => v.running);
-  if (running.length === 1) return `Downloading ${running[0].title}`;
-  if (running.length > 1) return "Downloading…";
-  if (views.length > 0 && views.every((v) => v.status === "Paused")) {
-    return views.length === 1 ? "A download didn’t finish" : "Some downloads didn’t finish";
+  if (running.length === 1) return t("downloads.downloadingName", { name: running[0].title });
+  if (running.length > 1) return t("downloads.downloading");
+  if (views.length > 0 && views.every((v) => v.paused)) {
+    return views.length === 1 ? t("downloads.oneUnfinished") : t("downloads.someUnfinished");
   }
-  if (views.some((v) => v.tone === "failed")) return "Some downloads didn’t finish";
-  if (views.length > 0 && views.every((v) => v.tone === "cancelled")) return views.length === 1 ? "Download cancelled" : "Downloads cancelled";
-  return views.length === 1 ? `${views[0].title} downloaded` : "Downloads finished";
+  if (views.some((v) => v.tone === "failed")) return t("downloads.someUnfinished");
+  if (views.length > 0 && views.every((v) => v.tone === "cancelled")) return views.length === 1 ? t("downloads.oneCancelled") : t("downloads.manyCancelled");
+  return views.length === 1 ? t("downloads.nameDownloaded", { name: views[0].title }) : t("downloads.finished");
 }

@@ -4,6 +4,7 @@
  * one `npm run licences` wrote from Cargo.lock and package-lock.json (scripts/licences.mjs), never
  * typed here, and loaded only with this sheet: its texts are some 400 kB.
  */
+import { t } from "../lib/i18n";
 import { useMemo, useRef, useState } from "react";
 import list from "../licences.json";
 import { Portal } from "./Portal";
@@ -45,9 +46,9 @@ export function LicencesSheet({ onClose }: { onClose: () => void }) {
             }
           }}
         >
-          <h2 id="licences-title">Open-Source Licences</h2>
+          <h2 id="licences-title">{t("licences.title")}</h2>
           <p className="licences-intro">
-            Skykeep is free software under the GPL-3.0. It is built on the work below, each under its own licence.
+            {t("licences.intro")}
           </p>
           <div className="licences-list" tabIndex={0} aria-label="Licences">
             {groups.map((g, n) => (
@@ -77,7 +78,7 @@ export function LicencesSheet({ onClose }: { onClose: () => void }) {
           </div>
           <div className="sheet-actions">
             <button className="primary" autoFocus onClick={onClose}>
-              Done
+              {t("licences.done")}
             </button>
           </div>
         </div>

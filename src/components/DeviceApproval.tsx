@@ -1,3 +1,4 @@
+import { t, activeLanguage, type Key } from "../lib/i18n";
 import { useLayoutEffect, useRef, useState } from "react";
 import { Smartphone } from "lucide-react";
 import { fadeIn } from "../lib/fade";
@@ -6,18 +7,18 @@ import { freshness } from "../lib/sync";
 import { Spinner } from "./Spinner";
 
 /** What each service is called on screen, in the order they are listed. */
-const NAMES: [string, string][] = [
-  ["notes", "Notes"],
-  ["reminders", "Reminders"],
-  ["drive", "iCloud Drive"],
-  ["photos", "Photos"],
+const NAMES: [string, Key][] = [
+  ["notes", "approval.notes"],
+  ["reminders", "approval.reminders"],
+  ["drive", "approval.drive"],
+  ["photos", "approval.photos"],
 ];
 
 /** "Notes, Reminders and iCloud Drive". */
 function listed(services: readonly string[]): string {
-  const names = NAMES.filter(([key]) => services.includes(key)).map(([, name]) => name);
-  if (names.length <= 1) return names[0] ?? "your iCloud";
-  return `${names.slice(0, -1).join(", ")} and ${names[names.length - 1]}`;
+  const names = NAMES.filter(([key]) => services.includes(key)).map(([, name]) => t(name));
+  if (names.length <= 1) return names[0] ?? t("approval.yourICloud");
+  return new Intl.ListFormat(activeLanguage(), { type: "conjunction" }).format(names);
 }
 
 /** The states in which a service waits on an approval on the person's devices. */
@@ -46,9 +47,9 @@ function useSyncNow(onAccess: (a: DataAccess) => void) {
 function standing(access: DataAccess, problem: string | null): string | null {
   if (problem) return problem;
   if (access.state === "notSent") {
-    return "Apple couldn’t reach your devices. Check that your iPhone, iPad or Mac is on and connected, then try again.";
+    return t("approval.notSent");
   }
-  if (access.state === "waiting") return "Waiting for your iPhone, iPad or Mac…";
+  if (access.state === "waiting") return t("approval.waiting");
   return null;
 }
 
@@ -71,17 +72,16 @@ export function ApprovalScreen({
   return (
     <div className="web-access-off device-approval">
       <Smartphone className="device-approval-glyph" size={30} strokeWidth={1.6} aria-hidden="true" />
-      <h1>Approve on your iPhone, iPad or Mac</h1>
+      <h1>{t("approval.title")}</h1>
       <p>
-        Advanced Data Protection is on, so Skykeep syncs {listed(access.services)} when you approve it on one of
-        your devices.
+        {t("approval.body", { services: listed(access.services) })}
       </p>
       <p className="device-approval-status" role="status" aria-live="polite">
         {waiting && <Spinner small />}
         <span>{line ?? ""}</span>
       </p>
       <button className="primary" onClick={ask} disabled={asking}>
-        Sync Now
+        {t("approval.syncNow")}
       </button>
     </div>
   );
@@ -112,14 +112,14 @@ export function ApprovalNotice({
       <div className="update-body">
         <p className="update-line" role="status" aria-live="polite">
           {waiting
-            ? `Approve on your iPhone, iPad or Mac to sync ${names}.`
-            : `Advanced Data Protection is on, so Skykeep syncs ${names} when you approve on your iPhone, iPad or Mac. Your copy here stays available in between.`}
+            ? t("approval.approveToSync", { services: names })
+            : t("approval.cardBody", { services: names })}
         </p>
         <p className="update-line device-approval-when">{line ?? freshness(lastSyncedAt)}</p>
         {!waiting && (
           <div className="update-actions">
             <button className="toast-action" onClick={ask} disabled={asking}>
-              Sync Now
+              {t("approval.syncNow")}
             </button>
           </div>
         )}

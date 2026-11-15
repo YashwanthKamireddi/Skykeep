@@ -1,3 +1,4 @@
+import { t } from "../lib/i18n";
 import { useLayoutEffect, useRef, useState } from "react";
 import { ArrowDownToLine, TriangleAlert } from "lucide-react";
 import { fadeIn } from "../lib/fade";
@@ -37,28 +38,28 @@ export function UpdateNotice() {
   let actions: "offer" | "later" | "retry" | "none" = "offer";
   switch (s.phase) {
     case "available":
-      line = `${name} is available`;
+      line = t("updates.available", { name });
       break;
     case "ready":
-      line = `${name} is ready to install`;
+      line = t("updates.ready", { name });
       break;
     case "downloading":
-      line = `Downloading ${name}`;
+      line = t("updates.downloading", { name });
       actions = "later";
       break;
     case "waiting":
       line =
         s.waitingFor === "typing"
-          ? `${name} will install when you finish typing, then Skykeep restarts`
-          : `${name} will install once your changes reach iCloud, then Skykeep restarts`;
+          ? t("updates.afterTyping", { name })
+          : t("updates.afterSync", { name });
       actions = "later";
       break;
     case "installing":
-      line = `Installing ${name}. Skykeep will restart in a moment`;
+      line = t("updates.installing", { name });
       actions = "none";
       break;
     case "failed":
-      line = s.problem ?? "The update couldn't be installed. Your current version is unchanged.";
+      line = s.problem ?? t("updates.failed");
       // A download that failed its signature is not offered again; anything else may be tried again.
       actions = /signature/.test(line) ? "later" : "retry";
       break;
@@ -79,13 +80,13 @@ export function UpdateNotice() {
         <p className="update-line">{error ?? line}</p>
         {s.phase === "downloading" && (
           <div className="update-progress">
-            <Progress value={share} label={`Downloading ${name}`} />
+            <Progress value={share} label={t("updates.downloading", { name })} />
             {share !== null && <span className="update-percent">{Math.round(share * 100)}%</span>}
           </div>
         )}
         {s.notes && (s.phase === "available" || s.phase === "ready") && (
           <details className="update-notes">
-            <summary>What’s New</summary>
+            <summary>{t("updates.whatsNew")}</summary>
             <div className="update-notes-text">{s.notes}</div>
           </details>
         )}
@@ -96,12 +97,12 @@ export function UpdateNotice() {
             </button>
             {actions === "offer" && (
               <button className="toast-action" onClick={apply}>
-                Update and Restart
+                {t("updates.updateRestart")}
               </button>
             )}
             {actions === "retry" && (
               <button className="toast-action" onClick={apply}>
-                Try Again
+                {t("updates.tryAgain")}
               </button>
             )}
           </div>

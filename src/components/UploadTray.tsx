@@ -1,3 +1,4 @@
+import { t } from "../lib/i18n";
 import { Progress } from "./Spinner";
 import { useEffect, useRef, useState, useSyncExternalStore } from "react";
 import { api, type UploadEvent } from "../lib/ipc";
@@ -129,19 +130,26 @@ function measure(item: Item, planned: boolean) {
   const running = item.files.some((u) => !ended(u)) || item.self?.state === "preparing" || (item.folder && !planned);
   const percent = total > 0 ? Math.floor((sent / total) * 100) : running ? 0 : 100;
   let status: string;
-  if (item.self?.state === "failed") status = "Couldn’t be made";
+  // Cancelled and plain Uploaded are told apart by this, never by the words shown.
+  let outcome: "cancelled" | "uploaded" | null = null;
+  if (item.self?.state === "failed") status = t("uploads.couldntBeMade");
   // Still finding what is in it: a count that would only grow is not a total yet.
-  else if (item.folder && !planned) status = item.files.length ? `Preparing… ${item.files.length} found` : "Preparing…";
-  else if (running && item.files.length === 0) status = "Preparing…";
+  else if (item.folder && !planned) status = item.files.length ? t("downloads.preparingFound", { count: item.files.length }) : t("downloads.preparing");
+  else if (running && item.files.length === 0) status = t("downloads.preparing");
   else if (running && !item.folder) {
     const u = item.files[0];
-    status = u.state === "waiting" ? "Waiting" : u.state === "verifying" ? "Checking" : `${percent}%`;
-  } else if (running) status = `${done} of ${item.files.length}`;
-  else if (failed.length > 0) status = item.folder ? `${failed.length} didn’t upload` : "Didn’t upload";
-  else if (cancelled > 0 && done === 0) status = "Cancelled";
-  else if (cancelled > 0) status = `${done} uploaded, ${cancelled} cancelled`;
-  else status = "Uploaded";
-  return { total, sent, percent, running, failed, status };
+    status = u.state === "waiting" ? t("uploads.waiting") : u.state === "verifying" ? t("uploads.checking") : `${percent}%`;
+  } else if (running) status = t("downloads.doneOf", { done, total: item.files.length });
+  else if (failed.length > 0) status = item.folder ? t("uploads.someDidntUpload", { count: failed.length }) : t("uploads.didntUpload");
+  else if (cancelled > 0 && done === 0) {
+    status = t("downloads.cancelled");
+    outcome = "cancelled";
+  } else if (cancelled > 0) status = t("uploads.uploadedCancelled", { done, cancelled });
+  else {
+    status = t("uploads.uploaded");
+    outcome = "uploaded";
+  }
+  return { total, sent, percent, running, failed, status, outcome };
 }
 
 /**
@@ -212,13 +220,13 @@ export function UploadTray({
   const batches = [...new Set(uploads.filter((u) => !ended(u)).map((u) => u.batch))];
   const heading = active
     ? items.length === 1 && items[0].folder
-      ? `Uploading ${items[0].name}`
-      : `Uploading ${Math.min(finishedFiles + 1, Math.max(files.length, 1))} of ${Math.max(files.length, 1)}`
+      ? t("uploads.uploadingName", { name: items[0].name })
+      : t("uploads.uploadingOf", { done: Math.min(finishedFiles + 1, Math.max(files.length, 1)), total: Math.max(files.length, 1) })
     : anyFailed
-      ? "Some uploads didn’t finish"
+      ? t("uploads.someUnfinished")
       : items.length === 1
-        ? `${items[0].name} uploaded`
-        : `${files.length} uploaded`;
+        ? t("uploads.nameUploaded", { name: items[0].name })
+        : t("uploads.countUploaded", { count: files.length });
 
 
   return (
@@ -229,12 +237,12 @@ export function UploadTray({
           <span className="upload-tray-actions">
             {allPlanned && <span className="upload-tray-percent">{percent}%</span>}
             <button className="quiet upload-tray-close" onClick={() => batches.forEach((b) => void cancel([], b))}>
-              Cancel
+              {t("uploads.cancel")}
             </button>
           </span>
         ) : (
           <button className="quiet upload-tray-close" onClick={onDismiss} aria-label="Close uploads">
-            Done
+            {t("uploads.done")}
           </button>
         )}
       </header>
@@ -242,10 +250,10 @@ export function UploadTray({
         <Progress value={allPlanned ? percent / 100 : null} instant={instant} className="upload-bar" />
       )}
       <ul className="upload-rows">
-        {measured.map(({ item, percent: raw, running, failed, status }) => {
+        {measured.map(({ item, percent: raw, running, failed, status, outcome }) => {
           const p = forward(item.key, raw);
           const stoppable = item.files.filter((u) => u.state === "waiting" || u.state === "sending");
-          const state = running ? "sending" : failed.length || item.self?.state === "failed" ? "failed" : status === "Cancelled" ? "cancelled" : "done";
+          const state = running ? "sending" : failed.length || item.self?.state === "failed" ? "failed" : outcome === "cancelled" ? "cancelled" : "done";
           return (
             <li key={item.key} className={`upload-row is-${state}`}>
               <div className="upload-line">
@@ -260,7 +268,7 @@ export function UploadTray({
                   {!running && !item.folder && failed[0]?.error && <span className="upload-where">{failed[0].error}</span>}
                 </span>
                 <span className="upload-state">
-                  {state === "done" && status === "Uploaded" ? <span aria-label="Uploaded">✓</span> : status}
+                  {state === "done" && outcome === "uploaded" ? <span aria-label={t("uploads.uploaded")}>✓</span> : status}
                 </span>
                 {item.folder && failed.length > 0 && (
                   <button
@@ -276,8 +284,8 @@ export function UploadTray({
                 {stoppable.length > 0 && measured.length > 1 && (
                   <button
                     className="icon-button small round upload-stop"
-                    aria-label={`Cancel ${item.name}`}
-                    title="Cancel"
+                    aria-label={t("uploads.cancelName", { name: item.name })}
+                    title={t("uploads.cancel")}
                     onClick={() => void cancel(stoppable.map((u) => u.id))}
                   >
                     ✕

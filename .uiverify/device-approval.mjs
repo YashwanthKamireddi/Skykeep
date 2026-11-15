@@ -14,7 +14,7 @@ let failures = 0;
 const ok = (p, m) => { console.log(`${p ? "PASS" : "FAIL"} ${m}`); if (!p) failures++; };
 const ALL = ["notes", "reminders", "photos", "drive"];
 const HEADING = "Approve on your iPhone, iPad or Mac";
-const EVERY = "Notes, Reminders, iCloud Drive and Photos";
+const EVERY = "Notes, Reminders, iCloud Drive, and Photos"; // joined as the language joins a list
 
 async function open(access, afterAsk) {
   const ctx = await b.newContext({ viewport: { width: 1180, height: 820 } });

@@ -1,3 +1,4 @@
+import { t } from "../lib/i18n";
 import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import { api, type Arrival, type Calendar, type ImportEvent } from "../lib/ipc";
@@ -67,7 +68,7 @@ function when(e: ImportEvent): string {
   if (e.allDay) {
     const last = e.endsAt - 86400;
     const first = new Date(e.startsAt * 1000).toLocaleDateString(undefined, day);
-    return last > e.startsAt ? `${first} – ${new Date(last * 1000).toLocaleDateString(undefined, day)}` : `${first}, all day`;
+    return last > e.startsAt ? `${first} – ${new Date(last * 1000).toLocaleDateString(undefined, day)}` : t("arrival.allDay", { day: first });
   }
   const zone = e.timezone ?? undefined;
   const fmt = (t: number, o: Intl.DateTimeFormatOptions) => {
@@ -88,9 +89,9 @@ function when(e: ImportEvent): string {
 function repeatPhrase(e: ImportEvent): string | null {
   const r = e.repeat;
   if (!r) return null;
-  const unit = { daily: "day", weekly: "week", monthly: "month", yearly: "year" }[r.freq];
-  const every = r.interval === 1 ? `Every ${unit}` : `Every ${r.interval} ${unit}s`;
-  return r.count ? `${every}, ${r.count} times` : every;
+  const unit = ({ daily: "day", weekly: "week", monthly: "month", yearly: "year" } as const)[r.freq];
+  const every = t(`calendar.every.${unit}${r.interval === 1 ? "One" : "Many"}`, { count: r.interval });
+  return r.count ? t("calendar.times", { repeat: every, count: r.count }) : every;
 }
 
 function EventsSheet({ arrival, onDone }: { arrival: Extract<Arrival, { kind: "events" }>; onDone: () => void }) {
@@ -150,11 +151,11 @@ function EventsSheet({ arrival, onDone }: { arrival: Extract<Arrival, { kind: "e
   const heading =
     fresh.length === 0
       ? arrival.events.length > 0
-        ? "These events are already in your calendar"
-        : "Nothing in this file can be added"
+        ? t("arrival.eventsAlready")
+        : t("arrival.nothingToAdd")
       : single
-        ? `Add “${fresh[0].title}” to`
-        : `Add ${fresh.length} events to`;
+        ? t("arrival.addOneTo", { title: fresh[0].title })
+        : t("arrival.addManyTo", { count: fresh.length });
   const options = (calendars ?? []).map((c) => ({ value: c.guid, label: c.title }));
 
   return (
@@ -196,10 +197,10 @@ function EventsSheet({ arrival, onDone }: { arrival: Extract<Arrival, { kind: "e
         ) : (
           <>
             <button className="quiet" onClick={onDone} disabled={!!busy}>
-              Cancel
+              {t("arrival.cancel")}
             </button>
             <button className="primary" autoFocus onClick={add} disabled={!!busy || !target}>
-              {busy ? `Adding ${busy.done + 1 > fresh.length ? fresh.length : busy.done + 1} of ${fresh.length}…` : single ? "Add Event" : `Add ${fresh.length} Events`}
+              {busy ? t("arrival.addingOf", { done: busy.done + 1 > fresh.length ? fresh.length : busy.done + 1, total: fresh.length }) : single ? t("arrival.addEvent") : t("arrival.addEvents", { count: fresh.length })}
             </button>
           </>
         )}
@@ -218,11 +219,11 @@ function ContactsSheet({ arrival, onDone }: { arrival: Extract<Arrival, { kind: 
   const heading =
     fresh.length === 0
       ? arrival.contacts.length === 1
-        ? `${arrival.contacts[0].name} is already in Contacts`
-        : "Everyone in this file is already in Contacts"
+        ? t("arrival.contactAlready", { name: arrival.contacts[0].name })
+        : t("arrival.everyoneAlready")
       : single
-        ? `Add contact ${fresh[0].name}`
-        : `Add ${fresh.length} contacts`;
+        ? t("arrival.addContactNamed", { name: fresh[0].name })
+        : t("arrival.addContactsCount", { count: fresh.length });
 
   async function add() {
     setBusy(true);
@@ -260,10 +261,10 @@ function ContactsSheet({ arrival, onDone }: { arrival: Extract<Arrival, { kind: 
         ) : (
           <>
             <button className="quiet" onClick={onDone} disabled={busy}>
-              Cancel
+              {t("arrival.cancel")}
             </button>
             <button className="primary" autoFocus onClick={add} disabled={busy}>
-              {busy ? "Adding…" : single ? "Add Contact" : `Add ${fresh.length} Contacts`}
+              {busy ? t("arrival.adding") : single ? t("arrival.addContact") : t("arrival.addContacts", { count: fresh.length })}
             </button>
           </>
         )}
