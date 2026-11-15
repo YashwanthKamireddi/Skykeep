@@ -105,7 +105,7 @@ fn listen(
             None,
         )
     }) else {
-        eprintln!("quince: watching {} for changes failed", root.display());
+        crate::note(&format!("watching {} for changes failed", root.display()));
         return;
     };
     let _close = crate::cloud::Handle(dir);
@@ -188,7 +188,7 @@ async fn settle_and_send(
                 for path in due {
                     touched.remove(&path);
                     if let Err(e) = sync_path(remote.as_ref(), &staging, &path, add_only).await {
-                        eprintln!("quince: sending {}: {e}", path.display());
+                        crate::note(&format!("sending {}: {e}", path.display()));
                         // Tried again in a while; the file itself stays as it is.
                         touched.insert(path, Instant::now() + std::time::Duration::from_secs(25));
                     }
@@ -486,12 +486,12 @@ async fn keep_or_free(path: &Path) {
         // answer them.
         let fetched = tokio::task::spawn_blocking(move || hydrate(&file)).await;
         if let Ok(Err(e)) = fetched {
-            eprintln!("quince: keeping {} on this device: {e}", path.display());
+            crate::note(&format!("keeping {} on this device: {e}", path.display()));
         }
     } else if attrs & UNPINNED != 0 && here {
         if let Err(e) = dehydrate(path) {
             // Open in a program now: freed once it is closed and touched again.
-            eprintln!("quince: freeing {}: {e}", path.display());
+            crate::note(&format!("freeing {}: {e}", path.display()));
         }
     }
 }

@@ -195,7 +195,7 @@ impl CloudFolder {
                         )
                     };
                     if let Err(e) = created {
-                        eprintln!("quince: {name} in {}: {e}", dir.display());
+                        crate::note(&format!("{name} in {}: {e}", dir.display()));
                     }
                 }
                 None => {}
@@ -208,7 +208,7 @@ impl CloudFolder {
                     if known.is_some_and(|k| k.etag != item.etag || k.size != item.size) {
                         if let Err(e) = renew(&path, item) {
                             // Open in a program now: brought up to date on the next change.
-                            eprintln!("quince: {} not yet updated: {e}", path.display());
+                            crate::note(&format!("{} not yet updated: {e}", path.display()));
                         }
                     }
                 }
@@ -403,7 +403,9 @@ pub fn start(root: &Path, shown: &Shown, provider: Provider) -> Result<CloudFold
             // Refused by the shell (an unpackaged copy, where Windows wants package identity):
             // the folder still works, without its entry in the navigation pane. The shell route
             // is tried again every start.
-            eprintln!("quince: Explorer registration: {e}; registering the folder alone");
+            crate::note(&format!(
+                "Explorer registration: {e}; registering the folder alone"
+            ));
             register_bare(root, shown)?;
             false
         }
@@ -671,7 +673,9 @@ unsafe extern "system" fn on_fetch_data(
         rt.spawn(async move { fetch_data(remote.as_ref(), req, offset, len).await });
     });
     if caught.is_err() {
-        eprintln!("quince: a file request failed inside Skykeep; it is answered as failed");
+        crate::note(&format!(
+            "a file request failed inside Skykeep; it is answered as failed"
+        ));
     }
 }
 
@@ -695,7 +699,7 @@ async fn fetch_data(remote: &dyn Remote, req: Request, offset: u64, len: u64) {
         let path = match whole.await {
             Ok(path) => path,
             Err(e) => {
-                eprintln!("quince: fetching {}: {e}", item.drivewsid);
+                crate::note(&format!("fetching {}: {e}", item.drivewsid));
                 fail_data(
                     &req,
                     start,
@@ -730,16 +734,16 @@ async fn fetch_data(remote: &dyn Remote, req: Request, offset: u64, len: u64) {
             match remote.read_part(&item, at, n).await {
                 Ok(part) if part.bytes.len() as u64 == n => part.bytes,
                 Ok(part) => {
-                    eprintln!(
-                        "quince: {} answered {} of {n} bytes at {at}",
+                    crate::note(&format!(
+                        "{} answered {} of {n} bytes at {at}",
                         item.drivewsid,
                         part.bytes.len()
-                    );
+                    ));
                     fail_data(&req, at, end - at, STATUS_CLOUD_FILE_UNSUCCESSFUL);
                     return;
                 }
                 Err(e) => {
-                    eprintln!("quince: fetching {}: {e}", item.drivewsid);
+                    crate::note(&format!("fetching {}: {e}", item.drivewsid));
                     fail_data(&req, at, end - at, STATUS_CLOUD_FILE_NETWORK_UNAVAILABLE);
                     return;
                 }
@@ -748,7 +752,7 @@ async fn fetch_data(remote: &dyn Remote, req: Request, offset: u64, len: u64) {
         if let Err(e) = transfer_data(&req, at, &bytes, STATUS_SUCCESS) {
             // Windows took the request back (the reader closed it, it timed out): nothing more
             // is sent for it.
-            eprintln!("quince: handing {} to Windows: {e}", item.drivewsid);
+            crate::note(&format!("handing {} to Windows: {e}", item.drivewsid));
             return;
         }
     }
@@ -855,7 +859,9 @@ unsafe extern "system" fn on_fetch_placeholders(
         rt.spawn(async move { fetch_placeholders(remote.as_ref(), store.as_ref(), req).await });
     });
     if caught.is_err() {
-        eprintln!("quince: a folder request failed inside Skykeep; it is answered as failed");
+        crate::note(&format!(
+            "a folder request failed inside Skykeep; it is answered as failed"
+        ));
     }
 }
 
@@ -871,7 +877,7 @@ async fn fetch_placeholders(remote: &dyn Remote, store: &dyn Store, req: Request
         None => match remote.list(&folder).await {
             Ok(items) => items,
             Err(e) => {
-                eprintln!("quince: listing {folder}: {e}");
+                crate::note(&format!("listing {folder}: {e}"));
                 let _ = transfer_placeholders(
                     &req,
                     &mut [],
@@ -889,23 +895,73 @@ async fn fetch_placeholders(remote: &dyn Remote, store: &dyn Store, req: Request
         let _ = transfer_placeholders(&req, &mut [], 0, true, STATUS_SUCCESS);
         return;
     }
-    let last = named.len() - 1;
-    for (i, (name, item)) in named.into_iter().enumerate() {
+    // What needs no word from Apple first, in batches, so a folder of thousands opens at once;
+    // then the few whose size Apple serves differently (Pages, Numbers, Keynote), one at a
+    // time, each answer keeping Windows' request alive while the next is asked.
+    let (plain, packages): (Vec<_>, Vec<_>) = named
+        .into_iter()
+        .partition(|(_, i)| !served_size_differs(i));
+    const BATCH: usize = 256;
+    let batches = plain.chunks(BATCH).count();
+    for (b, chunk) in plain.chunks(BATCH).enumerate() {
+        let made: Vec<Placeholder> = chunk
+            .iter()
+            .map(|(name, item)| Placeholder::of(name, item, listed_size(item)))
+            .collect();
+        send(
+            &req,
+            &made,
+            total,
+            packages.is_empty() && b + 1 == batches,
+            &folder,
+        );
+    }
+    let last = packages.len().saturating_sub(1);
+    for (i, (name, item)) in packages.into_iter().enumerate() {
         let size = placeholder_size(remote, &item).await;
-        let made = Placeholder::of(&name, &item, size);
-        let mut one = [made.info()];
-        if let Err(e) = transfer_placeholders(&req, &mut one, total, i == last, STATUS_SUCCESS) {
-            eprintln!("quince: {name} in {folder}: {e}");
-            return;
+        send(
+            &req,
+            &[Placeholder::of(&name, &item, size)],
+            total,
+            i == last,
+            &folder,
+        );
+    }
+}
+
+/// Some of a folder's placeholders handed to Windows, `last` saying the folder is whole. One
+/// that Windows refuses (a name already there, made while Skykeep was closed) never stops the
+/// rest: the batch is tried again one by one, the refused one noted and left out, and the
+/// folder is still marked whole at the end. Stopping at the first refusal left the request
+/// open, and File Explorer said "The cloud operation is invalid" for the whole folder, every
+/// time it was opened (#44).
+fn send(req: &Request, made: &[Placeholder], total: i64, last: bool, folder: &str) {
+    let mut infos: Vec<CF_PLACEHOLDER_CREATE_INFO> = made.iter().map(Placeholder::info).collect();
+    if transfer_placeholders(req, &mut infos, total, last, STATUS_SUCCESS).is_ok() {
+        return;
+    }
+    for (one, p) in infos.iter().zip(made) {
+        if let Err(e) = transfer_placeholders(req, &mut [*one], total, false, STATUS_SUCCESS) {
+            crate::note(&format!("{} in {folder} could not be shown: {e}", p.name()));
         }
     }
+    if last {
+        if let Err(e) = transfer_placeholders(req, &mut [], total, true, STATUS_SUCCESS) {
+            crate::note(&format!("{folder} could not be finished: {e}"));
+        }
+    }
+}
+
+/// The size the listing gives.
+fn listed_size(item: &DriveItem) -> u64 {
+    u64::try_from(item.size.unwrap_or(0)).unwrap_or(0)
 }
 
 /// The size a placeholder is made at: the listing's, except where Apple serves another (Pages,
 /// Numbers and Keynote packages), which is asked once — a placeholder at the wrong size gives
 /// the reader a broken file.
 async fn placeholder_size(remote: &dyn Remote, item: &DriveItem) -> u64 {
-    let listed = u64::try_from(item.size.unwrap_or(0)).unwrap_or(0);
+    let listed = listed_size(item);
     if !served_size_differs(item) {
         return listed;
     }
@@ -988,10 +1044,10 @@ fn ack(req: &Request, kind: CF_OPERATION_TYPE, status: NTSTATUS) {
     };
     // SAFETY: a plain call with keys Windows gave us.
     if let Err(e) = unsafe { CfExecute(&info, &mut params) } {
-        eprintln!(
-            "quince: answering Windows about {}: {e}",
+        crate::note(&format!(
+            "answering Windows about {}: {e}",
             req.path.display()
-        );
+        ));
     }
 }
 
@@ -1049,7 +1105,7 @@ unsafe extern "system" fn on_deleted(
                 tokio::time::sleep(std::time::Duration::from_secs(wait)).await;
                 match remote.delete(&item).await {
                     Ok(()) => return,
-                    Err(e) => eprintln!("quince: deleting {} at Apple: {e}", item.drivewsid),
+                    Err(e) => crate::note(&format!("deleting {} at Apple: {e}", item.drivewsid)),
                 }
             }
         });
@@ -1096,7 +1152,7 @@ async fn renamed(remote: &dyn Remote, item: DriveItem, now: &Path) {
         };
         match step.await {
             Ok(()) => return,
-            Err(e) => eprintln!("quince: renaming {} at Apple: {e}", item.drivewsid),
+            Err(e) => crate::note(&format!("renaming {} at Apple: {e}", item.drivewsid)),
         }
     }
 }
@@ -1228,6 +1284,11 @@ impl Placeholder {
                 FileSize: if folder { 0 } else { size as i64 },
             },
         }
+    }
+
+    /// The name as made, for a note.
+    fn name(&self) -> String {
+        String::from_utf16_lossy(self.name.strip_suffix(&[0]).unwrap_or(&self.name))
     }
 
     fn info(&self) -> CF_PLACEHOLDER_CREATE_INFO {

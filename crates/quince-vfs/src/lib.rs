@@ -22,6 +22,25 @@ use std::path::{Path, PathBuf};
 use std::pin::Pin;
 use std::sync::{Arc, Mutex};
 
+/// Where the folders' own notes go besides stderr: the app's diagnostics log, when the person
+/// turned it on (`SKYKEEP_LOG=1`). A Windows app has no console, so a note printed alone was
+/// lost — a folder that would not open in File Explorer left nothing to read (#44).
+static NOTES: std::sync::OnceLock<fn(&str)> = std::sync::OnceLock::new();
+
+/// Sends the folders' notes to `sink` as well as stderr. Set once, at start.
+pub fn set_notes(sink: fn(&str)) {
+    let _ = NOTES.set(sink);
+}
+
+/// A note about the folders: printed, and kept in the diagnostics log when it is on.
+#[cfg_attr(not(windows), allow(dead_code))]
+pub(crate) fn note(text: &str) {
+    eprintln!("quince: {text}");
+    if let Some(sink) = NOTES.get() {
+        sink(&format!("folder: {text}"));
+    }
+}
+
 /// A future the engine waits on, as the app's own async code gives it.
 pub type Fut<T> = Pin<Box<dyn Future<Output = Result<T, String>> + Send>>;
 
