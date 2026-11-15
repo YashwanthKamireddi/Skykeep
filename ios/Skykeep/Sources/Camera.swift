@@ -33,6 +33,20 @@ final class Camera: NSObject, @unchecked Sendable, AVCaptureVideoDataOutputSampl
     /// The zoom as the Camera app shows it (0.5×, 1×, 2×), whenever it changes.
     var onZoom: (@Sendable (Double) -> Void)?
     private(set) var fps: Int32 = 60
+    /// Apple's video HDR (the HDR button).
+    let hdr = OSAllocatedUnfairLock(initialState: true)
+
+    func setHDR(_ on: Bool) {
+        hdr.withLock { $0 = on }
+        sessionQueue.async { [self] in
+            guard let d = input?.device, d.activeFormat.isVideoHDRSupported, (try? d.lockForConfiguration()) != nil else { return }
+            d.automaticallyAdjustsVideoHDREnabled = false
+            d.isVideoHDREnabled = on
+            d.unlockForConfiguration()
+            wantKeyframe.withLock { $0 = true }
+        }
+    }
+
     /// Encode only while a computer is connected; the preview alone costs no encoding.
     let sending = OSAllocatedUnfairLock(initialState: false)
 
@@ -74,6 +88,10 @@ final class Camera: NSObject, @unchecked Sendable, AVCaptureVideoDataOutputSampl
         sessionQueue.async { [self] in
             session.beginConfiguration()
             session.sessionPreset = .inputPriority
+            // The camera leaves the audio session to the microphone: by default each change here
+            // (lens, rotation, frame rate) reconfigured it and silenced the microphone for up to
+            // a second.
+            session.automaticallyConfiguresApplicationAudioSession = false
             if session.isMultitaskingCameraAccessSupported { session.isMultitaskingCameraAccessEnabled = true }
             if let old = input { session.removeInput(old) }
             if let new = try? AVCaptureDeviceInput(device: device), session.canAddInput(new) {
@@ -165,8 +183,10 @@ final class Camera: NSObject, @unchecked Sendable, AVCaptureVideoDataOutputSampl
         device.activeFormat = format
         fps = Int32(rate(format))
         frameRates(device, cooler: false)
-        // Apple's video HDR on, as the Camera app records: bright windows and faces both kept.
-        device.automaticallyAdjustsVideoHDREnabled = true
+        // Apple's video HDR as the person chose it (the HDR button; on by default, as the Camera
+        // app records): bright windows and faces both kept, for about 35 ms more on an iPhone 13.
+        device.automaticallyAdjustsVideoHDREnabled = false
+        if format.isVideoHDRSupported { device.isVideoHDREnabled = hdr.withLock { $0 } }
         device.unlockForConfiguration()
     }
 

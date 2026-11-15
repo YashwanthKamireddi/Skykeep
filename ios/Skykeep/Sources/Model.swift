@@ -17,6 +17,7 @@ final class Model {
     private(set) var zoom: Double = 1
     private(set) var hasFront = false
     private(set) var micOn = true
+    private(set) var hdr = true
 
     let camera = Camera()
     let pip = PictureInPicture()
@@ -108,6 +109,11 @@ final class Model {
             log.error("microphone failed to start: \(error.localizedDescription, privacy: .public)")
             micOn = false
         }
+    }
+
+    func toggleHDR() {
+        hdr.toggle()
+        camera.setHDR(hdr)
     }
 
     func toggleMic() {

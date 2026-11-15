@@ -74,6 +74,17 @@ struct CameraScreen: View {
                     .glassEffectID("zoom", in: glass)
                 }
 
+                Button(action: model.toggleHDR) {
+                    Text("HDR")
+                        .font(.footnote.weight(.semibold))
+                        .strikethrough(!model.hdr)
+                        .foregroundStyle(model.hdr ? Color.yellow : Color.white)
+                        .frame(width: 52, height: 52)
+                }
+                .buttonStyle(.glass)
+                .buttonBorderShape(.circle)
+                .accessibilityLabel(model.hdr ? "Turn HDR off for less delay" : "Turn HDR on for a better picture")
+
                 if model.hasFront {
                     Button(action: model.flip) {
                         Image(systemName: "arrow.triangle.2.circlepath.camera")
