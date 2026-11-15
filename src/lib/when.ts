@@ -9,14 +9,23 @@
  * gives the same text for a fraction of the cost.
  */
 import { useEffect, useState } from "react";
+import { activeLanguage, storedLanguage } from "./i18n";
 
 const made = new Map<string, Intl.DateTimeFormat>();
 
+/** The locale dates are written in: the system's own (its region's order and clock) while the
+ * language follows the system; the language chosen in Settings when one is chosen, so a person
+ * who picks 简体中文 reads 11月15日, not Nov 15. */
+function locale(): string | undefined {
+  return storedLanguage() === "auto" ? undefined : activeLanguage();
+}
+
 function formatter(options: Intl.DateTimeFormatOptions): Intl.DateTimeFormat {
-  const key = JSON.stringify(options);
+  const lang = locale();
+  const key = `${lang ?? ""}|${JSON.stringify(options)}`;
   let f = made.get(key);
   if (!f) {
-    f = new Intl.DateTimeFormat(undefined, options);
+    f = new Intl.DateTimeFormat(lang, options);
     made.set(key, f);
   }
   return f;

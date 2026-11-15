@@ -1,4 +1,5 @@
 import { Fragment, memo, useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { t, activeLanguage, useI18n, type Key } from "../lib/i18n";
 import { AppFoot } from "../components/AppFoot";
 import { refusedLink, outsideHref } from "../lib/links";
 import { composing } from "../lib/keys";
@@ -53,12 +54,12 @@ import { carryLabel } from "../lib/dragPicture";
 
 /** The built-in views, in iCloud's order, each with its glyph and Skykeep's colour for it (the
  *  same as the Android app's). Each carries white glyphs at 3.5:1 or better. */
-const SMART: { kind: SmartList; title: string; glyph: GlyphName; colour: string }[] = [
-  { kind: "today", title: "Today", glyph: "today", colour: "#2A82E0" },
-  { kind: "scheduled", title: "Scheduled", glyph: "scheduled", colour: "#D84A3F" },
-  { kind: "all", title: "All", glyph: "all", colour: "#7A8796" },
-  { kind: "flagged", title: "Flagged", glyph: "flagged", colour: "#B86E00" },
-  { kind: "completed", title: "Completed", glyph: "completed", colour: "#778392" },
+const SMART: { kind: SmartList; title: Key; glyph: GlyphName; colour: string }[] = [
+  { kind: "today", title: "reminders.smart.today", glyph: "today", colour: "#2A82E0" },
+  { kind: "scheduled", title: "reminders.smart.scheduled", glyph: "scheduled", colour: "#D84A3F" },
+  { kind: "all", title: "reminders.smart.all", glyph: "all", colour: "#7A8796" },
+  { kind: "flagged", title: "reminders.smart.flagged", glyph: "flagged", colour: "#B86E00" },
+  { kind: "completed", title: "reminders.smart.completed", glyph: "completed", colour: "#778392" },
 ];
 
 /** A list's own colour, or Skykeep's blue for one that has none. */
@@ -123,9 +124,9 @@ function daysApart(from: Date, to: Date): number {
  */
 /** A repeat in words, as the phone's Repeat row says it: "Daily", "Every 2 Weeks". */
 function repeatWords(r: { frequency: number; interval: number }): string {
-  const unit = ["Day", "Week", "Month", "Year", "Hour"][r.frequency] ?? "Day";
-  if (r.interval === 1) return ["Daily", "Weekly", "Monthly", "Yearly", "Hourly"][r.frequency] ?? "Daily";
-  return `Every ${r.interval} ${unit}s`;
+  const unit = UNIT_KEYS[r.frequency] ?? "Day";
+  if (r.interval === 1) return t(ADVERB_KEYS[r.frequency] ?? "reminders.repeat.daily");
+  return t(`reminders.every.${unit}Many`, { count: r.interval });
 }
 
 function dueLabel(seconds: number, dated = false, allDay = false): { text: string; overdue: boolean } {
@@ -134,8 +135,8 @@ function dueLabel(seconds: number, dated = false, allDay = false): { text: strin
   const days = daysApart(now, due);
   // A day has no time to show, and is overdue only once the day itself has passed.
   if (allDay) {
-    if (dated || days === 0) return { text: dated ? "" : "Today", overdue: false };
-    if (days === 1) return { text: "Tomorrow", overdue: false };
+    if (dated || days === 0) return { text: dated ? "" : t("reminders.today"), overdue: false };
+    if (days === 1) return { text: t("reminders.tomorrow"), overdue: false };
     return { text: dateText(due, { day: "numeric", month: "short" }), overdue: days < 0 };
   }
   const time = timeText(due, {
@@ -154,8 +155,8 @@ function dueLabel(seconds: number, dated = false, allDay = false): { text: strin
       overdue: true,
     };
   if (days === 0)
-    return { text: `Today ${time}`, overdue: due.getTime() < now.getTime() };
-  if (days === 1) return { text: `Tomorrow ${time}`, overdue: false };
+    return { text: t("reminders.todayAt", { time }), overdue: due.getTime() < now.getTime() };
+  if (days === 1) return { text: t("reminders.tomorrowAt", { time }), overdue: false };
   return {
     text: dateText(due, { day: "numeric", month: "short" }),
     overdue: false,
@@ -164,10 +165,10 @@ function dueLabel(seconds: number, dated = false, allDay = false): { text: strin
 
 /** Apple's scale, and the marks its own app puts before a title. */
 const PRIORITIES = [
-  { value: 0, label: "None", mark: "" },
-  { value: 1, label: "High", mark: "!!!" },
-  { value: 5, label: "Medium", mark: "!!" },
-  { value: 9, label: "Low", mark: "!" },
+  { value: 0, label: "reminders.priority.none" as Key, mark: "" },
+  { value: 1, label: "reminders.priority.high" as Key, mark: "!!!" },
+  { value: 5, label: "reminders.priority.medium" as Key, mark: "!!" },
+  { value: 9, label: "reminders.priority.low" as Key, mark: "!" },
 ] as const;
 
 const priorityMark = (priority: number) =>
@@ -175,6 +176,16 @@ const priorityMark = (priority: number) =>
 
 /** Apple's frequencies by number: 0 daily, 1 weekly, 2 monthly, 3 yearly, 4 hourly. */
 const REPEAT_UNITS = ["day", "week", "month", "year", "hour"] as const;
+/** Each frequency's word in the locale files, by Apple's frequency number. */
+const UNIT_KEYS = ["Day", "Week", "Month", "Year", "Hour"] as const;
+const ADVERB_KEYS: Key[] = ["reminders.repeat.daily", "reminders.repeat.weekly", "reminders.repeat.monthly", "reminders.repeat.yearly", "reminders.repeat.hourly"];
+/** Weekday and month names in the reader's language, from the system's own calendar data. */
+const weekdayShort = (i: number) => dateText(new Date(2023, 0, 1 + i), { weekday: "short" });
+const weekdayName = (i: number) => dateText(new Date(2023, 0, 1 + i), { weekday: "long" });
+const monthShort = (i: number) => dateText(new Date(2023, i, 1), { month: "short" });
+/** "Monday and Tuesday", "星期一和星期二": a list as the language joins one. */
+const list = (items: string[], style: "long" | "narrow" = "long") =>
+  new Intl.ListFormat(activeLanguage(), { style, type: "conjunction" }).format(items);
 
 /**
  * The iPhone's Repeat menu, in its order. Each preset is a frequency and an interval, which
@@ -183,27 +194,27 @@ const REPEAT_UNITS = ["day", "week", "month", "year", "hour"] as const;
  */
 const WEEKDAYS = [2, 3, 4, 5, 6];
 const WEEKENDS = [1, 7];
-const REPEATS: { key: string; label: string; repeat: { frequency: number; interval: number } | null; days?: number[]; divider?: boolean; disabled?: boolean }[] = [
-  { key: "never", label: "Never", repeat: null },
-  { key: "4:1", label: "Hourly", repeat: { frequency: 4, interval: 1 }, divider: true },
-  { key: "0:1", label: "Daily", repeat: { frequency: 0, interval: 1 } },
-  { key: "weekdays", label: "Weekdays", repeat: { frequency: 1, interval: 1 }, days: WEEKDAYS },
-  { key: "weekends", label: "Weekends", repeat: { frequency: 1, interval: 1 }, days: WEEKENDS },
-  { key: "1:1", label: "Weekly", repeat: { frequency: 1, interval: 1 } },
-  { key: "1:2", label: "Biweekly", repeat: { frequency: 1, interval: 2 } },
-  { key: "2:1", label: "Monthly", repeat: { frequency: 2, interval: 1 } },
-  { key: "2:3", label: "Every 3 Months", repeat: { frequency: 2, interval: 3 } },
-  { key: "2:6", label: "Every 6 Months", repeat: { frequency: 2, interval: 6 } },
-  { key: "3:1", label: "Yearly", repeat: { frequency: 3, interval: 1 } },
-  { key: "custom", label: "Custom", repeat: null, divider: true },
+const REPEATS: { key: string; label: Key; repeat: { frequency: number; interval: number } | null; days?: number[]; divider?: boolean; disabled?: boolean }[] = [
+  { key: "never", label: "reminders.repeat.never" as Key, repeat: null },
+  { key: "4:1", label: "reminders.repeat.hourly" as Key, repeat: { frequency: 4, interval: 1 }, divider: true },
+  { key: "0:1", label: "reminders.repeat.daily" as Key, repeat: { frequency: 0, interval: 1 } },
+  { key: "weekdays", label: "reminders.repeat.weekdays" as Key, repeat: { frequency: 1, interval: 1 }, days: WEEKDAYS },
+  { key: "weekends", label: "reminders.repeat.weekends" as Key, repeat: { frequency: 1, interval: 1 }, days: WEEKENDS },
+  { key: "1:1", label: "reminders.repeat.weekly" as Key, repeat: { frequency: 1, interval: 1 } },
+  { key: "1:2", label: "reminders.repeat.biweekly" as Key, repeat: { frequency: 1, interval: 2 } },
+  { key: "2:1", label: "reminders.repeat.monthly" as Key, repeat: { frequency: 2, interval: 1 } },
+  { key: "2:3", label: "reminders.repeat.every3Months" as Key, repeat: { frequency: 2, interval: 3 } },
+  { key: "2:6", label: "reminders.repeat.every6Months" as Key, repeat: { frequency: 2, interval: 6 } },
+  { key: "3:1", label: "reminders.repeat.yearly" as Key, repeat: { frequency: 3, interval: 1 } },
+  { key: "custom", label: "reminders.repeat.custom" as Key, repeat: null, divider: true },
 ];
 /** The Custom screen's Frequency menu, in the phone's order. */
 const FREQUENCIES = [
-  { value: "4", label: "Hourly" },
-  { value: "0", label: "Daily" },
-  { value: "1", label: "Weekly" },
-  { value: "2", label: "Monthly" },
-  { value: "3", label: "Yearly" },
+  { value: "4", label: "reminders.repeat.hourly" as Key },
+  { value: "0", label: "reminders.repeat.daily" as Key },
+  { value: "1", label: "reminders.repeat.weekly" as Key },
+  { value: "2", label: "reminders.repeat.monthly" as Key },
+  { value: "3", label: "reminders.repeat.yearly" as Key },
 ];
 
 const sameDays = (a: number[], b: number[]) => a.length === b.length && a.every((d, i) => d === b[i]);
@@ -225,10 +236,10 @@ function repeatKey(r: Reminder, rule?: RepeatRule | null, days: number[] = rule?
 /** "Every day", "Every 2 weeks" — or null when this happens only once. */
 function repeatLabel(r: Reminder): string | null {
   if (r.recurFrequency === null || r.recurFrequency === undefined) return null;
-  const unit = REPEAT_UNITS[r.recurFrequency];
-  if (!unit) return "Repeats";
+  const unit = UNIT_KEYS[r.recurFrequency];
+  if (!unit) return t("reminders.repeat.repeats");
   const every = r.recurInterval ?? 1;
-  return every > 1 ? `Every ${every} ${unit}s` : `Every ${unit}`;
+  return every > 1 ? t(`reminders.every.${unit}Many`, { count: every }) : t(`reminders.every.${unit}`);
 }
 
 /**
@@ -240,12 +251,12 @@ function repeatLabel(r: Reminder): string | null {
 function repeatWord(r: Reminder, days: number[] = []): string | null {
   if (r.recurFrequency === null || r.recurFrequency === undefined) return null;
   if (r.recurFrequency === 1 && (r.recurInterval ?? 1) === 1 && days.length > 0) {
-    if (sameDays(days, WEEKDAYS)) return "Weekdays";
-    if (sameDays(days, WEEKENDS)) return "Weekends";
-    return days.map((d) => WEEKDAY_SHORT[d - 1]).join(", ");
+    if (sameDays(days, WEEKDAYS)) return t("reminders.repeat.weekdays");
+    if (sameDays(days, WEEKENDS)) return t("reminders.repeat.weekends");
+    return list(days.map((d) => weekdayShort(d - 1)), "narrow");
   }
   if ((r.recurInterval ?? 1) > 1) return repeatLabel(r);
-  return ["Daily", "Weekly", "Monthly", "Yearly", "Hourly"][r.recurFrequency] ?? "Repeats";
+  return t(ADVERB_KEYS[r.recurFrequency] ?? "reminders.repeat.repeats");
 }
 
 /**
@@ -337,6 +348,8 @@ type Selection =
   | { type: "custom"; guid: string };
 
 export function RemindersView() {
+  // Through the hook, so the screen draws again in a language chosen while it is open.
+  useI18n();
   const [lists, setLists] = useState<ReminderList[]>([]);
   /** Each list by its id: every row looks its own up, and a search through the array per row
    *  was a thousand walks of it per draw. */
@@ -1033,7 +1046,7 @@ export function RemindersView() {
   const askRemove = async (r: Reminder) => {
     const subtasks = items.filter((x) => x.parentGuid === r.guid).length;
     const sure = await confirm({
-      title: `Delete \u201c${r.title || "New Reminder"}\u201d?`,
+      title: t("reminders.deleteTitle", { title: r.title || t("reminders.newReminder") }),
       body: subtasks
         ? `Its ${subtasks === 1 ? "subtask goes" : `${subtasks} subtasks go`} with it, on all your devices.`
         : "It goes from all your devices.",
@@ -1446,12 +1459,12 @@ export function RemindersView() {
   };
 
   const heading = inList
-    ? (lists.find((l) => l.guid === listGuid)?.title ?? "Reminders")
+    ? (lists.find((l) => l.guid === listGuid)?.title ?? t("reminders.title"))
     : selection.type === "tag"
       ? `#${selection.name}`
       : selection.type === "custom"
-        ? (openCustom?.title ?? "Smart List")
-        : (SMART.find((s) => s.kind === smartKind)?.title ?? "Reminders");
+        ? (openCustom?.title ?? t("reminders.smartList"))
+        : t(SMART.find((s) => s.kind === smartKind)?.title ?? "reminders.title");
   const outstanding = items.filter((r) => !r.completedAt).length;
 
   /**
@@ -1556,7 +1569,7 @@ export function RemindersView() {
         const list = listById.get(guid);
         return {
           key: guid,
-          heading: list?.title ?? "Reminders",
+          heading: list?.title ?? t("reminders.title"),
           colour: list?.colour ?? null,
           dated: false,
           rows,
@@ -1593,9 +1606,9 @@ export function RemindersView() {
       // "Afternoon" headings above the one reminder due tonight read as missing reminders.
       const buckets: { key: string; heading: string | null; rows: typeof threaded }[] = [
         { key: "loose", heading: null, rows: [] },
-        { key: "morning", heading: "Morning", rows: [] },
-        { key: "afternoon", heading: "Afternoon", rows: [] },
-        { key: "tonight", heading: "Tonight", rows: [] },
+        { key: "morning", heading: t("reminders.heading.morning"), rows: [] },
+        { key: "afternoon", heading: t("reminders.heading.afternoon"), rows: [] },
+        { key: "tonight", heading: t("reminders.heading.tonight"), rows: [] },
       ];
       // A subtask goes where its reminder went, directly under it: filed by its own time, it was
       // drawn nested under whatever reminder ended another part of the day.
@@ -1662,7 +1675,7 @@ export function RemindersView() {
         if (row.depth > 0) parentRows = null;
       }
       const out = overdue.length
-        ? [{ key: "overdue", heading: "Overdue", colour: null, dated: false, rows: overdue }]
+        ? [{ key: "overdue", heading: t("reminders.heading.overdue"), colour: null, dated: false, rows: overdue }]
         : [];
       for (const days of [...byDay.keys()].sort((a, b) => a - b)) {
         const when = new Date(now.getFullYear(), now.getMonth(), now.getDate() + days);
@@ -1670,9 +1683,9 @@ export function RemindersView() {
           key: `d${days}`,
           heading:
             days === 0
-              ? "Today"
+              ? t("reminders.today")
               : days === 1
-                ? "Tomorrow"
+                ? t("reminders.tomorrow")
                 : dateText(when, {
                     weekday: "short",
                     day: "numeric",
@@ -1702,7 +1715,7 @@ export function RemindersView() {
       )
       .map(([guid, rows]) => ({
         key: guid,
-        heading: listOf(guid)?.title ?? "Reminders",
+        heading: listOf(guid)?.title ?? t("reminders.title"),
         colour: listOf(guid)?.colour ?? null,
         // Grouped by list rather than by day, so a row still has to name its day.
         dated: false,
@@ -1834,7 +1847,7 @@ export function RemindersView() {
       key={key}
       className="rx-tile"
       aria-current={current}
-      aria-label={`${title}, ${count} reminders`}
+      aria-label={t("reminders.tileAria", { title, count })}
       style={{ "--tile": colour } as React.CSSProperties}
       onClick={() => {
         setQuery("");
@@ -1900,8 +1913,8 @@ export function RemindersView() {
         <SearchField
           ref={searchRef}
           className="rx-search"
-          placeholder="Search"
-          aria-label="Search reminders"
+          placeholder={t("reminders.search")}
+          aria-label={t("reminders.searchAria")}
           value={query}
           onChange={setQuery}
           onKeyDown={(e) => {
@@ -1914,7 +1927,7 @@ export function RemindersView() {
           {SMART.map((smart) =>
             tile(
               smart.kind,
-              smart.title,
+              t(smart.title),
               smart.glyph,
               smart.colour,
               counts?.[smart.kind] ?? 0,
@@ -1935,7 +1948,7 @@ export function RemindersView() {
           )}
         </div>
 
-        <p className="side-heading rx-side-heading">My Lists</p>
+        <p className="side-heading rx-side-heading">{t("reminders.myLists")}</p>
         <div className="rx-lists">
           {topLevel.map((entry) =>
             entry.kind === "list" ? (
@@ -1963,7 +1976,7 @@ export function RemindersView() {
           {/* Smart lists made by hand, after the lists, as the Mac shows them: a filter in its
               colour, with what it holds now. */}
           {customLists.map((smart) => {
-            const title = smart.title ?? "Smart List";
+            const title = smart.title ?? t("reminders.smartList");
             return (
               <div className="rx-list-row" key={smart.guid}>
                 <button
@@ -1989,8 +2002,8 @@ export function RemindersView() {
 
         {tags.length > 0 && (
           <>
-            <p className="side-heading rx-side-heading">Tags</p>
-            <div className="rx-tags" role="group" aria-label="Tags">
+            <p className="side-heading rx-side-heading">{t("reminders.tagsHeading")}</p>
+            <div className="rx-tags" role="group" aria-label={t("reminders.tagsHeading")}>
               {tags.map((t) => {
                 const current = !searching && picked.type === "tag" && picked.name.toLowerCase() === t.name.toLowerCase();
                 return (
@@ -2020,8 +2033,8 @@ export function RemindersView() {
               className="field rx-rename"
               value={newList}
               onChange={(e) => setNewList(e.target.value)}
-              placeholder="List name"
-              aria-label="New list name"
+              placeholder={t("reminders.listName")}
+              aria-label={t("reminders.newListName")}
               autoFocus
               onBlur={() => !newList.trim() && setAddingList(false)}
             />
@@ -2029,7 +2042,7 @@ export function RemindersView() {
         ) : (
           <button className="side-add" onClick={() => setAddingList(true)}>
             <Glyph name="plus" />
-            Add List
+            {t("reminders.addList")}
           </button>
         )}
         <AppFoot />
@@ -2038,21 +2051,21 @@ export function RemindersView() {
       <section className="rx-main" ref={mainRef}>
         <button className="compact-back" onClick={() => setDetail(false)}>
           <ChevronLeft size={18} strokeWidth={2.25} aria-hidden="true" />
-          <span>Lists</span>
+          <span>{t("reminders.lists")}</span>
         </button>
         <header className="pane-head rx-head">
           <PaneTitle
             count={
               smartKind === "completed" && !searching
-                ? `${items.length - outstanding} completed`
-                : `${outstanding} ${outstanding === 1 ? "reminder" : "reminders"}`
+                ? t("reminders.completedCount", { count: items.length - outstanding })
+                : t(outstanding === 1 ? "reminders.countOne" : "reminders.countMany", { count: outstanding })
             }
           >
-            {searching ? `Results for “${query.trim()}”` : heading}
+            {searching ? t("reminders.resultsFor", { query: query.trim() }) : heading}
           </PaneTitle>
           {inList && (
             <button className="link" onClick={() => setShowDone((v) => !v)}>
-              {showDone ? "Hide Completed" : "Show Completed"}
+              {showDone ? t("reminders.hideCompleted") : t("reminders.showCompleted")}
             </button>
           )}
         </header>
@@ -2064,7 +2077,7 @@ export function RemindersView() {
         {lists.length === 0 && loaded && !arriving && (
           <EmptyState
             className="rem-nolists"
-            action={{ label: "Create a List", run: () => void makeFirstList(), disabled: syncing }}
+            action={{ label: t("reminders.createList"), run: () => void makeFirstList(), disabled: syncing }}
           >
             Reminders live in lists. Make your first one to begin.
           </EmptyState>
@@ -2190,8 +2203,8 @@ export function RemindersView() {
             <input
               className="field rx-section-name"
               autoFocus
-              placeholder="Section name"
-              aria-label="New section name"
+              placeholder={t("reminders.sectionName")}
+              aria-label={t("reminders.newSectionName")}
               onBlur={(e) => {
                 setNamingSection(null);
                 void createSection(e.target.value);
@@ -2221,8 +2234,8 @@ export function RemindersView() {
                   ? "Nothing in this list yet."
                   : "All done here."
                 : smartKind === "completed"
-                  ? "No Completed Reminders"
-                  : "No Reminders"}
+                  ? t("reminders.noCompleted")
+                  : t("reminders.noReminders")}
           </EmptyState>
         )}
       </section>
@@ -2233,19 +2246,19 @@ export function RemindersView() {
           entries={(() => {
             const r = rowMenu.reminder;
             return [
-              { label: "Show Info", run: () => setOpenGuid(r.guid) },
-              { label: r.flagged ? "Unflag" : "Flag", run: () => void flag(r) },
-              { label: r.completedAt ? "Mark as Not Completed" : "Mark as Completed", run: () => void toggle(r) },
+              { label: t("reminders.showInfo"), run: () => setOpenGuid(r.guid) },
+              { label: r.flagged ? t("reminders.unflag") : t("reminders.flag"), run: () => void flag(r) },
+              { label: r.completedAt ? t("reminders.markNotCompleted") : t("reminders.markCompleted"), run: () => void toggle(r) },
               null,
               ...(r.parentGuid
-                ? [{ label: "Outdent", run: () => void outdent(r) }]
+                ? [{ label: t("reminders.outdent"), run: () => void outdent(r) }]
                 : items.some((x) => x.parentGuid === r.guid)
                   ? []
-                  : [{ label: "Indent", run: () => void indent(r) }]),
+                  : [{ label: t("reminders.indent"), run: () => void indent(r) }]),
               // Only where there is somewhere else to go: an empty submenu is a dead end.
               ...(lists.some((l) => l.guid !== r.listGuid)
                 ? [{
-                    label: "Move to List",
+                    label: t("reminders.moveToList"),
                     submenu: lists
                       .filter((l) => l.guid !== r.listGuid)
                       .map((l) => ({ label: l.title, run: () => void moveToList(r, l.guid) })),
@@ -2253,9 +2266,9 @@ export function RemindersView() {
                 : []),
               ...(REMINDER_DETAIL_WRITES && inList && listSections.length > 0
                 ? [{
-                    label: "Move to Section",
+                    label: t("reminders.moveToSection"),
                     submenu: [
-                      ...(sectionOf(r) ? [{ label: "None", run: () => void moveToSection(r, null) }] : []),
+                      ...(sectionOf(r) ? [{ label: t("reminders.none"), run: () => void moveToSection(r, null) }] : []),
                       ...listSections
                         .filter((x) => x.guid !== sectionOf(r) && !x.guid.startsWith(STAND_IN))
                         .map((x) => ({ label: x.title, run: () => void moveToSection(r, x.guid) })),
@@ -2263,7 +2276,7 @@ export function RemindersView() {
                   }]
                 : []),
               null,
-              { label: "Delete", danger: true, run: () => void askRemove(r) },
+              { label: t("reminders.delete"), danger: true, run: () => void askRemove(r) },
             ];
           })()}
         />
@@ -2273,11 +2286,11 @@ export function RemindersView() {
           at={listMenu.at}
           onClose={() => setListMenu(null)}
           entries={[
-            { label: "List Details", run: () => setInfoFor(listMenu.list) },
-            { label: "Rename List", run: () => setRenaming(listMenu.list.guid) },
+            { label: t("reminders.listDetails"), run: () => setInfoFor(listMenu.list) },
+            { label: t("reminders.renameList"), run: () => setRenaming(listMenu.list.guid) },
             null,
             {
-              label: "Delete List",
+              label: t("reminders.deleteList"),
               danger: true,
               run: () => {
                 const list = listMenu.list;
@@ -2456,7 +2469,7 @@ const AddReminder = memo(function AddReminder({
           setDraft(e.target.value);
           setLiteral(false);
         }}
-        placeholder="New Reminder"
+        placeholder={t("reminders.newReminder")}
         aria-label={label}
       />
       {/* From a built-in view, where it lands is a real choice, so it is shown — but only
@@ -2464,7 +2477,7 @@ const AddReminder = memo(function AddReminder({
       {lists && draft.trim() && (
         <Picker
           className="rx-add-target"
-          label="List to add to"
+          label={t("reminders.listToAddTo")}
           value={target}
           onChange={onChooseList}
           options={options}
@@ -2476,7 +2489,7 @@ const AddReminder = memo(function AddReminder({
             {[
               quick.dueAt !== null && dueLabel(quick.dueAt, false, quick.allDay).text,
               quick.repeat && repeatWords(quick.repeat),
-              quick.priority === 1 ? "High priority" : quick.priority === 5 ? "Medium priority" : quick.priority === 9 ? "Low priority" : null,
+              quick.priority === 1 ? t("reminders.priority.highAria") : quick.priority === 5 ? t("reminders.priority.mediumAria") : quick.priority === 9 ? t("reminders.priority.lowAria") : null,
             ]
               .filter(Boolean)
               .join(" · ")}
@@ -2625,9 +2638,11 @@ const ReminderRow = memo(function ReminderRow({
             <span
               className="rx-priority"
               role="img"
-              aria-label={`${
-                PRIORITIES.find((p) => p.value === reminder.priority)?.label
-              } priority`}
+              aria-label={t(
+                reminder.priority === 1 ? "reminders.priority.highAria"
+                : reminder.priority === 5 ? "reminders.priority.mediumAria"
+                : "reminders.priority.lowAria",
+              )}
             >
               {mark}
             </span>
@@ -2754,7 +2769,7 @@ const ReminderRow = memo(function ReminderRow({
             {chips.messaging && (
               <span className="rx-chip">
                 <MessageCircle aria-hidden="true" size={12} strokeWidth={2.2} />
-                <b>Messaging:</b>
+                <b>{t("reminders.messaging")}</b>
                 {chips.messaging}
               </span>
             )}
@@ -2770,13 +2785,13 @@ const ReminderRow = memo(function ReminderRow({
         {isOpen && (
           <div className="rx-detail" role="group" aria-label={`Info for ${reminder.title}`}>
             <label className="rx-field rx-field-notes">
-              <span>Notes</span>
+              <span>{t("reminders.notes")}</span>
               <textarea
                 className="field"
                 defaultValue={reminder.notes ?? ""}
                 key={`n${reminder.guid}`}
                 rows={2}
-                placeholder="Add Note"
+                placeholder={t("reminders.addNote")}
                 onBlur={(e) => void act.current.setNotes(reminder, e.target.value)}
               />
             </label>
@@ -2807,11 +2822,11 @@ const ReminderRow = memo(function ReminderRow({
               onRemove={(name) => void act.current.tagRemove(reminder, name)}
             />
             <div className="rx-field">
-              <span>Subtasks</span>
+              <span>{t("reminders.subtasks")}</span>
               <span className="rx-value">{subtasks}</span>
             </div>
             <div className="rx-field">
-              <span>Flag</span>
+              <span>{t("reminders.flag")}</span>
               <label className="rx-switch">
                 <input
                   type="checkbox"
@@ -2824,14 +2839,14 @@ const ReminderRow = memo(function ReminderRow({
               </label>
             </div>
             <div className="rx-field">
-              <span>Priority</span>
+              <span>{t("reminders.priorityLabel")}</span>
               <Picker
                 label={`Priority for ${reminder.title}`}
                 value={String(reminder.priority)}
                 onChange={(v) => void act.current.setPriority(reminder, Number(v))}
                 options={PRIORITIES.map((p) => ({
                   value: String(p.value),
-                  label: p.label,
+                  label: t(p.label),
                 }))}
               />
             </div>
@@ -2844,7 +2859,7 @@ const ReminderRow = memo(function ReminderRow({
                     role="listitem"
                     className="rx-image"
                     src={reminderImageSrc(id)}
-                    alt="Attached picture"
+                    alt={t("reminders.attachedPicture")}
                     loading="lazy"
                     decoding="async"
                     draggable={false}
@@ -2854,7 +2869,7 @@ const ReminderRow = memo(function ReminderRow({
             )}
             {(detailOf?.guid === reminder.guid ? detailOf.otherAttachments - detailOf.images.length : 0) > 0 && (
               <div className="rx-field">
-                <span>Attachments</span>
+                <span>{t("reminders.attachments")}</span>
                 <span className="rx-value">
                   {detailOf!.otherAttachments - detailOf!.images.length === 1
                     ? "1 file"
@@ -2864,7 +2879,7 @@ const ReminderRow = memo(function ReminderRow({
             )}
             <div className="rx-detail-rule" aria-hidden="true" />
             <div className="rx-field">
-              <span>List</span>
+              <span>{t("reminders.list")}</span>
               <Picker
                 label={`List for ${reminder.title}`}
                 value={reminder.listGuid}
@@ -2874,20 +2889,20 @@ const ReminderRow = memo(function ReminderRow({
             </div>
             {inList && sections.length > 0 && (
               <div className="rx-field">
-                <span>Section</span>
+                <span>{t("reminders.section")}</span>
                 {REMINDER_DETAIL_WRITES ? (
                   <Picker
                     label={`Section for ${reminder.title}`}
                     value={section ?? ""}
                     onChange={(guid) => void act.current.moveToSection(reminder, guid || null)}
                     options={[
-                      { value: "", label: "None" },
+                      { value: "", label: t("reminders.none") },
                       ...sections.map((x) => ({ value: x.guid, label: x.title })),
                     ]}
                   />
                 ) : (
                   <span className="rx-value">
-                    {sections.find((x) => x.guid === section)?.title ?? "None"}
+                    {sections.find((x) => x.guid === section)?.title ?? t("reminders.none")}
                   </span>
                 )}
               </div>
@@ -2976,7 +2991,7 @@ function NextReminder({ subtask, onAdd, onCancel }: { subtask: boolean; onAdd: (
           <input
             className="rx-title"
             autoFocus
-            aria-label="New reminder"
+            aria-label={t("reminders.newReminderAria")}
             onKeyDown={(e) => {
               if (composing(e)) return;
               if (e.key === "Enter") {
@@ -3089,7 +3104,7 @@ function DueField({ reminder, onChange }: { reminder: Reminder; onChange: (day: 
   const time = w && !reminder.allDay ? `${pad(w.h)}:${pad(w.min)}` : null;
   return (
     <div className="rx-field">
-      <span>Date</span>
+      <span>{t("reminders.date")}</span>
       <div className="rx-due">
         <input
           type="date"
@@ -3110,7 +3125,7 @@ function DueField({ reminder, onChange }: { reminder: Reminder; onChange: (day: 
             onChange={(e) => onChange(day, e.target.checked ? "09:00" : null)}
           />
           <span className="switch" aria-hidden="true" />
-          <span>Time</span>
+          <span>{t("reminders.time")}</span>
         </label>
         {time !== null && w && (
           <TimeField
@@ -3156,7 +3171,7 @@ function UrlField({ reminder, url, onSave }: { reminder: Reminder; url: string |
         type="url"
         key={`${reminder.guid}-${url ?? ""}`}
         defaultValue={url ?? ""}
-        placeholder="Add URL"
+        placeholder={t("reminders.addUrl")}
         aria-label={`URL for ${reminder.title}`}
         onBlur={(e) => {
           const typed = e.target.value.trim();
@@ -3191,7 +3206,7 @@ function EarlyField({ reminder, alerts, onChange }: {
     if (!alerts.length) return null;
     return (
       <div className="rx-field">
-        <span>Early Reminder</span>
+        <span>{t("reminders.earlyReminder")}</span>
         <span className="rx-value">{said}</span>
       </div>
     );
@@ -3201,7 +3216,7 @@ function EarlyField({ reminder, alerts, onChange }: {
   const known = EARLY_CHOICES.some(([c, u]) => `${c}:${u}` === now);
   return (
     <div className="rx-field">
-      <span>Early Reminder</span>
+      <span>{t("reminders.earlyReminder")}</span>
       <Picker
         label={`Early reminder for ${reminder.title}`}
         value={now}
@@ -3211,7 +3226,7 @@ function EarlyField({ reminder, alerts, onChange }: {
           onChange(v === "none" ? null : [c, u]);
         }}
         options={[
-          { value: "none", label: "None" },
+          { value: "none", label: t("reminders.none") },
           ...(!known && alerts[0] ? [{ value: now, label: said }] : []),
           ...EARLY_CHOICES.map(([c, u]) => ({ value: `${c}:${u}`, label: earlyText(c, u) })),
         ]}
@@ -3232,7 +3247,7 @@ function TagsField({ reminder, tags, onOpen, onAdd, onRemove }: {
   if (!REMINDER_DETAIL_WRITES && tags.length === 0) return null;
   return (
     <div className="rx-field">
-      <span>Tags</span>
+      <span>{t("reminders.tags")}</span>
       <div className="rx-tag-field">
         {tags.map((name) => (
           <span className="rx-tag is-chip" key={name}>
@@ -3250,7 +3265,7 @@ function TagsField({ reminder, tags, onOpen, onAdd, onRemove }: {
           <input
             className="rx-tag-input"
             value={typed}
-            placeholder={tags.length ? "Add" : "Add Tag"}
+            placeholder={tags.length ? t("reminders.add") : t("reminders.addTag")}
             aria-label={`Add a tag to ${reminder.title}`}
             onChange={(e) => setTyped(e.target.value.replace(/\s/g, ""))}
             onKeyDown={(e) => {
@@ -3276,14 +3291,13 @@ function TagsField({ reminder, tags, onOpen, onAdd, onRemove }: {
 
 /** The weekday, month-day or month a rule falls on by its due date, as the phone preselects. */
 const WEEKDAY_LETTERS = ["S", "M", "T", "W", "T", "F", "S"];
-const WEEKDAY_SHORT = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
-const WEEKDAY_NAMES = ["Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday"];
-const MONTH_SHORT = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
+/** The twelve months' short names, in the reader's language. */
+const MONTHS = Array.from({ length: 12 }, (_, i) => i);
 
 /** "every day", "every 2 weeks", "every hour". */
 function everyText(frequency: number, interval: number): string {
-  const unit = REPEAT_UNITS[frequency] ?? "day";
-  return interval > 1 ? `every ${interval} ${unit}s` : `every ${unit}`;
+  const unit = UNIT_KEYS[frequency] ?? "Day";
+  return interval > 1 ? t(`reminders.repeats.${unit}Many`, { count: interval }) : t(`reminders.repeats.${unit}`);
 }
 
 /** The end of a day, on the clock of `zone`: an end date takes in every time on that day. */
@@ -3325,20 +3339,20 @@ function RepeatField({ reminder, rule, onChange }: {
   const dueWeekday = due ? new Date(Date.UTC(due.y, due.m - 1, due.d)).getUTCDay() : -1;
   const fromPhone = (rule?.other.length ?? 0) > 0;
   const on = (() => {
-    if (fromPhone) return "on the days chosen on your iPhone";
+    if (fromPhone) return t("reminders.repeats.onPhoneDays");
     if (!due) return "";
     if (frequency === 1) {
       const on = days.length ? days : [dueWeekday + 1];
-      return `on ${on.map((d) => WEEKDAY_NAMES[d - 1]).join(", ").replace(/, ([^,]*)$/, " and $1")}`;
+      return t("reminders.repeats.onDays", { days: list(on.map((d) => weekdayName(d - 1))) });
     }
-    if (frequency === 2) return `on day ${due.d}`;
-    if (frequency === 3) return `in ${MONTH_SHORT[due.m - 1]}`;
+    if (frequency === 2) return t("reminders.repeats.onDay", { day: due.d });
+    if (frequency === 3) return t("reminders.repeats.inMonth", { month: monthShort(due.m - 1) });
     return "";
   })();
   return (
     <>
       <div className="rx-field">
-        <span>Repeat</span>
+        <span>{t("reminders.repeatLabel")}</span>
         <Picker
           label={`Repeat for ${reminder.title}`}
           value={custom ? "custom" : key}
@@ -3355,28 +3369,28 @@ function RepeatField({ reminder, rule, onChange }: {
             setCustomOpen(false);
             onChange(chosen.repeat, chosen.repeat ? endAt : null, chosen.days ?? []);
           }}
-          options={REPEATS.map((o) => ({ value: o.key, label: o.label, divider: o.divider, disabled: o.disabled }))}
+          options={REPEATS.map((o) => ({ value: o.key, label: t(o.label), divider: o.divider, disabled: o.disabled }))}
         />
       </div>
       {!dated && !repeating && <p className="rx-hint">Add a date to repeat it.</p>}
       {custom && (
         <div className="rx-custom" role="group" aria-label={`Custom repeat for ${reminder.title}`}>
           <div className="rx-field">
-            <span>Frequency</span>
+            <span>{t("reminders.frequency")}</span>
             <Picker
               label={`Frequency for ${reminder.title}`}
               value={String(frequency)}
-              options={FREQUENCIES}
+              options={FREQUENCIES.map((f) => ({ ...f, label: t(f.label) }))}
               onChange={(f) => Number(f) !== frequency && onChange({ frequency: Number(f), interval }, endAt, Number(f) === 1 ? days : [])}
             />
           </div>
           <div className="rx-field">
-            <span>Every</span>
+            <span>{t("reminders.everyLabel")}</span>
             <span className="rx-every">
               <button
                 type="button"
                 className="rx-step"
-                aria-label="Fewer"
+                aria-label={t("reminders.fewer")}
                 disabled={interval <= 1}
                 onClick={() => commitEvery(String(interval - 1))}
               >
@@ -3394,7 +3408,7 @@ function RepeatField({ reminder, rule, onChange }: {
               <button type="button" className="rx-step" aria-label="More" disabled={interval >= 999} onClick={() => commitEvery(String(interval + 1))}>
                 +
               </button>
-              <span className="rx-every-unit">{REPEAT_UNITS[frequency] ?? "day"}{interval === 1 ? "" : "s"}</span>
+              <span className="rx-every-unit">{t(`reminders.unit.${UNIT_KEYS[frequency] ?? "Day"}${interval === 1 ? "One" : "Many"}`)}</span>
             </span>
           </div>
           {frequency === 1 && (
@@ -3407,7 +3421,7 @@ function RepeatField({ reminder, rule, onChange }: {
                     key={i}
                     type="button"
                     className={`rx-day is-pick${on ? " is-on" : ""}`}
-                    aria-label={WEEKDAY_NAMES[i]}
+                    aria-label={weekdayName(i)}
                     aria-pressed={on}
                     disabled={fromPhone}
                     onClick={() => {
@@ -3434,31 +3448,31 @@ function RepeatField({ reminder, rule, onChange }: {
             </div>
           )}
           {frequency === 3 && (
-            <div className="rx-days is-year" role="group" aria-label="Months of the year">
-              {MONTH_SHORT.map((m, i) => (
+            <div className="rx-days is-year" role="group" aria-label={t("reminders.monthsOfYear")}>
+              {MONTHS.map((m, i) => (
                 <span key={m} className={`rx-day${!fromPhone && due?.m === i + 1 ? " is-on" : ""}`}
                   aria-current={!fromPhone && due?.m === i + 1 ? "true" : undefined}>
-                  {m}
+                  {monthShort(m)}
                 </span>
               ))}
             </div>
           )}
           <p className="rx-hint rx-custom-hint">
-            {`Repeats ${everyText(frequency, interval)}${on ? ` ${on}` : ""}.`}
+            {on ? t("reminders.repeats.sentenceOn", { repeats: everyText(frequency, interval), on }) : t("reminders.repeats.sentence", { repeats: everyText(frequency, interval) })}
             {frequency >= 2 && frequency <= 3 && !fromPhone && " Pick other days on your iPhone or iPad."}
           </p>
         </div>
       )}
       {repeating && (
         <div className="rx-field">
-          <span>End Repeat</span>
+          <span>{t("reminders.endRepeat")}</span>
           <div className="rx-due">
             <Picker
               label={`End repeat for ${reminder.title}`}
               value={endAt === null ? "never" : "date"}
               options={[
-                { value: "never", label: "Never" },
-                { value: "date", label: "On Date" },
+                { value: "never", label: t("reminders.repeat.never") },
+                { value: "date", label: t("reminders.onDate") },
               ]}
               onChange={(v) => {
                 if (v === "never" && endAt !== null) onChange({ frequency, interval }, null, days);
@@ -3497,7 +3511,7 @@ function ZoneAndUrgent({ reminder, more }: { reminder: Reminder; more: ReminderM
     <>
       {named && (
         <div className="rx-field">
-          <span>Time Zone</span>
+          <span>{t("reminders.timeZone")}</span>
           <span className="rx-value">
             {named.city}
             <span className="rx-quiet">{named.offset}</span>
@@ -3507,7 +3521,7 @@ function ZoneAndUrgent({ reminder, more }: { reminder: Reminder; more: ReminderM
       {more.urgent && (
         <>
           <div className="rx-field">
-            <span>Urgent</span>
+            <span>{t("reminders.urgent")}</span>
             <span className="rx-value">On</span>
           </div>
           <p className="rx-hint">Set on your iPhone. It rings as an alarm, even in a Focus or on silent.</p>
@@ -3527,7 +3541,7 @@ function PlacesAndPeople({ more }: { more: ReminderMore }) {
       <div className="rx-detail-rule" aria-hidden="true" />
       {location && (
         <div className="rx-field">
-          <span>Location</span>
+          <span>{t("reminders.location")}</span>
           <span className="rx-value">
             {location.title ?? "A place"}
             {side && <span className="rx-quiet">{side}</span>}
@@ -3536,7 +3550,7 @@ function PlacesAndPeople({ more }: { more: ReminderMore }) {
       )}
       {messaging && (
         <div className="rx-field">
-          <span>When Messaging</span>
+          <span>{t("reminders.whenMessaging")}</span>
           <span className="rx-value">{messaging.name ?? messaging.handles[0]}</span>
         </div>
       )}
