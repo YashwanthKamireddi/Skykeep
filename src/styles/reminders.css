@@ -67,6 +67,10 @@
   color: #fff;
 }
 .rx-tile-glyph svg { width: 16px; height: 16px; }
+/* A list whose icon is an emoji: the emoji itself on the list's colour, as Reminders draws it,
+   sized to the badge (never the font's own line height, which pushed it off centre). */
+.list-emoji { display: block; font-size: 13px; line-height: 1; transform: translateY(0.5px); }
+.rx-tile-glyph .list-emoji { font-size: 15px; }
 
 .rx-tile-count {
   justify-self: end;

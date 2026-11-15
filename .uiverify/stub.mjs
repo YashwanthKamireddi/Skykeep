@@ -112,7 +112,7 @@ export function installStub({ screen, services, twoFactor, calendarFixture, note
     { guid: "l1", title: "Daily", colour: "#63da38", ctag: null, sortOrder: 0, enabled: true },
     { guid: "l2", title: "GYM", colour: "#cc73e1", ctag: null, sortOrder: 1, enabled: true },
     { guid: "l3", title: "Life Goals", colour: "#1badf8", ctag: null, sortOrder: 2, enabled: true },
-  ];
+  ].map((l) => ({ ...l, emblem: window.__listEmblems?.[l.guid] ?? null })); // a suite's own list icons
   const reminderItems = !remindersFixture ? [] : [
     { guid: "r1", listGuid: "l1", title: "Plan tomorrow", notes: null,
       dueAt: base - 2 * HOUR, completedAt: null, priority: 0, flagged: false, parentGuid: null, etag: null },

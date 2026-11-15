@@ -44,7 +44,7 @@ import { Arriving } from "../components/EmptyState";
 import { useArriving, useShownRevision } from "../lib/sync";
 import { Picker } from "../components/Picker";
 import { RowMenu } from "../components/RowMenu";
-import { Glyph, emblemGlyph, type GlyphName } from "../components/Glyph";
+import { Glyph, ListEmblem, type GlyphName } from "../components/Glyph";
 import { parseReminder, understood, type QuickReminder } from "./reminderQuick.ts";
 import { useReveal } from "../lib/reveal";
 import { instantIn, wallIn, zoneName, type Wall } from "./calendar/model";
@@ -1811,7 +1811,7 @@ export function RemindersView() {
             }}
           >
             <span className="rx-badge" style={{ background: colourOf(list) }}>
-              <Glyph name={emblemGlyph(list.emblem)} />
+              <ListEmblem emblem={list.emblem} />
             </span>
             <span className="source-name rx-list-name">{list.title}</span>
             <span className="count">{countOf(list.guid)}</span>
@@ -1837,7 +1837,7 @@ export function RemindersView() {
   const tile = (
     key: string,
     title: string,
-    glyph: GlyphName,
+    glyph: GlyphName | { emblem: string | null | undefined },
     colour: string,
     count: number,
     current: boolean,
@@ -1856,7 +1856,7 @@ export function RemindersView() {
       }}
     >
       <span className="rx-tile-glyph">
-        <Glyph name={glyph} />
+        {typeof glyph === "string" ? <Glyph name={glyph} /> : <ListEmblem emblem={glyph.emblem} />}
       </span>
       <span className="rx-tile-count">{count}</span>
       <span className="rx-tile-name">{title}</span>
@@ -1939,7 +1939,7 @@ export function RemindersView() {
             tile(
               list.guid,
               list.title,
-              emblemGlyph(list.emblem),
+              { emblem: list.emblem },
               colourOf(list),
               countOf(list.guid),
               !searching && picked.type === "list" && picked.guid === list.guid,
@@ -1989,7 +1989,7 @@ export function RemindersView() {
                   }}
                 >
                   <span className="rx-badge" style={{ background: smartColour(smart) }}>
-                    {smart.emblem ? <Glyph name={emblemGlyph(smart.emblem)} /> : <ListFilter aria-hidden="true" strokeWidth={2.25} />}
+                    {smart.emblem ? <ListEmblem emblem={smart.emblem} /> : <ListFilter aria-hidden="true" strokeWidth={2.25} />}
                   </span>
                   <span className="source-name rx-list-name">{title}</span>
                   <span className="count">{customCounts.get(smart.guid) ?? 0}</span>

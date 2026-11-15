@@ -105,12 +105,12 @@ for (const day of ["Monday", "Wednesday", "Friday", "Thursday"]) {
 }
 sent = await last();
 ok(JSON.stringify(sent?.daysOfWeek) === "[2,4,6]" && sent?.repeat?.interval === 3, `Monday, Wednesday and Friday, every 3 weeks  (${JSON.stringify(sent)})`);
-ok((await custom.innerText()).includes("on Monday, Wednesday and Friday"), "and says so");
+ok((await custom.innerText()).includes("on Monday, Wednesday, and Friday"), "and says so");
 await custom.getByRole("button", { name: "More" }).click();
 await page.waitForTimeout(250);
 sent = await last();
 ok(sent?.repeat?.interval === 4, `+ makes it every 4  (${sent?.repeat?.interval})`);
-ok((await custom.innerText()).includes("Repeats every 4 weeks on Monday, Wednesday and Friday."), "and says so, keeping the days");
+ok((await custom.innerText()).includes("Repeats every 4 weeks on Monday, Wednesday, and Friday."), "and says so, keeping the days");
 
 // End Repeat: On Date sends an end after the due date; Never takes it off.
 await page.getByLabel("End repeat for Skykeep Test").click();

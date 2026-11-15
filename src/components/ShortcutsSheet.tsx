@@ -4,121 +4,123 @@
  * The same list as the README's, kept here as data so the two are read side by side.
  */
 import { useRef } from "react";
+import { t, useI18n, type Key } from "../lib/i18n";
 import { Portal } from "./Portal";
 import { useModalFocus } from "../lib/focus";
 
 /** One action and its keys: each combination pressed together; more than one, either works. */
-type Row = [keys: string[][], action: string];
-export const SHORTCUTS: { app: string; key: string; rows: Row[] }[] = [
+type Row = [keys: string[][], action: Key];
+export const SHORTCUTS: { app: Key; key: string; rows: Row[] }[] = [
   {
-    app: "Everywhere",
+    app: "shortcuts.apps.everywhere",
     key: "",
     rows: [
-      [[["Ctrl", "R"], ["F5"]], "Sync the app in front"],
-      [[["Ctrl", ","]], "Settings"],
-      [[["F9"]], "Show or hide the sidebar"],
-      [[["Ctrl", "/"]], "Keyboard shortcuts"],
+      [[["Ctrl", "R"], ["F5"]], "shortcuts.actions.syncTheAppInFront"],
+      [[["Ctrl", ","]], "shortcuts.actions.settings"],
+      [[["F9"]], "shortcuts.actions.showOrHideTheSidebar"],
+      [[["Ctrl", "/"]], "shortcuts.actions.keyboardShortcuts"],
     ],
   },
   {
-    app: "Notes",
+    app: "shortcuts.apps.notes",
     key: "notes",
     rows: [
-      [[["Ctrl", "N"]], "New note"],
-      [[["Ctrl", "Shift", "N"]], "New folder"],
-      [[["Ctrl", "F"]], "Search this folder"],
-      [[["Ctrl", "Shift", "F"]], "Search all notes"],
-      [[["↑"]], "Previous note"],
-      [[["↓"]], "Next note"],
-      [[["Ctrl", "Delete"]], "Delete note"],
-      [[["Ctrl", "S"]], "Finish editing"],
-      [[["Ctrl", "K"]], "Add or edit a link"],
-      [[["Ctrl", "Shift", "L"]], "Checklist"],
-      [[["Ctrl", "Shift", "U"]], "Tick the item"],
+      [[["Ctrl", "N"]], "shortcuts.actions.newNote"],
+      [[["Ctrl", "Shift", "N"]], "shortcuts.actions.newFolder"],
+      [[["Ctrl", "F"]], "shortcuts.actions.searchThisFolder"],
+      [[["Ctrl", "Shift", "F"]], "shortcuts.actions.searchAllNotes"],
+      [[["↑"]], "shortcuts.actions.previousNote"],
+      [[["↓"]], "shortcuts.actions.nextNote"],
+      [[["Ctrl", "Delete"]], "shortcuts.actions.deleteNote"],
+      [[["Ctrl", "S"]], "shortcuts.actions.finishEditing"],
+      [[["Ctrl", "K"]], "shortcuts.actions.addOrEditALink"],
+      [[["Ctrl", "Shift", "L"]], "shortcuts.actions.checklist"],
+      [[["Ctrl", "Shift", "U"]], "shortcuts.actions.tickTheItem"],
     ],
   },
   {
-    app: "Reminders",
+    app: "shortcuts.apps.reminders",
     key: "reminders",
     rows: [
-      [[["Ctrl", "N"]], "New reminder"],
-      [[["Ctrl", "Shift", "N"]], "New list"],
-      [[["Tab"]], "Make a subtask"],
-      [[["Shift", "Tab"]], "Move a subtask back out"],
-      [[["Space"]], "Tick"],
-      [[["Return"]], "Edit"],
-      [[["Ctrl", "I"]], "Show details"],
-      [[["Ctrl", "Shift", "F"]], "Flag"],
-      [[["Ctrl", "Shift", "C"]], "Complete"],
-      [[["Ctrl", "T"]], "Due today"],
-      [[["Ctrl", "Shift", "H"]], "Show or hide completed"],
-      [[["Ctrl", "E"]], "Show all subtasks"],
-      [[["Ctrl", "Shift", "E"]], "Hide all subtasks"],
-      [[["Ctrl", "F"]], "Search"],
+      [[["Ctrl", "N"]], "shortcuts.actions.newReminder"],
+      [[["Ctrl", "Shift", "N"]], "shortcuts.actions.newList"],
+      [[["Tab"]], "shortcuts.actions.makeASubtask"],
+      [[["Shift", "Tab"]], "shortcuts.actions.moveASubtaskBackOut"],
+      [[["Space"]], "shortcuts.actions.tick"],
+      [[["Return"]], "shortcuts.actions.edit"],
+      [[["Ctrl", "I"]], "shortcuts.actions.showDetails"],
+      [[["Ctrl", "Shift", "F"]], "shortcuts.actions.flag"],
+      [[["Ctrl", "Shift", "C"]], "shortcuts.actions.complete"],
+      [[["Ctrl", "T"]], "shortcuts.actions.dueToday"],
+      [[["Ctrl", "Shift", "H"]], "shortcuts.actions.showOrHideCompleted"],
+      [[["Ctrl", "E"]], "shortcuts.actions.showAllSubtasks"],
+      [[["Ctrl", "Shift", "E"]], "shortcuts.actions.hideAllSubtasks"],
+      [[["Ctrl", "F"]], "shortcuts.actions.search"],
     ],
   },
   {
-    app: "Calendar",
+    app: "shortcuts.apps.calendar",
     key: "calendar",
     rows: [
-      [[["Ctrl", "1"]], "Day"],
-      [[["Ctrl", "2"]], "Week"],
-      [[["Ctrl", "3"]], "Month"],
-      [[["Ctrl", "4"]], "Year"],
-      [[["T"]], "Today"],
-      [[["Ctrl", "Shift", "T"]], "Go to Date"],
-      [[["←"]], "Previous"],
-      [[["→"]], "Next"],
-      [[["Ctrl", "N"]], "New event"],
-      [[["Ctrl", "D"]], "Duplicate event"],
-      [[["Ctrl", "C"]], "Copy event"],
-      [[["Ctrl", "V"]], "Paste event"],
-      [[["Ctrl", "Alt", "Arrows"]], "Nudge the selected event"],
-      [[["Ctrl", "Z"]], "Undo the last change or deletion"],
+      [[["Ctrl", "1"]], "shortcuts.actions.day"],
+      [[["Ctrl", "2"]], "shortcuts.actions.week"],
+      [[["Ctrl", "3"]], "shortcuts.actions.month"],
+      [[["Ctrl", "4"]], "shortcuts.actions.year"],
+      [[["T"]], "shortcuts.actions.today"],
+      [[["Ctrl", "Shift", "T"]], "shortcuts.actions.goToDate"],
+      [[["←"]], "shortcuts.actions.previous"],
+      [[["→"]], "shortcuts.actions.next"],
+      [[["Ctrl", "N"]], "shortcuts.actions.newEvent"],
+      [[["Ctrl", "D"]], "shortcuts.actions.duplicateEvent"],
+      [[["Ctrl", "C"]], "shortcuts.actions.copyEvent"],
+      [[["Ctrl", "V"]], "shortcuts.actions.pasteEvent"],
+      [[["Ctrl", "Alt", "Arrows"]], "shortcuts.actions.nudgeTheSelectedEvent"],
+      [[["Ctrl", "Z"]], "shortcuts.actions.undoTheLastChangeOrDeletion"],
     ],
   },
   {
-    app: "Contacts",
+    app: "shortcuts.apps.contacts",
     key: "contacts",
     rows: [
-      [[["Ctrl", "N"]], "New contact"],
-      [[["Ctrl", "Shift", "N"]], "New list"],
-      [[["Ctrl", "L"], ["Return"]], "Edit contact"],
-      [[["Delete"]], "Delete contact"],
-      [[["Ctrl", "F"]], "Search"],
-      [[["Ctrl", "A"]], "Select all"],
+      [[["Ctrl", "N"]], "shortcuts.actions.newContact"],
+      [[["Ctrl", "Shift", "N"]], "shortcuts.actions.newList"],
+      [[["Ctrl", "L"], ["Return"]], "shortcuts.actions.editContact"],
+      [[["Delete"]], "shortcuts.actions.deleteContact"],
+      [[["Ctrl", "F"]], "shortcuts.actions.search"],
+      [[["Ctrl", "A"]], "shortcuts.actions.selectAll"],
     ],
   },
   {
-    app: "Drive",
+    app: "shortcuts.apps.drive",
     key: "drivews",
     rows: [
-      [[["Return"], ["Ctrl", "↓"]], "Open"],
-      [[["Ctrl", "↑"]], "Enclosing folder"],
-      [[["Space"]], "Quick preview"],
-      [[["F2"]], "Rename"],
-      [[["Delete"]], "Move to Recently Deleted"],
+      [[["Return"], ["Ctrl", "↓"]], "shortcuts.actions.open"],
+      [[["Ctrl", "↑"]], "shortcuts.actions.enclosingFolder"],
+      [[["Space"]], "shortcuts.actions.quickPreview"],
+      [[["F2"]], "shortcuts.actions.rename"],
+      [[["Delete"]], "shortcuts.actions.moveToRecentlyDeleted"],
     ],
   },
   {
-    app: "Photos",
+    app: "shortcuts.apps.photos",
     key: "photos",
     rows: [
-      [[["←"]], "Previous"],
-      [[["→"]], "Next"],
-      [[["."], ["F"]], "Favourite"],
-      [[["I"]], "Info"],
-      [[["Z"]], "Zoom to fit or full size"],
-      [[["Ctrl", "+"]], "Zoom in"],
-      [[["Ctrl", "-"]], "Zoom out"],
-      [[["Ctrl", "0"]], "Reset zoom"],
-      [[["Space"]], "Play a video or Live Photo"],
-      [[["Esc"]], "Close the viewer"],
+      [[["←"]], "shortcuts.actions.previous"],
+      [[["→"]], "shortcuts.actions.next"],
+      [[["."], ["F"]], "shortcuts.actions.favourite"],
+      [[["I"]], "shortcuts.actions.info"],
+      [[["Z"]], "shortcuts.actions.zoomToFitOrFullSize"],
+      [[["Ctrl", "+"]], "shortcuts.actions.zoomIn"],
+      [[["Ctrl", "-"]], "shortcuts.actions.zoomOut"],
+      [[["Ctrl", "0"]], "shortcuts.actions.resetZoom"],
+      [[["Space"]], "shortcuts.actions.playAVideoOrLivePhoto"],
+      [[["Esc"]], "shortcuts.actions.closeTheViewer"],
     ],
   },
 ];
 
 export function ShortcutsSheet({ front, onClose }: { front: string | null; onClose: () => void }) {
+  useI18n();
   const sheetRef = useRef<HTMLDivElement | null>(null);
   useModalFocus(sheetRef);
   // An app's own window shows its own keys and those that work everywhere, nothing of the
@@ -142,19 +144,19 @@ export function ShortcutsSheet({ front, onClose }: { front: string | null; onClo
             }
           }}
         >
-          <h2 id="shortcuts-title">Keyboard Shortcuts</h2>
-          <div className="shortcuts-groups" tabIndex={0} aria-label="Shortcuts by app">
+          <h2 id="shortcuts-title">{t("shortcuts.title")}</h2>
+          <div className="shortcuts-groups" tabIndex={0} aria-label={t("shortcuts.byApp")}>
             {groups.map((g) => (
-              <section key={g.app} aria-labelledby={`shortcuts-${g.app}`}>
-                <h3 id={`shortcuts-${g.app}`}>{g.app}</h3>
+              <section key={g.key || "all"} aria-labelledby={`shortcuts-${g.key || "all"}`}>
+                <h3 id={`shortcuts-${g.key || "all"}`}>{t(g.app)}</h3>
                 <dl>
                   {g.rows.map(([keys, action]) => (
                     <div key={action} className="shortcuts-row">
-                      <dt>{action}</dt>
+                      <dt>{t(action)}</dt>
                       <dd>
                         {keys.map((combo, i) => (
                           <span key={i} className="shortcuts-either">
-                            {i > 0 && <span className="shortcuts-or">or</span>}
+                            {i > 0 && <span className="shortcuts-or">{t("shortcuts.or")}</span>}
                             {/* A combination as one cap, its keys joined as they are pressed. */}
                             <kbd className="shortcuts-combo" aria-label={combo.join(" + ")}>
                               {combo.map((k, j) => (
@@ -175,7 +177,7 @@ export function ShortcutsSheet({ front, onClose }: { front: string | null; onClo
           </div>
           <div className="sheet-actions">
             <button className="primary" autoFocus onClick={onClose}>
-              Done
+              {t("shortcuts.done")}
             </button>
           </div>
         </div>
