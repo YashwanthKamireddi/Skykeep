@@ -17,6 +17,11 @@ pub struct Output {
     pipewire: Option<Camera>,
     webcam: Option<Mutex<Webcam>>,
     delays: Arc<Mutex<Delays>>,
+    /// Black is being shown (the phone's camera off, paused, or the phone gone): sent again
+    /// and again until a picture comes, as a webcam with its lens covered keeps sending. One
+    /// black picture and then nothing was a camera that had stopped: Chromium and Meet showed
+    /// it as broken, frozen, and Snapshot would not start on it.
+    blank: std::sync::atomic::AtomicBool,
 }
 
 impl Output {
@@ -52,10 +57,15 @@ impl Output {
             pipewire,
             webcam,
             delays,
+            blank: std::sync::atomic::AtomicBool::new(false),
         })
     }
 
     pub fn show(&self, picture: Picture, captured_us: i64) {
+        if captured_us != i64::MIN {
+            self.blank
+                .store(false, std::sync::atomic::Ordering::Relaxed);
+        }
         if let Some(w) = &self.webcam {
             let wrote = w.lock().unwrap().show(&picture).is_ok();
             if wrote && self.pipewire.is_none() && captured_us != i64::MIN {
@@ -67,8 +77,28 @@ impl Output {
         }
     }
 
-    /// One black picture: what programs keep showing while the phone is away.
+    /// Black from now until the phone's next picture, sent ten times a second by
+    /// [`Output::keep_alive`].
     pub fn black(&self) {
+        self.blank.store(true, std::sync::atomic::Ordering::Relaxed);
+        self.one_black();
+    }
+
+    /// While black is being shown, it is sent again ten times a second, so programs reading
+    /// the camera keep a live picture; the thread ends with the camera.
+    pub fn keep_alive(camera: &Arc<Output>) {
+        let weak = Arc::downgrade(camera);
+        std::thread::spawn(move || loop {
+            std::thread::sleep(std::time::Duration::from_millis(100));
+            let Some(camera) = weak.upgrade() else { return };
+            if camera.blank.load(std::sync::atomic::Ordering::Relaxed) {
+                camera.one_black();
+            }
+        });
+    }
+
+    /// One black picture.
+    fn one_black(&self) {
         if let Some(c) = &self.pipewire {
             c.black();
         }

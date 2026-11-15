@@ -59,6 +59,7 @@ impl Devices {
             format.height,
             format.fps,
         )?);
+        Camera::keep_alive(&camera);
         *slot = Some((camera.clone(), (format.width, format.height)));
         Ok(camera)
     }

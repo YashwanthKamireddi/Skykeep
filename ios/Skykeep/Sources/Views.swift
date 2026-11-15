@@ -47,6 +47,23 @@ struct CameraScreen: View {
                     .id(mark.id)
                     .allowsHitTesting(false)
             }
+            // Camera turned off: the preview layer keeps its last frame, which read as a frozen
+            // app. Covered instead, saying what is still on.
+            if !model.cameraOn {
+                Color.black.ignoresSafeArea()
+                VStack(spacing: 10) {
+                    Image(systemName: "video.slash")
+                        .font(.system(size: 40, weight: .light))
+                        .foregroundStyle(.secondary)
+                    Text("Camera off").font(.title3.weight(.semibold))
+                    Text(model.micOn ? "The microphone is still on." : "The microphone is off too.")
+                        .font(.subheadline)
+                        .foregroundStyle(.secondary)
+                }
+                .multilineTextAlignment(.center)
+                .allowsHitTesting(false)
+                .transition(.opacity)
+            }
             if model.status == .connected {
                 VStack {
                     LiveBadge(cameraOn: model.cameraOn)

@@ -81,18 +81,37 @@ pub struct IphoneStatus {
 
 /// The module's settings, in files of their own: the device is made at every start-up, named
 /// as Skykeep finds it, a capture device only while Skykeep sets a format (Chrome's need),
-/// with two buffers so no picture waits behind another.
+/// with four buffers: the fewest every program accepts. With two (chosen so no picture would
+/// wait behind another), v4l2loopback 0.15 refused any reader asking for more — Chromium and
+/// Meet ask for four — with "Device or resource busy", and the picture came at 21 fps.
+/// A module already loaded with fewer is loaded again (Skykeep lets go of the device first).
 #[cfg(all(target_os = "linux", feature = "iphone"))]
 const SET_UP: &str = r#"set -e
 printf 'v4l2loopback\n' > /etc/modules-load.d/skykeep-iphone-camera.conf
-printf 'options v4l2loopback devices=1 exclusive_caps=1 max_buffers=2 card_label="iPhone Camera"\n' > /etc/modprobe.d/skykeep-iphone-camera.conf
+printf 'options v4l2loopback devices=1 exclusive_caps=1 max_buffers=4 card_label="iPhone Camera"\n' > /etc/modprobe.d/skykeep-iphone-camera.conf
+if grep -q '^v4l2loopback ' /proc/modules && [ "$(cat /sys/module/v4l2loopback/parameters/max_buffers)" -lt 4 ]; then
+  for _ in 1 2 3 4 5 6 7 8 9 10; do modprobe -r v4l2loopback && break; sleep 0.5; done
+fi
 if ! grep -q '^v4l2loopback ' /proc/modules; then modprobe v4l2loopback; fi
 "#;
+
+/// Buffers fewer than every program accepts (see SET_UP): the module wants loading again.
+#[cfg(all(target_os = "linux", feature = "iphone"))]
+fn too_few_buffers() -> bool {
+    std::fs::read_to_string("/sys/module/v4l2loopback/parameters/max_buffers")
+        .ok()
+        .and_then(|n| n.trim().parse::<u32>().ok())
+        .is_some_and(|n| n < 4)
+}
 
 #[cfg(all(target_os = "linux", feature = "iphone"))]
 fn every_app() -> &'static str {
     if quince_link::linux::webcam::find().is_some() {
-        "ready"
+        if too_few_buffers() {
+            "setUp"
+        } else {
+            "ready"
+        }
     } else if std::process::Command::new("modinfo")
         .args(["-n", "v4l2loopback"])
         .output()
@@ -107,11 +126,16 @@ fn every_app() -> &'static str {
 /// Makes the iPhone camera a webcam device every program sees, from now on: one admin prompt
 /// (polkit) writes the module's two settings files and loads it. Answers what's true after.
 #[tauri::command]
-pub async fn iphone_every_app() -> Result<&'static str, String> {
+pub async fn iphone_every_app(app: tauri::AppHandle) -> Result<&'static str, String> {
     #[cfg(all(target_os = "linux", feature = "iphone"))]
     {
         if every_app() != "setUp" {
             return Ok(every_app());
+        }
+        // A module to load again: the link lets go of the device for it, and comes back after.
+        let restart = too_few_buffers() && LINK.lock().unwrap().take().is_some();
+        if restart {
+            std::thread::sleep(std::time::Duration::from_millis(500));
         }
         let done = tauri::async_runtime::spawn_blocking(|| {
             std::process::Command::new("pkexec")
@@ -121,6 +145,9 @@ pub async fn iphone_every_app() -> Result<&'static str, String> {
         .await
         .map_err(|e| e.to_string())?
         .map_err(|e| format!("couldn't ask for permission: {e}"))?;
+        if restart {
+            run(&app);
+        }
         if !done.success() {
             // Cancelled at the prompt, or refused: nothing changed.
             return Ok(every_app());
@@ -131,7 +158,10 @@ pub async fn iphone_every_app() -> Result<&'static str, String> {
         Ok(every_app())
     }
     #[cfg(not(all(target_os = "linux", feature = "iphone")))]
-    Err("unavailable".into())
+    {
+        let _ = app;
+        Err("unavailable".into())
+    }
 }
 
 #[tauri::command]
