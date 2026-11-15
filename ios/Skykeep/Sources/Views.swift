@@ -13,6 +13,7 @@ struct SkykeepApp: App {
                 .onChange(of: phase) { _, now in
                     let active = now == .active
                     model.pip.onScreen.withLock { $0 = active }
+                    if active { model.pip.appInFront() }
                     // Back from Control Center or the Video Effects picker.
                     if active { model.camera.effectsChanged() }
                 }
@@ -25,7 +26,6 @@ struct SkykeepApp: App {
 /// controls on glass over it.
 struct CameraScreen: View {
     let model: Model
-    @Namespace private var glass
     @State private var pinching = false
 
     var body: some View {
@@ -47,73 +47,83 @@ struct CameraScreen: View {
                     .id(mark.id)
                     .allowsHitTesting(false)
             }
-            VStack {
-                StatusPill(status: model.status, cameraOn: model.cameraOn)
-                    .padding(.top, 8)
-                Spacer()
-                controls
-                    .padding(.bottom, 24)
+            if model.status == .connected {
+                VStack {
+                    LiveBadge(cameraOn: model.cameraOn)
+                        .padding(.top, 8)
+                        .allowsHitTesting(false)
+                    Spacer()
+                }
+            } else {
+                Waiting(status: model.status)
+                    .padding(.horizontal, 40)
+                    .allowsHitTesting(false)
+                    .transition(.opacity)
             }
-            .padding(.horizontal, 20)
+            VStack(spacing: 20) {
+                Spacer()
+                if model.cameraOn && model.side == .back && model.presets.count > 1 {
+                    zoom.transition(.opacity)
+                }
+                controls
+            }
+            .padding(.bottom, 28)
         }
         .animation(.smooth(duration: 0.25), value: model.status)
+        .animation(.smooth(duration: 0.2), value: model.cameraOn)
+        .sensoryFeedback(.selection, trigger: model.cameraOn)
+        .sensoryFeedback(.selection, trigger: model.micOn)
+        .sensoryFeedback(.selection, trigger: model.side)
+    }
+
+    /// One size for every round button, the Camera app's: 60 pt, on glass.
+    private static let button: CGFloat = 60
+
+    /// The lenses, as the Camera app has them: a small capsule above the buttons, the one in
+    /// use in yellow with the zoom it's at.
+    private var zoom: some View {
+        HStack(spacing: 2) {
+            ForEach(model.presets, id: \.self) { preset in
+                let active = isActive(preset)
+                Button { model.choose(preset: preset) } label: {
+                    Text(active ? label(model.zoom) : label(preset))
+                        .font(.caption.weight(.semibold).monospacedDigit())
+                        .foregroundStyle(active ? Color.yellow : Color.white)
+                        .frame(width: 40, height: 40)
+                        .contentShape(.circle)
+                }
+                .accessibilityLabel("Zoom \(label(preset))")
+                .accessibilityAddTraits(active ? .isSelected : [])
+            }
+        }
+        .padding(4)
+        .glassEffect(.regular.interactive(), in: .capsule)
     }
 
     private var controls: some View {
-        GlassEffectContainer(spacing: 16) {
-            HStack(spacing: 16) {
-                if model.cameraOn && model.side == .back && model.presets.count > 1 {
-                    HStack(spacing: 4) {
-                        ForEach(model.presets, id: \.self) { preset in
-                            let active = isActive(preset)
-                            Button { model.choose(preset: preset) } label: {
-                                Text(active ? label(model.zoom) : label(preset))
-                                    .font(.footnote.weight(.semibold).monospacedDigit())
-                                    .foregroundStyle(active ? Color.yellow : Color.white)
-                                    .frame(width: 44, height: 44)
-                                    .contentShape(.circle)
-                            }
-                            .accessibilityLabel("Zoom \(label(preset))")
-                            .accessibilityAddTraits(active ? .isSelected : [])
-                        }
-                    }
-                    .padding(.horizontal, 4)
-                    .glassEffect(.regular.interactive(), in: .capsule)
-                    .glassEffectID("zoom", in: glass)
-                }
-
+        GlassEffectContainer(spacing: 28) {
+            HStack(spacing: 28) {
                 if model.cameraOn && model.hasFront {
-                    Button(action: model.flip) {
-                        Image(systemName: "arrow.triangle.2.circlepath.camera")
-                            .font(.title3)
-                            .frame(width: 52, height: 52)
-                    }
-                    .buttonStyle(.glass)
-                    .buttonBorderShape(.circle)
-                    .accessibilityLabel(model.side == .front ? "Use the back camera" : "Use the front camera")
+                    round("arrow.triangle.2.circlepath", action: model.flip)
+                        .accessibilityLabel(model.side == .front ? "Use the back camera" : "Use the front camera")
                 }
-
-                Button(action: model.toggleCamera) {
-                    Image(systemName: model.cameraOn ? "video.fill" : "video.slash.fill")
-                        .font(.title3)
-                        .contentTransition(.symbolEffect(.replace))
-                        .frame(width: 52, height: 52)
-                }
-                .buttonStyle(.glass)
-                .buttonBorderShape(.circle)
-                .accessibilityLabel(model.cameraOn ? "Turn the camera off: microphone only" : "Turn the camera on")
-
-                Button(action: model.toggleMic) {
-                    Image(systemName: model.micOn ? "mic.fill" : "mic.slash.fill")
-                        .font(.title3)
-                        .contentTransition(.symbolEffect(.replace))
-                        .frame(width: 52, height: 52)
-                }
-                .buttonStyle(.glass)
-                .buttonBorderShape(.circle)
-                .accessibilityLabel(model.micOn ? "Turn the microphone off" : "Turn the microphone on")
+                round(model.cameraOn ? "video.fill" : "video.slash.fill", action: model.toggleCamera)
+                    .accessibilityLabel(model.cameraOn ? "Turn the camera off: microphone only" : "Turn the camera on")
+                round(model.micOn ? "mic.fill" : "mic.slash.fill", action: model.toggleMic)
+                    .accessibilityLabel(model.micOn ? "Turn the microphone off" : "Turn the microphone on")
             }
         }
+    }
+
+    private func round(_ symbol: String, action: @escaping () -> Void) -> some View {
+        Button(action: action) {
+            Image(systemName: symbol)
+                .font(.system(size: 22, weight: .medium))
+                .contentTransition(.symbolEffect(.replace))
+                .frame(width: Self.button, height: Self.button)
+        }
+        .buttonStyle(.glass)
+        .buttonBorderShape(.circle)
     }
 
     /// The button for the lens now in use: the highest preset at or under the zoom.
@@ -128,36 +138,70 @@ struct CameraScreen: View {
     }
 }
 
-struct StatusPill: View {
-    let status: Model.Status
+/// Connected: a small badge at the top, as the Camera app marks what it's doing; nothing more.
+struct LiveBadge: View {
     let cameraOn: Bool
 
     var body: some View {
         HStack(spacing: 6) {
-            Circle().fill(color).frame(width: 7, height: 7)
-            Text(text).font(.footnote.weight(.medium)).lineLimit(1)
+            Circle().fill(.green).frame(width: 6, height: 6)
+            Text(cameraOn ? "Live" : "Microphone only")
+                .font(.caption.weight(.semibold))
         }
-        .padding(.horizontal, 12)
-        .padding(.vertical, 7)
+        .padding(.horizontal, 10)
+        .frame(height: 26)
         .glassEffect(.regular, in: .capsule)
+        .accessibilityElement(children: .combine)
+        .accessibilityLabel(cameraOn ? "Connected: the computer sees and hears this iPhone" : "Connected: microphone only")
+    }
+}
+
+/// Not connected yet: what to do, in the middle of the screen, in a sentence.
+struct Waiting: View {
+    let status: Model.Status
+
+    var body: some View {
+        VStack(spacing: 10) {
+            if status == .starting {
+                ProgressView().controlSize(.large)
+            } else {
+                Image(systemName: symbol)
+                    .font(.system(size: 40, weight: .light))
+                    .foregroundStyle(.secondary)
+                    .padding(.bottom, 4)
+            }
+            Text(title).font(.title3.weight(.semibold))
+            if let detail {
+                Text(detail).font(.subheadline).foregroundStyle(.secondary)
+            }
+        }
+        .multilineTextAlignment(.center)
         .accessibilityElement(children: .combine)
     }
 
-    private var text: String {
+    private var symbol: String {
         switch status {
-        case .starting: "Starting"
-        case .needsAccess: "Allow the camera in Settings"
-        case .waiting: "Plug into your computer"
-        case .connected: cameraOn ? "Connected" : "Connected · Microphone only"
-        case .failed(let why): why
+        case .needsAccess: "video.slash"
+        case .failed: "exclamationmark.triangle"
+        default: "cable.connector"
         }
     }
 
-    private var color: Color {
+    private var title: String {
         switch status {
-        case .connected: .green
-        case .failed, .needsAccess: .red
-        default: .secondary
+        case .starting: "Starting"
+        case .needsAccess: "Allow the camera"
+        case .failed: "Something went wrong"
+        default: "Plug into your computer"
+        }
+    }
+
+    private var detail: String? {
+        switch status {
+        case .needsAccess: "Turn on Camera and Microphone for Skykeep in Settings."
+        case .failed(let why): why
+        case .waiting: "Use a cable, and turn on iPhone in Skykeep's Settings on the computer."
+        default: nil
         }
     }
 }

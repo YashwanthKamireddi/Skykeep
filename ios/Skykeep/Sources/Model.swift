@@ -81,7 +81,8 @@ final class Model {
         // 1× when the camera opens (the combined camera starts at its widest, 0.5×): set at
         // once, not glided, since a glide before the camera runs is dropped.
         if side == .back { camera.setZoom(toShown: 1) }
-        microphone.face(side)
+        let microphone = self.microphone
+        audioQueue.async { microphone.face(side) }
         watchRotation(of: device)
         return true
     }
@@ -101,14 +102,21 @@ final class Model {
         camera.setZoom(toShown: pinchStart * scale)
     }
 
+    /// The audio session and engine are started and stopped here, off the main thread: they
+    /// block for a tenth of a second or more, and on the main thread every touch waited.
+    private let audioQueue = DispatchQueue(label: "microphone", qos: .userInitiated)
+
     private func startMicrophone() {
-        do {
-            try microphone.start()
-            // The session exists now: the microphone on the camera's side.
-            microphone.face(side)
-        } catch {
-            log.error("microphone failed to start: \(error.localizedDescription, privacy: .public)")
-            micOn = false
+        let microphone = self.microphone, side = self.side
+        audioQueue.async {
+            do {
+                try microphone.start()
+                // The session exists now: the microphone on the camera's side.
+                microphone.face(side)
+            } catch {
+                log.error("microphone failed to start: \(error.localizedDescription, privacy: .public)")
+                Task { @MainActor [weak self] in self?.micOn = false }
+            }
         }
     }
 
@@ -145,7 +153,12 @@ final class Model {
 
     func toggleMic() {
         micOn.toggle()
-        if micOn { startMicrophone() } else { microphone.stop() }
+        if micOn {
+            startMicrophone()
+        } else {
+            let microphone = self.microphone
+            audioQueue.async { microphone.stop() }
+        }
     }
 
     /// Apple's rotation coordinator: the angle that keeps the horizon level for the picture

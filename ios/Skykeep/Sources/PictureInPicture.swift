@@ -21,6 +21,12 @@ final class PictureInPicture: NSObject, AVPictureInPictureSampleBufferPlaybackDe
         controller = c
     }
 
+    /// Back in front: the floating preview goes, wherever it was (a preview left tucked at the
+    /// screen's edge stayed there over the app, a stray tab on its left).
+    func appInFront() {
+        if controller?.isPictureInPictureActive == true { controller?.stopPictureInPicture() }
+    }
+
     /// Shows a captured frame at once, from the camera's queue.
     /// While the app is on screen the floating preview isn't showing: a few pictures a second
     /// keep it ready to take over, without the phone's work (and heat) of all sixty.
