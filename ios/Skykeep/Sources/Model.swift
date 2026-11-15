@@ -98,10 +98,10 @@ final class Model {
         rotationWatch.append(r.observe(\.videoRotationAngleForHorizonLevelCapture, options: [.initial, .new]) { r, _ in
             camera.setAngle(r.videoRotationAngleForHorizonLevelCapture)
         })
-        rotationWatch.append(r.observe(\.videoRotationAngleForHorizonLevelPreview, options: [.initial, .new]) { [weak previewLayer] r, _ in
+        rotationWatch.append(r.observe(\.videoRotationAngleForHorizonLevelPreview, options: [.initial, .new]) { [weak self] r, _ in
             let angle = r.videoRotationAngleForHorizonLevelPreview
             Task { @MainActor in
-                if let c = previewLayer?.connection, c.isVideoRotationAngleSupported(angle) { c.videoRotationAngle = angle }
+                if let c = self?.previewLayer?.connection, c.isVideoRotationAngleSupported(angle) { c.videoRotationAngle = angle }
             }
         })
     }
