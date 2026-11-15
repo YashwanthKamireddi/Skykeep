@@ -3100,18 +3100,24 @@ export function PhotosView() {
     ? (album?.id === shownAs.album.id ? album.name : shownAs.album.name)
     : [...VIEWS, ...MEDIA, ...UTILITIES].find((v) => v.key === shownAs.view)?.label ?? "Photos";
   const waitingFor = waiting ? Math.min(84, album ? (albums.find(([a]) => a.id === album.id)?.[1] ?? 21) : (counts[view] ?? 21)) : 0;
-  // A view arrives at its top, not wherever the last one was scrolled to — and settles in with a
-  // short fade (drawn frame by frame by the page, never the compositor's, which glitched on his
-  // screen), from part-shown so there is never an empty moment between the two.
+  // A view arrives at its newest photos, not wherever the last one was scrolled to: at its top
+  // when newest come first, at its foot when oldest come first — as Photos on a Mac and an
+  // iPhone opens on the latest at the bottom (discussion #39: oldest first opened in 2013). It
+  // settles in with a short fade (drawn frame by frame by the page, never the compositor's,
+  // which glitched on his screen), from part-shown so there is never an empty moment.
   const firstDraw = useRef(true);
   useLayoutEffect(() => {
-    if (scroller.current) scroller.current.scrollTop = 0;
+    const el = scroller.current;
+    // At the foot, held there while the months below are measured and the grid grows (let go
+    // the moment the person scrolls).
+    if (el && sort?.oldest) scrollHeld(el, () => el.scrollHeight - el.clientHeight - el.scrollTop, true);
+    else if (el) el.scrollTop = 0;
     if (firstDraw.current) {
       firstDraw.current = false;
       return;
     }
     fadeIn(scroller.current, { from: 0.35, duration: 160 });
-  }, [drawn]);
+  }, [drawn, sort?.oldest, sort?.by]); // eslint-disable-line react-hooks/exhaustive-deps
   const across = ACROSS[zoom];
   /*
    * A zoom keeps its place, as Photos': the selected photo — or, with none in view, the photo at
