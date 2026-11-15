@@ -25,19 +25,6 @@ enum class SmartPlace(val key: String, val title: String, val accentArgb: Long) 
  * Decides whether a widget should quietly ask for a background sync: only when not paused by
  * Advanced Data Protection and enough time has passed since the last sync or widget request.
  */
-fun shouldRequestSmartSync(
-  nowMs: Long,
-  lastOutcomeAtMs: Long,
-  lastRequestedAtMs: Long,
-  paused: Boolean,
-  minIntervalMs: Long,
-): Boolean {
-  if (paused) return false
-  val latest = maxOf(lastOutcomeAtMs, lastRequestedAtMs)
-  if (latest <= 0L) return true
-  return (nowMs - latest) >= minIntervalMs
-}
-
 /** Formatted reminder due label and whether it is past due. */
 data class DueDisplay(val text: String, val overdue: Boolean)
 

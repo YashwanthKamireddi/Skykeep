@@ -75,7 +75,6 @@ class RemindersWidget : GlanceAppWidget() {
   override val previewSizeMode = SizeMode.Responsive(setOf(DpSize(260.dp, 220.dp)))
 
   override suspend fun provideGlance(context: Context, id: GlanceId) {
-    WidgetUpdates.scheduleSmartSyncReminders(context)
     provideContent {
       val prefs = currentState<Preferences>()
       val tick by WidgetUpdates.remindersTick.collectAsState()
@@ -187,7 +186,7 @@ private fun RemindersWidgetContent(
           if (snapshot.signedIn && snapshot.items.isNotEmpty()) {
             Spacer(GlanceModifier.width(6.dp))
             Text(
-              text = "${snapshot.items.size}",
+              text = "${snapshot.items.size + snapshot.more}",
               maxLines = 1,
               style = TextStyle(
                 color = GlanceTheme.colors.onSurfaceVariant,
@@ -266,6 +265,18 @@ private fun RemindersWidgetContent(
                     ),
                   ),
                 )
+              }
+              if (snapshot.more > 0) {
+                item(itemId = Long.MIN_VALUE) {
+                  Text(
+                    text = "${snapshot.more} more",
+                    modifier = GlanceModifier
+                      .fillMaxWidth()
+                      .padding(horizontal = 16.dp, vertical = 10.dp)
+                      .let { if (isPreview) it else it.clickable(actionStartActivity(openPlaceIntent)) },
+                    style = TextStyle(color = GlanceTheme.colors.onSurfaceVariant, fontSize = 13.sp),
+                  )
+                }
               }
             }
           }
@@ -463,10 +474,6 @@ class SwitchSmartViewAction : ActionCallback {
     }
     WidgetUpdates.bumpRemindersTick()
     RemindersWidget().update(context, glanceId)
-    WidgetUpdates.scheduleSmartSyncReminders(
-      context,
-      minIntervalMs = WidgetUpdates.INTERACTIVE_REMINDERS_SYNC_INTERVAL_MS,
-    )
   }
 }
 
@@ -476,6 +483,5 @@ class RemindersWidgetReceiver : GlanceAppWidgetReceiver() {
   override fun onUpdate(context: Context, appWidgetManager: AppWidgetManager, appWidgetIds: IntArray) {
     WidgetUpdates.bumpRemindersTick()
     super.onUpdate(context, appWidgetManager, appWidgetIds)
-    WidgetUpdates.scheduleSmartSyncReminders(context)
   }
 }

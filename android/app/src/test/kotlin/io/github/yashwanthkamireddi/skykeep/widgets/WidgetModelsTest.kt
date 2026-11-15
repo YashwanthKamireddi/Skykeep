@@ -135,23 +135,4 @@ class WidgetModelsTest {
     assertEquals("Tomorrow", groups[1].label)
     assertEquals(listOf("Tomorrow review"), groups[1].events.map { it.title })
   }
-
-  @Test
-  fun smart_sync_throttles_recent_requests_and_respects_adp_pause() {
-    val interval = 5 * 60_000L
-    val t0 = 1_700_000_000_000L
-
-    // Never synced yet -> should sync.
-    assertTrue(shouldRequestSmartSync(t0, 0L, 0L, paused = false, minIntervalMs = interval))
-
-    // Paused by Advanced Data Protection -> never request automatically.
-    assertFalse(shouldRequestSmartSync(t0, 0L, 0L, paused = true, minIntervalMs = interval))
-
-    // Synced or requested within the cooldown window -> skip.
-    assertFalse(shouldRequestSmartSync(t0, t0 - 60_000L, 0L, paused = false, minIntervalMs = interval))
-    assertFalse(shouldRequestSmartSync(t0, 0L, t0 - 60_000L, paused = false, minIntervalMs = interval))
-
-    // Past cooldown window -> sync again.
-    assertTrue(shouldRequestSmartSync(t0, t0 - interval, t0 - interval - 1_000L, paused = false, minIntervalMs = interval))
-  }
 }

@@ -67,7 +67,6 @@ class AgendaWidget : GlanceAppWidget() {
   override val previewSizeMode = SizeMode.Responsive(setOf(DpSize(260.dp, 220.dp)))
 
   override suspend fun provideGlance(context: Context, id: GlanceId) {
-    WidgetUpdates.scheduleSmartSyncAgenda(context)
     provideContent {
       val prefs = currentState<Preferences>()
       val tick by WidgetUpdates.agendaTick.collectAsState()
@@ -358,6 +357,5 @@ class AgendaWidgetReceiver : GlanceAppWidgetReceiver() {
   override fun onUpdate(context: Context, appWidgetManager: AppWidgetManager, appWidgetIds: IntArray) {
     WidgetUpdates.bumpAgendaTick()
     super.onUpdate(context, appWidgetManager, appWidgetIds)
-    WidgetUpdates.scheduleSmartSyncAgenda(context)
   }
 }

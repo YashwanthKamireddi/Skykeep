@@ -55,7 +55,6 @@ class QuickAddWidget : GlanceAppWidget() {
   override val previewSizeMode = SizeMode.Responsive(setOf(DpSize(240.dp, 56.dp)))
 
   override suspend fun provideGlance(context: Context, id: GlanceId) {
-    WidgetUpdates.scheduleSmartSyncReminders(context)
     provideContent {
       val prefs = currentState<Preferences>()
       val tick by WidgetUpdates.remindersTick.collectAsState()
@@ -200,6 +199,5 @@ class QuickAddWidgetReceiver : GlanceAppWidgetReceiver() {
   override fun onUpdate(context: Context, appWidgetManager: AppWidgetManager, appWidgetIds: IntArray) {
     WidgetUpdates.bumpRemindersTick()
     super.onUpdate(context, appWidgetManager, appWidgetIds)
-    WidgetUpdates.scheduleSmartSyncReminders(context)
   }
 }

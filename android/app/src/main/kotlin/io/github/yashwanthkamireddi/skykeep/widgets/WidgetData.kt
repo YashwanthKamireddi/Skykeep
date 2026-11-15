@@ -5,8 +5,6 @@ import android.appwidget.AppWidgetManager
 import android.content.ContentResolver
 import android.content.Context
 import android.content.pm.PackageManager
-import android.net.ConnectivityManager
-import android.net.NetworkCapabilities
 import android.os.Build
 import android.os.Bundle
 import android.provider.CalendarContract
@@ -20,7 +18,6 @@ import androidx.glance.appwidget.GlanceAppWidgetManager
 import androidx.glance.appwidget.state.updateAppWidgetState
 import io.github.yashwanthkamireddi.skykeep.Engine
 import io.github.yashwanthkamireddi.skykeep.sync.ACCOUNT_TYPE
-import io.github.yashwanthkamireddi.skykeep.sync.Outcome
 import io.github.yashwanthkamireddi.skykeep.sync.REMINDERS_AUTHORITY
 import io.github.yashwanthkamireddi.skykeep.sync.ReminderAlerts
 import io.github.yashwanthkamireddi.skykeep.sync.currentAccount
@@ -58,6 +55,8 @@ data class RemindersSnapshot(
   val lists: List<RList>,
   val items: List<RItem>,
   val subItemGuids: Set<String>,
+  /** Open reminders past [WidgetUpdates.MOST_ROWS], not drawn: the widget says how many. */
+  val more: Int = 0,
 )
 
 /** Snapshot rendered by [AgendaWidget]. */
@@ -128,6 +127,9 @@ object WidgetData {
       .flatMap { listOf(it) + children[it.guid].orEmpty() }
     val subGuids = ordered.filter { it.parentGuid != null && it.parentGuid in listed }.mapTo(HashSet()) { it.guid }
 
+    // A widget is one RemoteViews, and Android refuses one too large ("Problem loading
+    // widget"): a long list is cut, its rest counted.
+    val shown = ordered.take(WidgetUpdates.MOST_ROWS)
     return RemindersSnapshot(
       signedIn = true,
       viewKind = effectiveKind,
@@ -137,8 +139,9 @@ object WidgetData {
       accentColor = accent,
       counts = counts,
       lists = lists,
-      items = ordered,
+      items = shown,
       subItemGuids = subGuids,
+      more = ordered.size - shown.size,
     )
   }
 
@@ -282,14 +285,11 @@ object WidgetData {
 
 /** Coordinates Glance widget updates, intelligent auto-sync, and Android 15 previews. */
 object WidgetUpdates {
-  private const val SMART_SYNC_PREFS = "widget_smart_sync"
-  private const val KEY_REMINDERS_REQ_AT = "reminders_req_at"
-  private const val KEY_CALENDAR_REQ_AT = "calendar_req_at"
-  const val DEFAULT_REMINDERS_SYNC_INTERVAL_MS = 5 * 60_000L
-  const val INTERACTIVE_REMINDERS_SYNC_INTERVAL_MS = 2 * 60_000L
-  const val DEFAULT_AGENDA_SYNC_INTERVAL_MS = 10 * 60_000L
 
   private val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
+
+  /** The most reminders one widget draws. */
+  const val MOST_ROWS = 50
 
   private val _remindersTick = MutableStateFlow(0L)
   val remindersTick = _remindersTick.asStateFlow()
@@ -346,67 +346,6 @@ object WidgetUpdates {
   fun scheduleAll(context: Context) {
     val app = context.applicationContext
     scope.launch { all(app) }
-  }
-
-  private fun isNetworkReady(context: Context): Boolean {
-    val cm = context.getSystemService(ConnectivityManager::class.java) ?: return false
-    val network = cm.activeNetwork ?: return false
-    val caps = cm.getNetworkCapabilities(network) ?: return false
-    return caps.hasCapability(NetworkCapabilities.NET_CAPABILITY_INTERNET) &&
-      caps.hasCapability(NetworkCapabilities.NET_CAPABILITY_VALIDATED)
-  }
-
-  fun smartSyncRemindersIfStale(
-    context: Context,
-    minIntervalMs: Long = DEFAULT_REMINDERS_SYNC_INTERVAL_MS,
-  ) {
-    val app = context.applicationContext
-    if (currentAccount(app) == null || !Engine.account(app).hasSession()) return
-    if (!isNetworkReady(app)) return
-    val prefs = app.getSharedPreferences(SMART_SYNC_PREFS, Context.MODE_PRIVATE)
-    val outcome = Outcome.last(app, REMINDERS_AUTHORITY)
-    val now = System.currentTimeMillis()
-    val lastReq = prefs.getLong(KEY_REMINDERS_REQ_AT, 0L)
-    if (!shouldRequestSmartSync(now, outcome?.at ?: 0L, lastReq, outcome?.paused == true, minIntervalMs)) {
-      return
-    }
-    prefs.edit().putLong(KEY_REMINDERS_REQ_AT, now).apply()
-    WidgetData.requestRemindersSync(app)
-  }
-
-  fun smartSyncAgendaIfStale(
-    context: Context,
-    minIntervalMs: Long = DEFAULT_AGENDA_SYNC_INTERVAL_MS,
-  ) {
-    val app = context.applicationContext
-    if (currentAccount(app) == null || !Engine.account(app).hasSession()) return
-    if (ContextCompat.checkSelfPermission(app, Manifest.permission.READ_CALENDAR) != PackageManager.PERMISSION_GRANTED) return
-    if (!isNetworkReady(app)) return
-    val prefs = app.getSharedPreferences(SMART_SYNC_PREFS, Context.MODE_PRIVATE)
-    val outcome = Outcome.last(app, CalendarContract.AUTHORITY)
-    val now = System.currentTimeMillis()
-    val lastReq = prefs.getLong(KEY_CALENDAR_REQ_AT, 0L)
-    if (!shouldRequestSmartSync(now, outcome?.at ?: 0L, lastReq, outcome?.paused == true, minIntervalMs)) {
-      return
-    }
-    prefs.edit().putLong(KEY_CALENDAR_REQ_AT, now).apply()
-    WidgetData.requestCalendarSync(app)
-  }
-
-  fun scheduleSmartSyncReminders(
-    context: Context,
-    minIntervalMs: Long = DEFAULT_REMINDERS_SYNC_INTERVAL_MS,
-  ) {
-    val app = context.applicationContext
-    scope.launch { runCatching { smartSyncRemindersIfStale(app, minIntervalMs) } }
-  }
-
-  fun scheduleSmartSyncAgenda(
-    context: Context,
-    minIntervalMs: Long = DEFAULT_AGENDA_SYNC_INTERVAL_MS,
-  ) {
-    val app = context.applicationContext
-    scope.launch { runCatching { smartSyncAgendaIfStale(app, minIntervalMs) } }
   }
 
   /**
