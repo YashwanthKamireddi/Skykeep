@@ -136,6 +136,7 @@ object SignOut {
     // Cached pictures (Hidden ones included), Drive copies and shared copies are the session's
     // too: re-fetched by whoever signs in next, never left readable from this one.
     for (dir in listOf("photos", "drive", "share", "send", "drive-new", "drive-thumbs", "drive-parts")) java.io.File(context.cacheDir, dir).deleteRecursively()
+    io.github.yashwanthkamireddi.skykeep.widgets.WidgetUpdates.scheduleAll(context)
     return gone
   }
 
@@ -168,5 +169,6 @@ object SignOut {
     for (prefs in listOf("sync-outcome", "photo-backup")) {
       context.getSharedPreferences(prefs, Context.MODE_PRIVATE).edit().clear().commit()
     }
+    io.github.yashwanthkamireddi.skykeep.widgets.WidgetUpdates.scheduleAll(context)
   }
 }

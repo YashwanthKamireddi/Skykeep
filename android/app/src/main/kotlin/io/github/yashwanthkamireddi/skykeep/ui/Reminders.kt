@@ -96,6 +96,9 @@ import io.github.yashwanthkamireddi.skykeep.R
 import io.github.yashwanthkamireddi.skykeep.sync.Outcome
 import io.github.yashwanthkamireddi.skykeep.sync.REMINDERS_AUTHORITY
 import io.github.yashwanthkamireddi.skykeep.sync.ReminderAlerts
+import io.github.yashwanthkamireddi.skykeep.widgets.SmartPlace
+import io.github.yashwanthkamireddi.skykeep.widgets.WidgetLaunchTarget
+import io.github.yashwanthkamireddi.skykeep.widgets.WidgetUpdates
 import java.time.Instant
 import java.time.LocalDate
 import java.time.LocalTime
@@ -159,7 +162,11 @@ private fun syncReminders(context: android.content.Context) {
  * so it opens at once and works offline; every change shows at once and is sent behind.
  */
 @Composable
-fun RemindersPage(engine: AccountInterface) {
+fun RemindersPage(
+  engine: AccountInterface,
+  widgetTarget: WidgetLaunchTarget? = null,
+  onWidgetTargetConsumed: () -> Unit = {},
+) {
   val context = LocalContext.current
   val scope = rememberCoroutineScope()
   var place by rememberSaveable(stateSaver = PlaceSaver) { mutableStateOf<Place?>(null) }
@@ -168,6 +175,7 @@ fun RemindersPage(engine: AccountInterface) {
   var items by remember { mutableStateOf<List<RItem>>(emptyList()) }
   var showDone by remember { mutableStateOf(false) }
   var editing by remember { mutableStateOf<RItem?>(null) }
+  var pendingEditGuid by remember { mutableStateOf<String?>(null) }
   var listInfo by remember { mutableStateOf<RList?>(null) }
   var newList by remember { mutableStateOf(false) }
   var deleting by remember { mutableStateOf<RList?>(null) }
@@ -188,6 +196,19 @@ fun RemindersPage(engine: AccountInterface) {
       }
     }.onSuccess { (l, c, i) ->
       lists = l; counts = c; items = i ?: emptyList(); problem = null
+      p?.listGuid?.let { guid ->
+        l.firstOrNull { it.guid == guid }?.let { matched ->
+          if (place?.listGuid == guid) {
+            place = place?.copy(title = matched.title, colour = colourOf(matched.colour))
+          }
+        }
+      }
+      pendingEditGuid?.let { guid ->
+        if (i != null) {
+          editing = i.firstOrNull { it.guid == guid }
+          pendingEditGuid = null
+        }
+      }
     }.onFailure { problem = (it as? uniffi.quince_mobile.EngineException.Failed)?.reason ?: "Reminders couldn't be read." }
   }
 
@@ -196,7 +217,10 @@ fun RemindersPage(engine: AccountInterface) {
     val ok = runCatching { withContext(Dispatchers.IO) { write() } }
     ok.exceptionOrNull()?.let { problem = (it as? uniffi.quince_mobile.EngineException.Failed)?.reason ?: it.message }
     reload()
-    withContext(Dispatchers.IO) { ReminderAlerts.schedule(context) }
+    withContext(Dispatchers.IO) {
+      ReminderAlerts.schedule(context)
+      WidgetUpdates.reminders(context)
+    }
     syncReminders(context)
   }
 
@@ -205,6 +229,7 @@ fun RemindersPage(engine: AccountInterface) {
     runCatching { withContext(Dispatchers.IO) { write() } }
       .onFailure { problem = (it as? uniffi.quince_mobile.EngineException.Failed)?.reason ?: "$what didn't reach iCloud." }
     reload()
+    withContext(Dispatchers.IO) { WidgetUpdates.reminders(context) }
   }
 
   // Alerts need the permission on Android 13 and later: asked once, when Reminders first opens.
@@ -215,6 +240,33 @@ fun RemindersPage(engine: AccountInterface) {
     ) notify.launch(Manifest.permission.POST_NOTIFICATIONS)
     syncReminders(context)
   }
+  LaunchedEffect(widgetTarget?.id) {
+    val target = widgetTarget ?: return@LaunchedEffect
+    val nextPlace = when {
+      target.viewKind == "list" && target.listGuid != null -> {
+        val matched = lists.firstOrNull { it.guid == target.listGuid }
+        Place(
+          title = matched?.title ?: target.listTitle ?: "Reminders",
+          colour = colourOf(matched?.colour),
+          view = RView.List(target.listGuid, false),
+          listGuid = target.listGuid,
+        )
+      }
+      target.viewKind == SmartPlace.SCHEDULED.key ->
+        Place("Scheduled", Color(Palette.Smart.SCHEDULED), RView.Scheduled, icon = R.drawable.ic_calendar)
+      target.viewKind == SmartPlace.FLAGGED.key ->
+        Place("Flagged", Color(Palette.Smart.FLAGGED), RView.Flagged, icon = R.drawable.ic_flag)
+      target.viewKind == SmartPlace.ALL.key ->
+        Place("All", Color(Palette.Smart.ALL), RView.All, icon = R.drawable.ic_inbox)
+      else ->
+        Place("Today", Color(Palette.Smart.TODAY), RView.Today, icon = R.drawable.ic_today)
+    }
+    pendingEditGuid = target.reminderGuid
+    place = nextPlace
+    showDone = false
+    generation++
+    onWidgetTargetConsumed()
+  }
   // Read again whenever a sync finishes (Android runs them; the outcome is written when done).
   DisposableEffect(Unit) {
     val stop = Outcome.watch(context) { generation++ }
@@ -222,7 +274,10 @@ fun RemindersPage(engine: AccountInterface) {
   }
   LaunchedEffect(place, showDone, generation) { reload() }
   // Back from a list returns to the overview.
-  androidx.activity.compose.BackHandler(enabled = place != null) { place = null }
+  androidx.activity.compose.BackHandler(enabled = place != null) {
+    pendingEditGuid = null
+    place = null
+  }
 
   Column(Modifier.fillMaxSize()) {
     problem?.let {

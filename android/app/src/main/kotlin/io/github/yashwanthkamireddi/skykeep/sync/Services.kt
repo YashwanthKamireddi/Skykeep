@@ -105,6 +105,7 @@ internal fun calendarPass(context: Context, engine: uniffi.quince_mobile.Account
   // The sync worked: Apple answered. What it refused stays on this phone, said separately.
   val (here, why) = CalendarSync.onlyHere(context.contentResolver, a)
   Outcome.record(context, authority, true, said, held = done.held + sent.held, onlyHere = here, why = why)
+  runCatching { runBlocking { io.github.yashwanthkamireddi.skykeep.widgets.WidgetUpdates.agenda(context) } }
   if (sent.later > 0) Pass.Again else Pass.Done
 } catch (x: Exception) {
   if (!x.fromEngine()) throw x

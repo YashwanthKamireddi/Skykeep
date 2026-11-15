@@ -1,6 +1,7 @@
 package io.github.yashwanthkamireddi.skykeep
 
 import android.content.Context
+import android.content.Intent
 import android.os.Bundle
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
@@ -24,6 +25,9 @@ import io.github.yashwanthkamireddi.skykeep.ui.Welcome
 import io.github.yashwanthkamireddi.skykeep.ui.allowed
 import io.github.yashwanthkamireddi.skykeep.ui.phoneAccount
 import io.github.yashwanthkamireddi.skykeep.ui.theme.SkykeepTheme
+import io.github.yashwanthkamireddi.skykeep.widgets.WidgetIntents
+import io.github.yashwanthkamireddi.skykeep.widgets.WidgetLaunchTarget
+import io.github.yashwanthkamireddi.skykeep.widgets.WidgetUpdates
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import uniffi.quince_mobile.Account
@@ -40,8 +44,11 @@ private fun markWelcomed(context: Context) =
   context.getSharedPreferences("settings", Context.MODE_PRIVATE).edit().putBoolean("welcomed", true).apply()
 
 class MainActivity : ComponentActivity() {
+  private var widgetLaunch by mutableStateOf<WidgetLaunchTarget?>(null)
+
   override fun onCreate(savedInstanceState: Bundle?) {
     super.onCreate(savedInstanceState)
+    widgetLaunch = WidgetIntents.parseLaunchTarget(intent)
     enableEdgeToEdge()
     setContent {
       SkykeepTheme {
@@ -49,6 +56,7 @@ class MainActivity : ComponentActivity() {
           var stage by remember { mutableStateOf(Stage.Starting) }
           var engine by remember { mutableStateOf<Account?>(null) }
           LaunchedEffect(Unit) {
+            withContext(Dispatchers.IO) { WidgetUpdates.publishPreviewsIfNeeded(applicationContext) }
             // From the phone alone: a kept session opens the library at once, offline included;
             // Apple is asked behind it, and only Apple refusing the session (or Apple wanting a
             // code) brings sign-in up. The screen never waits on the network to draw.
@@ -85,7 +93,10 @@ class MainActivity : ComponentActivity() {
               }
             }
             // Drive saves an earlier run held and had not sent yet go now.
-            if (kept) io.github.yashwanthkamireddi.skykeep.sync.DriveWrites.resume(applicationContext)
+            if (kept) {
+              io.github.yashwanthkamireddi.skykeep.sync.DriveWrites.resume(applicationContext)
+              WidgetUpdates.scheduleAll(applicationContext)
+            }
           }
           when (stage) {
             Stage.Starting -> Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) { CircularProgressIndicator() }
@@ -96,11 +107,25 @@ class MainActivity : ComponentActivity() {
               SessionEnded.clear(applicationContext)
               stage = Stage.Setup
             }
-            Stage.Setup -> Setup { stage = Stage.Main }
-            Stage.Main -> MainScreens(engine!!) { stage = Stage.SignIn }
+            Stage.Setup -> Setup {
+              WidgetUpdates.scheduleAll(applicationContext)
+              stage = Stage.Main
+            }
+            Stage.Main -> MainScreens(
+              engine = engine!!,
+              widgetLaunch = widgetLaunch,
+              onWidgetLaunchConsumed = { widgetLaunch = null },
+              onSignedOut = { stage = Stage.SignIn },
+            )
           }
         }
       }
     }
+  }
+
+  override fun onNewIntent(intent: Intent) {
+    super.onNewIntent(intent)
+    setIntent(intent)
+    WidgetIntents.parseLaunchTarget(intent)?.let { widgetLaunch = it }
   }
 }

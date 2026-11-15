@@ -118,7 +118,10 @@ object ReminderAlerts {
     }
   }
 
-  internal fun onFire(context: Context) = schedule(context)
+  internal fun onFire(context: Context) {
+    schedule(context)
+    io.github.yashwanthkamireddi.skykeep.widgets.WidgetUpdates.scheduleReminders(context)
+  }
 
   /** Completed from the alert: ticked in the library at once, sent with a Reminders sync. */
   internal fun onDone(context: Context, guid: String) {
@@ -140,6 +143,11 @@ object ReminderAlerts {
       })
     }
     schedule(context)
+    runCatching {
+      kotlinx.coroutines.runBlocking {
+        io.github.yashwanthkamireddi.skykeep.widgets.WidgetUpdates.reminders(context)
+      }
+    }
   }
 
   internal const val FIRE = ACTION_FIRE

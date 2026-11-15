@@ -109,11 +109,24 @@ private enum class Page { Contacts, Calendar, Settings, Licences }
  */
 @OptIn(androidx.compose.material3.ExperimentalMaterial3Api::class)
 @Composable
-fun MainScreens(engine: uniffi.quince_mobile.AccountInterface, onSignedOut: () -> Unit) {
+fun MainScreens(
+  engine: uniffi.quince_mobile.AccountInterface,
+  widgetLaunch: io.github.yashwanthkamireddi.skykeep.widgets.WidgetLaunchTarget? = null,
+  onWidgetLaunchConsumed: () -> Unit = {},
+  onSignedOut: () -> Unit,
+) {
   val context = LocalContext.current
   // Kept through a rotation or a light/dark switch (Android rebuilds the screen for both).
   var tab by rememberSaveable { mutableStateOf(Tab.Home) }
   var page by rememberSaveable { mutableStateOf<Page?>(null) }
+  var pendingReminderTarget by remember { mutableStateOf<io.github.yashwanthkamireddi.skykeep.widgets.WidgetLaunchTarget?>(null) }
+  LaunchedEffect(widgetLaunch?.id) {
+    val target = widgetLaunch ?: return@LaunchedEffect
+    tab = Tab.Reminders
+    page = null
+    pendingReminderTarget = target
+    onWidgetLaunchConsumed()
+  }
   // Back goes up one level: a page to Home, another tab to Home, then out of the app.
   androidx.activity.compose.BackHandler(enabled = page != null || tab != Tab.Home) { if (page != null) page = null else tab = Tab.Home }
   var asked by remember { mutableLongStateOf(0L) }
@@ -153,7 +166,11 @@ fun MainScreens(engine: uniffi.quince_mobile.AccountInterface, onSignedOut: () -
           Tab.Notes -> AppTheme(Palette.App.Notes) { NotesPage(engine) }
           Tab.Photos -> PhotosPage(engine)
           Tab.Drive -> DrivePage(engine)
-          else -> RemindersPage(engine)
+          else -> RemindersPage(
+            engine = engine,
+            widgetTarget = pendingReminderTarget,
+            onWidgetTargetConsumed = { pendingReminderTarget = null },
+          )
         }
       }
     } else {
@@ -499,6 +516,7 @@ private fun CalendarPage(account: Account?) {
           Switch(checked = k.visible, onCheckedChange = { on ->
             calendars[i] = k.copy(visible = on)
             showCalendar(context, account!!, k.id, on)
+            io.github.yashwanthkamireddi.skykeep.widgets.WidgetUpdates.scheduleAgenda(context)
           })
         },
       )
@@ -654,6 +672,7 @@ private fun SettingsPage(engine: uniffi.quince_mobile.AccountInterface, account:
                       // as the desktop's Remove does; nothing of it is left in the app's storage.
                       if (!keep) { engine.forgetAccount(); SignOut.forgetHere(context) }
                       engine.signOut()
+                      io.github.yashwanthkamireddi.skykeep.widgets.WidgetUpdates.scheduleAll(context)
                     }
                   }
                   working = false

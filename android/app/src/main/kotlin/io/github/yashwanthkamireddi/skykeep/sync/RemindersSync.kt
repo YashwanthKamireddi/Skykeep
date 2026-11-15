@@ -44,4 +44,9 @@ internal fun remindersPass(context: Context, engine: uniffi.quince_mobile.Accoun
   Pass.Again
 } finally {
   ReminderAlerts.schedule(context)
+  runCatching {
+    kotlinx.coroutines.runBlocking {
+      io.github.yashwanthkamireddi.skykeep.widgets.WidgetUpdates.reminders(context)
+    }
+  }
 }
