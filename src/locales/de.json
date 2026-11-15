@@ -221,7 +221,8 @@
     "iphoneStateConnected": "Per Kabel verbunden",
     "iphoneStateLive": "Live",
     "iphoneStatePaused": "Pausiert",
-    "iphoneStateOff": "Aus"
+    "iphoneStateOff": "Aus",
+    "beta": "Beta"
   },
   "signin": {
     "title": "iCloud verbinden",

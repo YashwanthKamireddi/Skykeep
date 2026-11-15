@@ -2019,6 +2019,12 @@
 }
 .prefs-pane[hidden] { display: none; }
 .prefs-pane > :is(.prefs-title, .settings-heading, .visually-hidden, .prefs-hero, .launcher) { grid-column: 1 / -1; }
+/* A word beside a section's title (the iPhone's Beta): small, quiet, never a second title. */
+.prefs-badge {
+  display: inline-block; margin-left: 8px; padding: 2px 7px; border-radius: var(--r-pill);
+  vertical-align: 4px; font-size: var(--t-11); font-weight: 600; letter-spacing: 0.01em;
+  color: var(--text-2); background: color-mix(in srgb, var(--text) 8%, transparent);
+}
 .prefs-title { margin: 0 0 4px; font-size: var(--t-22); font-weight: 700; letter-spacing: -0.015em; line-height: 1.2; }
 .prefs-pane > .settings-heading { margin: 0 0 -8px; }
 .prefs-pane .settings-group { border-radius: var(--r-plateau); }

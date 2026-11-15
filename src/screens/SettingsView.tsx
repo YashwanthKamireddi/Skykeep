@@ -575,7 +575,7 @@ function IphoneCard({
     </div>
   );
   return (
-    <Pane id="iphone" shown={shown} title={t("settings.iphone")}>
+    <Pane id="iphone" shown={shown} title={t("settings.iphone")} badge={t("settings.beta")}>
       <div className="settings-group">
         <div className="settings-row">
           <span className="settings-label settings-stack">
@@ -1139,12 +1139,15 @@ function Pane({
   id,
   title,
   hideTitle,
+  badge,
   shown,
   children,
 }: {
   id: PaneId;
   title: string;
   hideTitle?: boolean;
+  /** A word beside the title, such as Beta, said as part of it. */
+  badge?: string;
   shown: boolean;
   children: ReactNode;
 }) {
@@ -1155,6 +1158,7 @@ function Pane({
     <section className="prefs-pane" id={`pane-${id}`} role="tabpanel" aria-labelledby={`card-${id}`} hidden={!shown}>
       <h2 id={`card-${id}`} className={hideTitle ? "visually-hidden" : "prefs-title"}>
         {title}
+        {badge && <span className="prefs-badge">{badge}</span>}
       </h2>
       {children}
     </section>

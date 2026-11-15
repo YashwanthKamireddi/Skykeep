@@ -221,7 +221,8 @@
     "iphoneStateConnected": "已通过数据线连接",
     "iphoneStateLive": "使用中",
     "iphoneStatePaused": "已暂停",
-    "iphoneStateOff": "关闭"
+    "iphoneStateOff": "关闭",
+    "beta": "测试版"
   },
   "signin": {
     "title": "连接您的 iCloud",
