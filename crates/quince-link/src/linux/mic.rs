@@ -180,6 +180,9 @@ fn run(
             *pw::keys::AUDIO_CHANNELS => "1",
             // A short cycle: each block handed to programs is 2.7 ms of sound.
             *pw::keys::NODE_LATENCY => "128/48000",
+            // Lower than any built-in device's, so the session manager never makes the iPhone
+            // the default by itself: programs list it, the person picks it.
+            *pw::keys::PRIORITY_SESSION => "100",
         },
     )?;
 

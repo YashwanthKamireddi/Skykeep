@@ -128,6 +128,9 @@ fn run(
             *pw::keys::MEDIA_CLASS => "Video/Source",
             *pw::keys::NODE_NAME => "skykeep-iphone-camera",
             *pw::keys::NODE_DESCRIPTION => name,
+            // Lower than any built-in device's, so the session manager never makes the iPhone
+            // the default by itself: programs list it, the person picks it.
+            *pw::keys::PRIORITY_SESSION => "100",
         },
     )?;
 
