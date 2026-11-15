@@ -39,7 +39,9 @@ def shape(tag, a):
             f"h{-(w-2*r)}a{r},{r} 0 0,1 {-r},{-r}v{-(h-2*r)}a{r},{r} 0 0,1 {r},{-r}z")
   if tag == "line": return f"M{a['x1']},{a['y1']}L{a['x2']},{a['y2']}"
   if tag in ("polyline", "polygon"):
-    return "M" + "L".join(a["points"].split()) + ("z" if tag == "polygon" else "")
+    pts = a["points"].replace(",", " ").split()
+    pairs = [f"{pts[i]},{pts[i + 1]}" for i in range(0, len(pts) - 1, 2)]
+    return "M" + "L".join(pairs) + ("z" if tag == "polygon" else "")
   raise SystemExit(f"no conversion for <{tag}>")
 for out, name in MAP.items():
   src = open(f"{L}/{name}.mjs").read()
