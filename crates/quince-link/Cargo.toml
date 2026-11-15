@@ -14,11 +14,15 @@ plist = "1"
 
 [target.'cfg(target_os = "linux")'.dependencies]
 pipewire = { version = "0.10", features = ["v0_3_49"] }
-ffmpeg-next = { version = "9.1", default-features = false, features = ["codec", "format", "software-scaling"] }
+gstreamer = "0.25"
+gstreamer-app = "0.25"
+gstreamer-video = "0.25"
+# The stand-in phone's encoder only (fakephone feature): the app itself decodes with GStreamer.
+ffmpeg-next = { version = "9.1", default-features = false, features = ["codec", "format"], optional = true }
 
 [features]
 # The stand-in phone (fakephone.rs), for tests and measurements only; never in the app.
-fakephone = []
+fakephone = ["dep:ffmpeg-next"]
 
 [dev-dependencies]
 quince-link = { path = ".", features = ["fakephone"] }

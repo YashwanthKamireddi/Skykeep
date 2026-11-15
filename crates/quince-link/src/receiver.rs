@@ -256,33 +256,32 @@ fn session(
 
 fn decode_pictures(
     format: VideoFormat,
-    camera: &Camera,
+    camera: &Arc<Camera>,
     rx: std::sync::mpsc::Receiver<Packet>,
     report: Arc<Mutex<Report>>,
     broken: &AtomicBool,
     clock: &AtomicI64,
 ) -> Result<()> {
-    let mut decoder = Decoder::new(format.codec)?;
+    let (cam, counted) = (camera.clone(), report.clone());
+    let (width, height) = (format.width, format.height);
+    let mut decoder = Decoder::new(format.codec, move |picture, captured| {
+        if picture.width == width && picture.height == height {
+            cam.show(picture, captured);
+            counted.lock().unwrap().pictures += 1;
+        }
+    })?;
     {
         let mut r = report.lock().unwrap();
         r.hardware_decoding = decoder.hardware;
         r.picture_delays = Some(camera.delays.clone());
     }
     for packet in rx {
-        match decoder.decode(&packet.body) {
-            Ok(Some(picture))
-                if picture.width == format.width && picture.height == format.height =>
-            {
-                camera.show(picture, packet.captured_us - clock.load(Ordering::Relaxed));
-                report.lock().unwrap().pictures += 1;
-            }
-            Ok(_) => {}
-            Err(e) => {
-                // One damaged picture: start again cleanly at the next keyframe.
-                eprintln!("iPhone camera: {e:#}; waiting for a keyframe");
-                decoder.flush();
-                broken.store(true, Ordering::Relaxed);
-            }
+        let captured = packet.captured_us - clock.load(Ordering::Relaxed);
+        if let Err(e) = decoder.decode(&packet.body, captured) {
+            // One damaged picture: start again cleanly at the next keyframe.
+            eprintln!("iPhone camera: {e:#}; waiting for a keyframe");
+            decoder.flush();
+            broken.store(true, Ordering::Relaxed);
         }
     }
     Ok(())

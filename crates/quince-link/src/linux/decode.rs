@@ -1,14 +1,20 @@
-//! The phone's pictures, decoded the moment they arrive.
+//! The phone's pictures, decoded the moment they arrive, through GStreamer.
 //!
-//! On the graphics chip (VA-API) when it can, which costs almost no processor time, and in
-//! software otherwise. Every setting is chosen for delay over throughput: one decoding thread
-//! (frame threads each hold a picture back), low-delay output, and no reordering, since the
-//! phone encodes without B-frames.
+//! GStreamer rather than linking FFmpeg directly: Skykeep already needs it (WebKitGTK plays
+//! video through it), its interface stays the same across distribution releases where
+//! FFmpeg's library versions change, and it brings each system's best decoder: the graphics
+//! chip's (VA-API, `vah264dec`) when there is one, FFmpeg's or OpenH264 in software otherwise.
+//!
+//! Every setting favours delay over throughput: the parser and decoder hand each picture on
+//! as soon as it is whole, the software decoder splits work within a picture rather than
+//! across pictures (frame threads each hold a picture back), and nothing waits on a clock.
 
-use std::ptr;
-
-use anyhow::{bail, Result};
-use ffmpeg_next::ffi::*;
+use anyhow::{anyhow, bail, Context, Result};
+use gstreamer as gst;
+use gstreamer::prelude::*;
+use gstreamer_app as gst_app;
+use gstreamer_video as gst_video;
+use gstreamer_video::prelude::*;
 
 use crate::protocol::Codec;
 
@@ -21,166 +27,183 @@ pub struct Picture {
 }
 
 pub struct Decoder {
-    ctx: *mut AVCodecContext,
-    frame: *mut AVFrame,
-    soft: *mut AVFrame,
-    packet: *mut AVPacket,
+    pipeline: gst::Pipeline,
+    source: gst_app::AppSrc,
     pub hardware: bool,
 }
 
-// The decoder is driven from one thread at a time; its pointers are its own.
-unsafe impl Send for Decoder {}
-
-unsafe extern "C" fn pick_vaapi(
-    ctx: *mut AVCodecContext,
-    offered: *const AVPixelFormat,
-) -> AVPixelFormat {
-    let mut p = offered;
-    while *p != AVPixelFormat::AV_PIX_FMT_NONE {
-        if *p == AVPixelFormat::AV_PIX_FMT_VAAPI {
-            return *p;
-        }
-        p = p.add(1);
-    }
-    // The chip can't take this stream after all (a profile it lacks): software takes over.
-    avcodec_default_get_format(ctx, offered)
-}
+/// Decoders in the order tried: the graphics chip's first.
+const DECODERS: &[(&str, &str, bool)] = &[
+    ("vah264dec", "vah265dec", true),
+    ("avdec_h264", "avdec_h265", false),
+    ("openh264dec", "", false),
+];
 
 impl Decoder {
-    pub fn new(codec: Codec) -> Result<Decoder> {
-        ffmpeg_next::init()?;
-        unsafe {
-            let id = match codec {
-                Codec::H264 => AVCodecID::AV_CODEC_ID_H264,
-                Codec::Hevc => AVCodecID::AV_CODEC_ID_HEVC,
-            };
-            let found = avcodec_find_decoder(id);
-            if found.is_null() {
-                bail!("this computer's FFmpeg has no {codec:?} decoder");
-            }
-            let ctx = avcodec_alloc_context3(found);
-            (*ctx).flags |= AV_CODEC_FLAG_LOW_DELAY as i32;
-            (*ctx).flags2 |= AV_CODEC_FLAG2_FAST;
-            (*ctx).thread_count = 1;
-
-            let mut device: *mut AVBufferRef = ptr::null_mut();
-            let hardware = av_hwdevice_ctx_create(
-                &mut device,
-                AVHWDeviceType::AV_HWDEVICE_TYPE_VAAPI,
-                ptr::null(),
-                ptr::null_mut(),
-                0,
-            ) >= 0;
-            if hardware {
-                (*ctx).hw_device_ctx = av_buffer_ref(device);
-                (*ctx).get_format = Some(pick_vaapi);
-                av_buffer_unref(&mut device);
-            }
-            if avcodec_open2(ctx, found, ptr::null_mut()) < 0 {
-                let mut c = ctx;
-                avcodec_free_context(&mut c);
-                bail!("the {codec:?} decoder would not open");
-            }
-            Ok(Decoder {
-                ctx,
-                frame: av_frame_alloc(),
-                soft: av_frame_alloc(),
-                packet: av_packet_alloc(),
-                hardware,
-            })
-        }
-    }
-
-    /// Decodes one access unit; returns the picture it completes, if any. A damaged unit is
-    /// an error the caller answers by asking the phone for a keyframe.
-    pub fn decode(&mut self, unit: &[u8]) -> Result<Option<Picture>> {
-        unsafe {
-            if av_new_packet(self.packet, unit.len() as i32) < 0 {
-                bail!("out of memory for a {}-byte picture", unit.len());
-            }
-            ptr::copy_nonoverlapping(unit.as_ptr(), (*self.packet).data, unit.len());
-            let sent = avcodec_send_packet(self.ctx, self.packet);
-            av_packet_unref(self.packet);
-            if sent < 0 && sent != AVERROR(EAGAIN) {
-                bail!("the decoder refused a picture ({sent})");
-            }
-            let got = avcodec_receive_frame(self.ctx, self.frame);
-            if got == AVERROR(EAGAIN) {
-                return Ok(None);
-            }
-            if got < 0 {
-                bail!("the decoder failed on a picture ({got})");
-            }
-            let mut f = self.frame;
-            if (*f).format == AVPixelFormat::AV_PIX_FMT_VAAPI as i32 {
-                av_frame_unref(self.soft);
-                (*self.soft).format = AVPixelFormat::AV_PIX_FMT_NV12 as i32;
-                if av_hwframe_transfer_data(self.soft, f, 0) < 0 {
-                    av_frame_unref(f);
-                    bail!("the picture could not be copied off the graphics chip");
+    /// A decoder that hands each picture, with the capture time it was sent with, to `show`.
+    pub fn new(
+        codec: Codec,
+        show: impl Fn(Picture, i64) + Send + Sync + 'static,
+    ) -> Result<Decoder> {
+        gst::init()?;
+        let (caps, parser) = match codec {
+            Codec::H264 => ("video/x-h264", "h264parse"),
+            Codec::Hevc => ("video/x-h265", "h265parse"),
+        };
+        let (decoder, hardware) = DECODERS
+            .iter()
+            .filter_map(|(h264, h265, hw)| {
+                let name = if codec == Codec::H264 { *h264 } else { *h265 };
+                if name.is_empty() {
+                    return None;
                 }
-                f = self.soft;
-            }
-            let picture = pack_nv12(f);
-            av_frame_unref(self.frame);
-            av_frame_unref(self.soft);
-            picture.map(Some)
+                gst::ElementFactory::make(name)
+                    .build()
+                    .ok()
+                    .map(|d| (d, *hw))
+            })
+            .next()
+            .ok_or_else(|| {
+                anyhow!(
+                    "no {codec:?} decoder in GStreamer here: install gst-libav or gst-plugin-va"
+                )
+            })?;
+        // The streams here never reorder pictures (the phone encodes without B-frames), so the
+        // decoder may hand each one on at once instead of holding pictures back as a spec
+        // decoder must when it can't know that.
+        if decoder.has_property("compliance") {
+            decoder.set_property_from_str("compliance", "flexible");
         }
-    }
-}
+        if decoder.has_property("thread-type") {
+            decoder.set_property_from_str("thread-type", "slice");
+        }
 
-/// Copies the planes out without row padding, turning software decoding's three planes
-/// (YUV 4:2:0) into NV12's two.
-unsafe fn pack_nv12(f: *const AVFrame) -> Result<Picture> {
-    let (w, h) = ((*f).width as usize, (*f).height as usize);
-    let mut nv12 = vec![0u8; w * h * 3 / 2];
-    let (luma, chroma) = nv12.split_at_mut(w * h);
-    for row in 0..h {
-        let src = (*f).data[0].add(row * (*f).linesize[0] as usize);
-        ptr::copy_nonoverlapping(src, luma[row * w..].as_mut_ptr(), w);
+        let source = gst_app::AppSrc::builder()
+            .caps(
+                &gst::Caps::builder(caps)
+                    .field("stream-format", "byte-stream")
+                    .field("alignment", "au")
+                    .build(),
+            )
+            .is_live(true)
+            .format(gst::Format::Time)
+            .build();
+        let parse = gst::ElementFactory::make(parser)
+            .build()
+            .context("no parser")?;
+        let sink = gst_app::AppSink::builder()
+            .caps(
+                &gst::Caps::builder("video/x-raw")
+                    .field("format", gst::List::new(["NV12", "I420"]))
+                    .build(),
+            )
+            .sync(false)
+            .enable_last_sample(false)
+            .build();
+        sink.set_callbacks(
+            gst_app::AppSinkCallbacks::builder()
+                .new_sample(move |sink| {
+                    let sample = sink.pull_sample().map_err(|_| gst::FlowError::Eos)?;
+                    if let Some(p) = picture(&sample) {
+                        let captured = sample
+                            .buffer()
+                            .and_then(|b| b.pts())
+                            .map(|t| t.useconds() as i64)
+                            .unwrap_or(i64::MIN);
+                        show(p, captured);
+                    }
+                    Ok(gst::FlowSuccess::Ok)
+                })
+                .build(),
+        );
+
+        let pipeline = gst::Pipeline::new();
+        pipeline.add_many([source.upcast_ref(), &parse, &decoder, sink.upcast_ref()])?;
+        gst::Element::link_many([source.upcast_ref(), &parse, &decoder, sink.upcast_ref()])?;
+        pipeline.set_state(gst::State::Playing)?;
+        Ok(Decoder {
+            pipeline,
+            source,
+            hardware,
+        })
     }
-    let format = (*f).format;
-    if format == AVPixelFormat::AV_PIX_FMT_NV12 as i32 {
-        for row in 0..h / 2 {
-            let src = (*f).data[1].add(row * (*f).linesize[1] as usize);
-            ptr::copy_nonoverlapping(src, chroma[row * w..].as_mut_ptr(), w);
-        }
-    } else if format == AVPixelFormat::AV_PIX_FMT_YUV420P as i32
-        || format == AVPixelFormat::AV_PIX_FMT_YUVJ420P as i32
-    {
-        for row in 0..h / 2 {
-            let u = (*f).data[1].add(row * (*f).linesize[1] as usize);
-            let v = (*f).data[2].add(row * (*f).linesize[2] as usize);
-            let out = &mut chroma[row * w..row * w + w];
-            for x in 0..w / 2 {
-                out[2 * x] = *u.add(x);
-                out[2 * x + 1] = *v.add(x);
+
+    /// Hands one access unit to the decoder; its picture arrives at `show`. An error means the
+    /// stream can't go on as it is: the caller starts again at a keyframe.
+    pub fn decode(&mut self, unit: &[u8], captured_us: i64) -> Result<()> {
+        if let Some(bus) = self.pipeline.bus() {
+            if let Some(msg) = bus.pop_filtered(&[gst::MessageType::Error]) {
+                if let gst::MessageView::Error(e) = msg.view() {
+                    bail!("the decoder failed: {}", e.error());
+                }
             }
         }
-    } else {
-        bail!("the decoder gave pixel format {format}, which isn't 4:2:0");
+        let mut buffer = gst::Buffer::from_slice(unit.to_vec());
+        if captured_us >= 0 {
+            buffer
+                .get_mut()
+                .unwrap()
+                .set_pts(gst::ClockTime::from_useconds(captured_us as u64));
+        }
+        self.source
+            .push_buffer(buffer)
+            .map_err(|e| anyhow!("the decoder stopped: {e:?}"))?;
+        Ok(())
     }
-    Ok(Picture {
-        width: w as u32,
-        height: h as u32,
-        nv12,
-    })
-}
 
-impl Decoder {
     /// Forgets everything decoded so far, so decoding can start again at a keyframe.
     pub fn flush(&mut self) {
-        unsafe { avcodec_flush_buffers(self.ctx) }
+        let _ = self.pipeline.set_state(gst::State::Null);
+        let _ = self.pipeline.set_state(gst::State::Playing);
     }
 }
 
 impl Drop for Decoder {
     fn drop(&mut self) {
-        unsafe {
-            av_frame_free(&mut self.frame);
-            av_frame_free(&mut self.soft);
-            av_packet_free(&mut self.packet);
-            avcodec_free_context(&mut self.ctx);
-        }
+        let _ = self.pipeline.set_state(gst::State::Null);
     }
+}
+
+/// The sample's planes copied out without row padding, I420's two colour planes interleaved
+/// into NV12's one.
+fn picture(sample: &gst::SampleRef) -> Option<Picture> {
+    let info = gst_video::VideoInfo::from_caps(sample.caps()?).ok()?;
+    let frame = gst_video::VideoFrameRef::from_buffer_ref_readable(sample.buffer()?, &info).ok()?;
+    let (w, h) = (info.width() as usize, info.height() as usize);
+    let mut nv12 = vec![0u8; w * h * 3 / 2];
+    let (luma, chroma) = nv12.split_at_mut(w * h);
+    let y = frame.plane_data(0).ok()?;
+    let ys = frame.plane_stride()[0] as usize;
+    for row in 0..h {
+        luma[row * w..row * w + w].copy_from_slice(&y[row * ys..row * ys + w]);
+    }
+    match info.format() {
+        gst_video::VideoFormat::Nv12 => {
+            let uv = frame.plane_data(1).ok()?;
+            let s = frame.plane_stride()[1] as usize;
+            for row in 0..h / 2 {
+                chroma[row * w..row * w + w].copy_from_slice(&uv[row * s..row * s + w]);
+            }
+        }
+        gst_video::VideoFormat::I420 => {
+            let (u, v) = (frame.plane_data(1).ok()?, frame.plane_data(2).ok()?);
+            let (us, vs) = (
+                frame.plane_stride()[1] as usize,
+                frame.plane_stride()[2] as usize,
+            );
+            for row in 0..h / 2 {
+                let out = &mut chroma[row * w..row * w + w];
+                for x in 0..w / 2 {
+                    out[2 * x] = u[row * us + x];
+                    out[2 * x + 1] = v[row * vs + x];
+                }
+            }
+        }
+        _ => return None,
+    }
+    Some(Picture {
+        width: w as u32,
+        height: h as u32,
+        nv12,
+    })
 }
