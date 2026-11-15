@@ -19,6 +19,57 @@ use crate::stats::{now_us, Delays};
 /// dropped and decoding starts again at the next keyframe, which is asked for at once.
 const WAITING: usize = 3;
 
+/// The camera and microphone programs see. They outlive any one connection: a phone unplugged
+/// and plugged back, or switching lenses, keeps the same devices, so a call or a recording that
+/// chose them carries on instead of losing its camera.
+/// The camera and the picture size it was made for.
+type SizedCamera = (Arc<Camera>, (u32, u32));
+
+#[derive(Default)]
+pub struct Devices {
+    camera: Mutex<Option<SizedCamera>>,
+    mic: Mutex<Option<Arc<Mic>>>,
+}
+
+impl Devices {
+    fn camera(&self, name: &str, format: &VideoFormat) -> Result<Arc<Camera>> {
+        let mut slot = self.camera.lock().unwrap();
+        if let Some((camera, size)) = slot.as_ref() {
+            if *size == (format.width, format.height) {
+                return Ok(camera.clone());
+            }
+        }
+        // Only a different picture size makes a new camera.
+        *slot = None;
+        let camera = Arc::new(Camera::start(
+            name,
+            format.width,
+            format.height,
+            format.fps,
+        )?);
+        *slot = Some((camera.clone(), (format.width, format.height)));
+        Ok(camera)
+    }
+
+    fn mic(&self, name: &str) -> Result<Arc<Mic>> {
+        let mut slot = self.mic.lock().unwrap();
+        if let Some(m) = slot.as_ref() {
+            return Ok(m.clone());
+        }
+        let m = Arc::new(Mic::start(name)?);
+        *slot = Some(m.clone());
+        Ok(m)
+    }
+
+    /// The phone went away: the camera shows black until it's back (the microphone is silent
+    /// by itself once its buffer runs dry).
+    pub fn phone_gone(&self) {
+        if let Some((camera, _)) = self.camera.lock().unwrap().as_ref() {
+            camera.black();
+        }
+    }
+}
+
 /// What a session leaves behind for the person (and the tests) to read.
 #[derive(Default)]
 pub struct Report {
@@ -39,6 +90,18 @@ pub fn serve(
     from_phone: impl Read,
     ask: impl Write + Send + 'static,
     report: Arc<Mutex<Report>>,
+    devices: Arc<Devices>,
+) -> Result<()> {
+    let result = session(from_phone, ask, report, &devices);
+    devices.phone_gone();
+    result
+}
+
+fn session(
+    from_phone: impl Read,
+    ask: impl Write + Send + 'static,
+    report: Arc<Mutex<Report>>,
+    devices: &Arc<Devices>,
 ) -> Result<()> {
     // Packets are read in pieces; a buffer makes that one system call per many packets.
     let mut from_phone = std::io::BufReader::with_capacity(1 << 20, from_phone);
@@ -79,7 +142,7 @@ pub fn serve(
                 }
             })?;
     }
-    let mut mic: Option<Mic> = None;
+    let mut mic: Option<Arc<Mic>> = None;
     let mut pictures: Option<std::sync::mpsc::SyncSender<Packet>> = None;
     let mut decoder_thread = None;
     let mut skipping = false;
@@ -98,7 +161,7 @@ pub fn serve(
         match packet.kind {
             Kind::Audio => {
                 if mic.is_none() {
-                    let m = Mic::start(&format!("{} Microphone", hello.name))?;
+                    let m = devices.mic(&format!("{} Microphone", hello.name))?;
                     {
                         let mut r = report.lock().unwrap();
                         r.sound_delays = Some(m.delays.clone());
@@ -120,6 +183,7 @@ pub fn serve(
                 }
                 let (tx, rx) = sync_channel::<Packet>(WAITING);
                 let name = format!("{} Camera", hello.name);
+                let camera = devices.camera(&name, &format)?;
                 let (for_decoder, broken_flag, clock) =
                     (report.clone(), broken.clone(), offset.clone());
                 decoder_thread = Some(
@@ -128,7 +192,7 @@ pub fn serve(
                         .spawn(move || {
                             if let Err(e) = decode_pictures(
                                 format,
-                                &name,
+                                &camera,
                                 rx,
                                 for_decoder,
                                 &broken_flag,
@@ -192,14 +256,13 @@ pub fn serve(
 
 fn decode_pictures(
     format: VideoFormat,
-    name: &str,
+    camera: &Camera,
     rx: std::sync::mpsc::Receiver<Packet>,
     report: Arc<Mutex<Report>>,
     broken: &AtomicBool,
     clock: &AtomicI64,
 ) -> Result<()> {
     let mut decoder = Decoder::new(format.codec)?;
-    let camera = Camera::start(name, format.width, format.height, format.fps)?;
     {
         let mut r = report.lock().unwrap();
         r.hardware_decoding = decoder.hardware;

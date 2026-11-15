@@ -32,6 +32,7 @@ pub struct Camera {
     thread: Option<JoinHandle<()>>,
     /// Phone capture to picture handed to PipeWire, per picture.
     pub delays: Arc<Mutex<Delays>>,
+    size: Mutex<Option<(u32, u32)>>,
 }
 
 struct State {
@@ -62,6 +63,7 @@ impl Camera {
             to_loop,
             thread: Some(thread),
             delays,
+            size: Mutex::new(Some((width, height))),
         })
     }
 
@@ -69,6 +71,27 @@ impl Camera {
     /// arrives is replaced, so a slow reader never builds a queue of old pictures.
     pub fn show(&self, picture: Picture, captured_us: i64) {
         let _ = self.to_loop.send(Message::Picture(picture, captured_us));
+    }
+}
+
+impl Camera {
+    /// One black picture: what programs keep showing while the phone is away.
+    pub fn black(&self) {
+        let Some((w, h)) = *self.size.lock().unwrap() else {
+            return;
+        };
+        let (w, h) = (w as usize, h as usize);
+        let mut nv12 = vec![16u8; w * h * 3 / 2];
+        nv12[w * h..].fill(128);
+        // No capture time: nothing to count in the delays.
+        self.show(
+            Picture {
+                width: w as u32,
+                height: h as u32,
+                nv12,
+            },
+            i64::MIN,
+        );
     }
 }
 
@@ -156,7 +179,9 @@ fn run(
             *chunk.offset_mut() = 0;
             *chunk.stride_mut() = stride as i32;
             *chunk.size_mut() = n as u32;
-            st.delays.lock().unwrap().record(captured);
+            if captured != i64::MIN {
+                st.delays.lock().unwrap().record(captured);
+            }
         })
         .register()?;
 

@@ -14,3 +14,5 @@ pub mod fakephone;
 pub mod linux;
 #[cfg(target_os = "linux")]
 pub mod receiver;
+#[cfg(target_os = "linux")]
+pub mod service;

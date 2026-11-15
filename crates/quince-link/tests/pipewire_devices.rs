@@ -133,7 +133,7 @@ fn programs_see_the_phones_camera_and_microphone_with_little_delay() {
     let report = Arc::new(Mutex::new(receiver::Report::default()));
     {
         let (r, w, report) = (link.try_clone().unwrap(), link, report.clone());
-        std::thread::spawn(move || receiver::serve(r, w, report));
+        std::thread::spawn(move || receiver::serve(r, w, report, Default::default()));
     }
 
     // Wait for the camera to appear: its first picture, or give up.
