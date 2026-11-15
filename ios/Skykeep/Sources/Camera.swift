@@ -222,6 +222,9 @@ final class Camera: NSObject, @unchecked Sendable, AVCaptureVideoDataOutputSampl
         (40_000_000, true), (24_000_000, true), (16_000_000, false),
     ]
     private var preset = 0
+    /// Set when an encoded picture comes back with an error: the next picture rebuilds the
+    /// encoder one step down.
+    private let failed = OSAllocatedUnfairLock(initialState: false)
 
     private func makeEncoder() -> VTCompressionSession? {
         let spec: [CFString: Any] = [kVTVideoEncoderSpecification_EnableLowLatencyRateControl: true]
@@ -318,14 +321,17 @@ final class Camera: NSObject, @unchecked Sendable, AVCaptureVideoDataOutputSampl
         let options = force ? [kVTEncodeFrameOptionKey_ForceKeyFrame: true] as CFDictionary : nil
         let accepted = VTCompressionSessionEncodeFrame(encoder, imageBuffer: image, presentationTimeStamp: pts, duration: .invalid,
                                         frameProperties: options, infoFlagsOut: nil) { [weak self] status, _, encoded in
-            if status != noErr { log.error("encoding failed: \(status, privacy: .public)") }
+            if status != noErr {
+                log.error("encoding failed: \(status, privacy: .public)")
+                self?.failed.withLock { $0 = true }
+            }
             guard status == noErr, let encoded, let self else { return }
             self.timing.encode += CACurrentMediaTime() - arrived
             let (unit, key) = Self.annexB(encoded)
             guard !unit.isEmpty else { return }
             self.onPicture?(Wire.packet(.video, flags: key ? Wire.keyframe : 0, capturedUs: capturedUs, body: unit), key)
         }
-        if accepted != noErr {
+        if accepted != noErr || failed.withLock({ v in defer { v = false }; return v }) {
             log.error("the encoder refused a picture (\(accepted, privacy: .public)) at preset \(self.preset, privacy: .public); stepping down")
             VTCompressionSessionInvalidate(encoder)
             self.encoder = nil
