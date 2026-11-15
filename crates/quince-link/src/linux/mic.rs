@@ -1,9 +1,14 @@
 //! The iPhone as a microphone every Linux program can choose: a PipeWire audio source.
 //!
-//! Sound arrives in blocks a few milliseconds long and is played out at the pace of the
-//! computer's own audio clock. Between the two sits the shortest buffer that doesn't crackle:
-//! it starts at [`START_MS`], grows a little each time it runs dry, and anything beyond its
-//! target is dropped at once, so a hiccup on the link never turns into lasting delay.
+//! Sound arrives in blocks a few milliseconds long, not quite evenly, and is played out at the
+//! pace of the computer's own audio clock. Between the two sits the shortest buffer that
+//! doesn't break up, sized the way WebRTC sizes its own: from the longest recent gap between
+//! arrivals (which jumps up at once and fades over seconds), plus a small margin.
+//!
+//! Surplus is never cut when sound arrives: a burst after a late block is exactly the sound
+//! the next read needs, and cutting it there was what made the gaps. Only when the buffer has
+//! stayed above its size for a whole second is the excess dropped, so lasting delay can't
+//! build up either.
 
 use std::collections::VecDeque;
 use std::sync::atomic::{AtomicU64, Ordering};
@@ -19,8 +24,13 @@ use spa::pod::{Pod, Value};
 use crate::protocol::AUDIO_RATE;
 use crate::stats::Delays;
 
-const START_MS: usize = 6;
-const MOST_MS: usize = 40;
+/// Before any gaps are measured.
+const START_MS: usize = 10;
+const MOST_MS: usize = 60;
+/// Added to the longest recent gap.
+const MARGIN_MS: f64 = 2.0;
+/// The longest gap fades by this much each block (to half in about three seconds).
+const FADE: f64 = 0.998;
 const PER_MS: usize = AUDIO_RATE as usize / 1000;
 
 /// What the receiver writes and the audio thread reads.
@@ -30,6 +40,12 @@ struct Shared {
     oldest_captured_us: i64,
     /// Margin beyond one block for the link's unevenness, in samples.
     target: usize,
+    last_arrival_us: i64,
+    /// The longest recent gap between arrivals, fading, in microseconds.
+    longest_gap_us: f64,
+    /// The fewest samples waiting at any read this second.
+    lowest: usize,
+    reads: usize,
     /// The block size programs read now, in samples.
     cycle: usize,
     playing: bool,
@@ -53,6 +69,10 @@ impl Mic {
             samples: VecDeque::with_capacity(MOST_MS * PER_MS * 2),
             oldest_captured_us: 0,
             target: START_MS * PER_MS,
+            last_arrival_us: 0,
+            longest_gap_us: 0.0,
+            lowest: usize::MAX,
+            reads: 0,
             cycle: 0,
             playing: false,
         }));
@@ -101,11 +121,18 @@ impl Mic {
                 .iter()
                 .map(|b| i16::from_le_bytes(*b)),
         );
-        // Beyond the target plus one block of slack, the oldest sound goes: late sound is worse
-        // than a few lost milliseconds nobody hears.
-        let most = s.cycle + s.target + 4 * PER_MS;
+        let now = crate::stats::now_us();
+        if s.last_arrival_us > 0 {
+            let gap = (now - s.last_arrival_us) as f64;
+            s.longest_gap_us = (s.longest_gap_us * FADE).max(gap);
+            let ms = s.longest_gap_us / 1000.0 + MARGIN_MS;
+            s.target = ((ms * PER_MS as f64) as usize).clamp(2 * PER_MS, MOST_MS * PER_MS);
+        }
+        s.last_arrival_us = now;
+        // A hard ceiling only, for a reader that stopped reading altogether.
+        let most = s.cycle + (MOST_MS * 2) * PER_MS;
         if s.samples.len() > most {
-            let extra = s.samples.len() - (s.cycle + s.target);
+            let extra = s.samples.len() - most;
             s.samples.drain(..extra);
             s.oldest_captured_us = captured_us - (s.samples.len() as i64 * 1000 / PER_MS as i64);
         }
@@ -173,6 +200,22 @@ fn run(
             if !s.playing && s.samples.len() >= frames + s.target {
                 s.playing = true;
             }
+            // A second of reads that all found more than needed: the surplus is lasting delay,
+            // and goes now, between reads, where nothing is waiting for it.
+            if s.playing {
+                s.lowest = s.lowest.min(s.samples.len());
+                s.reads += 1;
+                if s.reads * frames >= AUDIO_RATE as usize {
+                    let keep = frames + s.target;
+                    if s.lowest > keep {
+                        let extra = s.lowest - keep;
+                        s.samples.drain(..extra);
+                        s.oldest_captured_us += extra as i64 * 1000 / PER_MS as i64;
+                    }
+                    s.lowest = usize::MAX;
+                    s.reads = 0;
+                }
+            }
             let have = if s.playing {
                 s.samples.len().min(frames)
             } else {
@@ -201,7 +244,7 @@ fn run(
                 // Ran dry: wait for a slightly deeper buffer before playing on.
                 underruns.fetch_add(1, Ordering::Relaxed);
                 s.playing = false;
-                s.target = (s.target + PER_MS).min(MOST_MS * PER_MS);
+                s.longest_gap_us += 1000.0;
             }
             let chunk = data.chunk_mut();
             *chunk.offset_mut() = 0;
