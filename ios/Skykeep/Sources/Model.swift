@@ -46,7 +46,7 @@ final class Model {
         microphone.onSound = { packet in link.sendSound(packet) }
         link.onState = { [weak self] state in
             camera.sending.withLock { $0 = state == .connected }
-            log.notice("link \(String(describing: state))")
+            log.notice("link \(String(describing: state), privacy: .public)")
             Task { @MainActor in self?.linkChanged(state) }
         }
         guard use(.back) || use(.front) else { status = .failed("This iPhone has no camera Skykeep can use."); return }
@@ -100,7 +100,7 @@ final class Model {
         do {
             try microphone.start()
         } catch {
-            log.error("microphone failed to start: \(error.localizedDescription)")
+            log.error("microphone failed to start: \(error.localizedDescription, privacy: .public)")
             micOn = false
         }
     }
@@ -131,7 +131,7 @@ final class Model {
 
     private func setCameraPaused(_ paused: Bool) {
         cameraPaused = paused
-        log.notice("camera \(paused ? "paused by iOS" : "live again")")
+        log.notice("camera \(paused ? "paused by iOS" : "live again", privacy: .public)")
         link.send(cameraState())
         // A computer that connects later is told the state first thing.
         link.setGreeting(greeting(), sendNow: false)

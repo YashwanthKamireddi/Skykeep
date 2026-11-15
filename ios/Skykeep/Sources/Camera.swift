@@ -241,7 +241,7 @@ final class Camera: NSObject, @unchecked Sendable, AVCaptureVideoDataOutputSampl
               let image = landscape(captured) else { return }
         if encoder == nil {
             encoder = makeEncoder()
-            log.notice("encoder \(self.encoder == nil ? "failed" : "ready")")
+            log.notice("encoder \(self.encoder == nil ? "failed" : "ready", privacy: .public)")
         }
         guard let encoder else { return }
         let pts = CMSampleBufferGetPresentationTimeStamp(sample)
