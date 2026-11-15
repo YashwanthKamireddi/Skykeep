@@ -17,8 +17,18 @@ jobs:
     runs-on: ubuntu-24.04
     container:
       image: ghcr.io/flathub-infra/flatpak-github-actions:gnome-51
-      options: --privileged
+      # The image's runtimes, on a volume of their own (Docker fills it from the image): when
+      # Flathub has a newer GNOME SDK than the image, flatpak-builder updates it in place, and
+      # inside the image's overlay layers that rename fails with "Invalid cross-device link"
+      # (15 Nov, 26c5e3c: the build died; the next commit's passed once nothing was newer).
+      options: --privileged -v /var/lib/flatpak
     steps:
+      - name: Where the runtimes are
+        run: |
+          flatpak --installations
+          df -T /var/lib/flatpak | tail -1
+          # Every pending runtime update, done here, so a failure says so at once.
+          flatpak update --system -y --noninteractive
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           fetch-depth: 0

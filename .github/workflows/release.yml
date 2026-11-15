@@ -5,9 +5,9 @@
 #             that (linux-checks.yml), their files, promoted as they are;
 #   windows — the Windows pipeline (windows.yml): its tests, the .msi and .exe, the smoke test;
 #             or, when the commit's Windows checks already did all that, their signed installers;
-#   publish — every file that passed in one draft release with its checksums, for a person to
-#             read over and publish; a platform whose build failed is added when re-run.
-#             Nothing is published by itself. Each installer is also attached
+#   publish — every file that passed in one draft release with its checksums and its notes
+#             (the tag's message, then the APK's signing fingerprint); a platform whose build
+#             failed is added when re-run. Each installer is also attached
 #             under a name without the version (Skykeep-linux-amd64.deb and so on), which is
 #             what the README's releases/latest/download/ links point at.
 #
@@ -17,6 +17,12 @@
 # none of the build's code (a .sig beside each, with the version signed into it); publish
 # writes latest.json from those signatures. The .deb and .rpm are updated by package managers,
 # so they are not in it. A draft is invisible to the updater until it is published.
+#
+#   verify  — the draft read back from GitHub as a person would check it: every file there,
+#             every checksum list true, latest.json naming this version and three signed
+#             installers that are in the release, the APK signed with Skykeep's own key, and
+#             notes that are the tag's. All true, it is published as the latest release; any
+#             one false, it stays a draft and the run fails, saying which.
 name: Release
 
 on:
@@ -243,6 +249,78 @@ jobs:
           if gh release view "$GITHUB_REF_NAME" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
             gh release upload "$GITHUB_REF_NAME" --repo "$GITHUB_REPOSITORY" --clobber "${files[@]}"
           else
+            # The page's notes: the tag's message without its "Skykeep x.y.z" line (the title
+            # says it), then where the APK is and its signing key's fingerprint, read from the
+            # APK itself, then what changed since the last published release.
+            notes="$RUNNER_TEMP/notes.md"
+            git -C source tag -l --format='%(contents:body)' "$GITHUB_REF_NAME" \
+              | sed -e '/-----BEGIN PGP SIGNATURE-----/,$d' | sed -e '/./,$!d' > "$notes"
+            apk=$(find dist -type f -name '*-android.apk' | head -n1)
+            if [ -n "$apk" ]; then
+              fingerprint=$(keytool -printcert -jarfile "$apk" | awk '/SHA256:/ {print $2; exit}')
+              printf '\n## Android\n\nDownload **Skykeep-android.apk** below (Android 10 or newer, 64-bit ARM). Its signing certificate'"'"'s SHA-256 fingerprint:\n\n```\n%s\n```\n' "$fingerprint" >> "$notes"
+            fi
+            previous=$(gh release view --repo "$GITHUB_REPOSITORY" --json tagName -q .tagName 2>/dev/null || true)
+            if [ -n "$previous" ]; then
+              printf '\n**Full Changelog**: https://github.com/%s/compare/%s...%s\n' "$GITHUB_REPOSITORY" "$previous" "$GITHUB_REF_NAME" >> "$notes"
+            fi
+            cat "$notes"
             gh release create "$GITHUB_REF_NAME" --repo "$GITHUB_REPOSITORY" \
-              --draft --verify-tag --title "Skykeep ${GITHUB_REF_NAME#v}" --generate-notes "${files[@]}"
+              --draft --verify-tag --title "Skykeep ${GITHUB_REF_NAME#v}" --notes-file "$notes" "${files[@]}"
           fi
+
+  verify:
+    # Only a real release: a tag, every platform built (a re-run that adds one comes back here).
+    if: startsWith(github.ref, 'refs/tags/v') && needs.publish.result == 'success'
+    needs: publish
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    permissions:
+      contents: write
+    env:
+      GH_TOKEN: ${{ github.token }}
+      REPO: ${{ github.repository }}
+      # Skykeep's Android signing certificate (public; README and every release page show it).
+      APK_CERT: "61:0A:64:50:6D:95:DA:6C:CE:75:FF:0E:40:B8:59:02:FA:41:E4:0D:00:1B:BA:87:BF:40:70:FE:CB:F2:3A:FB"
+    steps:
+      - name: The draft, read back and checked, then published
+        run: |
+          set -euo pipefail
+          v="${GITHUB_REF_NAME#v}"
+          mkdir draft && cd draft
+          gh release download "$GITHUB_REF_NAME" --repo "$REPO"
+          fail() { echo "::error::$*"; exit 1; }
+          # Every file a release carries, under its versioned and its one-click name.
+          for f in latest.json SHA256SUMS-android.txt SHA256SUMS-appimage.txt SHA256SUMS-flatpak.txt \
+            SHA256SUMS-linux-arm64.txt SHA256SUMS-linux.txt SHA256SUMS-unversioned.txt SHA256SUMS-windows.txt \
+            "Skykeep-$v-1.aarch64.rpm" "Skykeep-$v-1.x86_64.rpm" "Skykeep-$v-android.apk" "Skykeep-$v-x86_64.flatpak" \
+            "Skykeep_${v}_amd64.AppImage" "Skykeep_${v}_amd64.AppImage.sig" "Skykeep_${v}_amd64.deb" "Skykeep_${v}_arm64.deb" \
+            "Skykeep_${v}_x64-setup.exe" "Skykeep_${v}_x64-setup.exe.sig" "Skykeep_${v}_x64_en-US.msi" "Skykeep_${v}_x64_en-US.msi.sig" \
+            Skykeep-android.apk Skykeep-linux-aarch64.rpm Skykeep-linux-amd64.deb Skykeep-linux-arm64.deb \
+            Skykeep-linux-x86_64.AppImage Skykeep-linux-x86_64.flatpak Skykeep-linux-x86_64.rpm \
+            Skykeep-windows-x64-setup.exe Skykeep-windows-x64.msi; do
+            [ -s "$f" ] || fail "the draft lacks $f"
+          done
+          # Every checksum list true, and each one checked something.
+          for f in SHA256SUMS-*.txt; do
+            sha256sum --strict -c "$f" || fail "$f does not match the files"
+          done
+          # The updater's file: this version, three signed installers, each one in this release.
+          jq -e --arg v "$v" '.version == $v' latest.json >/dev/null || fail "latest.json is not $v"
+          for k in linux-x86_64-appimage windows-x86_64-nsis windows-x86_64-msi; do
+            name=$(jq -r --arg k "$k" '.platforms[$k].url // "" | split("/") | last' latest.json)
+            sig=$(jq -r --arg k "$k" '.platforms[$k].signature // ""' latest.json)
+            [ -n "$name" ] && [ -s "$name" ] || fail "latest.json's $k is not a file of this release"
+            [ "$sig" = "$(tr -d '\n' < "$name.sig")" ] || fail "latest.json's $k signature is not $name.sig"
+          done
+          [ -n "$(jq -r .notes latest.json)" ] || fail "latest.json has no notes"
+          # The APK, signed with Skykeep's own key (both names, byte for byte the same file).
+          cmp -s "Skykeep-$v-android.apk" Skykeep-android.apk || fail "the two APKs differ"
+          got=$(keytool -printcert -jarfile Skykeep-android.apk | awk '/SHA256:/ {print $2; exit}')
+          [ "$got" = "$APK_CERT" ] || fail "the APK is signed with $got, not Skykeep's key"
+          # The page's notes are the tag's, never GitHub's generated list.
+          body=$(gh release view "$GITHUB_REF_NAME" --repo "$REPO" --json body -q .body)
+          case "$body" in ""|"## What's Changed"*) fail "the release notes are not the tag's message";; esac
+          grep -qF "$APK_CERT" <<< "$body" || fail "the release notes lack the APK fingerprint"
+          gh release edit "$GITHUB_REF_NAME" --repo "$REPO" --draft=false --latest
+          echo "Skykeep $v checked and published"

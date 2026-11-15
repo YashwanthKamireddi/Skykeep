@@ -1,11 +1,11 @@
 # A release, started with one button: Actions → Tag a release → Run workflow.
 # It tags only a commit that is on main, whose version is not released yet, and on which both
-# CI (ci.yml), the Windows checks (windows-checks.yml) and the Linux checks (linux-checks.yml)
-# succeeded — looked up by that exact
+# CI (ci.yml), the Windows checks (windows-checks.yml), the Linux checks (linux-checks.yml) and
+# Linux compatibility (linux-compat.yml, every distribution) succeeded — looked up by that exact
 # SHA, so another commit's green run can never stand in for it (9 and 10 Nov: a run of a
 # different commit was read as this one's, by a script and then by hand). Then it starts the
-# release (release.yml) and the Linux compatibility check on the new tag: a tag made with the
-# workflow's own token starts no workflow by itself, so they are started here, by name.
+# release (release.yml) on the new tag: a tag made with the workflow's own token starts no
+# workflow by itself, so it is started here, by name.
 # The tag is the version bump's commit; its message becomes the update's notes.
 name: Tag a release
 
@@ -54,7 +54,7 @@ jobs:
           if ! git merge-base --is-ancestor "$SHA" HEAD; then echo "::error::$SHA is not on main"; exit 1; fi
           version=$(git show "$SHA:src-tauri/tauri.conf.json" | jq -r .version)
           tag="v$version"
-          for w in ci.yml windows-checks.yml linux-checks.yml; do
+          for w in ci.yml windows-checks.yml linux-checks.yml linux-compat.yml; do
             # A push to main's own run only: a pull request's (a fork's included) or a run by
             # hand on another branch can carry the same SHA, and never stands in for it.
             run=$(gh api "repos/$REPO/actions/workflows/$w/runs?head_sha=$SHA&status=success&event=push&branch=main&per_page=1" \
@@ -102,5 +102,4 @@ jobs:
           gh api "repos/$REPO/git/refs" -f ref="refs/tags/$TAG" -f sha="$SHA" >/dev/null
           echo "tagged $TAG on $SHA"
           gh workflow run release.yml --repo "$REPO" --ref "$TAG"
-          gh workflow run linux-compat.yml --repo "$REPO" --ref "$TAG"
-          echo "release and Linux compatibility started on $TAG"
+          echo "release started on $TAG"
