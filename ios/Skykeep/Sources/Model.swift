@@ -17,7 +17,6 @@ final class Model {
     private(set) var zoom: Double = 1
     private(set) var hasFront = false
     private(set) var micOn = true
-    private(set) var hdr = true
     /// Off: the iPhone is only the computer's microphone (less heat and battery).
     private(set) var cameraOn = true
 
@@ -140,32 +139,9 @@ final class Model {
         }
     }
 
-    /// Apple's video effects (Portrait, Studio Light, Center Stage where the phone has it,
-    /// Reactions), the same picker as in Control Center.
-    func showVideoEffects() {
-        AVCaptureDevice.showSystemUserInterface(.videoEffects)
-    }
 
-    /// Natural (Camera-app recording, the room from a distance) or Voice (call processing).
-    private(set) var micVoice = false
 
-    func setMicVoice(_ on: Bool) {
-        guard on != micVoice else { return }
-        micVoice = on
-        microphone.voice = on
-        guard micOn else { return }
-        microphone.stop()
-        startMicrophone()
-    }
 
-    func showMicModes() {
-        Microphone.showModes()
-    }
-
-    func toggleHDR() {
-        hdr.toggle()
-        camera.setHDR(hdr)
-    }
 
     func toggleMic() {
         micOn.toggle()

@@ -69,13 +69,6 @@ final class Microphone: @unchecked Sendable {
         log.notice("microphone facing \(side == .front ? "front" : "back", privacy: .public)")
     }
 
-    /// Apple's microphone modes (Standard, Voice Isolation, Wide Spectrum), the same picker as
-    /// in Control Center: Wide Spectrum picks up the whole room, Voice Isolation only the voice.
-    @MainActor
-    static func showModes() {
-        AVCaptureDevice.showSystemUserInterface(.microphoneModes)
-    }
-
     func stop() {
         engine.stop()
         if let sink { engine.detach(sink) }

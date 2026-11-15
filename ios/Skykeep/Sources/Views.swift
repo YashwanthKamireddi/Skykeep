@@ -48,20 +48,8 @@ struct CameraScreen: View {
                     .allowsHitTesting(false)
             }
             VStack {
-                HStack(alignment: .top) {
-                    StatusPill(status: model.status)
-                    Spacer()
-                    topControls
-                }
-                .padding(.top, 8)
-                if !model.cameraOn {
-                    Spacer()
-                    Label("Microphone only", systemImage: "mic.fill")
-                        .font(.title3.weight(.semibold))
-                        .padding(.horizontal, 20)
-                        .padding(.vertical, 12)
-                        .glassEffect(.regular, in: .capsule)
-                }
+                StatusPill(status: model.status, cameraOn: model.cameraOn)
+                    .padding(.top, 8)
                 Spacer()
                 controls
                     .padding(.bottom, 24)
@@ -128,52 +116,6 @@ struct CameraScreen: View {
         }
     }
 
-    /// HDR and the microphone mode, small at the top, where the Camera app keeps its own.
-    private var topControls: some View {
-        GlassEffectContainer(spacing: 8) {
-            HStack(spacing: 8) {
-                Button(action: model.toggleHDR) {
-                    Text("HDR")
-                        .font(.caption.weight(.semibold))
-                        .strikethrough(!model.hdr)
-                        .foregroundStyle(model.hdr ? Color.yellow : Color.white)
-                        .frame(width: 40, height: 40)
-                }
-                .buttonStyle(.glass)
-                .buttonBorderShape(.circle)
-                .disabled(!model.cameraOn)
-                .accessibilityLabel(model.hdr ? "Turn HDR off for less delay" : "Turn HDR on for a better picture")
-
-                Button(action: model.showVideoEffects) {
-                    Image(systemName: "camera.filters")
-                        .font(.footnote.weight(.semibold))
-                        .frame(width: 40, height: 40)
-                }
-                .buttonStyle(.glass)
-                .buttonBorderShape(.circle)
-                .disabled(!model.cameraOn)
-                .accessibilityLabel("Video effects: Portrait, Studio Light and more")
-
-                Menu {
-                    Picker("Microphone", selection: Binding(get: { model.micVoice }, set: { model.setMicVoice($0) })) {
-                        Label("Natural", systemImage: "waveform").tag(false)
-                        Label("Voice Isolation", systemImage: "person.wave.2").tag(true)
-                    }
-                    if model.micVoice {
-                        Button("Apple Mic Modes", systemImage: "slider.horizontal.3", action: model.showMicModes)
-                    }
-                } label: {
-                    Image(systemName: model.micVoice ? "person.wave.2" : "waveform")
-                        .font(.footnote.weight(.semibold))
-                        .frame(width: 40, height: 40)
-                }
-                .buttonStyle(.glass)
-                .buttonBorderShape(.circle)
-                .accessibilityLabel(model.micVoice ? "Microphone: Voice Isolation" : "Microphone: Natural")
-            }
-        }
-    }
-
     /// The button for the lens now in use: the highest preset at or under the zoom.
     private func isActive(_ preset: Double) -> Bool {
         let current = model.presets.last { $0 <= model.zoom + 0.05 } ?? model.presets.first
@@ -188,28 +130,25 @@ struct CameraScreen: View {
 
 struct StatusPill: View {
     let status: Model.Status
+    let cameraOn: Bool
 
     var body: some View {
-        HStack(spacing: 8) {
-            Circle()
-                .fill(color)
-                .frame(width: 8, height: 8)
-            Text(text)
-                .font(.subheadline.weight(.medium))
-                .lineLimit(2)
+        HStack(spacing: 6) {
+            Circle().fill(color).frame(width: 7, height: 7)
+            Text(text).font(.footnote.weight(.medium)).lineLimit(1)
         }
-        .padding(.horizontal, 14)
-        .padding(.vertical, 9)
+        .padding(.horizontal, 12)
+        .padding(.vertical, 7)
         .glassEffect(.regular, in: .capsule)
         .accessibilityElement(children: .combine)
     }
 
     private var text: String {
         switch status {
-        case .starting: "Starting the camera"
-        case .needsAccess: "Allow the camera in Settings › Skykeep"
-        case .waiting: "Connect to your computer with a cable"
-        case .connected: "Your computer is using this camera"
+        case .starting: "Starting"
+        case .needsAccess: "Allow the camera in Settings"
+        case .waiting: "Plug into your computer"
+        case .connected: cameraOn ? "Connected" : "Connected · Microphone only"
         case .failed(let why): why
         }
     }

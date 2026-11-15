@@ -33,19 +33,11 @@ final class Camera: NSObject, @unchecked Sendable, AVCaptureVideoDataOutputSampl
     /// The zoom as the Camera app shows it (0.5×, 1×, 2×), whenever it changes.
     var onZoom: (@Sendable (Double) -> Void)?
     private(set) var fps: Int32 = 60
-    /// Apple's video HDR (the HDR button).
-    let hdr = OSAllocatedUnfairLock(initialState: true)
+    /// Apple's video HDR: off. It merges exposures across frames and added about 35 ms on an
+    /// iPhone 13 (sensor to app 52 ms with it, about 17 without); the delay is felt, on the
+    /// phone's own preview too.
+    let hdr = OSAllocatedUnfairLock(initialState: false)
 
-    func setHDR(_ on: Bool) {
-        hdr.withLock { $0 = on }
-        sessionQueue.async { [self] in
-            guard let d = input?.device, d.activeFormat.isVideoHDRSupported, (try? d.lockForConfiguration()) != nil else { return }
-            d.automaticallyAdjustsVideoHDREnabled = false
-            d.isVideoHDREnabled = on
-            d.unlockForConfiguration()
-            wantKeyframe.withLock { $0 = true }
-        }
-    }
 
     /// Encode only while a computer is connected; the preview alone costs no encoding.
     let sending = OSAllocatedUnfairLock(initialState: false)
@@ -211,8 +203,7 @@ final class Camera: NSObject, @unchecked Sendable, AVCaptureVideoDataOutputSampl
         device.activeFormat = format
         fps = Int32(rate(format))
         frameRates(device, cooler: false)
-        // Apple's video HDR as the person chose it (the HDR button; on by default, as the Camera
-        // app records): bright windows and faces both kept, for about 35 ms more on an iPhone 13.
+        // Apple's video HDR off (see hdr).
         device.automaticallyAdjustsVideoHDREnabled = false
         if format.isVideoHDRSupported { device.isVideoHDREnabled = hdr.withLock { $0 } }
         device.unlockForConfiguration()
