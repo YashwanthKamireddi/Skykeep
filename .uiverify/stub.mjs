@@ -1336,6 +1336,10 @@ export function installStub({ screen, services, twoFactor, calendarFixture, note
         }
         // One refresh covers every service, so there is one command to stub rather than
         // a pair per screen.
+        // Part of the library refreshed (a screen opened stale): nothing new to report. Without
+        // it a stale screen showed "unstubbed command: sync_some" in its sidebar (README shots).
+        case "sync_some":
+          return { services: [], asOf: null, tookMs: 0 };
         case "sync_all":
         case "sync_status":
           return {
