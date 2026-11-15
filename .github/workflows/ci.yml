@@ -212,10 +212,11 @@ jobs:
             scope=all
           fi
           case "$scope" in all) sel=--workspace ;; none) sel= ;; *) sel=$(printf -- '-p %s ' $scope) ;; esac
-          echo "scope: $scope"
-          { echo "scope=$scope"; echo "sel=$sel"; } >> "$GITHUB_OUTPUT"
+          kinds=$(python3 .github/scripts/test-scope.py --targets $scope)
+          echo "scope: $scope ($kinds)"
+          { echo "scope=$scope"; echo "sel=$sel $kinds"; } >> "$GITHUB_OUTPUT"
       - if: steps.scope.outputs.scope != 'none'
-        run: cargo nextest run ${{ steps.scope.outputs.sel }} --lib --bins --tests --locked --profile ci
+        run: cargo nextest run ${{ steps.scope.outputs.sel }} --locked --profile ci
         env:
           TZ: America/Chicago
       # The keyring code against a real, throwaway gnome-keyring on a private bus (check.sh's
@@ -230,7 +231,7 @@ jobs:
           XDG_DATA_HOME="$t/data" XDG_RUNTIME_DIR="$t/run" dbus-run-session -- bash -c '
             echo -n throwaway | gnome-keyring-daemon --unlock --components=secrets >/dev/null 2>&1
             export QUINCE_ISOLATED_KEYRING=$DBUS_SESSION_BUS_ADDRESS
-            cargo nextest run ${{ steps.scope.outputs.sel }} --lib --bins --tests --locked --profile ci --run-ignored only -E "test(secret_service)"'
+            cargo nextest run ${{ steps.scope.outputs.sel }} --locked --profile ci --run-ignored only -E "test(secret_service)"'
       # A download onto a disk that really fills up (a 1 MB tmpfs): the disk's own refusal,
       # not a made-up free-space number, stops it cleanly (folder_download/tests.rs).
       - name: A real full disk
@@ -238,7 +239,7 @@ jobs:
         run: |
           sudo mkdir -p /mnt/skykeep-full
           sudo mount -t tmpfs -o size=1m,uid=$(id -u) tmpfs /mnt/skykeep-full
-          SKYKEEP_FULL_DISK=/mnt/skykeep-full cargo nextest run ${{ steps.scope.outputs.sel }} --lib --bins --tests --locked --profile ci --run-ignored only -E 'test(real_full_disk)'
+          SKYKEEP_FULL_DISK=/mnt/skykeep-full cargo nextest run ${{ steps.scope.outputs.sel }} --locked --profile ci --run-ignored only -E 'test(real_full_disk)'
 
   # The Android app, which nothing else here builds: the engine for both ABIs (cargo-ndk) and its
   # Kotlin bindings made from that same code, the app and its device-test APK compiled, the JVM
