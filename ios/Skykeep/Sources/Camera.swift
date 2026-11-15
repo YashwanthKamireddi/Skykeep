@@ -157,7 +157,11 @@ final class Camera: NSObject, @unchecked Sendable, AVCaptureVideoDataOutputSampl
                 && CMFormatDescriptionGetMediaSubType($0.formatDescription) == kCVPixelFormatType_420YpCbCr8BiPlanarVideoRange
         }
         let rate = { (f: AVCaptureDevice.Format) in min(60, f.videoSupportedFrameRateRanges.map(\.maxFrameRate).max() ?? 0) }
-        let best = candidates.max { a, b in rate(a) < rate(b) }
+        // Full-quality readout before frame rate: binned formats combine sensor pixels and look
+        // softer than the Camera app. Among those, the highest rate up to 60.
+        let best = candidates.max { a, b in
+            (a.isVideoBinned ? 0 : 1, rate(a)) < (b.isVideoBinned ? 0 : 1, rate(b))
+        }
         guard let format = best, (try? device.lockForConfiguration()) != nil else { return }
         device.activeFormat = format
         fps = Int32(rate(format))
@@ -215,14 +219,10 @@ final class Camera: NSObject, @unchecked Sendable, AVCaptureVideoDataOutputSampl
         VTSessionSetProperty(s, key: kVTCompressionPropertyKey_AllowFrameReordering, value: kCFBooleanFalse)
         VTSessionSetProperty(s, key: kVTCompressionPropertyKey_ExpectedFrameRate, value: NSNumber(value: fps))
         VTSessionSetProperty(s, key: kVTCompressionPropertyKey_MaxKeyFrameIntervalDuration, value: NSNumber(value: 2))
-        // Over the cable there is room to spare: 16 Mbit/s keeps 1080p60 clean.
-        VTSessionSetProperty(s, key: kVTCompressionPropertyKey_AverageBitRate, value: NSNumber(value: 16_000_000))
-        VTSessionSetProperty(s, key: kVTCompressionPropertyKey_PrioritizeEncodingSpeedOverQuality, value: kCFBooleanTrue)
-        // One reference picture instead of four: the stream then declares free room in the
-        // decoder's picture buffer, and decoders that only hand a picture on early when there is
-        // room (GStreamer's graphics-chip decoder) stop holding each one until the next, about
-        // 17 ms at 60 fps. Over the cable the bits the extra references save don't matter.
-        VTSessionSetProperty(s, key: kVTCompressionPropertyKey_ReferenceBufferCount, value: NSNumber(value: 1))
+        // The cable carries far more than this: 40 Mbit/s keeps 1080p60 close to what the
+        // Camera app shows, and the encoder spends its time on quality (it stays real time).
+        VTSessionSetProperty(s, key: kVTCompressionPropertyKey_AverageBitRate, value: NSNumber(value: 40_000_000))
+        VTSessionSetProperty(s, key: kVTCompressionPropertyKey_PrioritizeEncodingSpeedOverQuality, value: kCFBooleanFalse)
         VTCompressionSessionPrepareToEncodeFrames(s)
         return s
     }
