@@ -5,6 +5,7 @@
  * one local midnight to the next — twenty-three or twenty-five hours on the two days a clock
  * moves, which is why nothing here adds a fixed 86,400 seconds.
  */
+import { t } from "../../lib/i18n";
 import type { CalendarEvent } from "../../lib/ipc";
 import { timeText } from "../../lib/when.ts";
 
@@ -311,7 +312,7 @@ export const snap = (minutes: number, step = 15) => Math.round(minutes / step) *
 /** "9 AM", "Noon", "3 PM" — the hour labels in the viewer's own clock. */
 export function hourLabel(hour: number, twelve = TWELVE_HOUR): string {
   // "Noon" is a twelve-hour clock's word; a 24-hour one writes 12:00 like every other hour.
-  if (twelve && hour === 12) return "Noon";
+  if (twelve && hour === 12) return t("calendar.noon");
   const d = new Date(2024, 0, 1, hour);
   return twelve ? timeText(d, { hour: "numeric" }) : timeText(d, { hour: "2-digit", minute: "2-digit" });
 }

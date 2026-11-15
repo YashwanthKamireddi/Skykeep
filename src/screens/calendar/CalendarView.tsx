@@ -1,4 +1,5 @@
 import { toast, dismissToast, useErrorToast } from "../../components/Toast";
+import { t, activeLanguage, useI18n, type Key } from "../../lib/i18n";
 import { AppFoot } from "../../components/AppFoot";
 import { refusedLink, outsideHref } from "../../lib/links";
 import { follow } from "../../lib/follow";
@@ -63,18 +64,18 @@ import {
   zoneName,
   meetingOf,
 } from "./model";
-import { dateText, timeText } from "../../lib/when";
+import { dateLocale, dateText, timeText } from "../../lib/when";
 import { reveal, useReveal } from "../../lib/reveal";
 import { composing } from "../../lib/keys";
 
 const ZONE = Intl.DateTimeFormat().resolvedOptions().timeZone || "UTC";
 
 const REPEATS = [
-  { value: "never", label: "Never" },
-  { value: "daily", label: "Every Day" },
-  { value: "weekly", label: "Every Week" },
-  { value: "monthly", label: "Every Month" },
-  { value: "yearly", label: "Every Year" },
+  { value: "never", label: "calendar.repeatSimple.never" as Key },
+  { value: "daily", label: "calendar.repeatSimple.daily" as Key },
+  { value: "weekly", label: "calendar.repeatSimple.weekly" as Key },
+  { value: "monthly", label: "calendar.repeatSimple.monthly" as Key },
+  { value: "yearly", label: "calendar.repeatSimple.yearly" as Key },
 ];
 function repeatKey(r: EventRepeat | null): string {
   if (!r) return "never";
@@ -86,71 +87,85 @@ const DAY_CODES = ["MO", "TU", "WE", "TH", "FR", "SA", "SU"];
 const dayName = (code: string, width: "long" | "short") =>
   dateText(new Date(2026, 0, 5 + Math.max(0, DAY_CODES.indexOf(code))), { weekday: width });
 const monthName = (m: number) => dateText(new Date(2026, m - 1, 1), { month: "long" });
-const ordinal = (n: number) => `${n}${n % 10 === 1 && n !== 11 ? "st" : n % 10 === 2 && n !== 12 ? "nd" : n % 10 === 3 && n !== 13 ? "rd" : "th"}`;
-const listed = (items: string[]) =>
-  items.length < 2 ? items.join("") : `${items.slice(0, -1).join(", ")} and ${items[items.length - 1]}`;
+/** "2nd", "2.", "2日": a day of the month as the reader's language counts it. */
+const ordinal = (n: number) =>
+  activeLanguage() === "en"
+    ? `${n}${n % 10 === 1 && n !== 11 ? "st" : n % 10 === 2 && n !== 12 ? "nd" : n % 10 === 3 && n !== 13 ? "rd" : "th"}`
+    : activeLanguage() === "de" ? `${n}.` : `${n} 日`;
+/** "Tue and Thu", "周二和周四": a list as the language joins one. */
+const listed = (items: string[]) => new Intl.ListFormat(activeLanguage(), { style: "long", type: "conjunction" }).format(items);
+/** Apple's position ("2nd", "-1", "last") as the reader's language says it before a weekday. */
+function which(position: string, weekday: string): string {
+  const n = Number.parseInt(position, 10);
+  if (position.toLowerCase().startsWith("last") || n < 0) return t("calendar.positionLast", { weekday });
+  return t("calendar.positionN", { n: Number.isNaN(n) ? position : ordinal(n), weekday });
+}
 /** The repeat in words, as Apple's own Calendar says it: "Every 2 weeks on Tue and Thu",
- *  "Every month on the 2nd Tuesday", "Every year on the 4th Thursday of November". */
+ *  "Every month on the 2nd Tuesday", "Every year on the 4th Thursday of November" — whole
+ *  phrases from the locale files, so each language orders them its own way. */
 function repeatText(r: EventRepeat | null): string {
-  if (!r) return "Never";
-  const unit = { daily: "day", weekly: "week", monthly: "month", yearly: "year" }[r.freq];
-  let text = r.interval === 1 ? `Every ${unit}` : `Every ${r.interval} ${unit}s`;
+  if (!r) return t("calendar.repeatNever");
+  const unit = ({ daily: "day", weekly: "week", monthly: "month", yearly: "year" } as const)[r.freq];
+  const every = t(`calendar.every.${unit}${r.interval === 1 ? "One" : "Many"}`, { count: r.interval });
   const days = r.weekDays ?? [];
+  let text = every;
   if (r.position && days.length) {
-    const which = `the ${r.position} ${dayName(days[0], "long")}`;
-    text += r.freq === "yearly" && r.months?.length ? ` on ${which} of ${monthName(r.months[0])}` : ` on ${which}`;
+    const w = which(r.position, dayName(days[0], "long"));
+    text = r.freq === "yearly" && r.months?.length
+      ? t("calendar.repeatOnPositionOf", { every, which: w, month: monthName(r.months[0]) })
+      : t("calendar.repeatOnPosition", { every, which: w });
   } else if (r.freq === "weekly" && days.length) {
-    text += ` on ${listed(days.map((d) => dayName(d, "short")))}`;
+    text = t("calendar.repeatOnDays", { every, days: listed(days.map((d) => dayName(d, "short"))) });
   } else if (r.freq === "monthly" && r.monthDays?.length) {
-    text += ` on the ${listed(r.monthDays.map(ordinal))}`;
+    text = t("calendar.repeatOnDates", { every, dates: listed(r.monthDays.map(ordinal)) });
   } else if (r.freq === "yearly" && r.months?.length) {
-    text += ` in ${listed(r.months.map(monthName))}`;
+    text = t("calendar.repeatInMonths", { every, months: listed(r.months.map(monthName)) });
   }
   if (r.until) {
     const [y, m, d] = r.until.split("-").map(Number);
-    text += `, until ${dateText(new Date(y, m - 1, d), { day: "numeric", month: "short", year: "numeric" })}`;
+    text = t("calendar.until", { repeat: text, date: dateText(new Date(y, m - 1, d), { day: "numeric", month: "short", year: "numeric" }) });
   } else if (r.count) {
-    text += `, ${r.count} times`;
+    text = t("calendar.times", { repeat: text, count: r.count });
   }
   return text;
 }
 
 /** icloud.com's alert presets, minutes before the start; an all-day event's are by the day. */
 const ALERTS = [
-  { minutes: 0, label: "At time of event" },
-  { minutes: 5, label: "5 minutes before" },
-  { minutes: 15, label: "15 minutes before" },
-  { minutes: 30, label: "30 minutes before" },
-  { minutes: 60, label: "1 hour before" },
-  { minutes: 120, label: "2 hours before" },
-  { minutes: 1440, label: "1 day before" },
-  { minutes: 2880, label: "2 days before" },
+  { minutes: 0, label: "calendar.alerts.atTime" as Key },
+  { minutes: 5, label: "calendar.alerts.m5" as Key },
+  { minutes: 15, label: "calendar.alerts.m15" as Key },
+  { minutes: 30, label: "calendar.alerts.m30" as Key },
+  { minutes: 60, label: "calendar.alerts.h1" as Key },
+  { minutes: 120, label: "calendar.alerts.h2" as Key },
+  { minutes: 1440, label: "calendar.alerts.d1" as Key },
+  { minutes: 2880, label: "calendar.alerts.d2" as Key },
 ];
 /** Apple's all-day alerts ring at 9 AM: minutes from the day's midnight, negative after it. */
 const ALL_DAY_ALERTS = [
-  { minutes: -540, label: "On day of event (9 AM)" },
-  { minutes: 900, label: "1 day before (9 AM)" },
-  { minutes: 2340, label: "2 days before (9 AM)" },
-  { minutes: 9540, label: "1 week before (9 AM)" },
+  { minutes: -540, label: "calendar.alerts.onDay9" as Key },
+  { minutes: 900, label: "calendar.alerts.d1at9" as Key },
+  { minutes: 2340, label: "calendar.alerts.d2at9" as Key },
+  { minutes: 9540, label: "calendar.alerts.w1at9" as Key },
 ];
 /** The midnight presets kept before, read as the 9 AM ones they meant. */
 const ALL_DAY_WAS: Record<number, number> = { 0: -540, 1440: 900, 2880: 2340, 10080: 9540 };
 /** An alert Apple holds that no preset names — set on a phone, say. */
 function alertLabel(m: number): string {
-  if (m === 0) return "At time of event";
-  const after = m < 0;
+  if (m === 0) return t("calendar.alerts.atTime");
+  const side = m < 0 ? "After" : "Before";
   const a = Math.abs(m);
-  const text = a % 1440 === 0 ? `${a / 1440} day${a === 1440 ? "" : "s"}`
-    : a % 60 === 0 ? `${a / 60} hour${a === 60 ? "" : "s"}` : `${a} minutes`;
-  return `${text} ${after ? "after" : "before"}`;
+  if (a % 1440 === 0) return a === 1440 ? t(`calendar.alerts.day${side}`) : t(`calendar.alerts.days${side}`, { count: a / 1440 });
+  if (a % 60 === 0) return a === 60 ? t(`calendar.alerts.hour${side}`) : t(`calendar.alerts.hours${side}`, { count: a / 60 });
+  return t(`calendar.alerts.minutes${side}`, { count: a });
 }
 
 /** Apple's four scopes, in Apple's order. */
 const VIEWS = [
-  { key: "day", label: "Day" },
-  { key: "week", label: "Week" },
-  { key: "month", label: "Month" },
-  { key: "year", label: "Year" },
+  { key: "day", label: "calendar.views.day" as Key },
+  { key: "week", label: "calendar.views.week" as Key },
+  { key: "month", label: "calendar.views.month" as Key },
+  { key: "year", label: "calendar.views.year" as Key },
 ] as const;
 type View = (typeof VIEWS)[number]["key"];
 
@@ -210,10 +225,10 @@ const writeJson = (key: string, value: unknown) => {
 
 /** How often a subscription can be fetched again, as Calendar offers it. */
 const REFRESHES = [
-  { minutes: 60, label: "Every Hour" },
-  { minutes: 1440, label: "Every Day" },
-  { minutes: 10080, label: "Every Week" },
-  { minutes: 0, label: "Only When Asked" },
+  { minutes: 60, label: "calendar.refresh.hour" as Key },
+  { minutes: 1440, label: "calendar.refresh.day" as Key },
+  { minutes: 10080, label: "calendar.refresh.week" as Key },
+  { minutes: 0, label: "calendar.refresh.asked" as Key },
 ];
 
 /** A place, for the map app this computer opens `geo:` links with. */
@@ -233,17 +248,17 @@ function Guests({ guid }: { guid: string | null | undefined }) {
     };
   }, [guid]);
   if (guests.length === 0) return null;
-  const answer = { accepted: "Accepted", declined: "Declined", tentative: "Maybe", pending: "No reply" } as const;
+  const answer = { accepted: t("calendar.guests.accepted"), declined: t("calendar.guests.declined"), tentative: t("calendar.guests.tentative"), pending: t("calendar.guests.pending") };
   const glyph = { accepted: "✓", declined: "✕", tentative: "?", pending: "" } as const;
   return (
-    <section className="cx-guests" aria-label="Guests">
+    <section className="cx-guests" aria-label={t("calendar.guests.title")}>
       <h4 className="cx-guests-head">
-        {guests.length} {guests.length === 1 ? "Guest" : "Guests"}
+        {guests.length === 1 ? t("calendar.guests.one") : t("calendar.guests.many", { count: guests.length })}
       </h4>
       <ul className="cx-guest-list">
         {guests.map((g, i) => {
-          const name = g.name ?? g.email ?? "Guest";
-          const role = g.isOrganizer ? "Organizer" : g.isMe ? "You" : null;
+          const name = g.name ?? g.email ?? t("calendar.guests.guest");
+          const role = g.isOrganizer ? t("calendar.guests.organizer") : g.isMe ? t("calendar.guests.you") : null;
           return (
             <li key={`${g.email ?? g.name ?? ""}-${i}`} className="cx-guest" title={g.email ?? undefined}>
               <span className={`cx-guest-mark is-${g.status}`} aria-hidden="true">{glyph[g.status]}</span>
@@ -381,7 +396,7 @@ function Ring({ reminder, quiet = false }: { reminder: Reminder; quiet?: boolean
       className={`cx-ring${done ? " is-ticked" : ""}`}
       role="checkbox"
       aria-checked={done}
-      aria-label={`Complete ${reminder.title}`}
+      aria-label={t("calendar.completeReminder", { title: reminder.title })}
       {...press}
     />
   );
@@ -440,6 +455,8 @@ const toLocalInput = (s: number, dateOnly: boolean) => {
 };
 
 const weekdayShort = (d: Date) => dateText(d, { weekday: "short" });
+/** A weekday's narrowest name, as the language writes it: "M", "一", "M". */
+const weekdayNarrow = (d: Date) => dateText(d, { weekday: "narrow" });
 
 /** The colour a calendar is drawn in, or Apple's blue when it has none. */
 const tint = (c: Calendar | undefined) =>
@@ -450,6 +467,8 @@ const tint = (c: Calendar | undefined) =>
 type Anchor = { x: number; y: number; left?: number };
 
 export function CalendarView() {
+  // Through the hook, so the screen draws again in a language chosen while it is open.
+  useI18n();
   const today = useMemo(() => new Date(), []);
   const [now, setNow] = useState(() => new Date());
   const [view, setViewState] = useState<View>(() => {
@@ -900,7 +919,7 @@ export function CalendarView() {
       const was = d.guid ? events.find((e) => e.guid === d.guid) : undefined;
       const undoable = !undoing && !occurrence && !d.alertsChanged && !d.repeatChanged && was &&
         !was.guid.startsWith("quince:") && !was.guid.startsWith("pending:") && (
-          was.startsAt !== d.startsAt || was.endsAt !== endOf(d) || was.title !== (d.title.trim() || "New Event") ||
+          was.startsAt !== d.startsAt || was.endsAt !== endOf(d) || was.title !== (d.title.trim() || t("calendar.newEvent")) ||
           (was.location ?? "") !== d.location.trim() || (was.notes ?? "") !== d.notes.trim() ||
           was.allDay !== d.allDay || was.calendarGuid !== d.calendarGuid || (was.url ?? "") !== (d.url?.trim() ?? "") ||
           (!d.allDay && was.timezone !== d.timezone));
@@ -916,7 +935,7 @@ export function CalendarView() {
           ...(scope ? { scope } : {}),
           guid: d.guid,
           calendarGuid: d.calendarGuid,
-          title: d.title.trim() || "New Event",
+          title: d.title.trim() || t("calendar.newEvent"),
           location: d.location.trim() || null,
           startsAt: d.startsAt,
           endsAt: endOf(d),
@@ -933,7 +952,7 @@ export function CalendarView() {
         if (!d.guid) {
           return [...rows, {
             guid: `pending:${d.startsAt}:${d.title}`, calendarGuid: d.calendarGuid,
-            title: d.title.trim() || "New Event", location: d.location.trim() || null,
+            title: d.title.trim() || t("calendar.newEvent"), location: d.location.trim() || null,
             startsAt: d.startsAt, endsAt: endOf(d),
             allDay: d.allDay, timezone: d.allDay ? ZONE : (d.timezone ?? ZONE),
             url: d.url?.trim() || null, notes: d.notes.trim() || null, etag: null,
@@ -946,10 +965,10 @@ export function CalendarView() {
           e.guid !== d.guid && e.guid.split("__")[0] === series &&
           (scope === "all" || (scope === "future" && e.startsAt >= from));
         return rows.map((e) => alsoThis(e) ? {
-          ...e, title: d.title.trim() || "New Event", location: d.location.trim() || null,
+          ...e, title: d.title.trim() || t("calendar.newEvent"), location: d.location.trim() || null,
           notes: d.notes.trim() || null,
         } : e.guid === d.guid ? {
-          ...e, calendarGuid: d.calendarGuid, title: d.title.trim() || "New Event",
+          ...e, calendarGuid: d.calendarGuid, title: d.title.trim() || t("calendar.newEvent"),
           location: d.location.trim() || null, startsAt: d.startsAt,
           endsAt: endOf(d),
           allDay: d.allDay, notes: d.notes.trim() || null,
@@ -1087,7 +1106,7 @@ export function CalendarView() {
     if (!byGuid.get(e.calendarGuid)?.writable) return;
     if (!e.guid.includes("__")) {
       const sure = await confirm({
-        title: `Delete \u201c${e.title || "New Event"}\u201d?`,
+        title: t("calendar.deleteTitle", { title: e.title || t("calendar.newEvent") }),
         body: "It will be deleted from all your devices.",
         action: "Delete",
         danger: true,
@@ -1193,7 +1212,7 @@ export function CalendarView() {
   // Deleted, said in a toast with Undo for as long as Undo can put it back.
   useEffect(() => {
     if (!undo) return undefined;
-    const id = toast({ message: `Deleted \u201c${undo.title}\u201d`, action: { label: "Undo", run: () => void takeBack() }, duration: 8000 });
+    const id = toast({ message: t("calendar.deleted", { title: undo.title }), action: { label: t("calendar.undo"), run: () => void takeBack() }, duration: 8000 });
     const timer = window.setTimeout(() => setUndo(null), 8000);
     return () => {
       window.clearTimeout(timer);
@@ -1417,37 +1436,36 @@ export function CalendarView() {
 
   /** The title, and the shorter one a narrow calendar shows in its place ("Sep 2026"). */
   const title = useMemo(() => {
-    const short = (d: Date) => dateText(d, { month: "short" });
+    // The language's own way of writing the date, from its parts: the year light, the rest in
+    // bold, as Calendar sets it — "November 2026", "2026年11月", "15. November 2026".
+    const pieces = (parts: Intl.DateTimeFormatPart[]) =>
+      parts.map((p, i) => ({
+        text: p.value,
+        bold: !(p.type === "year" || (p.type === "literal" && parts[i - 1]?.type === "year")),
+      }));
+    const fmt = (o: Intl.DateTimeFormatOptions) => new Intl.DateTimeFormat(dateLocale(), o);
+    let parts: { text: string; bold: boolean }[];
+    let brief: string;
     if (view === "year") {
-      const year = String(selected.getFullYear());
-      return { strong: year, rest: "", brief: year };
+      parts = pieces(fmt({ year: "numeric" }).formatToParts(selected)).map((p) => ({ ...p, bold: true }));
+      brief = parts.map((p) => p.text).join("");
+    } else if (view === "day") {
+      parts = pieces(fmt({ day: "numeric", month: "long", year: "numeric" }).formatToParts(selected));
+      brief = dateText(selected, { day: "numeric", month: "short" });
+    } else if (view === "week" && week[0].getMonth() !== week[6].getMonth()) {
+      // A week across two months is named for both, as Calendar does: "Sep – Oct 2026".
+      const range = fmt({ month: "short", year: "numeric" });
+      parts = range.formatRangeToParts(week[0], week[6]).map((p, i, all) => ({
+        text: p.value,
+        bold: !(p.type === "year" || (p.type === "literal" && all[i - 1]?.type === "year")),
+      }));
+      brief = range.formatRange(week[0], week[6]);
+    } else {
+      const base = view === "week" ? week[6] : selected;
+      parts = pieces(fmt({ month: "long", year: "numeric" }).formatToParts(base));
+      brief = dateText(base, { month: "short", year: "numeric" });
     }
-    if (view === "day") {
-      // The language's own way of writing a date — "October 17, 2026", "17 October 2026" —
-      // with the day and month in bold and the year light, as Calendar sets it.
-      const parts = new Intl.DateTimeFormat(undefined, { day: "numeric", month: "long", year: "numeric" })
-        .formatToParts(selected);
-      const at = parts.findIndex((p) => p.type === "year");
-      const strong = parts.slice(0, at).map((p) => p.value).join("").replace(/[\s,]+$/, "");
-      const sep = parts.slice(0, at).map((p) => p.value).join("").slice(strong.length);
-      return {
-        strong: `${strong}${sep.trimEnd()}`,
-        rest: parts.slice(at).map((p) => p.value).join(""),
-        brief: dateText(selected, { day: "numeric", month: "short" }),
-      };
-    }
-    // A week across two months is named for both, as Calendar does: "Sep – Oct 2026".
-    if (view === "week" && week[0].getMonth() !== week[6].getMonth()) {
-      const sameYear = week[0].getFullYear() === week[6].getFullYear();
-      const strong = `${short(week[0])}${sameYear ? "" : ` ${week[0].getFullYear()}`} – ${short(week[6])}`;
-      return { strong, rest: String(week[6].getFullYear()), brief: `${strong} ${week[6].getFullYear()}` };
-    }
-    const base = view === "week" ? week[6] : selected;
-    return {
-      strong: dateText(base, { month: "long" }),
-      rest: String(base.getFullYear()),
-      brief: `${short(base)} ${base.getFullYear()}`,
-    };
+    return { parts, brief, label: parts.map((p) => p.text).join("") };
   }, [view, selected, week]);
 
   /**
@@ -1493,8 +1511,8 @@ export function CalendarView() {
           {[
             { key: "icloud", heading: "iCloud", list: calendars.filter((c) => c.writable && !c.guid.startsWith(DAV_PREFIX)) } as SideGroup,
             ...accounts.map((a): SideGroup => ({ key: `account:${a.id}`, heading: a.title, account: a, list: calendars.filter((c) => davAccountOf(c.guid) === a.id) })),
-            { key: "subs", heading: "Subscriptions", list: calendars.filter((c) => c.guid.startsWith(SUBSCRIPTION_PREFIX)) } as SideGroup,
-            { key: "other", heading: "Other", list: calendars.filter((c) => !c.writable && !c.guid.startsWith(SUBSCRIPTION_PREFIX) && !c.guid.startsWith(DAV_PREFIX)) } as SideGroup,
+            { key: "subs", heading: t("calendar.subscriptions"), list: calendars.filter((c) => c.guid.startsWith(SUBSCRIPTION_PREFIX)) } as SideGroup,
+            { key: "other", heading: t("calendar.other"), list: calendars.filter((c) => !c.writable && !c.guid.startsWith(SUBSCRIPTION_PREFIX) && !c.guid.startsWith(DAV_PREFIX)) } as SideGroup,
           ]
             .filter((g) => g.list.length > 0 || g.account || (g.key === "icloud" && loaded && calendars.length > 0))
             .map((group) => {
@@ -1519,8 +1537,8 @@ export function CalendarView() {
                   {group.key === "icloud" && (
                     <button
                       className="icon-button small cx-side-add"
-                      aria-label="Add Calendar"
-                      title="Add Calendar"
+                      aria-label={t("calendar.addCalendar")}
+                      title={t("calendar.addCalendar")}
                       aria-haspopup="menu"
                       onClick={(e) => {
                         const r = e.currentTarget.getBoundingClientRect();
@@ -1537,7 +1555,7 @@ export function CalendarView() {
                     <CalendarName
                       key={c.guid}
                       initial={c.title}
-                      label={`Rename ${c.title}`}
+                      label={t("calendar.renameCalendar", { title: c.title })}
                       onDone={(t) => (sub ? updateSub(sub.id, { title: t.trim() }) : updateCalendar(c, { title: t }))}
                       onCancel={() => setNaming(null)}
                     />
@@ -1571,7 +1589,7 @@ export function CalendarView() {
                   );
                 })}
                 {open && group.key === "icloud" && naming === "new" && (
-                  <CalendarName initial="Untitled" label="New calendar name" onDone={createCalendar} onCancel={() => setNaming(null)} />
+                  <CalendarName initial={t("calendar.untitled")} label={t("calendar.newCalendarName")} onDone={createCalendar} onCancel={() => setNaming(null)} />
                 )}
               </Fragment>
               );
@@ -1588,7 +1606,7 @@ export function CalendarView() {
                 void read();
               }}
               // Reached from the CalDAV panel, it goes back there; to sign in again, it just closes.
-              leaving={adding.server === undefined ? "Back" : "Cancel"}
+              leaving={adding.server === undefined ? t("calendar.back") : t("calendar.cancel")}
               onCancel={() => setAdding(adding.server === undefined ? { kind: "caldav" } : null)}
             />
           )}
@@ -1626,9 +1644,9 @@ export function CalendarView() {
 
       <section className="cx-main">
         <header className="cx-bar">
-          <h1 className="cx-title" aria-label={`${title.strong} ${title.rest}`.trim()}>
+          <h1 className="cx-title" aria-label={title.label}>
             <span className="cx-title-full" aria-hidden="true">
-              <strong>{title.strong}</strong> {title.rest}
+              {title.parts.map((p, i) => (p.bold ? <strong key={i}>{p.text}</strong> : <span key={i}>{p.text}</span>))}
             </span>
             <strong className="cx-title-brief" aria-hidden="true">
               {title.brief}
@@ -1642,7 +1660,7 @@ export function CalendarView() {
                 aria-pressed={view === v.key}
                 onClick={() => setView(v.key)}
               >
-                {v.label}
+                {t(v.label)}
               </button>
             ))}
           </div>
@@ -1651,8 +1669,8 @@ export function CalendarView() {
               <span className="toolbar-group cx-quick-anchor">
                 <button
                   className="tool cx-icon"
-                  aria-label="New event"
-                  title="New Event"
+                  aria-label={t("calendar.newEventAria")}
+                  title={t("calendar.newEvent")}
                   aria-expanded={quick}
                   onClick={() => setQuick((q) => !q)}
                 >
@@ -1671,8 +1689,8 @@ export function CalendarView() {
               <button
                 ref={moreButton}
                 className="tool cx-icon"
-                aria-label="More"
-                title="More"
+                aria-label={t("calendar.more")}
+                title={t("calendar.more")}
                 aria-haspopup="menu"
                 onClick={(e) => {
                   const r = e.currentTarget.getBoundingClientRect();
@@ -1687,13 +1705,13 @@ export function CalendarView() {
                 <ChevronLeft size={17} strokeWidth={2} aria-hidden="true" />
               </button>
               <button className="tool has-label cx-today" title="Today · Shift-Ctrl-T to go to a date" onClick={() => setSelected(midnight(new Date()))}>
-                Today
+                {t("calendar.today")}
               </button>
               {goingTo && (
                 <form
                   className="popover cx-goto"
                   role="dialog"
-                  aria-label="Go to Date"
+                  aria-label={t("calendar.goToDate")}
                   onSubmit={(e) => {
                     e.preventDefault();
                     goTo(new FormData(e.currentTarget).get("day") as string);
@@ -1713,7 +1731,7 @@ export function CalendarView() {
                     className="field"
                     name="day"
                     type="date"
-                    aria-label="Date"
+                    aria-label={t("calendar.date")}
                     autoFocus
                     defaultValue={`${selected.getFullYear()}-${String(selected.getMonth() + 1).padStart(2, "0")}-${String(selected.getDate()).padStart(2, "0")}`}
                   />
@@ -1728,8 +1746,8 @@ export function CalendarView() {
               ref={searchField}
               inToolbar
               className="cx-search"
-              placeholder="Search"
-              aria-label="Search events"
+              placeholder={t("calendar.search")}
+              aria-label={t("calendar.searchAria")}
               value={query}
               onChange={setQuery}
               onKeyDown={(e) => {
@@ -1786,16 +1804,16 @@ export function CalendarView() {
           const cal = calMenu.cal;
           const sub = subs.find((x) => SUBSCRIPTION_PREFIX + x.id === cal.guid) ?? null;
           const colours = CALENDAR_COLOURS.map(([hex, name]) => ({
-            label: name,
+            label: t(name as Key),
             checked: (cal.colour ?? "").toLowerCase() === hex,
             run: () => (sub ? updateSub(sub.id, { colour: hex }) : updateCalendar(cal, { colour: hex })),
           }));
           const alertMenu = (kind: "timed" | "allDay") => {
             const current = defaultAlerts[kind][cal.guid];
             return [
-              { label: "None", checked: current === undefined, run: () => setDefaultAlert(kind, cal.guid, null) },
+              { label: t("calendar.none"), checked: current === undefined, run: () => setDefaultAlert(kind, cal.guid, null) },
               ...(kind === "allDay" ? ALL_DAY_ALERTS : ALERTS).map((a) => ({
-                label: a.label,
+                label: t(a.label),
                 checked: current === a.minutes,
                 run: () => setDefaultAlert(kind, cal.guid, a.minutes),
               })),
@@ -1806,22 +1824,22 @@ export function CalendarView() {
               at={calMenu.at}
               onClose={() => setCalMenu(null)}
               entries={sub ? [
-                { label: "Rename", run: () => setNaming(cal.guid) },
-                { label: "Colour", submenu: colours },
+                { label: t("calendar.rename"), run: () => setNaming(cal.guid) },
+                { label: t("calendar.colour"), submenu: colours },
                 {
-                  label: "Refresh",
-                  submenu: REFRESHES.map((r) => ({ label: r.label, checked: sub.refreshMinutes === r.minutes, run: () => updateSub(sub.id, { refreshMinutes: r.minutes }) })),
+                  label: t("calendar.refreshMenu"),
+                  submenu: REFRESHES.map((r) => ({ label: t(r.label), checked: sub.refreshMinutes === r.minutes, run: () => updateSub(sub.id, { refreshMinutes: r.minutes }) })),
                 },
-                { label: "Refresh Now", run: () => refreshSub(sub.id) },
+                { label: t("calendar.refreshNow"), run: () => refreshSub(sub.id) },
                 null,
-                { label: "Unsubscribe", danger: true, run: () => unsubscribe(sub) },
+                { label: t("calendar.unsubscribe"), danger: true, run: () => unsubscribe(sub) },
               ] : [
-                { label: "Rename", run: () => setNaming(cal.guid) },
-                { label: "Colour", submenu: colours },
-                { label: "Default Alert", submenu: alertMenu("timed") },
-                { label: "Default All-Day Alert", submenu: alertMenu("allDay") },
+                { label: t("calendar.rename"), run: () => setNaming(cal.guid) },
+                { label: t("calendar.colour"), submenu: colours },
+                { label: t("calendar.defaultAlert"), submenu: alertMenu("timed") },
+                { label: t("calendar.defaultAllDayAlert"), submenu: alertMenu("allDay") },
                 null,
-                ...(cal.isDefault ? [] : [{ label: "Delete Calendar", danger: true, run: () => deleteCalendar(cal) }]),
+                ...(cal.isDefault ? [] : [{ label: t("calendar.deleteCalendar"), danger: true, run: () => deleteCalendar(cal) }]),
               ]}
             />
           );
@@ -1831,10 +1849,10 @@ export function CalendarView() {
             at={addMenu}
             onClose={() => setAddMenu(null)}
             entries={[
-              { label: "New Calendar", run: () => { if (folded.has("icloud")) fold("icloud"); setNaming("new"); } },
-              { label: "New Subscription", run: () => setSubscribing(true) },
+              { label: t("calendar.newCalendar"), run: () => { if (folded.has("icloud")) fold("icloud"); setNaming("new"); } },
+              { label: t("calendar.newSubscription"), run: () => setSubscribing(true) },
               null,
-              { label: "Add CalDAV Account", run: () => setAdding({ kind: "caldav" }) },
+              { label: t("calendar.addCalDav"), run: () => setAdding({ kind: "caldav" }) },
             ]}
           />
         )}
@@ -1843,16 +1861,16 @@ export function CalendarView() {
             at={groupMenu.at}
             onClose={() => setGroupMenu(null)}
             entries={[
-              { label: "Show All", run: () => showOnly(groupMenu.list, true) },
-              { label: "Hide All", run: () => showOnly(groupMenu.list, false) },
+              { label: t("calendar.showAll"), run: () => showOnly(groupMenu.list, true) },
+              { label: t("calendar.hideAll"), run: () => showOnly(groupMenu.list, false) },
               ...(groupMenu.account ? (() => {
                 const a = groupMenu.account;
                 return [
                   null,
                   ...(a.needsSignIn
                     ? a.kind === "nextcloud" ? [{ label: "Sign In Again", run: () => setAdding({ kind: "nextcloud" as const, server: a.server }) }] : []
-                    : [{ label: "Refresh Now", run: () => refreshAccount(a) }]),
-                  { label: "Remove Account", danger: true, run: () => removeAccount(a) },
+                    : [{ label: t("calendar.refreshNow"), run: () => refreshAccount(a) }]),
+                  { label: t("calendar.removeAccount"), danger: true, run: () => removeAccount(a) },
                 ];
               })() : []),
             ]}
@@ -1865,13 +1883,13 @@ export function CalendarView() {
             entries={[
               // A window too narrow for the calendars beside the month: they come over it.
               ...(document.querySelector(".cx-side") && getComputedStyle(document.querySelector(".cx-side")!).display === "none"
-                ? [{ label: "Show Calendars", run: () => askForSidebar(moreButton.current) }, null]
+                ? [{ label: t("calendar.showCalendars"), run: () => askForSidebar(moreButton.current) }, null]
                 : []),
-              { label: "Go to Date", run: () => setGoingTo(true) },
-              { label: "Show Week Numbers", checked: weekNumbers, run: () => setWeekNumbers(!weekNumbers) },
+              { label: t("calendar.goToDate"), run: () => setGoingTo(true) },
+              { label: t("calendar.showWeekNumbers"), checked: weekNumbers, run: () => setWeekNumbers(!weekNumbers) },
               null,
-              { label: "New Subscription", run: () => setSubscribing(true) },
-              { label: "Add CalDAV Account", run: () => setAdding({ kind: "caldav" }) },
+              { label: t("calendar.newSubscription"), run: () => setSubscribing(true) },
+              { label: t("calendar.addCalDav"), run: () => setAdding({ kind: "caldav" }) },
             ]}
           />
         )}
@@ -1884,21 +1902,21 @@ export function CalendarView() {
               at={eventMenu.at}
               onClose={() => setEventMenu(null)}
               entries={[
-                { label: mine ? "Edit" : "Show", run: () => openPicked(e) },
+                { label: mine ? t("calendar.edit") : t("calendar.show"), run: () => openPicked(e) },
                 ...(writable.length > 0 ? [
-                  { label: "Duplicate", run: () => void duplicate(e) },
-                  { label: "Copy", run: () => setClip(e) },
+                  { label: t("calendar.duplicate"), run: () => void duplicate(e) },
+                  { label: t("calendar.copy"), run: () => setClip(e) },
                 ] : []),
                 ...(mine && movesTo.length > 1 ? [{
-                  label: "Calendar",
+                  label: t("calendar.calendar"),
                   submenu: movesTo.map((c) => ({
                     label: c.title,
                     checked: c.guid === e.calendarGuid,
                     run: () => { if (c.guid !== e.calendarGuid) void save({ ...draftOf(e), calendarGuid: c.guid }); },
                   })),
                 }] : []),
-                ...(e.location ? [{ label: "Open in Maps", run: () => void follow(mapsHref(e.location ?? "")) }] : []),
-                ...(mine ? [null, { label: "Delete", danger: true, run: () => void deleteAsking(e) }] : []),
+                ...(e.location ? [{ label: t("calendar.openInMaps"), run: () => void follow(mapsHref(e.location ?? "")) }] : []),
+                ...(mine ? [null, { label: t("calendar.delete"), danger: true, run: () => void deleteAsking(e) }] : []),
               ]}
             />
           );
@@ -2004,20 +2022,20 @@ export function CalendarView() {
 
       {asking && (
         <ConfirmSheet<EventScope>
-          title="This is a repeating event."
+          title={t("calendar.repeating")}
           body={asking.verb === "delete"
             ? "Do you want to delete only this event, this and all future events, or all events in the series?"
             : "Do you want to change only this event, this and all future events, or all events in the series?"}
           choices={asking.verb === "delete"
             ? [
-                { label: "Delete Only This Event", value: "this", primary: true, danger: true, focus: true },
-                { label: "Delete All Future Events", value: "future", danger: true },
-                { label: "Delete All Events", value: "all", danger: true },
+                { label: t("calendar.deleteOnlyThis"), value: "this", primary: true, danger: true, focus: true },
+                { label: t("calendar.deleteFuture"), value: "future", danger: true },
+                { label: t("calendar.deleteAll"), value: "all", danger: true },
               ]
             : [
-                { label: "Only This Event", value: "this", primary: true, focus: true },
-                { label: "All Future Events", value: "future" },
-                { label: "All Events", value: "all" },
+                { label: t("calendar.onlyThis"), value: "this", primary: true, focus: true },
+                { label: t("calendar.allFuture"), value: "future" },
+                { label: t("calendar.allEvents"), value: "all" },
               ]}
           onAnswer={(scope) => asking.answer(scope)}
           onCancel={() => asking.answer(null)}
@@ -2091,14 +2109,14 @@ const MiniMonth = memo(function MiniMonth({
         <span>
           <button
             className="icon-button small"
-            aria-label="Previous month"
+            aria-label={t("calendar.previousMonth")}
             onClick={() => setShown((m) => new Date(m.getFullYear(), m.getMonth() - 1, 1))}
           >
             <ChevronLeft size={14} strokeWidth={2.2} aria-hidden="true" />
           </button>
           <button
             className="icon-button small"
-            aria-label="Next month"
+            aria-label={t("calendar.nextMonth")}
             onClick={() => setShown((m) => new Date(m.getFullYear(), m.getMonth() + 1, 1))}
           >
             <ChevronRight size={14} strokeWidth={2.2} aria-hidden="true" />
@@ -2113,7 +2131,7 @@ const MiniMonth = memo(function MiniMonth({
         {weekNumbers && <span className="cx-minimonth-wd" aria-hidden="true" />}
         {days.slice(0, 7).map((d) => (
           <span className="cx-minimonth-wd" key={`wd${d.getDay()}`} aria-hidden="true">
-            {weekdayShort(d).slice(0, 1)}
+            {weekdayNarrow(d)}
           </span>
         ))}
         {days.map((d, i) => (
@@ -2415,7 +2433,7 @@ const MonthView = memo(function MonthView({
                       {more > 0 && (
                         <li>
                           <button className="cx-more" onClick={() => onMore(day)}>
-                            {more} more
+                            {t("calendar.moreCount", { count: more })}
                           </button>
                         </li>
                       )}
@@ -2885,7 +2903,7 @@ const TimeGrid = memo(function TimeGrid({
                     top: `${4 + s.lane * LANE}px`,
                   }}
                 >
-                  {pending?.title.trim() || "New Event"}
+                  {pending?.title.trim() || t("calendar.newEvent")}
                 </span>
               );
             }
@@ -3239,7 +3257,7 @@ const YearView = memo(function YearView({
             <div className="cx-minimonth-grid">
               {days.slice(0, 7).map((d) => (
                 <span className="cx-minimonth-wd" key={`wd${d.getDay()}`} aria-hidden="true">
-                  {weekdayShort(d).slice(0, 1)}
+                  {weekdayNarrow(d)}
                 </span>
               ))}
               {days.map((d, i) =>
@@ -3403,10 +3421,10 @@ function ZoneField({ zone, at, editable, onChange }: { zone: string; at: number;
         autoFocus
         type="search"
         role="combobox"
-        aria-label="Find a time zone"
+        aria-label={t("calendar.findTimeZone")}
         aria-expanded={found.length > 0}
         aria-controls="cx-zones"
-        placeholder="City or region"
+        placeholder={t("calendar.cityOrRegion")}
         value={query}
         onChange={(e) => { setQuery(e.target.value); setLit(0); }}
         onBlur={() => setQuery(null)}
@@ -3641,7 +3659,7 @@ function EventPopover({
         ref={box}
         className="cx-popover is-info"
         role="dialog"
-        aria-label={draft.title || "Event"}
+        aria-label={draft.title || t("calendar.event")}
         style={{ left: pos.left, top: pos.top, "--cal": tint(calendar) } as React.CSSProperties}
         onSubmit={(e) => { e.preventDefault(); onClose(); }}
       >
@@ -3675,7 +3693,7 @@ function EventPopover({
       ref={box}
       className="cx-popover"
       role="dialog"
-      aria-label={draft.guid ? draft.title || "Event" : "New event"}
+      aria-label={draft.guid ? draft.title || t("calendar.event") : t("calendar.newEventAria")}
       style={{ left: pos.left, top: pos.top, "--cal": tint(calendar) } as React.CSSProperties}
       onSubmit={(e) => {
         e.preventDefault();
@@ -3685,8 +3703,8 @@ function EventPopover({
       <input
         className="cx-pop-title"
         value={draft.title}
-        placeholder="New Event"
-        aria-label="Title"
+        placeholder={t("calendar.newEvent")}
+        aria-label={t("calendar.title")}
         autoFocus
         readOnly={!editable}
         onChange={(e) => set({ title: e.target.value })}
@@ -3696,8 +3714,8 @@ function EventPopover({
         <input
           className="cx-pop-line"
           value={draft.location}
-          placeholder="Add Location"
-          aria-label="Location"
+          placeholder={t("calendar.addLocation")}
+          aria-label={t("calendar.location")}
           readOnly={!editable}
           onChange={(e) => set({ location: e.target.value })}
         />
@@ -3731,7 +3749,7 @@ function EventPopover({
             at={draft.startsAt}
             allDay={draft.allDay}
             editable={editable}
-            label="Starts"
+            label={t("calendar.starts")}
             zone={zoneOf(draft)}
             // Moving the start keeps the length, as Calendar does — an all-day event's in days:
             // kept in seconds, one moved onto a day the clock changes ran an hour into the next.
@@ -3749,7 +3767,7 @@ function EventPopover({
             at={draft.allDay ? draft.endsAt - 1 : draft.endsAt}
             allDay={draft.allDay}
             editable={editable}
-            label="Ends"
+            label={t("calendar.ends")}
             zone={zoneOf(draft)}
             onChange={(end) =>
               set({ endsAt: draft.allDay ? seconds(addDays(midnight(dateOf(end)), 1)) : endAfter(zoneOf(draft), draft.startsAt, end) })
@@ -3773,7 +3791,7 @@ function EventPopover({
         <div className="cx-pop-row cal-field">
           <span>calendar</span>
           <Picker
-            label="Calendar"
+            label={t("calendar.calendar")}
             value={draft.calendarGuid}
             disabled={!editable || choices.length < 2}
             onChange={(guid) => set({ calendarGuid: guid })}
@@ -3787,8 +3805,8 @@ function EventPopover({
           const presets = draft.allDay ? ALL_DAY_ALERTS : ALERTS;
           const current = alerts?.[n];
           const options = [
-            { value: "none", label: "None" },
-            ...presets.map((p) => ({ value: String(p.minutes), label: p.label })),
+            { value: "none", label: t("calendar.none") },
+            ...presets.map((p) => ({ value: String(p.minutes), label: t(p.label) })),
             ...(current !== undefined && !presets.some((p) => p.minutes === current)
               ? [{ value: String(current), label: alertLabel(current) }]
               : []),
@@ -3797,7 +3815,7 @@ function EventPopover({
             <div className="cx-pop-row cal-field" key={`alert${n}`}>
               <span>{n === 0 ? "alert" : "2nd alert"}</span>
               <Picker
-                label={n === 0 ? "Alert" : "Second alert"}
+                label={n === 0 ? t("calendar.alert") : t("calendar.secondAlert")}
                 value={alerts === undefined ? "loading" : current === undefined ? "none" : String(current)}
                 disabled={!editable || alerts === undefined}
                 onChange={(v) => {
@@ -3807,7 +3825,7 @@ function EventPopover({
                   // Any beyond the two shown (made on a Mac) are kept, never dropped by an edit here.
                   set({ alerts: next, alertsChanged: true, alertsDefault: false });
                 }}
-                options={alerts === undefined ? [{ value: "loading", label: "Loading" }] : options}
+                options={alerts === undefined ? [{ value: "loading", label: t("calendar.loading") }] : options}
               />
             </div>
           );
@@ -3816,18 +3834,18 @@ function EventPopover({
         <div className="cx-pop-row cal-field">
           <span>repeat</span>
           <Picker
-            label="Repeat"
+            label={t("calendar.repeat")}
             value={draft.repeat === undefined ? "loading" : repeatKey(draft.repeat)}
             disabled={!editable || draft.repeat === undefined}
             onChange={(v) => set({ repeat: v === "never" ? null : { freq: v as EventRepeat["freq"], interval: 1, count: null }, repeatChanged: true })}
             options={
               draft.repeat === undefined
-                ? [{ value: "loading", label: "Loading" }]
+                ? [{ value: "loading", label: t("calendar.loading") }]
                 : [
-                    ...REPEATS,
+                    ...REPEATS.map((r) => ({ ...r, label: t(r.label) })),
                     // Apple's word for a schedule the menu has no entry for; the schedule itself
                     // is said in full on its own line below, where it has room.
-                    ...(repeatKey(draft.repeat) === "custom" ? [{ value: "custom", label: "Custom" }] : []),
+                    ...(repeatKey(draft.repeat) === "custom" ? [{ value: "custom", label: t("calendar.repeatCustom") }] : []),
                   ]
             }
           />
@@ -3841,8 +3859,8 @@ function EventPopover({
           className="cx-pop-line"
           type="url"
           value={draft.url ?? ""}
-          placeholder="Add URL"
-          aria-label="URL"
+          placeholder={t("calendar.addUrl")}
+          aria-label={t("calendar.url")}
           readOnly={!editable}
           onChange={(e) => set({ url: e.target.value || null })}
         />
@@ -3854,8 +3872,8 @@ function EventPopover({
       <textarea
         className="cx-pop-notes"
         value={draft.notes}
-        placeholder="Add Notes"
-        aria-label="Notes"
+        placeholder={t("calendar.addNotes")}
+        aria-label={t("calendar.notes")}
         rows={2}
         readOnly={!editable}
         onChange={(e) => set({ notes: e.target.value })}
@@ -3871,11 +3889,11 @@ function EventPopover({
         </span>
         <span>
           <button type="button" className="quiet" onClick={onClose}>
-            {editable ? "Cancel" : "Close"}
+            {editable ? t("calendar.cancel") : t("calendar.close")}
           </button>
           {editable && (
             <button type="submit" className="primary">
-              {draft.guid ? "Save" : "Add"}
+              {draft.guid ? t("calendar.save") : t("calendar.add")}
             </button>
           )}
         </span>
@@ -3958,7 +3976,7 @@ const DayPane = memo(function DayPane({
               <div className="cx-pane-reminder" style={listColour(r)} {...showReminder(r)}>
                 <Ring reminder={r} quiet />
                 <span className="cx-pane-title">{r.title}</span>
-                <span className="cx-pane-when">{r.allDay ? "all-day" : clock(r.dueAt ?? 0)}</span>
+                <span className="cx-pane-when">{r.allDay ? t("calendar.allDayLower") : clock(r.dueAt ?? 0)}</span>
               </div>
             </li>
           ))}
@@ -3969,14 +3987,14 @@ const DayPane = memo(function DayPane({
 });
 
 /** Apple's calendar colours, in icloud.com's order (calendar bundle `r2`). */
-const CALENDAR_COLOURS: [string, string][] = [
-  ["#ff2d55", "Red"],
-  ["#ff9500", "Orange"],
-  ["#ffcc00", "Yellow"],
-  ["#65db39", "Green"],
-  ["#34aadc", "Blue"],
-  ["#cc73e1", "Purple"],
-  ["#a2845e", "Brown"],
+const CALENDAR_COLOURS: [string, Key][] = [
+  ["#ff2d55", "calendar.colours.red"],
+  ["#ff9500", "calendar.colours.orange"],
+  ["#ffcc00", "calendar.colours.yellow"],
+  ["#65db39", "calendar.colours.green"],
+  ["#34aadc", "calendar.colours.blue"],
+  ["#cc73e1", "calendar.colours.purple"],
+  ["#a2845e", "calendar.colours.brown"],
 ];
 
 /** A calendar's name being typed: Return or leaving keeps it, Escape leaves it as it was. */
@@ -4044,7 +4062,7 @@ function QuickEvent({ calendar, onAdd, onClose }: {
       ref={box}
       className="popover cx-quick"
       role="dialog"
-      aria-label="Quick Event"
+      aria-label={t("calendar.quickEvent")}
       onSubmit={(e) => {
         e.preventDefault();
         onAdd(text, false, at());
@@ -4062,7 +4080,7 @@ function QuickEvent({ calendar, onAdd, onClose }: {
     >
       <input
         className="field cx-quick-field"
-        aria-label="Event, as you would say it"
+        aria-label={t("calendar.quickEventAria")}
         placeholder="Lunch with Asha tomorrow at 1pm"
         autoFocus
         value={text}
@@ -4082,7 +4100,7 @@ function QuickEvent({ calendar, onAdd, onClose }: {
             <span>{day(start)}</span>
             <span className="cx-quick-time">
               {q.allDay
-                ? sameDayEnd ? "All day" : `All day, until ${day(lastDay)}`
+                ? sameDayEnd ? t("calendar.allDay") : t("calendar.allDayUntil", { day: day(lastDay) })
                 : `${clock(q.startsAt)} – ${clock(q.endsAt)}${sameDayEnd ? "" : `, ${day(lastDay)}`}`}
             </span>
           </p>
@@ -4161,7 +4179,7 @@ function NextcloudForm({ initial, leaving, onDone, onCancel }: {
   return (
     <form
       className="cx-subscribe"
-      aria-label="Set Up Nextcloud Server"
+      aria-label={t("calendar.setUpNextcloud")}
       onSubmit={(e) => { e.preventDefault(); begin(); }}
       onKeyDown={(e) => {
         if (composing(e)) return;
@@ -4228,7 +4246,7 @@ function CalDavForm({ onNextcloud, onDone, onCancel }: {
   return (
     <form
       className="cx-subscribe"
-      aria-label="Add CalDAV Account"
+      aria-label={t("calendar.addCalDav")}
       onSubmit={(e) => {
         e.preventDefault();
         if (!ready) return;
@@ -4285,7 +4303,7 @@ function SubscribeForm({ onDone, onCancel }: {
   return (
     <form
       className="cx-subscribe"
-      aria-label="New Calendar Subscription"
+      aria-label={t("calendar.newSubscriptionTitle")}
       onSubmit={(e) => {
         e.preventDefault();
         if (!url.trim() || busy) return;
