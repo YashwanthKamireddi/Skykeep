@@ -9,7 +9,7 @@ use quince_link::service;
 use quince_link::stats::Delays;
 
 fn main() {
-    let s = service::start();
+    let s = service::start(|status| println!("now: {status:?}"));
     loop {
         std::thread::sleep(Duration::from_secs(2));
         let r = s.report.lock().unwrap();

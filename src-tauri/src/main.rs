@@ -7341,7 +7341,7 @@ fn main() {
             }
             // Before anything reaches Apple, so a run with diagnostics on has all of it.
             diagnostics::start(&dir);
-            iphone::start();
+            iphone::start(app.handle());
             let client = match Client::new(&dir) {
                 Ok(client) => client,
                 Err(quince_auth::Error::Io(e)) => cannot_start(&dir, &folder_problem(&e)),

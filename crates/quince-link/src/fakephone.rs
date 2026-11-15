@@ -9,7 +9,10 @@ use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 
 use anyhow::{Context, Result};
-use ffmpeg_next as ff;
+use gstreamer as gst;
+use gstreamer::prelude::*;
+use gstreamer_app as gst_app;
+use gstreamer_video as gst_video;
 
 use crate::protocol::{Codec, Hello, Kind, Packet, VideoFormat, AUDIO_RATE, KEYFRAME, VERSION};
 use crate::stats::now_us;
@@ -113,71 +116,106 @@ fn stream(link: TcpStream, width: u32, height: u32, fps: u32, stop: Arc<AtomicBo
         });
     }
 
-    ff::init()?;
-    let codec = ff::encoder::find_by_name("libx264")
-        .context("FFmpeg here has no libx264 to play the phone")?;
-    let mut enc = ff::codec::context::Context::new_with_codec(codec)
-        .encoder()
-        .video()?;
-    enc.set_width(width);
-    enc.set_height(height);
-    enc.set_format(ff::format::Pixel::YUV420P);
-    enc.set_time_base((1, fps as i32));
-    enc.set_max_b_frames(0);
-    enc.set_gop(fps * 2);
-    let mut opts = ff::Dictionary::new();
-    opts.set("preset", "ultrafast");
-    opts.set("tune", "zerolatency");
-    let mut enc = enc.open_with(opts)?;
-
-    let mut frame = ff::frame::Video::new(ff::format::Pixel::YUV420P, width, height);
+    let (source, sink, pipeline) = encoder(width, height, fps)?;
+    let frame_bytes = (width * height * 3 / 2) as usize;
     let start = Instant::now();
-    let mut i: i64 = 0;
+    let mut i: u64 = 0;
     while !stop.load(Ordering::Relaxed) {
-        paint(&mut frame, i);
-        frame.set_pts(Some(i));
-        frame.set_kind(if want_key.swap(false, Ordering::Relaxed) {
-            ff::picture::Type::I
-        } else {
-            ff::picture::Type::None
-        });
+        if want_key.swap(false, Ordering::Relaxed) {
+            let _ = source.send_event(
+                gst_video::DownstreamForceKeyUnitEvent::builder()
+                    .all_headers(true)
+                    .build(),
+            );
+        }
         let captured = now_us();
-        enc.send_frame(&frame)?;
-        let mut packet = ff::Packet::empty();
-        while enc.receive_packet(&mut packet).is_ok() {
-            let key = if packet.is_key() { KEYFRAME } else { 0 };
+        let mut buffer = gst::Buffer::with_size(frame_bytes)?;
+        {
+            let b = buffer.get_mut().unwrap();
+            b.set_pts(gst::ClockTime::from_useconds(i * 1_000_000 / fps as u64));
+            paint(&mut b.map_writable()?, width as usize, height as usize, i);
+        }
+        source
+            .push_buffer(buffer)
+            .map_err(|e| anyhow::anyhow!("the encoder stopped: {e:?}"))?;
+        // Real-time settings: each picture comes out before the next goes in.
+        if let Some(sample) = sink.try_pull_sample(gst::ClockTime::from_seconds(1)) {
+            let buffer = sample.buffer().context("an empty encoded picture")?;
+            let key = if buffer.flags().contains(gst::BufferFlags::DELTA_UNIT) {
+                0
+            } else {
+                KEYFRAME
+            };
             send(&Packet {
                 kind: Kind::Video,
                 flags: key,
                 captured_us: captured,
-                body: packet.data().unwrap_or(&[]).to_vec(),
+                body: buffer.map_readable()?.to_vec(),
             })?;
         }
         i += 1;
-        let next = start + Duration::from_micros(i as u64 * 1_000_000 / fps as u64);
+        let next = start + Duration::from_micros(i * 1_000_000 / fps as u64);
         std::thread::sleep(next.saturating_duration_since(Instant::now()));
     }
+    let _ = pipeline.set_state(gst::State::Null);
     // Hung up, as an unplugged cable does: the computer sees the link close at once.
     let _ = out.lock().unwrap().shutdown(std::net::Shutdown::Both);
     Ok(())
 }
 
-/// A bar moving across a grey field, so every picture differs.
-fn paint(frame: &mut ff::frame::Video, i: i64) {
-    let (w, h) = (frame.width() as usize, frame.height() as usize);
-    let stride = frame.stride(0);
+/// H.264 as the phone sends it (no B-frames, real time, keyframes every two seconds), through
+/// GStreamer: x264 with its zero-latency tuning, OpenH264 where x264 isn't installed.
+fn encoder(
+    width: u32,
+    height: u32,
+    fps: u32,
+) -> Result<(gst_app::AppSrc, gst_app::AppSink, gst::Pipeline)> {
+    gst::init()?;
+    let raw = gst_video::VideoInfo::builder(gst_video::VideoFormat::I420, width, height)
+        .fps(gst::Fraction::new(fps as i32, 1))
+        .build()?
+        .to_caps()?;
+    let source = gst_app::AppSrc::builder()
+        .caps(&raw)
+        .format(gst::Format::Time)
+        .is_live(true)
+        .build();
+    let encode = match gst::ElementFactory::make("x264enc").build() {
+        Ok(e) => {
+            e.set_property_from_str("tune", "zerolatency");
+            e.set_property_from_str("speed-preset", "ultrafast");
+            e.set_property("bframes", 0u32);
+            e.set_property("key-int-max", fps * 2);
+            e
+        }
+        Err(_) => gst::ElementFactory::make("openh264enc")
+            .build()
+            .context("GStreamer here has neither x264enc nor openh264enc to play the phone")?,
+    };
+    let sink = gst_app::AppSink::builder()
+        .caps(
+            &gst::Caps::builder("video/x-h264")
+                .field("stream-format", "byte-stream")
+                .field("alignment", "au")
+                .build(),
+        )
+        .sync(false)
+        .build();
+    let pipeline = gst::Pipeline::new();
+    pipeline.add_many([source.upcast_ref(), &encode, sink.upcast_ref()])?;
+    gst::Element::link_many([source.upcast_ref(), &encode, sink.upcast_ref()])?;
+    pipeline.set_state(gst::State::Playing)?;
+    Ok((source, sink, pipeline))
+}
+
+/// A bar moving across a grey field, so every picture differs (I420).
+fn paint(frame: &mut [u8], w: usize, h: usize, i: u64) {
     let bar = (i as usize * 8) % w;
-    let luma = frame.data_mut(0);
+    let (luma, chroma) = frame.split_at_mut(w * h);
     for y in 0..h {
         for x in 0..w {
-            luma[y * stride + x] = if x.abs_diff(bar) < 16 { 235 } else { 96 };
+            luma[y * w + x] = if x.abs_diff(bar) < 16 { 235 } else { 96 };
         }
     }
-    for plane in 1..3 {
-        let s = frame.stride(plane);
-        let d = frame.data_mut(plane);
-        for y in 0..h / 2 {
-            d[y * s..y * s + w / 2].fill(128);
-        }
-    }
+    chroma.fill(128);
 }

@@ -8,18 +8,26 @@ use serde::Serialize;
 static LINK: std::sync::OnceLock<quince_link::service::Service> = std::sync::OnceLock::new();
 
 /// Starts watching for the phone. Only the one Skykeep that holds the library gets here, so
-/// two never publish the same camera.
-pub fn start() {
+/// two never publish the same camera. Each change (plugged in, opened, in use, gone) reaches
+/// the windows as `quince://iphone`, so Settings shows it as it happens.
+pub fn start(app: &tauri::AppHandle) {
     #[cfg(all(target_os = "linux", feature = "iphone"))]
     {
-        let _ = LINK.set(quince_link::service::start());
+        use tauri::Emitter;
+        let app = app.clone();
+        let _ = LINK.set(quince_link::service::start(move |_| {
+            let _ = app.emit("quince://iphone", ());
+        }));
     }
+    #[cfg(not(all(target_os = "linux", feature = "iphone")))]
+    let _ = app;
 }
 
 #[derive(Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct IphoneStatus {
-    /// "none" (no iPhone on a cable), "plugged" (Skykeep isn't open on it) or "inUse".
+    /// "unavailable" (this build or system has no iPhone link), "none" (no iPhone on a cable),
+    /// "plugged" (Skykeep isn't open on it) or "inUse".
     state: &'static str,
     /// Capture on the phone to pictures reaching programs here, half of them within, in ms.
     camera_ms: Option<f64>,

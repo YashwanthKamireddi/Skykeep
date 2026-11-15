@@ -21,6 +21,9 @@ import {
   type LocalStorage,
   type LoginItem,
   messageOf,
+  IPHONE_CHANGED,
+  iphoneApi,
+  type IphoneStatus,
   PHOTO_CACHE,
   photoCacheApi,
   type PhotoCache,
@@ -469,6 +472,42 @@ function PhotoCacheCap({ onError }: { onError: (m: string) => void }) {
   );
 }
 
+/**
+ * The iPhone as this computer's camera and microphone: plugged in and Skykeep opened on it, it
+ * is one. The row says which step is missing, and changes as it happens.
+ */
+function IphoneRow() {
+  const { t } = useI18n();
+  const [status, setStatus] = useState<IphoneStatus | null>(null);
+  useEffect(() => {
+    let live = true;
+    const read = () => iphoneApi.status().then((s) => live && setStatus(s), () => {});
+    read();
+    const off = listen(IPHONE_CHANGED, read);
+    return () => {
+      live = false;
+      off.then((f) => f());
+    };
+  }, []);
+  if (!status || status.state === "unavailable") return null;
+  const hint =
+    status.state === "inUse"
+      ? t("settings.iphoneInUse")
+      : status.state === "plugged"
+        ? t("settings.iphonePlugged")
+        : t("settings.iphoneNone");
+  return (
+    <div className="settings-row">
+      <span className="settings-label settings-stack">
+        {t("settings.iphoneCamera")}
+        <span className="settings-hint" aria-live="polite">
+          {hint}
+        </span>
+      </span>
+    </div>
+  );
+}
+
 export function SettingsView({ onSignOut }: { onSignOut: (keep: boolean) => Promise<void> }) {
   const { t } = useI18n();
   const [account, setAccount] = useState<AccountInfo | null>(null);
@@ -671,6 +710,7 @@ export function SettingsView({ onSignOut }: { onSignOut: (keep: boolean) => Prom
             </button>
           </div>
           <PhotoCacheCap onError={setError} />
+          <IphoneRow />
           <div className="dash-actions">
             <span className="settings-hint">{local ? t("settings.keptOnComputer", { size: size(local.total) }) : "\u00a0"}</span>
           </div>

@@ -1215,6 +1215,21 @@ export type PhotoCache = {
 };
 /** Told when the cache changed in the background (a trim after the cap was lowered). */
 export const PHOTO_CACHE = "quince://photo-cache";
+/** The iPhone as this computer's camera and microphone (src-tauri/src/iphone.rs). */
+export type IphoneStatus = {
+  /** "unavailable": no iPhone link in this build or system. */
+  state: "unavailable" | "none" | "plugged" | "inUse";
+  cameraMs: number | null;
+  microphoneMs: number | null;
+};
+
+/** Each change of the iPhone's state. */
+export const IPHONE_CHANGED = "quince://iphone";
+
+export const iphoneApi = {
+  status: () => invoke<IphoneStatus>("iphone_status"),
+};
+
 export const photoCacheApi = {
   status: () => invoke<PhotoCache>("photos_cache_status"),
   /** Answers at once; the trim a lower cap starts reports through PHOTO_CACHE. */
