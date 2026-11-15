@@ -2011,10 +2011,8 @@
 
 .prefs-main { min-width: 0; min-height: 0; overflow-y: auto; padding: var(--pane-top) 24px 32px; }
 .prefs-column { max-width: 1240px; }
-/* A section comes in with a short fade, opacity alone (the compositor's, no re-layout). */
-.prefs-column { animation: prefs-in 140ms var(--ease) both; }
-@keyframes prefs-in { from { opacity: 0; } }
-@media (prefers-reduced-motion: reduce) { .prefs-column { animation: none; } }
+/* A section is shown at once, never faded in: a fade here was the compositor's, and on
+   WebKitGTK under Hyprland every such fade flickered (as the viewers' did). */
 .prefs-pane {
   display: grid; grid-template-columns: repeat(auto-fill, minmax(min(100%, 440px), 1fr));
   gap: 16px; align-items: start;
