@@ -141,8 +141,9 @@ final class Camera: NSObject, @unchecked Sendable, AVCaptureVideoDataOutputSampl
         wantKeyframe.withLock { $0 = true }
     }
 
-    /// 1920×1080 at the highest rate up to 60 the camera offers, with video HDR when the
-    /// format has it (bright windows and dark faces both kept), as the Camera app records.
+    /// 1920×1080 at the highest rate up to 60 the camera offers, video HDR off: it merges
+    /// exposures across frames, and on an iPhone 13 at 1080p60 it raised capture-to-computer
+    /// from about 30 ms to 41-51 ms. A webcam keeps the delay.
     private func choose(format device: AVCaptureDevice) {
         let candidates = device.formats.filter {
             let d = CMVideoFormatDescriptionGetDimensions($0.formatDescription)
@@ -150,18 +151,14 @@ final class Camera: NSObject, @unchecked Sendable, AVCaptureVideoDataOutputSampl
                 && CMFormatDescriptionGetMediaSubType($0.formatDescription) == kCVPixelFormatType_420YpCbCr8BiPlanarVideoRange
         }
         let rate = { (f: AVCaptureDevice.Format) in min(60, f.videoSupportedFrameRateRanges.map(\.maxFrameRate).max() ?? 0) }
-        let best = candidates.max { a, b in
-            (rate(a), a.isVideoHDRSupported ? 1 : 0) < (rate(b), b.isVideoHDRSupported ? 1 : 0)
-        }
+        let best = candidates.max { a, b in rate(a) < rate(b) }
         guard let format = best, (try? device.lockForConfiguration()) != nil else { return }
         device.activeFormat = format
         fps = Int32(rate(format))
         device.activeVideoMinFrameDuration = CMTime(value: 1, timescale: fps)
         device.activeVideoMaxFrameDuration = CMTime(value: 1, timescale: fps)
-        if format.isVideoHDRSupported {
-            device.automaticallyAdjustsVideoHDREnabled = false
-            device.isVideoHDREnabled = true
-        }
+        device.automaticallyAdjustsVideoHDREnabled = false
+        if format.isVideoHDRSupported { device.isVideoHDREnabled = false }
         device.unlockForConfiguration()
     }
 
