@@ -366,7 +366,7 @@ function BackupRow({ onError }: { onError: (m: string) => void }) {
         <button
           className="switch"
           role="switch"
-          aria-checked={state?.drive ?? true}
+          aria-checked={state?.drive ?? false}
           aria-label={t("settings.includeDrive")}
           disabled={!state}
           onClick={() => state && void set(state.folder, state.hidden, !state.drive)}
@@ -499,9 +499,11 @@ function useIphone() {
 function IphoneCard({
   status,
   setStatus,
+  shown,
 }: {
   status: IphoneStatus | null;
   setStatus: Dispatch<SetStateAction<IphoneStatus | null>>;
+  shown: boolean;
 }) {
   const { t } = useI18n();
   const [busy, setBusy] = useState(false);
@@ -509,12 +511,12 @@ function IphoneCard({
   // While it's in use and this section is open, how quick the picture and sound are, read
   // each second from the link's own counters (a local read; nothing leaves the computer).
   useEffect(() => {
-    if (!inUse) return undefined;
+    if (!inUse || !shown) return undefined;
     const tick = window.setInterval(() => {
       iphoneApi.status().then((s) => setStatus((was) => (JSON.stringify(was) === JSON.stringify(s) ? was : s)), () => {});
     }, 1000);
     return () => window.clearInterval(tick);
-  }, [inUse, setStatus]);
+  }, [inUse, shown, setStatus]);
   if (!status || status.state === "unavailable") return null;
   const on = status.state !== "off";
   const hint = !on
@@ -573,7 +575,7 @@ function IphoneCard({
     </div>
   );
   return (
-    <Pane id="iphone" title={t("settings.iphone")}>
+    <Pane id="iphone" shown={shown} title={t("settings.iphone")}>
       <div className="settings-group">
         <div className="settings-row">
           <span className="settings-label settings-stack">
@@ -808,9 +810,8 @@ export function SettingsView({ onSignOut }: { onSignOut: (keep: boolean) => Prom
         ))}
       </nav>
       <div className="prefs-main" ref={mainRef}>
-        <div className={pane === "home" ? "prefs-column is-wide" : "prefs-column"} key={pane}>
-        {pane === "home" && (
-          <Pane id="home" title={t("settings.home")} hideTitle>
+        <div className="prefs-column">
+        <Pane id="home" shown={pane === "home"} title={t("settings.home")} hideTitle>
             <div className="prefs-hero">
               <AccountAvatar account={account} large />
               <div className="prefs-hero-text">
@@ -860,9 +861,7 @@ export function SettingsView({ onSignOut }: { onSignOut: (keep: boolean) => Prom
               driveFree={storage ? icloudSize(Math.max(0, storage.totalBytes - storage.usedBytes)) : null}
             />
           </Pane>
-        )}
-        {pane === "backup" && (
-          <Pane id="backup" title={t("settings.backupTitle")}>
+        <Pane id="backup" shown={pane === "backup"} title={t("settings.backupTitle")}>
             <div className="settings-group">
               <BackupRow onError={setError} />
             </div>
@@ -870,9 +869,7 @@ export function SettingsView({ onSignOut }: { onSignOut: (keep: boolean) => Prom
               <ExportRow onError={setError} />
             </div>
           </Pane>
-        )}
-        {pane === "computer" && (
-          <Pane id="computer" title={t("settings.thisComputer")}>
+        <Pane id="computer" shown={pane === "computer"} title={t("settings.thisComputer")}>
             {(showDrive || showPhotos) && (
               <div className="settings-group">
                 {showDrive && (
@@ -919,10 +916,8 @@ export function SettingsView({ onSignOut }: { onSignOut: (keep: boolean) => Prom
               <PhotoCacheCap onError={setError} />
             </div>
           </Pane>
-        )}
-        {pane === "iphone" && <IphoneCard status={iphone} setStatus={setIphone} />}
-        {pane === "notifications" && (
-          <Pane id="notifications" title={t("settings.notifications")}>
+        <IphoneCard status={iphone} setStatus={setIphone} shown={pane === "iphone"} />
+        <Pane id="notifications" shown={pane === "notifications"} title={t("settings.notifications")}>
             <div className="settings-group">
               {(
                 [
@@ -953,9 +948,7 @@ export function SettingsView({ onSignOut }: { onSignOut: (keep: boolean) => Prom
               )}
             </div>
           </Pane>
-        )}
-        {pane === "general" && (
-          <Pane id="general" title={t("settings.general")}>
+        <Pane id="general" shown={pane === "general"} title={t("settings.general")}>
             <div className="settings-group">
               <div className="settings-row">
                 <span className="settings-label">{t("settings.appearance")}</span>
@@ -1059,15 +1052,11 @@ export function SettingsView({ onSignOut }: { onSignOut: (keep: boolean) => Prom
               )}
             </div>
           </Pane>
-        )}
         {/* What Skykeep talks to, in plain sight: a statement of trust is not hidden behind a link. */}
-        {pane === "privacy" && (
-          <Pane id="privacy" title={t("settings.privacy")}>
+        <Pane id="privacy" shown={pane === "privacy"} title={t("settings.privacy")}>
             <ReachGroup />
           </Pane>
-        )}
-        {pane === "updates" && (
-          <Pane id="updates" title={t("settings.softwareUpdate")}>
+        <Pane id="updates" shown={pane === "updates"} title={t("settings.softwareUpdate")}>
             <UpdatesGroup />
             <div className="settings-group">
               <div className="settings-row">
@@ -1099,7 +1088,6 @@ export function SettingsView({ onSignOut }: { onSignOut: (keep: boolean) => Prom
               </div>
             </div>
           </Pane>
-        )}
         </div>
       </div>
       {licences && (
@@ -1147,9 +1135,24 @@ function NavTile({ pane }: { pane: Exclude<PaneId, "home"> }) {
 }
 
 /** One section's pane: its title, then its groups. */
-function Pane({ id, title, hideTitle, children }: { id: PaneId; title: string; hideTitle?: boolean; children: ReactNode }) {
+function Pane({
+  id,
+  title,
+  hideTitle,
+  shown,
+  children,
+}: {
+  id: PaneId;
+  title: string;
+  hideTitle?: boolean;
+  shown: boolean;
+  children: ReactNode;
+}) {
+  // Every section is made once, when Settings opens, and kept: hidden while another is shown, it
+  // has its answers ready, so showing it again draws what is true at once, never a first frame
+  // of placeholders that then flips (a switch on, then off).
   return (
-    <section className="prefs-pane" id={`pane-${id}`} role="tabpanel" aria-labelledby={`card-${id}`}>
+    <section className="prefs-pane" id={`pane-${id}`} role="tabpanel" aria-labelledby={`card-${id}`} hidden={!shown}>
       <h2 id={`card-${id}`} className={hideTitle ? "visually-hidden" : "prefs-title"}>
         {title}
       </h2>

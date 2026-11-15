@@ -47,7 +47,7 @@ for (const [w, h] of [[1180, 820], [800, 600], [560, 700]]) {
     const bad = [];
     for (const p of panes) {
       await page.locator(`[data-pane="${p}"]`).click();
-      await page.locator(".prefs-pane").first().waitFor();
+      await page.locator(".prefs-pane:not([hidden])").first().waitFor();
       await page.waitForTimeout(160);
       const s = await spill(page);
       if (s.length || !(await wide(page))) bad.push(`${p}: ${s.slice(0, 2).join(" | ") || "page wider than the window"}`);

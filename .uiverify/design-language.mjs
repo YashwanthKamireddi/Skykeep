@@ -101,7 +101,7 @@ const resolve = (page, value) => page.evaluate((v) => {
   ok(pickers.length > 0 && pickers.every((h) => h === control), `Settings' pop-up buttons are the control height  [${pickers.join(", ")} vs ${control}]`);
   const tracks = await page.locator(".settings .segmented:visible").evaluateAll((els) => els.map((e) => Math.round(e.getBoundingClientRect().height)));
   ok(tracks.every((h) => h === control), `a segmented control is the control height  [${tracks.join(", ")}]`);
-  const weight = await page.locator(".prefs-title").evaluate((el) => getComputedStyle(el).fontWeight);
+  const weight = await page.locator(".prefs-pane:not([hidden]) .prefs-title").evaluate((el) => getComputedStyle(el).fontWeight);
   ok(weight === "700", `Settings' title has the weight it asks for  [${weight}]`);
   // The pop-up button's keyboard focus: the shell's ring, not a translucent glow.
   const picker = page.locator(".settings .picker-button:visible").first();

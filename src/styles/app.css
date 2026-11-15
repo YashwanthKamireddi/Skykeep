@@ -2017,6 +2017,7 @@
   display: grid; grid-template-columns: repeat(auto-fill, minmax(min(100%, 440px), 1fr));
   gap: 16px; align-items: start;
 }
+.prefs-pane[hidden] { display: none; }
 .prefs-pane > :is(.prefs-title, .settings-heading, .visually-hidden, .prefs-hero, .launcher) { grid-column: 1 / -1; }
 .prefs-title { margin: 0 0 4px; font-size: var(--t-22); font-weight: 700; letter-spacing: -0.015em; line-height: 1.2; }
 .prefs-pane > .settings-heading { margin: 0 0 -8px; }
