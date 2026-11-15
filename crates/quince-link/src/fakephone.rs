@@ -157,6 +157,8 @@ fn stream(link: TcpStream, width: u32, height: u32, fps: u32, stop: Arc<AtomicBo
         let next = start + Duration::from_micros(i as u64 * 1_000_000 / fps as u64);
         std::thread::sleep(next.saturating_duration_since(Instant::now()));
     }
+    // Hung up, as an unplugged cable does: the computer sees the link close at once.
+    let _ = out.lock().unwrap().shutdown(std::net::Shutdown::Both);
     Ok(())
 }
 

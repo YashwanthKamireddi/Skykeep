@@ -116,6 +116,9 @@ fn read_node(target: &str, video: bool, enough: u64, within: Duration) -> Read_ 
     }
 }
 
+/// Both tests publish devices under the same names, so they take turns.
+static ONE_AT_A_TIME: Mutex<()> = Mutex::new(());
+
 fn pipewire_running() -> bool {
     let dir = std::env::var("XDG_RUNTIME_DIR").unwrap_or_default();
     std::path::Path::new(&dir).join("pipewire-0").exists()
@@ -123,6 +126,7 @@ fn pipewire_running() -> bool {
 
 #[test]
 fn programs_see_the_phones_camera_and_microphone_with_little_delay() {
+    let _turn = ONE_AT_A_TIME.lock().unwrap_or_else(|e| e.into_inner());
     if !pipewire_running() {
         eprintln!("no PipeWire on this machine: skipped");
         return;
@@ -201,4 +205,60 @@ fn programs_see_the_phones_camera_and_microphone_with_little_delay() {
         added as f64 / 1000.0
     );
     assert!(added < 15_000, "the link added {added} µs of sound delay");
+}
+
+/// A program keeps the camera it chose while the phone is unplugged and plugged back in: the
+/// same camera goes black, then shows the phone again, and the program never notices a gap.
+#[test]
+fn a_program_keeps_the_camera_across_an_unplug() {
+    let _turn = ONE_AT_A_TIME.lock().unwrap_or_else(|e| e.into_inner());
+    if !pipewire_running() {
+        eprintln!("no PipeWire on this machine: skipped");
+        return;
+    }
+    let devices = Arc::new(receiver::Devices::default());
+    let report = Arc::new(Mutex::new(receiver::Report::default()));
+    let connect = |devices: &Arc<receiver::Devices>| {
+        let phone = fakephone::start(640, 360, 60).unwrap();
+        let link = TcpStream::connect(("127.0.0.1", phone.port)).unwrap();
+        let (r, w, report, devices) = (
+            link.try_clone().unwrap(),
+            link,
+            report.clone(),
+            devices.clone(),
+        );
+        let session = std::thread::spawn(move || receiver::serve(r, w, report, devices));
+        (phone, session)
+    };
+    let wait_for = |n: u64| {
+        for _ in 0..400 {
+            if report.lock().unwrap().pictures >= n {
+                return;
+            }
+            std::thread::sleep(Duration::from_millis(25));
+        }
+        panic!(
+            "the phone's pictures stopped at {}",
+            report.lock().unwrap().pictures
+        );
+    };
+
+    let (phone, session) = connect(&devices);
+    wait_for(1);
+    // The reader opens the camera now and reads on through the unplug and the replug.
+    let reader = std::thread::spawn(|| {
+        read_node("skykeep-iphone-camera", true, 240, Duration::from_secs(20))
+    });
+    wait_for(120);
+    drop(phone);
+    session.join().unwrap().unwrap();
+    let before = report.lock().unwrap().pictures;
+    let (_phone, _session) = connect(&devices);
+    wait_for(before + 150);
+    let read = reader.join().unwrap();
+    assert!(
+        read.buffers >= 240,
+        "the reader got {} pictures across the replug",
+        read.buffers
+    );
 }

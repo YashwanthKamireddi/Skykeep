@@ -84,10 +84,7 @@ fn serve_while_plugged(
                 }
                 *status.lock().unwrap() = Status::Plugged;
             }
-            Err(e)
-                if e.downcast_ref::<std::io::Error>()
-                    .is_some_and(|e| e.kind() == std::io::ErrorKind::ConnectionRefused) =>
-            {
+            Err(e) if e.is::<usbmux::AppNotOpen>() => {
                 *status.lock().unwrap() = Status::Plugged;
             }
             // Unplugged (or usbmuxd gone): this phone's loop ends; plugging in starts a new one.

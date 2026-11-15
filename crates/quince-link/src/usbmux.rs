@@ -6,7 +6,7 @@
 //! property list, tag) and an XML property list. After a successful `Connect`, the same socket
 //! carries the phone's bytes.
 
-use std::io::{self, Read, Write};
+use std::io::{Read, Write};
 
 use anyhow::{bail, Context, Result};
 use plist::{Dictionary, Value};
@@ -94,6 +94,19 @@ pub fn phones() -> Result<Vec<u64>> {
         .collect())
 }
 
+/// The phone is on the cable but nothing answers on the port: Skykeep isn't open on it.
+/// Kept apart from every other failure, which means the phone (or usbmuxd) is gone.
+#[derive(Debug)]
+pub struct AppNotOpen;
+
+impl std::fmt::Display for AppNotOpen {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str("Skykeep isn't open on the iPhone")
+    }
+}
+
+impl std::error::Error for AppNotOpen {}
+
 /// A connection to `port` on the phone's loopback address, through the cable.
 pub fn connect(device: u64, port: u16) -> Result<Socket> {
     let mut s = open()?;
@@ -106,11 +119,7 @@ pub fn connect(device: u64, port: u16) -> Result<Socket> {
     match reply.get("Number").and_then(Value::as_unsigned_integer) {
         Some(0) => Ok(s),
         // 3: nothing is listening there: the app isn't open on the phone.
-        Some(3) => Err(io::Error::new(
-            io::ErrorKind::ConnectionRefused,
-            "Skykeep isn't open on the iPhone",
-        )
-        .into()),
+        Some(3) => Err(AppNotOpen.into()),
         other => bail!("usbmuxd refused the connection ({other:?})"),
     }
 }
