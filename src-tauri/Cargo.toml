@@ -92,6 +92,8 @@ windows = { version = "0.62", features = [
 ] }
 
 [target.'cfg(target_os = "linux")'.dependencies]
+# The iPhone as camera and microphone (iphone.rs).
+quince-link = { path = "../crates/quince-link" }
 fuser = { version = "0.18", default-features = false }
 # What the window's player can decode here (video.rs), asked of GStreamer, which WebKitGTK
 # plays through. The poster reader is quince-media's (poster.rs).

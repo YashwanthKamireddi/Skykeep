@@ -4376,6 +4376,7 @@ dependencies = [
  "quince-auth",
  "quince-core",
  "quince-icloud",
+ "quince-link",
  "quince-media",
  "quince-sync",
  "quince-thumbs",
