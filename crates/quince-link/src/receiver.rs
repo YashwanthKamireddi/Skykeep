@@ -26,6 +26,8 @@ pub struct Report {
     pub hardware_decoding: bool,
     pub pictures: u64,
     pub picture_delays: Option<Arc<Mutex<Delays>>>,
+    /// Capture to arrival here, before decoding: the phone's share of the delay plus the cable.
+    pub arrival_delays: Arc<Mutex<Delays>>,
     pub sound_delays: Option<Arc<Mutex<Delays>>>,
     pub keyframes_asked: u64,
     pub mic_underruns: Option<Arc<std::sync::atomic::AtomicU64>>,
@@ -142,6 +144,13 @@ pub fn serve(
                 ask_keyframe(&report)?;
             }
             Kind::Video => {
+                report
+                    .lock()
+                    .unwrap()
+                    .arrival_delays
+                    .lock()
+                    .unwrap()
+                    .record(packet.captured_us - offset.load(Ordering::Relaxed));
                 let Some(tx) = &pictures else { continue };
                 if broken.swap(false, Ordering::Relaxed) {
                     skipping = true;

@@ -23,9 +23,11 @@ fn main() -> anyhow::Result<()> {
                 .unwrap_or("-".into())
         };
         println!(
-            "{} pictures (hardware {}), camera p50 {} p95 {} ms; microphone p50 {} p95 {} ms; keyframes asked {}",
+            "{} pictures (hardware {}), arrival p50 {} p95 {}, camera p50 {} p95 {} ms; microphone p50 {} p95 {} ms; keyframes asked {}",
             r.pictures,
             r.hardware_decoding,
+            ms(&Some(r.arrival_delays.clone()), 0.5),
+            ms(&Some(r.arrival_delays.clone()), 0.95),
             ms(&r.picture_delays, 0.5),
             ms(&r.picture_delays, 0.95),
             ms(&r.sound_delays, 0.5),
