@@ -9,7 +9,7 @@
 //! as soon as it is whole, the software decoder splits work within a picture rather than
 //! across pictures (frame threads each hold a picture back), and nothing waits on a clock.
 
-use anyhow::{anyhow, bail, Context, Result};
+use anyhow::{anyhow, bail, Result};
 use gstreamer as gst;
 use gstreamer::prelude::*;
 use gstreamer_app as gst_app;
@@ -50,8 +50,13 @@ impl Decoder {
             Codec::H264 => ("video/x-h264", "h264parse"),
             Codec::Hevc => ("video/x-h265", "h265parse"),
         };
+        // The graphics chip's decoder needs the parser (both come with gst-plugins-bad); without
+        // it, FFmpeg's decoder (gst-libav, which Skykeep depends on) takes whole pictures as
+        // they come.
+        let parse = gst::ElementFactory::make(parser).build().ok();
         let (decoder, hardware) = DECODERS
             .iter()
+            .filter(|(_, _, hw)| parse.is_some() || !*hw)
             .filter_map(|(h264, h265, hw)| {
                 let name = if codec == Codec::H264 { *h264 } else { *h265 };
                 if name.is_empty() {
@@ -88,9 +93,6 @@ impl Decoder {
             .is_live(true)
             .format(gst::Format::Time)
             .build();
-        let parse = gst::ElementFactory::make(parser)
-            .build()
-            .context("no parser")?;
         let sink = gst_app::AppSink::builder()
             .caps(
                 &gst::Caps::builder("video/x-raw")
@@ -118,8 +120,11 @@ impl Decoder {
         );
 
         let pipeline = gst::Pipeline::new();
-        pipeline.add_many([source.upcast_ref(), &parse, &decoder, sink.upcast_ref()])?;
-        gst::Element::link_many([source.upcast_ref(), &parse, &decoder, sink.upcast_ref()])?;
+        let mut chain: Vec<&gst::Element> = vec![source.upcast_ref()];
+        chain.extend(parse.as_ref());
+        chain.extend([&decoder, sink.upcast_ref()]);
+        pipeline.add_many(chain.iter().copied())?;
+        gst::Element::link_many(chain.iter().copied())?;
         pipeline.set_state(gst::State::Playing)?;
         Ok(Decoder {
             pipeline,
