@@ -129,8 +129,14 @@ impl Mic {
             s.target = ((ms * PER_MS as f64) as usize).clamp(2 * PER_MS, MOST_MS * PER_MS);
         }
         s.last_arrival_us = now;
-        // A hard ceiling only, for a reader that stopped reading altogether.
-        let most = s.cycle + (MOST_MS * 2) * PER_MS;
+        // While nothing reads, sound older than one read's worth plus the margin is of no use:
+        // a program opening the microphone hears now, not what was said before it opened it.
+        // While reading, a hard ceiling only, for a reader that stopped altogether.
+        let most = if s.playing {
+            s.cycle + (MOST_MS * 2) * PER_MS
+        } else {
+            s.cycle + s.target
+        };
         if s.samples.len() > most {
             let extra = s.samples.len() - most;
             s.samples.drain(..extra);
