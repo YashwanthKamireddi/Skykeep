@@ -1,0 +1,51 @@
+# The iPhone app (ios/), built unsigned on a Mac: SideStore or AltStore signs it on the phone
+# with the person's own Apple Account. Nothing here needs a paid Apple developer account.
+name: iPhone app
+
+on:
+  workflow_dispatch:
+  push:
+    paths: ["ios/**", ".github/workflows/ios.yml"]
+  pull_request:
+    branches: [main]
+    paths: ["ios/**", ".github/workflows/ios.yml"]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ios-${{ github.sha }}
+  cancel-in-progress: false
+
+jobs:
+  build:
+    runs-on: macos-26
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - name: Xcode 26.6
+        run: sudo xcode-select -s /Applications/Xcode_26.6.app
+      - name: Generate the project
+        run: |
+          brew install xcodegen
+          cd ios && xcodegen generate
+      - name: Build for iPhone, unsigned
+        run: |
+          cd ios
+          xcodebuild -project Skykeep.xcodeproj -scheme Skykeep -configuration Release \
+            -sdk iphoneos -destination 'generic/platform=iOS' -derivedDataPath build \
+            CODE_SIGNING_ALLOWED=NO CODE_SIGNING_REQUIRED=NO CODE_SIGN_IDENTITY="" \
+            build > build.log 2>&1 || { grep -E "error:" build.log; tail -40 build.log; exit 1; }
+          grep -E "warning:" build.log | sort -u | head -50 || true
+      - name: Package the .ipa
+        run: |
+          cd ios
+          mkdir -p Payload
+          cp -R build/Build/Products/Release-iphoneos/Skykeep.app Payload/
+          zip -qr Skykeep-iphone-unsigned.ipa Payload
+          ls -l Skykeep-iphone-unsigned.ipa
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: skykeep-iphone
+          path: ios/Skykeep-iphone-unsigned.ipa
+          retention-days: 14

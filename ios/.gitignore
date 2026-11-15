@@ -1,0 +1,6 @@
+Skykeep.xcodeproj/
+Skykeep/Info.plist
+build/
+Payload/
+*.ipa
+build.log
