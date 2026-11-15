@@ -315,6 +315,13 @@ fn make(app: &AppHandle, key: &str, asking: &str) {
     if let Some(icon) = icon_of(key) {
         let _ = window.set_icon(icon);
     }
+    // Its own app ID on Wayland, said each time it is mapped (own_app_id). make() runs on the
+    // main thread or hands this there: GTK is only touched from it.
+    #[cfg(target_os = "linux")]
+    {
+        let (w, id) = (window.clone(), app_id(app, key));
+        app.run_on_main_thread(move || own_app_id(&w, id)).ok();
+    }
     if crate::tiling_compositor() {
         window.set_decorations(false).ok();
     }
@@ -380,9 +387,7 @@ pub fn put_away(window: &tauri::Window) {
     });
 }
 
-/// An app's window put on screen, and — now that it is there — told its own app ID: GTK
-/// takes a window's app ID only once the window is shown (measured: set before, it was
-/// silently dropped and the window went on saying the program's name).
+/// An app's window put on screen and focused, and taken off the put-away list.
 pub fn show(window: &tauri::WebviewWindow) {
     PUT_AWAY
         .lock()
@@ -392,20 +397,33 @@ pub fn show(window: &tauri::WebviewWindow) {
     crate::login::shown();
     window.show().ok();
     window.set_focus().ok();
-    #[cfg(target_os = "linux")]
-    if let Some(key) = window.label().strip_prefix("app-") {
-        let id = app_id(window.app_handle(), key);
-        let w = window.clone();
-        window
-            .app_handle()
-            .run_on_main_thread(move || own_app_id(&w, &id))
-            .ok();
+}
+
+/// On Wayland, the window says it is its app, not Skykeep as a whole: the dock and taskbar
+/// show the app's own icon from it. Said each time the window is mapped, from GTK's own
+/// map-event: GDK drops an app ID set before the window's Wayland toplevel exists, and a window
+/// is given a new toplevel every time it is shown. Set once after `show()` instead (until
+/// 0.1.24), it raced the map: a window made fresh (first open, after its minute put away, after
+/// a restart) went on saying Skykeep's ID, and the dock lost the app's icon.
+#[cfg(target_os = "linux")]
+fn own_app_id(window: &tauri::WebviewWindow, id: String) {
+    use gtk::prelude::*;
+    let Ok(gtk_window) = window.gtk_window() else {
+        return;
+    };
+    let said = id.clone();
+    gtk_window.connect_map_event(move |w, _| {
+        say_app_id(w, &said);
+        gtk::glib::Propagation::Proceed
+    });
+    // Already on screen (it never is when made, but a map before this would be missed).
+    if gtk_window.is_mapped() {
+        say_app_id(&gtk_window, &id);
     }
 }
 
-/// On Wayland, the window says it is its app, not Skykeep as a whole.
 #[cfg(target_os = "linux")]
-fn own_app_id(window: &tauri::WebviewWindow, id: &str) {
+fn say_app_id(gtk_window: &impl gtk::prelude::IsA<gtk::Widget>, id: &str) {
     use glib::translate::ToGlibPtr;
     use gtk::prelude::*;
     extern "C" {
@@ -414,9 +432,6 @@ fn own_app_id(window: &tauri::WebviewWindow, id: &str) {
             id: *const std::ffi::c_char,
         );
     }
-    let Ok(gtk_window) = window.gtk_window() else {
-        return;
-    };
     let Some(gdk_window) = gtk_window.window() else {
         return;
     };
@@ -428,8 +443,8 @@ fn own_app_id(window: &tauri::WebviewWindow, id: &str) {
         return;
     };
     let raw: *mut gdk::ffi::GdkWindow = gdk_window.to_glib_none().0;
-    // SAFETY: a live, realized GdkWindow of a Wayland display, and a NUL-terminated id that
-    // GDK copies before returning.
+    // SAFETY: a live, mapped GdkWindow of a Wayland display, and a NUL-terminated id that GDK
+    // copies before returning.
     unsafe { gdk_wayland_window_set_application_id(raw, id.as_ptr()) };
 }
 
