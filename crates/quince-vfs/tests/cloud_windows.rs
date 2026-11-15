@@ -755,3 +755,73 @@ public static class Thumb {{
     let _ = std::fs::remove_dir_all(&place);
     let _ = std::fs::remove_dir_all(&out);
 }
+
+/// Skykeep quit and started again (#44, #45): the folder, registered and listed by the first
+/// run, is taken up again by the second, and a folder never opened before opens — the case
+/// File Explorer answered "The cloud operation is invalid" when the second run could not
+/// connect.
+#[test]
+fn a_restart_takes_the_folder_back_up() {
+    let mut sub = DriveItem {
+        drivewsid: "FOLDER::com.apple.CloudDocs::later".into(),
+        kind: "FOLDER".into(),
+        name: "Later".into(),
+        extension: None,
+        size: None,
+        ..file("x", "x", "x", 0)
+    };
+    sub.parent_id = Some(ROOT.into());
+    let root = vec![file("a", "first", "bin", 10), sub.clone()];
+    let inner: Vec<DriveItem> = (0..600)
+        .map(|n| {
+            let mut f = file(&format!("in{n}"), &format!("inside {n}"), "bin", 10);
+            f.parent_id = Some(sub.drivewsid.clone());
+            f
+        })
+        .collect();
+    let tree: HashMap<String, Vec<DriveItem>> = [
+        (ROOT.to_string(), root.clone()),
+        (sub.drivewsid.clone(), inner),
+    ]
+    .into();
+    let library = Arc::new(std::sync::Mutex::new(HashMap::from([(
+        ROOT.to_string(),
+        root,
+    )])));
+    let log = Arc::new(std::sync::Mutex::new(Vec::new()));
+    let rt = tokio::runtime::Runtime::new().unwrap();
+    let base = PathBuf::from(std::env::var("USERPROFILE").unwrap());
+    let place = base.join(format!("Skykeep restart {}", std::process::id()));
+    let out = std::env::temp_dir().join(format!("skykeep-restart-out-{}", std::process::id()));
+    std::fs::create_dir_all(&out).unwrap();
+    let id = cloud::sync_root_id(&format!("restart{}", std::process::id())).unwrap();
+    let shown = Shown {
+        id: &id,
+        name: "Skykeep restart test",
+        icon: "%SystemRoot%\\system32\\imageres.dll,-1043",
+    };
+    let provider = || {
+        Provider::new(
+            Arc::new(Apple(tree.clone(), Arc::clone(&log))),
+            Arc::new(Library(Arc::clone(&library))),
+            rt.handle().clone(),
+            out.join("sending"),
+        )
+    };
+    let first =
+        cloud::start(&place, &shown, provider()).expect("the first run takes the folder up");
+    assert!(dir(&place).contains(&"first.bin".to_string()));
+    drop(first);
+    let second = cloud::start(&place, &shown, provider()).expect("the next run takes it up again");
+    let listed = dir(&place.join("Later"));
+    assert_eq!(
+        listed.len(),
+        600,
+        "a folder never opened opens after a restart, whole: {} of 600",
+        listed.len()
+    );
+    drop(second);
+    cloud::unregister(&place, &id);
+    let _ = std::fs::remove_dir_all(&place);
+    let _ = std::fs::remove_dir_all(&out);
+}

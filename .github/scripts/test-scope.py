@@ -10,6 +10,11 @@ Reads the changed paths on stdin and prints one line:
 
 The dependency graph is cargo's own (`cargo metadata`), so a new crate or a new dependency
 between crates needs no change here.
+
+With `--targets <packages…>` it prints the target kinds to test them with instead: `--lib`
+only when one of them has a library. Cargo refuses `--lib` outright for a selection with no
+library in it (the app crate alone: "no library targets found in package quince-app"), which
+failed every pull request that changed only the app.
 """
 import json
 import re
@@ -22,7 +27,25 @@ EVERYWHERE = re.compile(
 )
 
 
+def targets(packages: list[str]) -> None:
+    meta = json.loads(subprocess.check_output(["cargo", "metadata", "--format-version", "1", "--locked", "--no-deps"]))
+    by_name = {p["name"]: p for p in meta["packages"]}
+    has_lib = (
+        not packages
+        or packages == ["all"]
+        or any(
+            "lib" in t["kind"] or "rlib" in t["kind"] or "proc-macro" in t["kind"]
+            for name in packages
+            for t in by_name.get(name, {}).get("targets", [])
+        )
+    )
+    print(("--lib " if has_lib else "") + "--bins --tests")
+
+
 def main() -> None:
+    if len(sys.argv) > 1 and sys.argv[1] == "--targets":
+        targets(sys.argv[2:])
+        return
     changed = [line.strip() for line in sys.stdin if line.strip()]
     if not changed or any(EVERYWHERE.match(path) for path in changed):
         print("all")

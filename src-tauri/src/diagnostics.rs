@@ -34,6 +34,13 @@ fn asked() -> bool {
     })
 }
 
+/// A line in the log, when it is on; nothing otherwise.
+pub fn note(text: &str) {
+    if LOG.get().is_some() {
+        line(text);
+    }
+}
+
 /// Turn diagnostics on for this run, when the person asked, writing into `dir`.
 pub fn start(dir: &Path) {
     if !asked() {
@@ -50,6 +57,7 @@ pub fn start(dir: &Path) {
         return;
     }
     quince_auth::diag::set_sink(line);
+    quince_vfs::set_notes(line);
     quince_icloud::set_diagnostics(refused);
     line(&format!(
         "diagnostics on: Skykeep {} on {} {}",

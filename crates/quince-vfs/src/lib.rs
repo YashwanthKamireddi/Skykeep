@@ -22,6 +22,38 @@ use std::path::{Path, PathBuf};
 use std::pin::Pin;
 use std::sync::{Arc, Mutex};
 
+/// Where the folders' own notes go besides stderr: the app's diagnostics log, when the person
+/// turned it on (`SKYKEEP_LOG=1`). A Windows app has no console, so a note printed alone was
+/// lost — a folder that would not open in File Explorer left nothing to read (#44).
+static NOTES: std::sync::OnceLock<fn(&str)> = std::sync::OnceLock::new();
+
+/// Sends the folders' notes to `sink` as well as stderr. Set once, at start.
+pub fn set_notes(sink: fn(&str)) {
+    let _ = NOTES.set(sink);
+}
+
+/// A note about the folders: printed, and kept in the diagnostics log when it is on. Only
+/// what happened and Windows' or Apple's answer: never a name, a path or an id (the log's
+/// promise; see `note_about` for those).
+#[cfg_attr(not(windows), allow(dead_code))]
+pub(crate) fn note(public: &str) {
+    note_about(public, "");
+}
+
+/// A note with what it was about (a file's name, its path, Apple's id for it): that part is
+/// printed for whoever runs Skykeep from a terminal, and left out of the diagnostics log.
+#[cfg_attr(not(windows), allow(dead_code))]
+pub(crate) fn note_about(public: &str, private: &str) {
+    if private.is_empty() {
+        eprintln!("quince: {public}");
+    } else {
+        eprintln!("quince: {public} ({private})");
+    }
+    if let Some(sink) = NOTES.get() {
+        sink(&format!("folder: {public}"));
+    }
+}
+
 /// A future the engine waits on, as the app's own async code gives it.
 pub type Fut<T> = Pin<Box<dyn Future<Output = Result<T, String>> + Send>>;
 

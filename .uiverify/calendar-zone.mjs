@@ -4,6 +4,17 @@
 // carries the zone and the moved instants to Apple. An all-day event has no zone row.
 import { engine } from "./engine.mjs";
 import { SERVICES, installStub, openScreen } from "./stub.mjs";
+// New York's offset on the day the event is made (today): daylight time in summer, standard in
+// winter. The suite was written in October and said GMT−4 always, so it failed every winter.
+const day = new Date(); day.setHours(10, 0, 0, 0);
+const offset = (zone) => {
+  const name = new Intl.DateTimeFormat("en-US", { timeZone: zone, timeZoneName: "shortOffset" }).formatToParts(day).find((p) => p.type === "timeZoneName").value;
+  const [, sign, h, m] = /GMT([+-])?(\d+)?(?::(\d+))?/.exec(name);
+  return { label: name.replace("-", "−"), hours: (sign === "-" ? -1 : 1) * ((Number(h) || 0) + (Number(m) || 0) / 60) };
+};
+const NY = offset("America/New_York").label;
+// The event starts in Kolkata (GMT+5:30) and keeps its clock time in New York.
+const MOVED = offset("Asia/Kolkata").hours - offset("America/New_York").hours;
 const b = await engine.launch();
 let failures = 0;
 const ok = (p, m) => { console.log(`${p ? "PASS" : "FAIL"} ${m}`); if (!p) failures++; };
@@ -34,10 +45,10 @@ for (const scheme of ["light", "dark"]) {
   await page.keyboard.type("new york");
   await page.waitForTimeout(150);
   const options = await page.getByRole("option").allInnerTexts();
-  ok(options.some((o) => /New York/.test(o) && /GMT−4/.test(o)), `${scheme}: typing a city finds its zone  ${JSON.stringify(options.slice(0, 3))}`);
+  ok(options.some((o) => /New York/.test(o) && o.includes(NY)), `${scheme}: typing a city finds its zone  ${JSON.stringify(options.slice(0, 3))}`);
   await page.keyboard.press("Enter");
   await page.waitForTimeout(150);
-  ok(/New York, GMT−4/.test(await zone.getAttribute("aria-label")), `${scheme}: chosen, the zone is New York`);
+  ok((await zone.getAttribute("aria-label")).includes(`New York, ${NY}`), `${scheme}: chosen, the zone is New York`);
   const timesNow = await page.evaluate(() => [...document.querySelectorAll(".cx-popover .cx-when")].map((w) => [...w.querySelectorAll("input, [role=spinbutton]")].map((i) => i.value ?? i.textContent).join(" ")));
   await page.locator('input[placeholder="New Event"]').first().press("Enter");
   await page.waitForTimeout(300);
@@ -46,7 +57,7 @@ for (const scheme of ["light", "dark"]) {
     const base = Math.floor(new Date(new Date().setHours(0, 0, 0, 0)).getTime() / 1000) + 9 * 3600;
     return base + 3600;
   });
-  ok(sent?.timezone === "America/New_York" && sent.startsAt - was === 9.5 * 3600 && sent.endsAt - sent.startsAt === 3600,
+  ok(sent?.timezone === "America/New_York" && sent.startsAt - was === MOVED * 3600 && sent.endsAt - sent.startsAt === 3600,
     `${scheme}: saved in New York at the same clock time, an hour long  (${sent?.timezone}, moved ${(sent?.startsAt - was) / 3600} h)  ${JSON.stringify(timesNow)}`);
   // All day: a date, not an instant — no zone to set.
   await page.locator(".cx-block", { hasText: "Dentist" }).first().click();

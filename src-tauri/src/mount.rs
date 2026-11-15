@@ -712,6 +712,14 @@ pub fn forget(app: &AppHandle) {
 fn status(app: &AppHandle, which: Which, problem: Option<String>) -> FolderStatus {
     let at = mounted(which).unwrap_or_else(|| place(app, which));
     let on = mounted(which).is_some();
+    // Up now, or a new answer: whatever went wrong at start is no longer the news.
+    let launch = &mut LAUNCH_PROBLEM
+        .lock()
+        .unwrap_or_else(std::sync::PoisonError::into_inner)[slot(which)];
+    if on || problem.is_some() {
+        *launch = None;
+    }
+    let problem = problem.or_else(|| launch.clone());
     let waiting = if which == Which::Drive && on {
         WRITES
             .lock()
@@ -763,7 +771,22 @@ fn lazy_unmount(at: &std::path::Path) -> bool {
     })
 }
 
-/// At start: each brought up if it was on.
+/// Why a folder that was on could not come back when Skykeep started, kept to be said on its
+/// row in Settings. A folder that failed here used to show as simply off, with nothing said,
+/// and on Windows File Explorer then refused every folder not yet opened, "The cloud operation
+/// is invalid" (#44, #45). It stays on in the library: the next start tries again.
+static LAUNCH_PROBLEM: Mutex<[Option<String>; 2]> = Mutex::new([None, None]);
+
+fn slot(which: Which) -> usize {
+    match which {
+        Which::Drive => 0,
+        Which::Photos => 1,
+    }
+}
+
+/// At start: each brought up if it was on. A folder that can't come up at once is tried twice
+/// more, a few seconds apart, behind the start (at login the system's file manager may not be
+/// ready to take a folder yet); launch never waits on those.
 pub fn resume(app: &AppHandle) {
     for which in [Which::Drive, Which::Photos] {
         let wanted = {
@@ -771,12 +794,34 @@ pub fn resume(app: &AppHandle) {
             let library = data.0.blocking_lock();
             library.state(which.on_key()).ok().flatten().as_deref() == Some("1")
         };
-        if wanted {
-            if let Err(e) = start(app, which, &place(app, which)) {
-                quiet!("a folder could not come up: {e}");
-            }
+        if !wanted || try_up(app, which) {
+            continue;
         }
+        let app = app.clone();
+        std::thread::spawn(move || {
+            for wait in [2, 5] {
+                std::thread::sleep(std::time::Duration::from_secs(wait));
+                if try_up(&app, which) {
+                    break;
+                }
+            }
+        });
     }
+}
+
+/// One try at bringing a folder up; what went wrong kept for its row, and the log.
+fn try_up(app: &AppHandle, which: Which) -> bool {
+    let result = start(app, which, &place(app, which));
+    if let Err(e) = &result {
+        crate::diagnostics::note(&format!("folder {which:?} could not come up: {e}"));
+    }
+    LAUNCH_PROBLEM
+        .lock()
+        .unwrap_or_else(std::sync::PoisonError::into_inner)[slot(which)] = result.err();
+    LAUNCH_PROBLEM
+        .lock()
+        .unwrap_or_else(std::sync::PoisonError::into_inner)[slot(which)]
+    .is_none()
 }
 
 /// Files written in the iCloud Drive folder and not yet sent: from the folder while it is up,
