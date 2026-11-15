@@ -102,6 +102,8 @@ final class Model {
     private func startMicrophone() {
         do {
             try microphone.start()
+            // The session exists now: the microphone on the camera's side.
+            microphone.face(side)
         } catch {
             log.error("microphone failed to start: \(error.localizedDescription, privacy: .public)")
             micOn = false
