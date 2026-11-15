@@ -1,4 +1,5 @@
 import { Fragment, memo, useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { t, useI18n, type Key } from "../lib/i18n";
 import { AppFoot } from "../components/AppFoot";
 import { Face } from "../components/Face";
 import { Unsent, Waiting } from "../components/Unsent";
@@ -52,9 +53,9 @@ type MenuAt = { x: number; y: number; alignRight: boolean };
 
 /** The kinds of detail a card can hold, in the order Apple lists them. */
 const KINDS = [
-  { value: "phone", label: "phone" },
-  { value: "email", label: "email" },
-  { value: "url", label: "link" },
+  { value: "phone", label: "contacts.add.phone" },
+  { value: "email", label: "contacts.add.email" },
+  { value: "url", label: "contacts.add.url" },
 ] as const;
 
 const CUSTOM = "\u0000custom";
@@ -75,27 +76,27 @@ function Avatar({ contact, large, preview }: { contact: Contact; large?: boolean
 
 /** The parts of a name and work that Contacts adds only when asked, in its order. */
 const NAME_FIELDS = [
-  { key: "prefix", label: "Prefix" },
-  { key: "phoneticFirstName", label: "Phonetic first name" },
-  { key: "middleName", label: "Middle name" },
-  { key: "phoneticLastName", label: "Phonetic last name" },
-  { key: "suffix", label: "Suffix" },
-  { key: "nickname", label: "Nickname" },
-  { key: "jobTitle", label: "Job title" },
-  { key: "department", label: "Department" },
-  { key: "phoneticCompany", label: "Phonetic company name" },
+  { key: "prefix", label: "contacts.nameField.prefix" as Key },
+  { key: "phoneticFirstName", label: "contacts.nameField.phoneticFirstName" as Key },
+  { key: "middleName", label: "contacts.nameField.middleName" as Key },
+  { key: "phoneticLastName", label: "contacts.nameField.phoneticLastName" as Key },
+  { key: "suffix", label: "contacts.nameField.suffix" as Key },
+  { key: "nickname", label: "contacts.nameField.nickname" as Key },
+  { key: "jobTitle", label: "contacts.nameField.jobTitle" as Key },
+  { key: "department", label: "contacts.nameField.department" as Key },
+  { key: "phoneticCompany", label: "contacts.nameField.phoneticCompany" as Key },
 ] as const;
 type NameKey = (typeof NAME_FIELDS)[number]["key"];
 
 /** The details a card can gain from Add Field, by Apple's names for them. */
 const ADDABLE = [
-  { kind: "phone", label: "Phone" },
-  { kind: "email", label: "Email" },
-  { kind: "url", label: "URL" },
-  { kind: "date", label: "Date" },
-  { kind: "related", label: "Related Name" },
-  { kind: "profile", label: "Social Profile" },
-  { kind: "im", label: "Instant Message" },
+  { kind: "phone", label: "contacts.kind.phone" as Key },
+  { kind: "email", label: "contacts.kind.email" as Key },
+  { kind: "url", label: "contacts.kind.url" as Key },
+  { kind: "date", label: "contacts.kind.date" as Key },
+  { kind: "related", label: "contacts.kind.related" as Key },
+  { kind: "profile", label: "contacts.kind.profile" as Key },
+  { kind: "im", label: "contacts.kind.im" as Key },
 ] as const;
 
 /** The whole name, as the top of a card shows it: prefix and suffix included. */
@@ -127,25 +128,27 @@ const blank = (): Contact => ({
   methods: [],
 });
 
-const KIND_LABEL: Record<string, string> = {
-  phone: "phone",
-  email: "email",
-  url: "link",
-  address: "address",
-  profile: "social profile",
-  date: "date",
-  related: "related name",
-  im: "instant message",
+const KIND_LABEL: Record<string, Key> = {
+  phone: "contacts.kindLower.phone",
+  email: "contacts.kindLower.email",
+  url: "contacts.kindLower.url",
+  address: "contacts.kindLower.address",
+  profile: "contacts.kindLower.profile",
+  date: "contacts.kindLower.date",
+  related: "contacts.kindLower.related",
+  im: "contacts.kindLower.im",
 };
+/** A kind's word, in the reader's language. */
+const kindWord = (kind: string) => (KIND_LABEL[kind] ? t(KIND_LABEL[kind]) : kind);
 
 /** What a value of each kind looks like, as a field's hint. */
 const PLACEHOLDER: Record<string, string> = {
   phone: "+1 555 0100",
   email: "name@example.com",
   url: "example.com",
-  related: "Name",
-  profile: "Username",
-  im: "Username",
+  related: "contacts.hint.related",
+  profile: "contacts.hint.profile",
+  im: "contacts.hint.im",
 };
 
 /** Every kind written back here. An address is written part by part, on its own (below). */
@@ -167,6 +170,8 @@ function initials(contact: Contact): string {
 }
 
 export function ContactsView() {
+  // Through the hook, so the screen draws again in a language chosen while it is open.
+  useI18n();
   const [contacts, setContacts] = useState<Contact[]>([]);
   const [search, setSearch] = useState("");
   /**
@@ -400,8 +405,8 @@ export function ContactsView() {
       const paths =
         (await pickOpen({
           multiple: true,
-          title: "Import Contacts",
-          filters: [{ name: "Contacts", extensions: ["vcf", "vcard", "csv"] }],
+          title: t("contacts.importTitle"),
+          filters: [{ name: t("contacts.title"), extensions: ["vcf", "vcard", "csv"] }],
         })) ?? [];
       if (paths.length === 0) return;
       setBusy(true);
@@ -526,11 +531,11 @@ export function ContactsView() {
     }
     toast({
       message: groups.length === 1
-        ? `Merged ${groups[0].guids.length} cards into one for ${name(groups[0])}.`
-        : `Merged the cards of ${groups.length} people.`,
+        ? t("contacts.mergedOne", { count: groups[0].guids.length, name: name(groups[0]) })
+        : t("contacts.mergedMany", { count: groups.length }),
       tone: "done",
       duration: 10000,
-      action: { label: "Undo", run: () => void undoMerge(kept) },
+      action: { label: t("contacts.undo"), run: () => void undoMerge(kept) },
     });
   };
   // A list deleted elsewhere is not left open, empty, with nothing to say why.
@@ -573,7 +578,7 @@ export function ContactsView() {
           toast({
             message: `Address not saved. ${messageOf(e)}`,
             tone: "error",
-            action: { label: "Try Again", run: () => sendAddresses(guid, base, edits, after) },
+            action: { label: t("contacts.tryAgain"), run: () => sendAddresses(guid, base, edits, after) },
           });
           const held = await contactsApi.addresses(guid).catch(() => null);
           if (Array.isArray(held)) setAddresses((cur) => (cur?.guid === guid ? { guid, list: held } : cur));
@@ -629,7 +634,7 @@ export function ContactsView() {
 
   const createList = useCallback(
     async (name: string, members: string[] = []) => {
-      const title = name.trim() || "Untitled List";
+      const title = name.trim() || t("contacts.untitledList");
       const standIn = `pending-list-${Date.now()}`;
       const guid = await changeList(
         (ls) => [...ls, { guid: standIn, name: title, members, etag: null }],
@@ -684,18 +689,18 @@ export function ContactsView() {
       return [
         ...into.map((l) => ({ label: l.name, run: () => addToList(l, [c.guid]) })),
         ...(into.length ? [null] : []),
-        { label: "New List", run: () => void createList("Untitled List", [c.guid]) },
+        { label: t("contacts.newList"), run: () => void createList(t("contacts.untitledList"), [c.guid]) },
       ];
     }
     return [
       // A submenu of the lists, beside the line, as Contacts on the Mac has it.
-      { label: "Add to List", submenu: contactEntries(c, true) },
+      { label: t("contacts.addToList"), submenu: contactEntries(c, true) },
       ...(openList ? [{ label: `Remove from \u201c${openList.name}\u201d`, run: () => removeFromList(openList, [c.guid]) }] : []),
       null,
-      { label: "Edit Contact", run: () => { setOpenGuid(c.guid); edit(c); } },
-      ...(me === c.guid ? [] : [{ label: "Make This My Card", run: () => void makeMine(c) }]),
-      { label: "Export vCard", run: () => void exportCards([c]) },
-      { label: "Delete Contact", danger: true, run: () => {
+      { label: t("contacts.editContact"), run: () => { setOpenGuid(c.guid); edit(c); } },
+      ...(me === c.guid ? [] : [{ label: t("contacts.makeMine"), run: () => void makeMine(c) }]),
+      { label: t("contacts.exportVcard"), run: () => void exportCards([c]) },
+      { label: t("contacts.deleteContact"), danger: true, run: () => {
         askDelete(c);
       } },
     ];
@@ -772,7 +777,7 @@ export function ContactsView() {
   const askDelete = (c: Contact) => {
     if (openList) setDeleting(c);
     else
-      void confirm({ title: `Delete ${displayName(c)}?`, body: "The card is deleted from Contacts on every device.", action: "Delete", danger: true, symbol: "trash" }).then(
+      void confirm({ title: t("contacts.deleteOneTitle", { name: displayName(c) }), body: t("contacts.deleteOneBody"), action: t("contacts.delete"), danger: true, symbol: "trash" }).then(
         (sure) => sure && void removeContact(c.guid),
       );
   };
@@ -845,9 +850,9 @@ export function ContactsView() {
   }, [contacts, lists, query]);
   const removeMany = async (people: Contact[]) => {
     const sure = await confirm({
-      title: `Delete ${people.length} contacts?`,
-      body: "They will be deleted from Contacts on every device.",
-      action: "Delete",
+      title: t("contacts.deleteManyTitle", { count: people.length }),
+      body: t("contacts.deleteManyBody"),
+      action: t("contacts.delete"),
       danger: true,
       symbol: "trash",
     });
@@ -985,7 +990,7 @@ export function ContactsView() {
       if (draft) return;
       // Named in place in the lists column; where that has folded away, made as Untitled List.
       if (listsColumn.current?.offsetParent) setNaming("new");
-      else void createList("Untitled List");
+      else void createList(t("contacts.untitledList"));
       return;
     }
     if (command && !e.shiftKey && k === "l") {
@@ -1071,7 +1076,7 @@ export function ContactsView() {
     <div className={`contacts${detail || draft ? " is-detail" : ""}`}>
       <aside className="contacts-lists" aria-label="Contact lists" ref={listsColumn}>
         <ListRow
-          name="All Contacts"
+          name={t("contacts.allContacts")}
           count={contacts.length}
           current={list === ALL}
           everyone
@@ -1079,7 +1084,7 @@ export function ContactsView() {
         />
         {lists.map((l) =>
           naming === l.guid ? (
-            <NameField key={l.guid} initial={l.name} label={`Rename ${l.name}`} onDone={(name) => renameList(l, name)} onCancel={() => setNaming(null)} />
+            <NameField key={l.guid} initial={l.name} label={t("contacts.renameList", { name: l.name })} onDone={(name) => renameList(l, name)} onCancel={() => setNaming(null)} />
           ) : (
             <ListRow
               key={l.guid}
@@ -1108,38 +1113,38 @@ export function ContactsView() {
           )
         )}
         {naming === "new" && (
-          <NameField initial="Untitled List" label="New list name" onDone={(name) => { setNaming(null); void createList(name); }} onCancel={() => setNaming(null)} />
+          <NameField initial={t("contacts.untitledList")} label={t("contacts.newListName")} onDone={(name) => { setNaming(null); void createList(name); }} onCancel={() => setNaming(null)} />
         )}
         <button className="side-add" onClick={() => setNaming("new")}>
           <Plus size={15} strokeWidth={2} aria-hidden="true" />
-          New List
+          {t("contacts.newList")}
         </button>
         {listMenu && (
           <RowMenu
             at={listMenu}
             onClose={() => setListMenu(null)}
             entries={[
-              { label: "Rename List", run: () => setNaming(listMenu.list.guid) },
+              { label: t("contacts.renameListMenu"), run: () => setNaming(listMenu.list.guid) },
               null,
-              { label: "Delete List", danger: true, run: () => deleteList(listMenu.list) },
+              { label: t("contacts.deleteList"), danger: true, run: () => deleteList(listMenu.list) },
             ]}
           />
         )}
         <AppFoot />
       </aside>
 
-      <section className="contacts-list" aria-label="Contacts">
+      <section className="contacts-list" aria-label={t("contacts.title")}>
         <header className="pane-head contacts-head">
-          <PaneTitle count={`${shown.length} ${shown.length === 1 ? "contact" : "contacts"}`}>{openList?.name ?? "Contacts"}</PaneTitle>
+          <PaneTitle count={t(shown.length === 1 ? "contacts.countOne" : "contacts.countMany", { count: shown.length })}>{openList?.name ?? t("contacts.title")}</PaneTitle>
           <div className="contacts-head-actions">
-            <button className="icon-button" aria-label="New contact" title="New Contact" disabled={busy} onClick={startNew}>
+            <button className="icon-button" aria-label={t("contacts.newContactAria")} title={t("contacts.newContactTitle")} disabled={busy} onClick={startNew}>
               <UserPlus size={18} strokeWidth={2} aria-hidden="true" />
             </button>
             <button
               className="icon-button"
-              aria-label="More"
+              aria-label={t("contacts.more")}
               aria-haspopup="menu"
-              title="More"
+              title={t("contacts.more")}
               disabled={busy}
               onClick={(e) => {
                 const r = e.currentTarget.getBoundingClientRect();
@@ -1156,17 +1161,17 @@ export function ContactsView() {
           className="contacts-search"
           value={search}
           onChange={setSearch}
-          placeholder="Search"
-          aria-label="Search contacts"
+          placeholder={t("contacts.search")}
+          aria-label={t("contacts.searchAria")}
         />
 
         {/* Shown only when the lists column has folded away. */}
         <div className="contacts-list-picker">
           <Picker
-            label="List"
+            label={t("contacts.list")}
             value={list}
             onChange={setList}
-            options={[{ value: ALL, label: "All Contacts" }, ...lists.map((l) => ({ value: l.guid, label: l.name }))]}
+            options={[{ value: ALL, label: t("contacts.allContacts") }, ...lists.map((l) => ({ value: l.guid, label: l.name }))]}
           />
         </div>
 
@@ -1176,8 +1181,8 @@ export function ContactsView() {
             at={moreMenu}
             onClose={() => setMoreMenu(null)}
             entries={[
-              { label: "Import Contacts", run: () => void importCards() },
-              { label: openList ? `Export \u201c${openList.name}\u201d` : "Export All Contacts", run: () => void exportWhole() },
+              { label: t("contacts.importMenu"), run: () => void importCards() },
+              { label: openList ? t("contacts.exportList", { name: openList.name }) : t("contacts.exportAll"), run: () => void exportWhole() },
             ]}
           />
         )}
@@ -1199,7 +1204,7 @@ export function ContactsView() {
           ref={rowsRef}
           // A list box of people: the open card is the selected option, or every picked one.
           role="listbox"
-          aria-label="Contacts"
+          aria-label={t("contacts.title")}
           aria-multiselectable="true"
           data-rows=""
           // Whether the focus is in the list, for the selection's colour — a class rather than
@@ -1233,7 +1238,7 @@ export function ContactsView() {
         {letters.length > 1 && overflowing && (
           <nav
             className="contact-index"
-            aria-label="Jump to letter"
+            aria-label={t("contacts.jumpToLetter")}
             onPointerDown={(e) => {
               if (e.button !== 0) return;
               const letter = (e.target as HTMLElement).closest?.<HTMLElement>(".contact-index button")?.dataset.letter;
@@ -1262,12 +1267,12 @@ export function ContactsView() {
         )}
         {deleting && openList && (
           <ConfirmSheet<"list" | "card">
-            title={`Delete ${displayName(deleting)}?`}
-            label="Delete contact"
+            title={t("contacts.deleteOneTitle", { name: displayName(deleting) })}
+            label={t("contacts.deleteContactAria")}
             body={<>Remove this contact from &ldquo;{openList.name}&rdquo;, or delete the card from Contacts on every device.</>}
             choices={[
-              { label: "Remove from List", value: "list", primary: true, focus: true },
-              { label: "Delete Card", value: "card", danger: true },
+              { label: t("contacts.removeFromList"), value: "list", primary: true, focus: true },
+              { label: t("contacts.deleteCard"), value: "card", danger: true },
             ]}
             onAnswer={(how) => {
               const c = deleting;
@@ -1292,7 +1297,7 @@ export function ContactsView() {
         {!draft && (
           <button className="compact-back" onClick={() => { setDetail(false); setShowDupes(false); }}>
             <ChevronLeft size={18} strokeWidth={2.25} aria-hidden="true" />
-            <span>Contacts</span>
+            <span>{t("contacts.title")}</span>
           </button>
         )}
         {draft ? (
@@ -1307,7 +1312,7 @@ export function ContactsView() {
               <button
                 type="button"
                 className="contact-photo-edit"
-                aria-label={draft.photoUrl ? "Edit photo" : "Add photo"}
+                aria-label={draft.photoUrl ? t("contacts.editPhoto") : t("contacts.addPhoto")}
                 onClick={() => setPhotoSheet(true)}
               >
                 <Avatar contact={draft} large preview={draftPreview} />
@@ -1315,7 +1320,7 @@ export function ContactsView() {
                   <Camera size={13} strokeWidth={2} />
                 </span>
               </button>
-              <h2>{draft.guid ? "Edit contact" : "New contact"}</h2>
+              <h2>{draft.guid ? t("contacts.editHeading") : t("contacts.newHeading")}</h2>
             </div>
             {photoSheet && (
               <PhotoSheet
@@ -1351,20 +1356,20 @@ export function ContactsView() {
                 return (
                   <>
                     <div className="contact-names">
-                      {shown("prefix") && field("prefix", "Prefix")}
-                      {field("firstName", "First", true)}
-                      {shown("phoneticFirstName") && field("phoneticFirstName", "Phonetic first")}
-                      {shown("middleName") && field("middleName", "Middle")}
-                      {field("lastName", "Last")}
-                      {shown("phoneticLastName") && field("phoneticLastName", "Phonetic last")}
-                      {shown("suffix") && field("suffix", "Suffix")}
-                      {shown("nickname") && field("nickname", "Nickname")}
+                      {shown("prefix") && field("prefix", t("contacts.nameField.prefix"))}
+                      {field("firstName", t("contacts.first"), true)}
+                      {shown("phoneticFirstName") && field("phoneticFirstName", t("contacts.phoneticFirst"))}
+                      {shown("middleName") && field("middleName", t("contacts.middle"))}
+                      {field("lastName", t("contacts.last"))}
+                      {shown("phoneticLastName") && field("phoneticLastName", t("contacts.phoneticLast"))}
+                      {shown("suffix") && field("suffix", t("contacts.nameField.suffix"))}
+                      {shown("nickname") && field("nickname", t("contacts.nameField.nickname"))}
                     </div>
                     <div className="contact-names">
-                      {field("company", "Company")}
-                      {shown("phoneticCompany") && field("phoneticCompany", "Phonetic company")}
-                      {shown("jobTitle") && field("jobTitle", "Job title")}
-                      {shown("department") && field("department", "Department")}
+                      {field("company", t("contacts.company"))}
+                      {shown("phoneticCompany") && field("phoneticCompany", t("contacts.phoneticCompanyShort"))}
+                      {shown("jobTitle") && field("jobTitle", t("contacts.nameField.jobTitle"))}
+                      {shown("department") && field("department", t("contacts.nameField.department"))}
                     </div>
                   </>
                 );
@@ -1376,7 +1381,7 @@ export function ContactsView() {
                 m.kind === "address" && draft.guid ? null : !EDITABLE_KINDS.has(m.kind) ? (
                   // A new card's address lines, from a vCard: kept as they came.
                   <li key={index} className="contact-method-fixed">
-                    <span>{KIND_LABEL[m.kind] ?? m.kind}</span>
+                    <span>{kindWord(m.kind)}</span>
                     <span className="contact-address">{m.value}</span>
                   </li>
                 ) : (
@@ -1387,10 +1392,10 @@ export function ContactsView() {
                       className="contact-kind"
                       value={m.kind}
                       onChange={(kind) => editMethod(index, { kind })}
-                      options={KINDS.map((k) => ({ value: k.value, label: k.label }))}
+                      options={KINDS.map((k) => ({ value: k.value, label: t(k.label as Key) }))}
                     />
                   ) : (
-                    <span className="contact-kind-fixed">{KIND_LABEL[m.kind] ?? m.kind}</span>
+                    <span className="contact-kind-fixed">{kindWord(m.kind)}</span>
                   )}
                   {(() => {
                     const standard = OFFERED[m.kind] ?? [];
@@ -1416,9 +1421,9 @@ export function ContactsView() {
                             editMethod(index, { label: v ? (match === v ? m.label : v) : null });
                           }}
                           options={[
-                            ...(m.label === null && !custom ? [{ value: "", label: "no label" }] : []),
+                            ...(m.label === null && !custom ? [{ value: "", label: t("contacts.noLabel") }] : []),
                             ...standard.map((v) => ({ value: v, label: labelText(v) })),
-                            ...(fixedList ? [] : [{ value: CUSTOM, label: "Custom" }]),
+                            ...(fixedList ? [] : [{ value: CUSTOM, label: t("contacts.custom") }]),
                           ]}
                         />
                         {custom && (
@@ -1436,7 +1441,7 @@ export function ContactsView() {
                   {m.kind === "date" ? (
                     <DateField
                       compact
-                      label={`Date ${index + 1}`}
+                      label={t("contacts.dateN", { n: index + 1 })}
                       value={m.value || null}
                       autoFocus={focusAt === index}
                       onChange={(v) => editMethod(index, { value: v ?? "" })}
@@ -1445,7 +1450,7 @@ export function ContactsView() {
                     <input
                       className="contact-method-value"
                       value={m.value}
-                      placeholder={PLACEHOLDER[m.kind] ?? ""}
+                      placeholder={PLACEHOLDER[m.kind]?.startsWith("contacts.") ? t(PLACEHOLDER[m.kind] as Key) : (PLACEHOLDER[m.kind] ?? "")}
                       aria-label={`Value for detail ${index + 1}`}
                       autoFocus={focusAt === index}
                       onChange={(e) => editMethod(index, { value: e.target.value })}
@@ -1502,7 +1507,7 @@ export function ContactsView() {
               <div className="contact-birthday-field">
                 <span className="contact-kind-fixed">birthday</span>
                 <DateField
-                  label="Birthday"
+                  label={t("contacts.birthday")}
                   value={draft.birthday || null}
                   autoFocus={focusName === "birthday"}
                   onChange={(v) => setDraft({ ...draft, birthday: v ?? "" })}
@@ -1510,7 +1515,7 @@ export function ContactsView() {
                 <button
                   type="button"
                   className="quiet danger"
-                  aria-label="Remove birthday"
+                  aria-label={t("contacts.removeBirthday")}
                   onClick={() => setDraft({ ...draft, birthday: null })}
                 >
                   ✕
@@ -1529,7 +1534,7 @@ export function ContactsView() {
                 }}
               >
                 <Plus size={14} strokeWidth={2} aria-hidden="true" />
-                Add Field
+                {t("contacts.addField")}
               </button>
               {addMenu && (
                 <RowMenu
@@ -1537,14 +1542,14 @@ export function ContactsView() {
                   onClose={() => setAddMenu(null)}
                   entries={[
                     ...ADDABLE.map((a) => ({
-                      label: a.label,
+                      label: t(a.label),
                       run: () => {
                         setFocusAt(draft.methods.length);
                         setDraft({ ...draft, methods: [...draft.methods, { kind: a.kind, label: FIRST_LABEL[a.kind] ?? null, value: "" }] });
                       },
                     })),
                     {
-                      label: "Address",
+                      label: t("contacts.address"),
                       run: () => {
                         const key = ++addressKey.current;
                         setDraftAddresses((all) => [...all, { key, from: null, address: blankAddress() }]);
@@ -1552,13 +1557,13 @@ export function ContactsView() {
                       },
                     },
                     ...(draft.birthday === null
-                      ? [{ label: "Birthday", run: () => { setFocusName("birthday"); setDraft({ ...draft, birthday: "" }); } }]
+                      ? [{ label: t("contacts.birthday"), run: () => { setFocusName("birthday"); setDraft({ ...draft, birthday: "" }); } }]
                       : []),
                     ...(() => {
                       const hidden = NAME_FIELDS.filter((f) => !shownFields.has(f.key) && !draft[f.key]);
                       return hidden.length
                         ? [null, ...hidden.map((f) => ({
-                            label: f.label.charAt(0).toUpperCase() + f.label.slice(1),
+                            label: t(f.label),
                             run: () => {
                               setFocusName(f.key);
                               setShownFields((was) => new Set(was).add(f.key));
@@ -1572,7 +1577,7 @@ export function ContactsView() {
             </div>
 
             <label className="contact-notes-field">
-              <span>Notes</span>
+              <span>{t("contacts.notes")}</span>
               <textarea
                 rows={3}
                 value={draft.notes ?? ""}
@@ -1588,10 +1593,10 @@ export function ContactsView() {
                   busy || !(draft.firstName || draft.lastName || draft.company)
                 }
               >
-                {busy ? "Saving" : draft.guid ? "Save" : "Add contact"}
+                {busy ? t("contacts.saving") : draft.guid ? t("contacts.save") : t("contacts.addContact")}
               </button>
               <button type="button" className="quiet" onClick={() => setDraft(null)}>
-                Cancel
+                {t("contacts.cancel")}
               </button>
             </div>
           </form>
@@ -1624,11 +1629,11 @@ export function ContactsView() {
                   setPickMenu({ x: r.left, y: r.bottom + 4, alignRight: false });
                 }}
               >
-                Add to List
+                {t("contacts.addToList")}
               </button>
               {openList && (
                 <button className="quiet" onClick={() => { removeFromList(openList, pickedPeople.map((c) => c.guid)); setPicked([]); }}>
-                  Remove from List
+                  {t("contacts.removeFromList")}
                 </button>
               )}
               <button className="quiet" onClick={() => void exportCards(pickedPeople)}>Export vCards</button>
@@ -1641,7 +1646,7 @@ export function ContactsView() {
                 entries={[
                   ...lists.filter((l) => !l.guid.startsWith("pending-")).map((l) => ({ label: l.name, run: () => addToList(l, pickedPeople.map((c) => c.guid)) })),
                   ...(lists.length ? [null] : []),
-                  { label: "New List", run: () => void createList("Untitled List", pickedPeople.map((c) => c.guid)) },
+                  { label: t("contacts.newList"), run: () => void createList(t("contacts.untitledList"), pickedPeople.map((c) => c.guid)) },
                 ]}
               />
             )}
@@ -1669,14 +1674,14 @@ export function ContactsView() {
                 {open.isCompany && open.company?.trim() && personName(open) && (
                   <p className="contact-company">{personName(open)}</p>
                 )}
-                {me === open.guid && <p className="contact-company">My Card</p>}
+                {me === open.guid && <p className="contact-company">{t("contacts.myCard")}</p>}
               </div>
             </div>
 
             <dl className="contact-methods">
               {(structured ? open.methods.filter((m) => m.kind !== "address") : open.methods).map((m, i) => {
                 const key = `${m.kind}-${i}`;
-                const label = (m.label && labelText(m.label)) || KIND_LABEL[m.kind] || m.kind;
+                const label = (m.label && labelText(m.label)) || kindWord(m.kind);
                 return (
                 <div key={key}>
                   {/* The label copies what is beside it, as a click on one does in Contacts. */}
@@ -1684,8 +1689,8 @@ export function ContactsView() {
                     <button
                       type="button"
                       className="contact-copy"
-                      title={`Copy ${label}`}
-                      aria-label={`Copy ${label}`}
+                      title={t("contacts.copy", { label })}
+                      aria-label={t("contacts.copy", { label })}
                       onClick={() => void copyText(m.value).then((ok) => ok && setCopied(key))}
                     >
                       <span className={copied === key ? "is-hidden" : undefined}>{label}</span>
@@ -1707,7 +1712,7 @@ export function ContactsView() {
                       // A postal address is several lines and stays that way.
                       <>
                         <span className="contact-address">{m.value}</span>
-                        <a className="contact-maps" href={mapsHref(m.value)}>Show in Maps</a>
+                        <a className="contact-maps" href={mapsHref(m.value)}>{t("contacts.showInMaps")}</a>
                       </>
                     ) : (
                       m.value
@@ -1726,8 +1731,8 @@ export function ContactsView() {
                       <button
                         type="button"
                         className="contact-copy"
-                        title={`Copy ${label} address`}
-                        aria-label={`Copy ${label} address`}
+                        title={t("contacts.copyAddress", { label })}
+                        aria-label={t("contacts.copyAddress", { label })}
                         onClick={() => void copyText(text).then((ok) => ok && setCopied(key))}
                       >
                         <span className={copied === key ? "is-hidden" : undefined}>{label}</span>
@@ -1736,7 +1741,7 @@ export function ContactsView() {
                     </dt>
                     <dd>
                       <span className="contact-address">{text}</span>
-                      <a className="contact-maps" href={mapsHref(text)}>Show in Maps</a>
+                      <a className="contact-maps" href={mapsHref(text)}>{t("contacts.showInMaps")}</a>
                     </dd>
                   </div>
                 );
@@ -1756,11 +1761,11 @@ export function ContactsView() {
 
             <div className="cal-form-actions">
               <button className="quiet" disabled={busy} onClick={() => edit(open)}>
-                Edit
+                {t("contacts.edit")}
               </button>
               {lastMerge.includes(open.guid) && outbox.waiting.has(open.guid) && (
                 <button className="quiet" onClick={() => void undoMerge(lastMerge)}>
-                  Undo Merge
+                  {t("contacts.undoMerge")}
                 </button>
               )}
               <button
@@ -1771,11 +1776,11 @@ export function ContactsView() {
                   setContactMenu({ x: r.left, y: r.bottom + 4, alignRight: false, contact: open, lists: true });
                 }}
               >
-                Add to List
+                {t("contacts.addToList")}
               </button>
               {openList && (
                 <button className="quiet" onClick={() => removeFromList(openList, [open.guid])}>
-                  Remove from List
+                  {t("contacts.removeFromList")}
                 </button>
               )}
               <button
@@ -1783,7 +1788,7 @@ export function ContactsView() {
                 disabled={busy}
                 onClick={() => askDelete(open)}
               >
-                Delete
+                {t("contacts.delete")}
               </button>
             </div>
           </>
@@ -1870,7 +1875,7 @@ const ContactRow = memo(function ContactRow({ contact, chosen, mine, draggable, 
       >
         <Avatar contact={contact} />
         <span className="contact-row-name"><RowName contact={contact} /></span>
-        {mine && <span className="contact-me" title="My Card">me</span>}
+        {mine && <span className="contact-me" title={t("contacts.myCard")}>{t("contacts.me")}</span>}
         <Waiting shown={waiting} />
       </button>
     </li>
@@ -2052,12 +2057,12 @@ const mapsHref = (text: string) => `geo:0,0?q=${encodeURIComponent(text.split("\
 
 /** The parts the editor shows, in the order Tab walks them. */
 const ADDRESS_PARTS = ["street", "city", "state", "postalCode", "country"] as const;
-const PART_NAME: Record<(typeof ADDRESS_PARTS)[number], string> = {
-  street: "Street",
-  city: "City",
-  state: "State",
-  postalCode: "Postcode",
-  country: "Country",
+const PART_NAME: Record<(typeof ADDRESS_PARTS)[number], Key> = {
+  street: "contacts.street",
+  city: "contacts.city",
+  state: "contacts.state",
+  postalCode: "contacts.postcode",
+  country: "contacts.country",
 };
 const ADDRESS_LABELS = OFFERED.address;
 const ALL_PARTS: AddressPart[] = ["street", "subLocality", "city", "subAdministrativeArea", "state", "postalCode", "country", "countryCode"];
@@ -2128,8 +2133,8 @@ function AddressEditor({ n, address, custom, autoFocus, onChange, onCustom, onRe
     <input
       className={`contact-address-${part}`}
       value={address[part] ?? ""}
-      placeholder={PART_NAME[part]}
-      aria-label={`${PART_NAME[part]}, address ${n}`}
+      placeholder={t(PART_NAME[part])}
+      aria-label={t("contacts.addressPart", { part: t(PART_NAME[part]), n })}
       autoComplete="off"
       autoFocus={extra?.autoFocus}
       onChange={(e) => onChange({ [part]: e.target.value || null })}
@@ -2148,9 +2153,9 @@ function AddressEditor({ n, address, custom, autoFocus, onChange, onCustom, onRe
           if (v !== CUSTOM) onChange({ label: v || null });
         }}
         options={[
-          ...(address.label === null && !typing ? [{ value: "", label: "no label" }] : []),
+          ...(address.label === null && !typing ? [{ value: "", label: t("contacts.noLabel") }] : []),
           ...ADDRESS_LABELS.map((v) => ({ value: v, label: labelText(v) })),
-          { value: CUSTOM, label: "Custom" },
+          { value: CUSTOM, label: t("contacts.custom") },
         ]}
       />
       {typing ? (
@@ -2172,7 +2177,7 @@ function AddressEditor({ n, address, custom, autoFocus, onChange, onCustom, onRe
           className="contact-address-street"
           value={street}
           rows={Math.max(2, street.split("\n").length)}
-          placeholder="Street"
+          placeholder={t("contacts.street")}
           aria-label={`Street, address ${n}`}
           autoFocus={autoFocus}
           onChange={(e) => onChange({ street: e.target.value || null })}

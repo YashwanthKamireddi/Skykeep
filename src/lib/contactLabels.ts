@@ -7,6 +7,7 @@
  * label picked here is written in the service's spelling, as icloud.com writes it; a label
  * already on a card goes back exactly as it came.
  */
+import { t, type Key } from "./i18n";
 
 /** [service spelling, Apple's token, as a card shows it] */
 const KNOWN: [string, string, string][] = [
@@ -60,10 +61,15 @@ export function knownLabel(label: string | null | undefined): string | null {
   return byAny.get(label.trim().toLowerCase())?.[0] ?? null;
 }
 
+/** "HOME FAX" → "homeFax": a label's key in the locale files. */
+const labelKey = (k: string) =>
+  k.toLowerCase().split(" ").map((w, i) => (i ? w[0].toUpperCase() + w.slice(1) : w)).join("");
+
 /** How a card shows a label: Apple's word for one it knows, a service by its name, else as typed. */
 export function labelText(label: string): string {
   const k = byAny.get(label.trim().toLowerCase());
-  if (k) return k[2];
+  // Apple's own words in the reader's language; iPhone and iCloud are names, never translated.
+  if (k) return k[0] === "IPHONE" || k[0] === "ICLOUD" ? k[2] : t(`contacts.label.${labelKey(k[0])}` as Key);
   return SERVICES[label.trim().toUpperCase()] ?? label;
 }
 

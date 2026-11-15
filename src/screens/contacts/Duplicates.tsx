@@ -1,19 +1,22 @@
 import { ChevronRight, UsersRound } from "lucide-react";
+import { t, activeLanguage, type Key } from "../../lib/i18n";
 import { displayName, type Contact, type Duplicates } from "../../lib/ipc";
 
 /** What a group of cards shares, in a sentence. */
 function shared(reasons: string[]): string {
-  const words: Record<string, string> = { name: "name", phone: "phone number", email: "email address" };
-  const parts = reasons.map((r) => words[r]).filter(Boolean);
-  if (parts.length === 0) return "These cards look like one person.";
-  const list = parts.length === 1 ? parts[0] : `${parts.slice(0, -1).join(", ")} and ${parts[parts.length - 1]}`;
-  return `Same ${list}.`;
+  const one: Record<string, Key> = { name: "contacts.dupes.sameName", phone: "contacts.dupes.samePhone", email: "contacts.dupes.sameEmail" };
+  const word: Record<string, Key> = { name: "contacts.dupes.partName", phone: "contacts.dupes.partPhone", email: "contacts.dupes.partEmail" };
+  const known = reasons.filter((r) => word[r]);
+  if (known.length === 0) return t("contacts.dupes.lookAlike");
+  if (known.length === 1) return t(one[known[0]]);
+  const list = new Intl.ListFormat(activeLanguage(), { type: "conjunction" }).format(known.map((r) => t(word[r])));
+  return t("contacts.dupes.sameMany", { list });
 }
 
 /** The person a group is, by the name most of its cards give. */
 function groupName(people: Contact[]): string {
   const named = people.map(displayName);
-  return named.find((n) => /\p{L}/u.test(n)) ?? named[0] ?? "No Name";
+  return named.find((n) => /\p{L}/u.test(n)) ?? named[0] ?? t("contacts.dupes.noName");
 }
 
 /**
@@ -56,21 +59,20 @@ export function DuplicatesView({ groups, book, Face, onMerge, onMergeAll, onShow
     return (
       <div className="dupes-done">
         <UsersRound size={28} strokeWidth={1.5} aria-hidden="true" />
-        <p>Every person has one card.</p>
+        <p>{t("contacts.dupes.allOne")}</p>
       </div>
     );
   }
   return (
-    <section className="dupes" aria-label="Duplicates">
+    <section className="dupes" aria-label={t("contacts.dupes.title")}>
       <header className="dupes-head">
-        <h2>Duplicates</h2>
+        <h2>{t("contacts.dupes.title")}</h2>
         <p>
-          Merging keeps everything from every card in one: each number, email, address and date,
-          the notes, and the photo.
+          {t("contacts.dupes.intro")}
         </p>
         {shown.length > 1 && (
           <button type="button" className="primary" disabled={busy} onClick={onMergeAll}>
-            Merge All
+            {t("contacts.dupes.mergeAll")}
           </button>
         )}
       </header>
@@ -97,10 +99,10 @@ export function DuplicatesView({ groups, book, Face, onMerge, onMergeAll, onShow
               type="button"
               className="quiet dupes-merge"
               disabled={busy}
-              aria-label={`Merge ${groupName(people)}`}
+              aria-label={t("contacts.dupes.merge", { name: groupName(people) })}
               onClick={() => onMerge(g)}
             >
-              Merge
+              {t("contacts.dupes.mergeButton")}
             </button>
           </li>
         ))}

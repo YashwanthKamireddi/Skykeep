@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
+import { t } from "../../lib/i18n";
 import { Picker } from "../../components/Picker";
 import { dateText } from "../../lib/when";
 
@@ -75,7 +76,7 @@ export function DateField({ value, onChange, label, autoFocus, compact }: {
       className={`date-field-${key}`}
       inputMode="numeric"
       autoComplete="off"
-      placeholder={key === "day" ? "Day" : "Year"}
+      placeholder={key === "day" ? t("contacts.day") : t("contacts.year")}
       aria-label={`${label}, ${key}`}
       value={parts[key] ?? ""}
       autoFocus={autoFocus && key === "day"}
@@ -91,10 +92,10 @@ export function DateField({ value, onChange, label, autoFocus, compact }: {
       <Picker
         key="month"
         className="date-field-month"
-        label={`${label}, month`}
+        label={t("contacts.fieldMonth", { label })}
         value={parts.month ? String(parts.month) : ""}
         onChange={(m) => set({ ...parts, month: m ? Number(m) : null })}
-        options={[{ value: "", label: "Month" }, ...months]}
+        options={[{ value: "", label: t("contacts.month") }, ...months]}
       />
     ),
     day: number("day", 31, 2),

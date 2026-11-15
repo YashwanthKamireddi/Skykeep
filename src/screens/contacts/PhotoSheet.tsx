@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from "react";
+import { t } from "../../lib/i18n";
 import { ImagePlus } from "lucide-react";
 import { Portal } from "../../components/Portal";
 import { useModalFocus } from "../../lib/focus";
@@ -131,7 +132,7 @@ export function PhotoSheet({ hasPhoto, onDone, onRemove, onCancel }: {
           className="modal-sheet photo-sheet"
           role="dialog"
           aria-modal="true"
-          aria-label="Contact photo"
+          aria-label={t("contacts.photo.aria")}
           onClick={(e) => e.stopPropagation()}
           onKeyDown={(e) => {
             if (e.key === "Escape") {
@@ -145,7 +146,7 @@ export function PhotoSheet({ hasPhoto, onDone, onRemove, onCancel }: {
             open(e.dataTransfer.files?.[0]);
           }}
         >
-          <h2>Contact Photo</h2>
+          <h2>{t("contacts.photo.title")}</h2>
           <div
             className={`photo-frame${loaded ? " has-photo" : ""}`}
             style={{ width: FRAME, height: FRAME }}
@@ -185,19 +186,19 @@ export function PhotoSheet({ hasPhoto, onDone, onRemove, onCancel }: {
             ) : (
               <button type="button" className="photo-frame-pick" onClick={() => input.current?.click()}>
                 <ImagePlus size={30} strokeWidth={1.5} aria-hidden="true" />
-                <span>Choose a photo, or drop one here</span>
+                <span>{t("contacts.photo.choose")}</span>
               </button>
             )}
           </div>
           {loaded && view && (
             <label className="photo-zoom">
-              <span>Zoom</span>
+              <span>{t("contacts.photo.zoom")}</span>
               <input
                 type="range"
                 min={0}
                 max={100}
                 step={1}
-                aria-label="Zoom"
+                aria-label={t("contacts.photo.zoom")}
                 value={Math.round((Math.log(view.scale / min) / Math.log(8)) * 100)}
                 onChange={(e) => zoomTo(min * 8 ** (Number(e.target.value) / 100))}
               />
@@ -209,7 +210,7 @@ export function PhotoSheet({ hasPhoto, onDone, onRemove, onCancel }: {
             type="file"
             accept="image/png,image/jpeg,image/gif,image/bmp,image/webp"
             hidden
-            aria-label="Photo file"
+            aria-label={t("contacts.photo.file")}
             onChange={(e) => {
               open(e.target.files?.[0]);
               e.target.value = "";

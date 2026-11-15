@@ -2079,13 +2079,13 @@ export function RemindersView() {
             className="rem-nolists"
             action={{ label: t("reminders.createList"), run: () => void makeFirstList(), disabled: syncing }}
           >
-            Reminders live in lists. Make your first one to begin.
+            {t("reminders.emptyLists")}
           </EmptyState>
         )}
 
         {unknownRules.length > 0 && selection.type === "custom" && !searching && (
           <p className="rx-capped" role="status">
-            Shows what matches the rules read here. Your iPhone has the full list.
+            {t("reminders.partialRules")}
           </p>
         )}
 
@@ -2220,7 +2220,7 @@ export function RemindersView() {
             />
           ) : (
             <button className="link rx-add-section" onClick={() => setNamingSection("new")}>
-              Add Section
+              {t("reminders.addSection")}
             </button>
           )
         )}
@@ -2495,7 +2495,7 @@ const AddReminder = memo(function AddReminder({
               .join(" · ")}
           </span>
           <button type="button" className="rx-add-literal" onClick={() => setLiteral(true)}>
-            Add as Typed
+            {t("reminders.addAsTyped")}
           </button>
         </div>
       )}
@@ -2913,14 +2913,14 @@ const ReminderRow = memo(function ReminderRow({
                   className="link"
                   onClick={() => void act.current.outdent(reminder)}
                 >
-                  Move Out of Subtasks
+                  {t("reminders.moveOutOfSubtasks")}
                 </button>
               ) : subtasks > 0 ? null : (
                 <button
                   className="link"
                   onClick={() => void act.current.indent(reminder)}
                 >
-                  Make Subtask
+                  {t("reminders.makeSubtask")}
                 </button>
               )}
               <button
@@ -2929,7 +2929,7 @@ const ReminderRow = memo(function ReminderRow({
                 
                 onClick={() => void act.current.askRemove(reminder)}
               >
-                Delete
+                {t("reminders.delete")}
               </button>
             </div>
           </div>
@@ -3188,7 +3188,7 @@ function UrlField({ reminder, url, onSave }: { reminder: Reminder; url: string |
       />
       {url && /^(https?:|mailto:)/i.test(url) && outsideHref(url) && (
         <a className="rx-url rx-url-open" href={outsideHref(url)!} target="_blank" rel="noreferrer" title={url}>
-          Open
+          {t("reminders.open")}
         </a>
       )}
     </label>

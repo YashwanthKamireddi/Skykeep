@@ -3540,7 +3540,7 @@ function ReminderCard({ reminder, at, list, onClose }: {
             window.dispatchEvent(new CustomEvent("quince:revealed", { detail: { screen: "reminders" } }));
           }}
         >
-          Show in Reminders
+          {t("calendar.showInReminders")}
         </button>
         </div>
       </div>
@@ -3882,7 +3882,7 @@ function EventPopover({
         <span>
           {onDelete && editable && (
             <button type="button" className="link danger cx-pop-delete" onClick={onDelete}>
-              Delete
+              {t("calendar.delete")}
             </button>
           )}
           <Waiting shown={waiting} />
@@ -4192,7 +4192,7 @@ function NextcloudForm({ initial, leaving, onDone, onCancel }: {
       <label className="cx-subscribe-label" htmlFor="cx-nextcloud-server">Set up a Nextcloud server</label>
       {waiting ? (
         <p className="cx-subscribe-note" role="status">
-          Approve Skykeep in the page that opened in your browser. It finishes here by itself.
+          {t("calendar.approveInBrowser")}
         </p>
       ) : (
         <>
