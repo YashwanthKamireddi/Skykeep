@@ -816,7 +816,14 @@
     "addAsTyped": "Add as Typed",
     "moveOutOfSubtasks": "Move Out of Subtasks",
     "makeSubtask": "Make Subtask",
-    "open": "Open"
+    "open": "Open",
+    "deleteBodySubtask": "Its subtask goes with it, on all your devices.",
+    "deleteBodySubtasks": "Its {count} subtasks go with it, on all your devices.",
+    "deleteBody": "It goes from all your devices.",
+    "renameItem": "Rename {title}",
+    "deleteItem": "Delete {title}",
+    "flagItem": "Flag {title}",
+    "unflagItem": "Unflag {title}"
   },
   "calendar": {
     "newEvent": "New Event",
@@ -1164,7 +1171,8 @@
     "undoMerge": "Undo Merge",
     "myCard": "My Card",
     "showInMaps": "Show in Maps",
-    "me": "me"
+    "me": "me",
+    "mergeUndone": "Merge undone."
   },
   "drive": {
     "kinds": {

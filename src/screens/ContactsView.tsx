@@ -502,7 +502,7 @@ export function ContactsView() {
     const undone = await Promise.all(kept.map((k) => api.contactsMergeUndo(k).catch(() => false)));
     setLastMerge([]);
     await Promise.all([read(), readLists(), readDupes()]).catch(() => {});
-    if (undone.every(Boolean)) toast({ message: "Merge undone.", tone: "done" });
+    if (undone.every(Boolean)) toast({ message: t("contacts.mergeUndone"), tone: "done" });
     else toast({ message: "iCloud already has this merge, so the cards stay merged.", tone: "error" });
   }, [read, readLists, readDupes]);
   const mergeGroups = async (groups: Duplicates[]) => {

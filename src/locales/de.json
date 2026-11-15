@@ -816,7 +816,14 @@
     "addAsTyped": "Wie eingegeben hinzufügen",
     "moveOutOfSubtasks": "Aus Unteraufgaben herausnehmen",
     "makeSubtask": "Zur Unteraufgabe machen",
-    "open": "Öffnen"
+    "open": "Öffnen",
+    "deleteBodySubtask": "Ihre Unteraufgabe wird auf allen deinen Geräten mit gelöscht.",
+    "deleteBodySubtasks": "Ihre {count} Unteraufgaben werden auf allen deinen Geräten mit gelöscht.",
+    "deleteBody": "Sie wird von allen deinen Geräten gelöscht.",
+    "renameItem": "{title} umbenennen",
+    "deleteItem": "{title} löschen",
+    "flagItem": "{title} markieren",
+    "unflagItem": "Markierung von {title} entfernen"
   },
   "calendar": {
     "newEvent": "Neues Ereignis",
@@ -1164,7 +1171,8 @@
     "undoMerge": "Zusammenführen widerrufen",
     "myCard": "Meine Karte",
     "showInMaps": "In Karten zeigen",
-    "me": "ich"
+    "me": "ich",
+    "mergeUndone": "Zusammenführen widerrufen."
   },
   "drive": {
     "kinds": {

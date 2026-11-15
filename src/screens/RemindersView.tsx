@@ -417,7 +417,7 @@ export function RemindersView() {
     if (!id || !items.some((r) => r.guid === id)) return;
     revealing.current = null;
     requestAnimationFrame(() =>
-      document.querySelector(`.rx-row [aria-label="Rename ${CSS.escape(items.find((r) => r.guid === id)?.title ?? "")}"]`)
+      document.querySelector(`.rx-row [aria-label="${CSS.escape(t("reminders.renameItem", { title: items.find((r) => r.guid === id)?.title ?? "" }))}"]`)
         ?.closest(".rx-row")
         ?.scrollIntoView({ block: "center" }),
     );
@@ -1048,9 +1048,9 @@ export function RemindersView() {
     const sure = await confirm({
       title: t("reminders.deleteTitle", { title: r.title || t("reminders.newReminder") }),
       body: subtasks
-        ? `Its ${subtasks === 1 ? "subtask goes" : `${subtasks} subtasks go`} with it, on all your devices.`
-        : "It goes from all your devices.",
-      action: "Delete",
+        ? subtasks === 1 ? t("reminders.deleteBodySubtask") : t("reminders.deleteBodySubtasks", { count: subtasks })
+        : t("reminders.deleteBody"),
+      action: t("reminders.delete"),
       danger: true,
       symbol: "trash",
     });
@@ -1757,7 +1757,7 @@ export function RemindersView() {
           className="field rx-rename"
           defaultValue={list.title}
           autoFocus
-          aria-label={`Rename ${list.title}`}
+          aria-label={t("reminders.renameItem", { title: list.title })}
           onBlur={(e) => {
             const title = e.target.value.trim();
             setRenaming(null);
@@ -2651,7 +2651,7 @@ const ReminderRow = memo(function ReminderRow({
             className="rx-title"
             ref={titleRef}
             defaultValue={reminder.title}
-            aria-label={`Rename ${reminder.title}`}
+            aria-label={t("reminders.renameItem", { title: reminder.title })}
             onBlur={(e) => {
               const typed = e.target.value;
               // Visited, nothing typed: it shows the title as it is now, which a sync may have
@@ -2925,7 +2925,7 @@ const ReminderRow = memo(function ReminderRow({
               )}
               <button
                 className="link danger"
-                aria-label={`Delete ${reminder.title}`}
+                aria-label={t("reminders.deleteItem", { title: reminder.title })}
                 
                 onClick={() => void act.current.askRemove(reminder)}
               >
@@ -2963,7 +2963,7 @@ const ReminderRow = memo(function ReminderRow({
         <button
           className={`icon-button small is-glyph-state rx-icon-button rx-flag${reminder.flagged ? " on" : ""}`}
           aria-label={
-            reminder.flagged ? `Unflag ${reminder.title}` : `Flag ${reminder.title}`
+            reminder.flagged ? t("reminders.unflagItem", { title: reminder.title }) : t("reminders.flagItem", { title: reminder.title })
           }
           aria-pressed={reminder.flagged}
           
@@ -3062,7 +3062,7 @@ function ListInfo({ list, onClose, onDone }: {
         <input
           className="field rx-info-name"
           value={title}
-          aria-label="List name"
+          aria-label={t("reminders.listName")}
           // The list's colour, deepened toward the text colour so the name reads at 4.5:1.
           style={{ color: `color-mix(in srgb, ${shown} 55%, var(--text))` }}
           autoFocus

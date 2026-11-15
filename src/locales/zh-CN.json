@@ -816,7 +816,14 @@
     "addAsTyped": "按输入内容添加",
     "moveOutOfSubtasks": "移出子任务",
     "makeSubtask": "设为子任务",
-    "open": "打开"
+    "open": "打开",
+    "deleteBodySubtask": "它的子任务也会从你的所有设备上删除。",
+    "deleteBodySubtasks": "它的 {count} 个子任务也会从你的所有设备上删除。",
+    "deleteBody": "它将从你的所有设备上删除。",
+    "renameItem": "重新命名“{title}”",
+    "deleteItem": "删除“{title}”",
+    "flagItem": "为“{title}”添加旗标",
+    "unflagItem": "移除“{title}”的旗标"
   },
   "calendar": {
     "newEvent": "新日程",
@@ -1164,7 +1171,8 @@
     "undoMerge": "撤销合并",
     "myCard": "我的名片",
     "showInMaps": "在地图中显示",
-    "me": "我"
+    "me": "我",
+    "mergeUndone": "已撤销合并。"
   },
   "drive": {
     "kinds": {
