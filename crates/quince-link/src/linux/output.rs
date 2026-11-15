@@ -1,10 +1,7 @@
-//! Where the iPhone's pictures go: always Skykeep's own PipeWire camera (GNOME's apps, OBS,
-//! Firefox and the desktop portal look there), and also the classic webcam device when the
-//! person made it (Chrome with default settings, Zoom, Discord and Teams look only there).
-//!
-//! PipeWire doesn't list the webcam device itself: it is made before a picture format is set,
-//! so the session manager takes it for an output and leaves it out. Each kind of program
-//! therefore sees one iPhone camera, the one it looks for.
+//! Where the iPhone's pictures go: the classic webcam device when the person made it (Chrome
+//! with default settings, Zoom, Discord and Teams look only there), and Skykeep's own PipeWire
+//! camera for GNOME's apps, OBS, Firefox and the desktop portal, unless PipeWire already lists
+//! the webcam device as a camera itself. Each kind of program sees one iPhone camera.
 
 use std::sync::{Arc, Mutex};
 
@@ -16,8 +13,10 @@ use super::webcam::{self, Webcam};
 use crate::stats::Delays;
 
 pub struct Output {
-    pipewire: Camera,
+    /// None when PipeWire already lists the webcam device as a camera.
+    pipewire: Option<Camera>,
     webcam: Option<Mutex<Webcam>>,
+    delays: Arc<Mutex<Delays>>,
 }
 
 impl Output {
@@ -28,31 +27,51 @@ impl Output {
         height: u32,
         fps: u32,
     ) -> Result<Output> {
-        let webcam = webcam::find()
-            .filter(|_| !pipewire_only)
-            .and_then(|path| match Webcam::open(&path, width, height, fps) {
-                Ok(w) => Some(Mutex::new(w)),
-                Err(e) => {
-                    eprintln!("iPhone camera: the webcam device can't be used ({e:#})");
-                    None
-                }
-            });
+        let device = webcam::find().filter(|_| !pipewire_only);
+        let webcam =
+            device
+                .as_ref()
+                .and_then(|path| match Webcam::open(path, width, height, fps) {
+                    Ok(w) => Some(Mutex::new(w)),
+                    Err(e) => {
+                        eprintln!("iPhone camera: the webcam device can't be used ({e:#})");
+                        None
+                    }
+                });
+        let listed = webcam.is_some() && device.as_deref().is_some_and(super::listed::lists);
+        let pipewire = if listed {
+            None
+        } else {
+            Some(Camera::start(name, width, height, fps)?)
+        };
+        let delays = pipewire
+            .as_ref()
+            .map(|c| c.delays.clone())
+            .unwrap_or_default();
         Ok(Output {
-            pipewire: Camera::start(name, width, height, fps)?,
+            pipewire,
             webcam,
+            delays,
         })
     }
 
     pub fn show(&self, picture: Picture, captured_us: i64) {
         if let Some(w) = &self.webcam {
-            let _ = w.lock().unwrap().show(&picture);
+            let wrote = w.lock().unwrap().show(&picture).is_ok();
+            if wrote && self.pipewire.is_none() && captured_us != i64::MIN {
+                self.delays.lock().unwrap().record(captured_us);
+            }
         }
-        self.pipewire.show(picture, captured_us);
+        if let Some(c) = &self.pipewire {
+            c.show(picture, captured_us);
+        }
     }
 
     /// One black picture: what programs keep showing while the phone is away.
     pub fn black(&self) {
-        self.pipewire.black();
+        if let Some(c) = &self.pipewire {
+            c.black();
+        }
         if let Some(w) = &self.webcam {
             let mut w = w.lock().unwrap();
             let (width, height) = w.size();
@@ -67,6 +86,6 @@ impl Output {
     }
 
     pub fn delays(&self) -> Arc<Mutex<Delays>> {
-        self.pipewire.delays.clone()
+        self.delays.clone()
     }
 }
