@@ -190,6 +190,11 @@ final class Camera: NSObject, @unchecked Sendable, AVCaptureVideoDataOutputSampl
         // Over the cable there is room to spare: 16 Mbit/s keeps 1080p60 clean.
         VTSessionSetProperty(s, key: kVTCompressionPropertyKey_AverageBitRate, value: NSNumber(value: 16_000_000))
         VTSessionSetProperty(s, key: kVTCompressionPropertyKey_PrioritizeEncodingSpeedOverQuality, value: kCFBooleanTrue)
+        // One reference picture instead of four: the stream then declares free room in the
+        // decoder's picture buffer, and decoders that only hand a picture on early when there is
+        // room (GStreamer's graphics-chip decoder) stop holding each one until the next, about
+        // 17 ms at 60 fps. Over the cable the bits the extra references save don't matter.
+        VTSessionSetProperty(s, key: kVTCompressionPropertyKey_ReferenceBufferCount, value: NSNumber(value: 1))
         VTCompressionSessionPrepareToEncodeFrames(s)
         return s
     }

@@ -8,9 +8,9 @@ use std::sync::{Arc, Mutex};
 
 use anyhow::{bail, Context, Result};
 
-use crate::linux::camera::Camera;
 use crate::linux::decode::Decoder;
 use crate::linux::mic::Mic;
+use crate::linux::output::Output as Camera;
 use crate::protocol::{Hello, Kind, Packet, VideoFormat, KEYFRAME};
 use crate::stats::{now_us, Delays};
 
@@ -27,11 +27,22 @@ type SizedCamera = (Arc<Camera>, (u32, u32));
 
 #[derive(Default)]
 pub struct Devices {
+    /// Skykeep's own PipeWire camera even where the webcam device exists (the tests, whose
+    /// readers look for it by name).
+    pub pipewire_only: bool,
     camera: Mutex<Option<SizedCamera>>,
     mic: Mutex<Option<Arc<Mic>>>,
 }
 
 impl Devices {
+    /// Devices that publish Skykeep's own PipeWire camera even where the webcam device exists.
+    pub fn pipewire_only() -> Devices {
+        Devices {
+            pipewire_only: true,
+            ..Default::default()
+        }
+    }
+
     fn camera(&self, name: &str, format: &VideoFormat) -> Result<Arc<Camera>> {
         let mut slot = self.camera.lock().unwrap();
         if let Some((camera, size)) = slot.as_ref() {
@@ -42,6 +53,7 @@ impl Devices {
         // Only a different picture size makes a new camera.
         *slot = None;
         let camera = Arc::new(Camera::start(
+            self.pipewire_only,
             name,
             format.width,
             format.height,
@@ -285,7 +297,7 @@ fn decode_pictures(
     {
         let mut r = report.lock().unwrap();
         r.hardware_decoding = decoder.hardware;
-        r.picture_delays = Some(camera.delays.clone());
+        r.picture_delays = Some(camera.delays());
     }
     for packet in rx {
         let captured = packet.captured_us - clock.load(Ordering::Relaxed);

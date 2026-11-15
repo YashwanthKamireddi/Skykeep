@@ -153,7 +153,15 @@ fn programs_see_the_phones_camera_and_microphone_with_little_delay() {
     let report = Arc::new(Mutex::new(receiver::Report::default()));
     {
         let (r, w, report) = (link.try_clone().unwrap(), link, report.clone());
-        std::thread::spawn(move || receiver::serve(r, w, report, Default::default(), &|_| {}));
+        std::thread::spawn(move || {
+            receiver::serve(
+                r,
+                w,
+                report,
+                Arc::new(receiver::Devices::pipewire_only()),
+                &|_| {},
+            )
+        });
     }
 
     // Wait for the camera to appear: its first picture, or give up.
@@ -234,7 +242,7 @@ fn a_program_keeps_the_camera_across_an_unplug() {
         eprintln!("no PipeWire on this machine: skipped");
         return;
     }
-    let devices = Arc::new(receiver::Devices::default());
+    let devices = Arc::new(receiver::Devices::pipewire_only());
     let report = Arc::new(Mutex::new(receiver::Report::default()));
     let connect = |devices: &Arc<receiver::Devices>| {
         let phone = fakephone::start(640, 360, 60).unwrap();
