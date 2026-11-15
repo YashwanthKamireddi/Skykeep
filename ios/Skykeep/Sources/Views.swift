@@ -154,14 +154,22 @@ struct CameraScreen: View {
                 .disabled(!model.cameraOn)
                 .accessibilityLabel("Video effects: Portrait, Studio Light and more")
 
-                Button(action: model.showMicModes) {
-                    Image(systemName: "waveform")
+                Menu {
+                    Picker("Microphone", selection: Binding(get: { model.micVoice }, set: { model.setMicVoice($0) })) {
+                        Label("Natural", systemImage: "waveform").tag(false)
+                        Label("Voice Isolation", systemImage: "person.wave.2").tag(true)
+                    }
+                    if model.micVoice {
+                        Button("Apple Mic Modes", systemImage: "slider.horizontal.3", action: model.showMicModes)
+                    }
+                } label: {
+                    Image(systemName: model.micVoice ? "person.wave.2" : "waveform")
                         .font(.footnote.weight(.semibold))
                         .frame(width: 40, height: 40)
                 }
                 .buttonStyle(.glass)
                 .buttonBorderShape(.circle)
-                .accessibilityLabel("Microphone mode: Standard, Voice Isolation or Wide Spectrum")
+                .accessibilityLabel(model.micVoice ? "Microphone: Voice Isolation" : "Microphone: Natural")
             }
         }
     }

@@ -146,6 +146,18 @@ final class Model {
         AVCaptureDevice.showSystemUserInterface(.videoEffects)
     }
 
+    /// Natural (Camera-app recording, the room from a distance) or Voice (call processing).
+    private(set) var micVoice = false
+
+    func setMicVoice(_ on: Bool) {
+        guard on != micVoice else { return }
+        micVoice = on
+        microphone.voice = on
+        guard micOn else { return }
+        microphone.stop()
+        startMicrophone()
+    }
+
     func showMicModes() {
         Microphone.showModes()
     }

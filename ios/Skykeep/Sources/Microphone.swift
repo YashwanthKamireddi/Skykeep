@@ -3,30 +3,38 @@
 /// The microphone, sent as it is captured: 5 ms blocks of 48 kHz mono, straight from the
 /// audio hardware's own callback, so no block waits for a bigger one.
 ///
-/// Apple's voice processing is on, the same as in FaceTime: echo cancellation, noise
-/// suppression, and the Voice Isolation and Wide Spectrum choices in Control Center.
+/// Two ways to listen, both Apple's own:
+/// - Natural (default): as the Camera app records video sound (the video recording mode),
+///   tuned to pick up a room from a distance, nothing gated. The phone plays nothing, so no
+///   echo needs cancelling.
+/// - Voice: the call processing FaceTime uses (voice processing): voice only, background
+///   noise removed, and Apple's Voice Isolation and Wide Spectrum choices. It mutes whatever
+///   isn't speech, which is right in a noisy room and wrong across a quiet one.
 final class Microphone: @unchecked Sendable {
     var onSound: (@Sendable (Data) -> Void)?
+    /// Voice (call processing) instead of Natural.
+    var voice = false
 
-    private let engine = AVAudioEngine()
+    private var engine = AVAudioEngine()
     private var sink: AVAudioSinkNode?
     private let target = AVAudioFormat(commonFormat: .pcmFormatInt16, sampleRate: 48_000, channels: 1, interleaved: true)!
 
     func start() throws {
         let session = AVAudioSession.sharedInstance()
-        // As FaceTime on speaker, not a call held to the ear: the receiver's near-mouth tuning
-        // made speech a metre away quiet.
-        try session.setCategory(.playAndRecord, mode: .videoChat, options: [.mixWithOthers, .defaultToSpeaker])
+        // On the speaker, not a call held to the ear: the receiver's near-mouth tuning made
+        // speech a metre away quiet.
+        try session.setCategory(.playAndRecord, mode: voice ? .videoChat : .videoRecording,
+                                options: [.mixWithOthers, .defaultToSpeaker])
         try session.setPreferredSampleRate(48_000)
         try session.setPreferredIOBufferDuration(0.005)
         try session.setActive(true)
 
+        engine = AVAudioEngine()
         let input = engine.inputNode
-        try? input.setVoiceProcessingEnabled(true)
-        // Speech from across the room as loud as speech up close: Apple's automatic gain, and
-        // the hardware's own gain at its top where iOS lets an app set it.
-        input.isVoiceProcessingAGCEnabled = true
-        if session.isInputGainSettable { try? session.setInputGain(1.0) }
+        if voice {
+            try? input.setVoiceProcessingEnabled(true)
+            input.isVoiceProcessingAGCEnabled = true
+        }
         let format = input.outputFormat(forBus: 0)
         let converter = AVAudioConverter(from: format, to: target)
         let target = self.target
@@ -43,7 +51,7 @@ final class Microphone: @unchecked Sendable {
         self.sink = sink
         engine.prepare()
         try engine.start()
-        log.notice("microphone running: \(format.sampleRate, privacy: .public) Hz, \(format.channelCount, privacy: .public) channel(s), \(String(describing: format.commonFormat), privacy: .public), interleaved \(format.isInterleaved, privacy: .public)")
+        log.notice("microphone running (\(self.voice ? "voice" : "natural", privacy: .public)): \(format.sampleRate, privacy: .public) Hz, \(format.channelCount, privacy: .public) channel(s), \(String(describing: format.commonFormat), privacy: .public), interleaved \(format.isInterleaved, privacy: .public)")
     }
 
     /// The built-in microphone on the camera's side, pointed outwards (cardioid), as the Camera
