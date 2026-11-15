@@ -7,7 +7,7 @@
  * label picked here is written in the service's spelling, as icloud.com writes it; a label
  * already on a card goes back exactly as it came.
  */
-import { t, type Key } from "./i18n";
+import { t, type Key } from "./i18n.ts";
 
 /** [service spelling, Apple's token, as a card shows it] */
 const KNOWN: [string, string, string][] = [

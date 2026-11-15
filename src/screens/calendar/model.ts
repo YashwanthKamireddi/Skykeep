@@ -5,7 +5,7 @@
  * one local midnight to the next — twenty-three or twenty-five hours on the two days a clock
  * moves, which is why nothing here adds a fixed 86,400 seconds.
  */
-import { t } from "../../lib/i18n";
+import { t } from "../../lib/i18n.ts";
 import type { CalendarEvent } from "../../lib/ipc";
 import { timeText } from "../../lib/when.ts";
 

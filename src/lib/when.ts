@@ -9,7 +9,7 @@
  * gives the same text for a fraction of the cost.
  */
 import { useEffect, useState } from "react";
-import { activeLanguage, storedLanguage } from "./i18n";
+import { activeLanguage, storedLanguage } from "./i18n.ts";
 
 const made = new Map<string, Intl.DateTimeFormat>();
 
