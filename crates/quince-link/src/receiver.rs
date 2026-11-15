@@ -307,7 +307,13 @@ fn decode_pictures(
     }
     for packet in rx {
         let captured = packet.captured_us - clock.load(Ordering::Relaxed);
-        if let Err(e) = decoder.decode(&packet.body, captured) {
+        // A keyframe's sequence header gets one more picture of room, so the decoder hands
+        // each picture on at once instead of the next time one arrives (sps.rs).
+        let roomier = (packet.flags & KEYFRAME != 0)
+            .then(|| crate::sps::unit_with_room(&packet.body))
+            .flatten();
+        let unit = roomier.as_deref().unwrap_or(&packet.body);
+        if let Err(e) = decoder.decode(unit, captured) {
             // One damaged picture: start again cleanly at the next keyframe.
             eprintln!("iPhone camera: {e:#}; waiting for a keyframe");
             decoder.flush();

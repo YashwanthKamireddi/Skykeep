@@ -207,12 +207,11 @@ fn programs_see_the_phones_camera_and_microphone_with_little_delay() {
         "the microphone gave {} blocks",
         mic.buffers
     );
-    // Encoding the test picture is part of the phone's time. The stand-in's x264 stream
-    // declares a one-picture buffer, which makes GStreamer's graphics-chip decoder hold each
-    // picture until the next (about 17 ms at 60 fps); the iPhone's stream declares no
-    // reordering and room for four, so it doesn't. The bound covers both.
+    // Encoding the test picture is part of the phone's time. Decoding and handing over must
+    // stay well inside one 60 fps frame: with the sequence header's room raised (sps.rs) no
+    // decoder holds a picture until the next, which alone added about 17 ms.
     assert!(
-        pictures.percentile(0.95).unwrap() < 40_000,
+        pictures.percentile(0.95).unwrap() < 15_000,
         "pictures took too long"
     );
     // The computer's own audio block (43 ms on a machine set up for heavy noise removal) is

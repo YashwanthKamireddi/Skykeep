@@ -5,6 +5,7 @@
 //! every program can choose: on Linux, a PipeWire camera and a PipeWire microphone.
 
 pub mod protocol;
+pub mod sps;
 pub mod stats;
 pub mod usbmux;
 
