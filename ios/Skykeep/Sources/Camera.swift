@@ -253,7 +253,7 @@ final class Camera: NSObject, @unchecked Sendable, AVCaptureVideoDataOutputSampl
         timing.toApp += arrived - pts.seconds
         if image !== captured { timing.fitted += 1 }
         if timing.frames == 300 {
-            log.notice("camera timing over 300 frames: sensor to app \(self.timing.toApp / 3, privacy: .public) ms, encode \(self.timing.encode / 3, privacy: .public) ms, fitted \(self.timing.fitted, privacy: .public)")
+            log.notice("camera timing over 300 frames: sensor to app \(self.timing.toApp / 0.3, privacy: .public) ms, encode \(self.timing.encode / 0.3, privacy: .public) ms, fitted \(self.timing.fitted, privacy: .public)")
             timing = (0, 0, 0, 0)
         }
         // The capture moment on the shared clock: now, less how long ago the sensor took it.
