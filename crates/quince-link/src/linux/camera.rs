@@ -280,7 +280,18 @@ fn format_pod(format: VideoFormat, width: u32, height: u32, fps: u32) -> Vec<u8>
         property!(FormatProperties::MediaSubtype, Id, MediaSubtype::Raw),
         property!(FormatProperties::VideoFormat, Id, format),
         property!(FormatProperties::VideoSize, Rectangle, Rectangle { width, height }),
-        property!(FormatProperties::VideoFramerate, Fraction, Fraction { num: fps, denom: 1 }),
+        // Any rate up to the phone's, as webcams offer several: programs that take 30 at most
+        // (GNOME's Snapshot) skip a camera that offers only 60. Pictures still go out as the
+        // phone sends them.
+        property!(
+            FormatProperties::VideoFramerate,
+            Choice,
+            Range,
+            Fraction,
+            Fraction { num: fps, denom: 1 },
+            Fraction { num: 1, denom: 1 },
+            Fraction { num: fps, denom: 1 }
+        ),
     };
     serialize(obj)
 }
