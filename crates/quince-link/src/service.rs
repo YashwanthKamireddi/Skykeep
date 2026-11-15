@@ -38,6 +38,24 @@ pub struct Service {
     devices: Arc<Devices>,
     /// The open link to each phone, so it can be started again.
     links: Arc<Mutex<std::collections::HashMap<u64, usbmux::Socket>>>,
+    /// The usbmuxd connection that hears phones come and go.
+    listening: Arc<Mutex<Option<usbmux::Socket>>>,
+    stopped: Arc<std::sync::atomic::AtomicBool>,
+}
+
+impl Drop for Service {
+    /// Stops everything: no more listening, every link closed, and the camera and microphone
+    /// gone from the computer once their sessions end (moments later).
+    fn drop(&mut self) {
+        self.stopped
+            .store(true, std::sync::atomic::Ordering::Relaxed);
+        if let Some(s) = self.listening.lock().unwrap().take() {
+            let _ = s.shutdown(std::net::Shutdown::Both);
+        }
+        for (_, link) in self.links.lock().unwrap().drain() {
+            let _ = link.shutdown(std::net::Shutdown::Both);
+        }
+    }
 }
 
 impl Service {
@@ -73,6 +91,9 @@ pub fn start(changed: impl Fn(Status) + Send + Sync + 'static) -> Service {
     let report = Arc::new(Mutex::new(Report::default()));
     let devices = Arc::new(Devices::default());
     let links = Arc::new(Mutex::new(std::collections::HashMap::new()));
+    let listening = Arc::new(Mutex::new(None));
+    let stopped = Arc::new(std::sync::atomic::AtomicBool::new(false));
+    let (li, st) = (listening.clone(), stopped.clone());
     let serving = Arc::new(Mutex::new(HashSet::<u64>::new()));
     let (s, r, d0, l0) = (
         status.clone(),
@@ -87,29 +108,37 @@ pub fn start(changed: impl Fn(Status) + Send + Sync + 'static) -> Service {
                 if !serving.lock().unwrap().insert(phone) {
                     return;
                 }
-                let (s, r, d, serving, c, l) = (
+                let (s, r, d, serving, c, l, stop) = (
                     s.clone(),
                     r.clone(),
                     d0.clone(),
                     serving.clone(),
                     changed.clone(),
                     l0.clone(),
+                    st.clone(),
                 );
                 let _ = std::thread::Builder::new()
                     .name("iphone-link".into())
                     .spawn(move || {
-                        serve_while_plugged(phone, &s, &c, &r, &d, &l);
+                        serve_while_plugged(phone, &s, &c, &r, &d, &l, &stop);
                         serving.lock().unwrap().remove(&phone);
                         if serving.lock().unwrap().is_empty() {
                             set(&s, &c, Status::NoPhone);
                         }
                     });
             };
+            if st.load(std::sync::atomic::Ordering::Relaxed) {
+                break;
+            }
             if let Ok(phones) = usbmux::phones() {
                 phones.into_iter().for_each(begin);
             }
-            // Returns when usbmuxd stops (or isn't installed): look again in a while.
-            let _ = usbmux::watch(begin);
+            // Returns when usbmuxd stops (or isn't installed), or when stopped: look again in a
+            // while unless stopped.
+            let _ = usbmux::watch(&li, begin);
+            if st.load(std::sync::atomic::Ordering::Relaxed) {
+                break;
+            }
             std::thread::sleep(Duration::from_secs(5));
         })
         .expect("a thread can start");
@@ -118,6 +147,8 @@ pub fn start(changed: impl Fn(Status) + Send + Sync + 'static) -> Service {
         report,
         devices,
         links,
+        listening,
+        stopped,
     }
 }
 
@@ -128,8 +159,12 @@ fn serve_while_plugged(
     report: &Arc<Mutex<Report>>,
     devices: &Arc<Devices>,
     links: &Mutex<std::collections::HashMap<u64, usbmux::Socket>>,
+    stopped: &std::sync::atomic::AtomicBool,
 ) {
     loop {
+        if stopped.load(std::sync::atomic::Ordering::Relaxed) {
+            return;
+        }
         match usbmux::connect(phone, PORT) {
             Ok(link) => {
                 let Ok(reader) = link.try_clone() else { return };

@@ -126,9 +126,14 @@ pub fn connect(device: u64, port: u16) -> Result<Socket> {
 
 /// Phones being plugged in and out, as they happen: calls `attached` with each new phone's
 /// id. Returns when usbmuxd goes away.
-pub fn watch(mut attached: impl FnMut(u64)) -> Result<()> {
+pub fn watch(
+    listening: &std::sync::Mutex<Option<Socket>>,
+    mut attached: impl FnMut(u64),
+) -> Result<()> {
     let mut s = open()?;
     send(&mut s, request("Listen"), 3)?;
+    // Kept where the owner can shut it, which ends this loop at once.
+    *listening.lock().unwrap() = Some(s.try_clone()?);
     loop {
         let event = receive(&mut s)?;
         if event.get("MessageType").and_then(Value::as_string) == Some("Attached") {

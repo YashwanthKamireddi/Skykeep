@@ -473,17 +473,18 @@ function PhotoCacheCap({ onError }: { onError: (m: string) => void }) {
 }
 
 /**
- * The iPhone as this computer's camera and microphone: plugged in and Skykeep opened on it, it
- * is one. The row says which step is missing, and changes as it happens.
+ * The iPhone as this computer's camera and microphone, in a card of its own: one switch, off
+ * until turned on, so nothing runs for those who don't use it. On, it says the one step
+ * missing (plug it in, open Skykeep on it) or that it's in use, as the phone changes.
  */
-function IphoneRow() {
+function IphoneCard() {
   const { t } = useI18n();
   const [status, setStatus] = useState<IphoneStatus | null>(null);
   const [busy, setBusy] = useState(false);
   useEffect(() => {
     let live = true;
     const read = () => iphoneApi.status().then((s) => live && setStatus(s), () => {});
-    read();
+    void read();
     const off = listen(IPHONE_CHANGED, read);
     return () => {
       live = false;
@@ -491,16 +492,28 @@ function IphoneRow() {
     };
   }, []);
   if (!status || status.state === "unavailable") return null;
-  const hint =
-    status.state === "inUse"
+  const on = status.state !== "off";
+  const hint = !on
+    ? t("settings.iphoneOffHint")
+    : status.state === "inUse"
       ? t("settings.iphoneInUse")
       : status.state === "cameraPaused"
         ? t("settings.iphoneCameraPaused")
         : status.state === "micOnly"
           ? t("settings.iphoneMicOnly")
-        : status.state === "plugged"
-        ? t("settings.iphonePlugged")
-        : t("settings.iphoneNone");
+          : status.state === "plugged"
+            ? t("settings.iphonePlugged")
+            : t("settings.iphoneNone");
+  const toggle = async () => {
+    setBusy(true);
+    try {
+      setStatus(await iphoneApi.set(!on));
+    } catch {
+      /* the switch shows what is still true */
+    } finally {
+      setBusy(false);
+    }
+  };
   const setUp = async () => {
     setBusy(true);
     try {
@@ -513,16 +526,30 @@ function IphoneRow() {
     }
   };
   return (
-    <>
+    <section className="dash-card" aria-labelledby="card-iphone">
+      <h2 id="card-iphone" className="dash-title">
+        {t("settings.iphone")}
+      </h2>
       <div className="settings-row">
+        <AppIcon app="iphone" />
         <span className="settings-label settings-stack">
           {t("settings.iphoneCamera")}
           <span className="settings-hint" aria-live="polite">
             {hint}
           </span>
         </span>
+        <button
+          className="switch"
+          role="switch"
+          aria-checked={on}
+          aria-label={t("settings.iphoneCamera")}
+          disabled={busy}
+          onClick={toggle}
+        >
+          <span className="switch-knob" />
+        </button>
       </div>
-      {status.everyApp !== "ready" && (
+      {on && status.everyApp !== "ready" && (
         <div className="settings-row">
           <span className="settings-label settings-stack">
             {t("settings.iphoneEveryApp")}
@@ -537,7 +564,7 @@ function IphoneRow() {
           )}
         </div>
       )}
-    </>
+    </section>
   );
 }
 
@@ -743,13 +770,12 @@ export function SettingsView({ onSignOut }: { onSignOut: (keep: boolean) => Prom
             </button>
           </div>
           <PhotoCacheCap onError={setError} />
-          <IphoneRow />
           <div className="dash-actions">
             <span className="settings-hint">{local ? t("settings.keptOnComputer", { size: size(local.total) }) : "\u00a0"}</span>
           </div>
         </section>
       </div>
-      <div className="dash-row dash-two">
+      <div className="dash-row dash-three">
         <section className="dash-card" aria-labelledby="card-general">
           <h2 id="card-general" className="dash-title">{t("settings.general")}</h2>
           <div className="settings-row">
@@ -888,6 +914,7 @@ export function SettingsView({ onSignOut }: { onSignOut: (keep: boolean) => Prom
           )}
           <UpdatesGroup />
         </section>
+        <IphoneCard />
       </div>
       {/* What Skykeep talks to, in plain sight: a statement of trust is not hidden behind a link. */}
       <div className="dash-reach">

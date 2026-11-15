@@ -1,32 +1,72 @@
-//! The iPhone as this computer's camera and microphone (crates/quince-link): started with the
-//! app, so a phone on the cable with Skykeep open on it is used at once, with nothing to press.
-//! Linux for now; Windows follows with its own camera.
+//! The iPhone as this computer's camera and microphone (crates/quince-link). Off until the
+//! person turns it on in Settings (nothing runs for those who don't use it); on, a phone on the
+//! cable with Skykeep open on it is used at once, with nothing to press. The choice belongs to
+//! this computer (a marker file in Skykeep's folder), not the Apple Account, so signing out
+//! keeps it. Linux for now.
 
 use serde::Serialize;
 
 #[cfg(all(target_os = "linux", feature = "iphone"))]
-static LINK: std::sync::OnceLock<quince_link::service::Service> = std::sync::OnceLock::new();
+static LINK: std::sync::Mutex<Option<quince_link::service::Service>> = std::sync::Mutex::new(None);
 
-/// Starts watching for the phone. Only the one Skykeep that holds the library gets here, so
-/// two never publish the same camera. Each change (plugged in, opened, in use, gone) reaches
-/// the windows as `quince://iphone`, so Settings shows it as it happens.
-pub fn start(app: &tauri::AppHandle) {
+#[cfg(all(target_os = "linux", feature = "iphone"))]
+static MARKER: std::sync::OnceLock<std::path::PathBuf> = std::sync::OnceLock::new();
+
+/// Starts watching for the phone if the person turned it on. Only the one Skykeep that holds
+/// the library gets here, so two never publish the same camera.
+pub fn start(app: &tauri::AppHandle, dir: &std::path::Path) {
     #[cfg(all(target_os = "linux", feature = "iphone"))]
     {
-        use tauri::Emitter;
+        let marker = MARKER.get_or_init(|| dir.join("iphone-link-on"));
+        if marker.exists() {
+            run(app);
+        }
+    }
+    #[cfg(not(all(target_os = "linux", feature = "iphone")))]
+    let _ = (app, dir);
+}
+
+/// Each change (plugged in, opened, in use, gone) reaches the windows as `quince://iphone`, so
+/// Settings shows it as it happens.
+#[cfg(all(target_os = "linux", feature = "iphone"))]
+fn run(app: &tauri::AppHandle) {
+    use tauri::Emitter;
+    let mut link = LINK.lock().unwrap();
+    if link.is_none() {
         let app = app.clone();
-        let _ = LINK.set(quince_link::service::start(move |_| {
+        *link = Some(quince_link::service::start(move |_| {
             let _ = app.emit("quince://iphone", ());
         }));
     }
+}
+
+/// Turns the iPhone link on or off, kept for next time. Off stops everything at once: no
+/// watching, the camera and microphone gone from the computer.
+#[tauri::command]
+pub fn iphone_set(on: bool, app: tauri::AppHandle) -> Result<IphoneStatus, String> {
+    #[cfg(all(target_os = "linux", feature = "iphone"))]
+    {
+        use tauri::Emitter;
+        let marker = MARKER.get().ok_or("not started")?;
+        if on {
+            std::fs::write(marker, b"").map_err(|e| e.to_string())?;
+            run(&app);
+        } else {
+            let _ = std::fs::remove_file(marker);
+            drop(LINK.lock().unwrap().take());
+        }
+        let _ = app.emit("quince://iphone", ());
+    }
     #[cfg(not(all(target_os = "linux", feature = "iphone")))]
-    let _ = app;
+    let _ = (on, app);
+    Ok(iphone_status())
 }
 
 #[derive(Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct IphoneStatus {
-    /// "unavailable" (this build or system has no iPhone link), "none" (no iPhone on a cable),
+    /// "unavailable" (this build or system has no iPhone link), "off" (not turned on in
+    /// Settings), "none" (no iPhone on a cable),
     /// "plugged" (Skykeep isn't open on it), "inUse", or "cameraPaused" (iOS stopped the
     /// camera: the phone locked or another app in front; the microphone goes on), or
     /// "micOnly" (the camera turned off on the phone).
@@ -85,7 +125,7 @@ pub async fn iphone_every_app() -> Result<&'static str, String> {
             // Cancelled at the prompt, or refused: nothing changed.
             return Ok(every_app());
         }
-        if let Some(link) = LINK.get() {
+        if let Some(link) = LINK.lock().unwrap().as_ref() {
             link.start_camera_again();
         }
         Ok(every_app())
@@ -97,7 +137,28 @@ pub async fn iphone_every_app() -> Result<&'static str, String> {
 #[tauri::command]
 pub fn iphone_status() -> IphoneStatus {
     #[cfg(all(target_os = "linux", feature = "iphone"))]
-    if let Some(link) = LINK.get() {
+    if let Some(status) = linked_status() {
+        return status;
+    }
+    IphoneStatus {
+        state: "unavailable",
+        camera_ms: None,
+        microphone_ms: None,
+        every_app: "install",
+    }
+}
+
+#[cfg(all(target_os = "linux", feature = "iphone"))]
+fn linked_status() -> Option<IphoneStatus> {
+    if MARKER.get().is_some_and(|m| !m.exists()) {
+        return Some(IphoneStatus {
+            state: "off",
+            camera_ms: None,
+            microphone_ms: None,
+            every_app: every_app(),
+        });
+    }
+    if let Some(link) = LINK.lock().unwrap().as_ref() {
         use quince_link::service::Status;
         let state = match *link.status.lock().unwrap() {
             Status::NoPhone => "none",
@@ -111,17 +172,12 @@ pub fn iphone_status() -> IphoneStatus {
             d.and_then(|d| d.lock().unwrap().percentile(0.5))
                 .map(|us| us as f64 / 1000.0)
         };
-        return IphoneStatus {
+        return Some(IphoneStatus {
             state,
             camera_ms: ms(report.picture_delays.as_ref()),
             microphone_ms: ms(report.sound_delays.as_ref()),
             every_app: every_app(),
-        };
+        });
     }
-    IphoneStatus {
-        state: "unavailable",
-        camera_ms: None,
-        microphone_ms: None,
-        every_app: "install",
-    }
+    None
 }
