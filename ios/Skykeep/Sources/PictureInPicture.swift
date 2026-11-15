@@ -6,7 +6,8 @@ import UIKit
 /// phone shows a small floating preview of what the computer receives.
 @MainActor
 final class PictureInPicture: NSObject, AVPictureInPictureSampleBufferPlaybackDelegate {
-    let layer = AVSampleBufferDisplayLayer()
+    // Fed from the camera's queue: the layer's renderer takes frames from any thread.
+    nonisolated(unsafe) let layer = AVSampleBufferDisplayLayer()
     private var controller: AVPictureInPictureController?
 
     func attach() {

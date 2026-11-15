@@ -105,7 +105,8 @@ final class Link: @unchecked Sendable {
             }
             picturesInFlight += 1
             c.send(content: packet, completion: .contentProcessed { [weak self] _ in
-                self?.queue.async { self?.picturesInFlight -= 1 }
+                guard let self else { return }
+                self.queue.async { self.picturesInFlight -= 1 }
             })
         }
     }

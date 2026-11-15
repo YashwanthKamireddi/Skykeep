@@ -1,4 +1,4 @@
-import AVFoundation
+@preconcurrency import AVFoundation
 
 /// The microphone, sent as it is captured: 5 ms blocks of 48 kHz mono, straight from the
 /// audio hardware's own callback, so no block waits for a bigger one.
@@ -69,7 +69,9 @@ final class Microphone: @unchecked Sendable {
               let source = AVAudioPCMBuffer(pcmFormat: format, bufferListNoCopy: list),
               let dest = AVAudioPCMBuffer(pcmFormat: target, frameCapacity: AVAudioFrameCount(Double(frames) * 48_000 / format.sampleRate) + 16)
         else { return Data() }
-        var given = false
+        // The converter asks for input synchronously, inside convert(), on this thread.
+        nonisolated(unsafe) var given = false
+        nonisolated(unsafe) let source = source
         _ = converter.convert(to: dest, error: nil) { _, status in
             if given { status.pointee = .noDataNow; return nil }
             given = true
