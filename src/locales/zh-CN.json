@@ -470,5 +470,49 @@
     "styleBulleted": "项目符号列表",
     "styleDashed": "短划线列表",
     "styleNumbered": "编号列表"
+  },
+  "photos": {
+    "title": "照片",
+    "views": {
+      "library": "图库",
+      "favorites": "个人收藏",
+      "recents": "最近项目",
+      "videos": "视频",
+      "portrait": "人像",
+      "panoramas": "全景照片",
+      "screenshots": "截屏",
+      "rated": "已评分",
+      "hidden": "已隐藏",
+      "recentlyDeleted": "最近删除"
+    },
+    "levels": {
+      "years": "年",
+      "months": "月",
+      "all": "所有照片"
+    },
+    "photoOne": "{count} 张照片",
+    "photoMany": "{count} 张照片",
+    "videoOne": "{count} 个视频",
+    "videoMany": "{count} 个视频",
+    "tallyBoth": "{photos}，{videos}",
+    "selectedPhotoOne": "已选择 {count} 张照片",
+    "selectedPhotoMany": "已选择 {count} 张照片",
+    "selectedVideoOne": "已选择 {count} 个视频",
+    "selectedVideoMany": "已选择 {count} 个视频",
+    "selectedItemOne": "已选择 {count} 项",
+    "selectedItemMany": "已选择 {count} 项",
+    "receivingPhotoOne": "正在接收 {count} 张照片",
+    "receivingPhotoMany": "正在接收 {count} 张照片",
+    "receivingVideoOne": "正在接收 {count} 个视频",
+    "receivingVideoMany": "正在接收 {count} 个视频",
+    "receivingItemOne": "正在接收 {count} 项",
+    "receivingItemMany": "正在接收 {count} 项",
+    "resultOne": "{count} 个结果",
+    "resultMany": "{count} 个结果",
+    "sort": "排序",
+    "dateCaptured": "拍摄日期",
+    "dateAdded": "添加日期",
+    "newestFirst": "最新的在前",
+    "oldestFirst": "最早的在前"
   }
 }

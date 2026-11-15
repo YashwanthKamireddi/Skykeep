@@ -3,6 +3,7 @@
  * for how many across; a photo opens on a dark stage with the arrows to go through them. Everything draws from the local library at once; thumbnails come
  * from the disk cache and are fetched once.
  */
+import { t, useI18n, type Key } from "../lib/i18n";
 import { AppFoot } from "../components/AppFoot";
 import { useActiveRef, useScreenActive } from "../lib/screen";
 import { putAway, watchNear } from "../lib/near";
@@ -64,27 +65,27 @@ const LIBRARIES = [
 ];
 
 /** The sidebar, in Photos' order, each with the symbol Photos gives it. */
-const VIEWS: { key: PhotoView; label: string; Icon: LucideIcon }[] = [
-  { key: "library", label: "Library", Icon: Images },
-  { key: "favorites", label: "Favorites", Icon: Heart },
-  { key: "recents", label: "Recents", Icon: Clock },
+const VIEWS: { key: PhotoView; label: Key; Icon: LucideIcon }[] = [
+  { key: "library", label: "photos.views.library", Icon: Images },
+  { key: "favorites", label: "photos.views.favorites", Icon: Heart },
+  { key: "recents", label: "photos.views.recents", Icon: Clock },
 ];
 /** Photos' Media Types: the library by what kind of picture each is. */
 const MEDIA: typeof VIEWS = [
-  { key: "videos", label: "Videos", Icon: Video },
-  { key: "portrait", label: "Portrait", Icon: Aperture },
-  { key: "panoramas", label: "Panoramas", Icon: RectangleHorizontal },
-  { key: "screenshots", label: "Screenshots", Icon: Scan },
+  { key: "videos", label: "photos.views.videos", Icon: Video },
+  { key: "portrait", label: "photos.views.portrait", Icon: Aperture },
+  { key: "panoramas", label: "photos.views.panoramas", Icon: RectangleHorizontal },
+  { key: "screenshots", label: "photos.views.screenshots", Icon: Scan },
 ];
 /** Photos' Utilities: what is kept out of the library. */
 const UTILITIES: typeof VIEWS = [
-  { key: "rated", label: "Rated", Icon: Star },
-  { key: "hidden", label: "Hidden", Icon: EyeOff },
-  { key: "recentlyDeleted", label: "Recently Deleted", Icon: Trash2 },
+  { key: "rated", label: "photos.views.rated", Icon: Star },
+  { key: "hidden", label: "photos.views.hidden", Icon: EyeOff },
+  { key: "recentlyDeleted", label: "photos.views.recentlyDeleted", Icon: Trash2 },
 ];
 
 /** The Library's three levels, as Photos names them in its toolbar. */
-const LEVELS: [Level, string][] = [["years", "Years"], ["months", "Months"], ["all", "All Photos"]];
+const LEVELS: [Level, Key][] = [["years", "photos.levels.years"], ["months", "photos.levels.months"], ["all", "photos.levels.all"]];
 const LEVEL_KEY = "quince.photos.level";
 
 /** How many across at each step of the zoom, as Photos steps it. */
@@ -116,12 +117,12 @@ const pickedWords = (kinds: Photo["kind"][]) => {
   const videos = kinds.filter((k) => k === "video").length;
   const n = kinds.length;
   const noun = videos === 0 ? "Photo" : videos === n ? "Video" : "Item";
-  return `${n.toLocaleString()} ${n === 1 ? noun : `${noun}s`} Selected`;
+  return t(`photos.selected${noun}${n === 1 ? "One" : "Many"}`, { count: n.toLocaleString() });
 };
 /** "340 photos", "12 videos", "352 items" — what a batch being received holds. */
 const receivingWords = (n: number, videos: number) => {
-  const noun = videos === 0 ? "photo" : videos === n ? "video" : "item";
-  return `${n.toLocaleString()} ${n === 1 ? noun : `${noun}s`}`;
+  const noun = videos === 0 ? "Photo" : videos === n ? "Video" : "Item";
+  return t(`photos.receiving${noun}${n === 1 ? "One" : "Many"}`, { count: n.toLocaleString() });
 };
 
 type Flag = "favorite" | "deleted" | "hidden" | "expunged";
@@ -882,6 +883,8 @@ const Month = memo(function Month({
 }, sameMonth);
 
 export function PhotosView() {
+  // Read through the hook so the screen draws again when the language changes.
+  const { t } = useI18n();
   const revision = useRevision("photos");
   /** Flag changes on their way to Apple, and those it turned down (kept, to send again). */
   const outbox = useOutbox("photos");
@@ -2831,9 +2834,10 @@ export function PhotosView() {
     let videos = 0;
     for (const m of photos.marks) if ((m & 3) === 1) videos++;
     const stills = photos.length - videos;
-    const part = (n: number, one: string) => `${n.toLocaleString()} ${n === 1 ? one : `${one}s`}`;
-    return [stills && part(stills, "Photo"), videos && part(videos, "Video")].filter(Boolean).join(", ");
-  }, [photos]);
+    const part = (n: number, kind: "photo" | "video") => t(`photos.${kind}${n === 1 ? "One" : "Many"}`, { count: n.toLocaleString() });
+    if (stills && videos) return t("photos.tallyBoth", { photos: part(stills, "photo"), videos: part(videos, "video") });
+    return stills ? part(stills, "photo") : part(videos, "video");
+  }, [photos, t]);
 
   // Scrolled, the line under the title names the month at the top of the view, as Photos
   // does; read once a frame at most, and set only when it changes.
@@ -3098,7 +3102,7 @@ export function PhotosView() {
     ? `“${shownAs.query}”`
     : shownAs.album
     ? (album?.id === shownAs.album.id ? album.name : shownAs.album.name)
-    : [...VIEWS, ...MEDIA, ...UTILITIES].find((v) => v.key === shownAs.view)?.label ?? "Photos";
+    : t([...VIEWS, ...MEDIA, ...UTILITIES].find((v) => v.key === shownAs.view)?.label ?? "photos.title");
   const waitingFor = waiting ? Math.min(84, album ? (albums.find(([a]) => a.id === album.id)?.[1] ?? 21) : (counts[view] ?? 21)) : 0;
   // A view arrives at its newest photos, not wherever the last one was scrolled to: at its top
   // when newest come first, at its foot when oldest come first — as Photos on a Mac and an
@@ -3371,7 +3375,7 @@ export function PhotosView() {
       }}
     >
       <v.Icon className="px-glyph" size={16} strokeWidth={1.8} aria-hidden="true" />
-      <span className="source-name px-label">{v.label}</span>
+      <span className="source-name px-label">{t(v.label)}</span>
       {counts[v.key] && !(v.key === "hidden" && !hiddenOpen) ? <span className="count px-count">{counts[v.key]}</span> : null}
     </button>
   );
@@ -3405,11 +3409,11 @@ export function PhotosView() {
   };
   const placeNow = sharedPage ? "page:shared" : albumsPage ? "page:albums" : album ? `album:${album.id}` : `view:${view}`;
   const places = [
-    ...VIEWS.map((v) => ({ value: `view:${v.key}`, label: v.label })),
+    ...VIEWS.map((v) => ({ value: `view:${v.key}`, label: t(v.label) })),
     { value: "page:albums", label: "Albums" },
     ...albums.filter(([a]) => !a.folder && !a.id.startsWith("new:")).map(([a]) => ({ value: `album:${a.id}`, label: `\u2003${a.name}` })),
-    ...MEDIA.filter((m) => (counts[m.key] ?? 0) > 0 || (!album && !albumsPage && view === m.key)).map((v) => ({ value: `view:${v.key}`, label: v.label })),
-    ...UTILITIES.map((v) => ({ value: `view:${v.key}`, label: v.label })),
+    ...MEDIA.filter((m) => (counts[m.key] ?? 0) > 0 || (!album && !albumsPage && view === m.key)).map((v) => ({ value: `view:${v.key}`, label: t(v.label) })),
+    ...UTILITIES.map((v) => ({ value: `view:${v.key}`, label: t(v.label) })),
     { value: "page:shared", label: "Shared Albums" },
   ];
 
@@ -3629,13 +3633,13 @@ export function PhotosView() {
               selected.length > 0
                 ? pickedWords(kindsOf(selected))
                 : drawn.query
-                  ? photos?.length === 1 ? "1 Result" : `${(photos?.length ?? 0).toLocaleString()} Results`
+                  ? t(photos?.length === 1 ? "photos.resultOne" : "photos.resultMany", { count: (photos?.length ?? 0).toLocaleString() })
                   : receiving
                     ? (
                         <>
                           {(here ?? span) && <>{here ?? span} · </>}
                           <span className="px-receiving" role="status">
-                            Receiving {receivingWords(receiving.ids.size, receiving.videos)}
+                            {receivingWords(receiving.ids.size, receiving.videos)}
                           </span>
                         </>
                       )
@@ -3649,7 +3653,7 @@ export function PhotosView() {
             <div className="segmented toolbar-group px-levels" role="group" aria-label="Library">
               {LEVELS.map(([key, label]) => (
                 <button key={key} className="segment" aria-pressed={level === key} onClick={() => goLevel(key)}>
-                  {label}
+                  {t(label)}
                 </button>
               ))}
             </div>
@@ -3689,19 +3693,19 @@ export function PhotosView() {
             <div className="toolbar-group">
               <button
                 className="tool px-cap"
-                aria-label="Sort"
+                aria-label={t("photos.sort")}
                 aria-haspopup="menu"
-                title="Sort"
+                title={t("photos.sort")}
                 onClick={(e) => {
                   const box = e.currentTarget.getBoundingClientRect();
                   setMenu({
                     at: { x: box.right, y: box.bottom + 6, alignRight: true },
                     entries: [
-                      { label: "Date Captured", checked: sort.by === "taken", run: () => chooseSort({ ...sort, by: "taken" }) },
-                      { label: "Date Added", checked: sort.by === "added", run: () => chooseSort({ ...sort, by: "added" }) },
+                      { label: t("photos.dateCaptured"), checked: sort.by === "taken", run: () => chooseSort({ ...sort, by: "taken" }) },
+                      { label: t("photos.dateAdded"), checked: sort.by === "added", run: () => chooseSort({ ...sort, by: "added" }) },
                       null,
-                      { label: "Newest First", checked: !sort.oldest, run: () => chooseSort({ ...sort, oldest: false }) },
-                      { label: "Oldest First", checked: sort.oldest, run: () => chooseSort({ ...sort, oldest: true }) },
+                      { label: t("photos.newestFirst"), checked: !sort.oldest, run: () => chooseSort({ ...sort, oldest: false }) },
+                      { label: t("photos.oldestFirst"), checked: sort.oldest, run: () => chooseSort({ ...sort, oldest: true }) },
                     ],
                   });
                 }}

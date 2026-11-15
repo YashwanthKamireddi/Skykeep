@@ -470,5 +470,49 @@
     "styleBulleted": "Bulleted List",
     "styleDashed": "Dashed List",
     "styleNumbered": "Numbered List"
+  },
+  "photos": {
+    "title": "Photos",
+    "views": {
+      "library": "Library",
+      "favorites": "Favorites",
+      "recents": "Recents",
+      "videos": "Videos",
+      "portrait": "Portrait",
+      "panoramas": "Panoramas",
+      "screenshots": "Screenshots",
+      "rated": "Rated",
+      "hidden": "Hidden",
+      "recentlyDeleted": "Recently Deleted"
+    },
+    "levels": {
+      "years": "Years",
+      "months": "Months",
+      "all": "All Photos"
+    },
+    "photoOne": "{count} Photo",
+    "photoMany": "{count} Photos",
+    "videoOne": "{count} Video",
+    "videoMany": "{count} Videos",
+    "tallyBoth": "{photos}, {videos}",
+    "selectedPhotoOne": "{count} Photo Selected",
+    "selectedPhotoMany": "{count} Photos Selected",
+    "selectedVideoOne": "{count} Video Selected",
+    "selectedVideoMany": "{count} Videos Selected",
+    "selectedItemOne": "{count} Item Selected",
+    "selectedItemMany": "{count} Items Selected",
+    "receivingPhotoOne": "Receiving {count} photo",
+    "receivingPhotoMany": "Receiving {count} photos",
+    "receivingVideoOne": "Receiving {count} video",
+    "receivingVideoMany": "Receiving {count} videos",
+    "receivingItemOne": "Receiving {count} item",
+    "receivingItemMany": "Receiving {count} items",
+    "resultOne": "{count} Result",
+    "resultMany": "{count} Results",
+    "sort": "Sort",
+    "dateCaptured": "Date Captured",
+    "dateAdded": "Date Added",
+    "newestFirst": "Newest First",
+    "oldestFirst": "Oldest First"
   }
 }

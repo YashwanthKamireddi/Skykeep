@@ -470,5 +470,49 @@
     "styleBulleted": "Aufzählungsliste",
     "styleDashed": "Strichliste",
     "styleNumbered": "Nummerierte Liste"
+  },
+  "photos": {
+    "title": "Fotos",
+    "views": {
+      "library": "Mediathek",
+      "favorites": "Favoriten",
+      "recents": "Zuletzt hinzugefügt",
+      "videos": "Videos",
+      "portrait": "Porträt",
+      "panoramas": "Panoramen",
+      "screenshots": "Bildschirmfotos",
+      "rated": "Bewertet",
+      "hidden": "Ausgeblendet",
+      "recentlyDeleted": "Zuletzt gelöscht"
+    },
+    "levels": {
+      "years": "Jahre",
+      "months": "Monate",
+      "all": "Alle Fotos"
+    },
+    "photoOne": "{count} Foto",
+    "photoMany": "{count} Fotos",
+    "videoOne": "{count} Video",
+    "videoMany": "{count} Videos",
+    "tallyBoth": "{photos}, {videos}",
+    "selectedPhotoOne": "{count} Foto ausgewählt",
+    "selectedPhotoMany": "{count} Fotos ausgewählt",
+    "selectedVideoOne": "{count} Video ausgewählt",
+    "selectedVideoMany": "{count} Videos ausgewählt",
+    "selectedItemOne": "{count} Objekt ausgewählt",
+    "selectedItemMany": "{count} Objekte ausgewählt",
+    "receivingPhotoOne": "{count} Foto wird empfangen",
+    "receivingPhotoMany": "{count} Fotos werden empfangen",
+    "receivingVideoOne": "{count} Video wird empfangen",
+    "receivingVideoMany": "{count} Videos werden empfangen",
+    "receivingItemOne": "{count} Objekt wird empfangen",
+    "receivingItemMany": "{count} Objekte werden empfangen",
+    "resultOne": "{count} Ergebnis",
+    "resultMany": "{count} Ergebnisse",
+    "sort": "Sortieren",
+    "dateCaptured": "Aufnahmedatum",
+    "dateAdded": "Hinzufügedatum",
+    "newestFirst": "Neueste zuerst",
+    "oldestFirst": "Älteste zuerst"
   }
 }
