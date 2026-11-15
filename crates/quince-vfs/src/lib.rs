@@ -32,12 +32,25 @@ pub fn set_notes(sink: fn(&str)) {
     let _ = NOTES.set(sink);
 }
 
-/// A note about the folders: printed, and kept in the diagnostics log when it is on.
+/// A note about the folders: printed, and kept in the diagnostics log when it is on. Only
+/// what happened and Windows' or Apple's answer: never a name, a path or an id (the log's
+/// promise; see `note_about` for those).
 #[cfg_attr(not(windows), allow(dead_code))]
-pub(crate) fn note(text: &str) {
-    eprintln!("quince: {text}");
+pub(crate) fn note(public: &str) {
+    note_about(public, "");
+}
+
+/// A note with what it was about (a file's name, its path, Apple's id for it): that part is
+/// printed for whoever runs Skykeep from a terminal, and left out of the diagnostics log.
+#[cfg_attr(not(windows), allow(dead_code))]
+pub(crate) fn note_about(public: &str, private: &str) {
+    if private.is_empty() {
+        eprintln!("quince: {public}");
+    } else {
+        eprintln!("quince: {public} ({private})");
+    }
     if let Some(sink) = NOTES.get() {
-        sink(&format!("folder: {text}"));
+        sink(&format!("folder: {public}"));
     }
 }
 

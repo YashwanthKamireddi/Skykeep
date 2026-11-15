@@ -195,7 +195,10 @@ impl CloudFolder {
                         )
                     };
                     if let Err(e) = created {
-                        crate::note(&format!("{name} in {}: {e}", dir.display()));
+                        crate::note_about(
+                            &format!("an item could not be added to a folder: {e}"),
+                            &format!("{name} in {}", dir.display()),
+                        );
                     }
                 }
                 None => {}
@@ -208,7 +211,10 @@ impl CloudFolder {
                     if known.is_some_and(|k| k.etag != item.etag || k.size != item.size) {
                         if let Err(e) = renew(&path, item) {
                             // Open in a program now: brought up to date on the next change.
-                            crate::note(&format!("{} not yet updated: {e}", path.display()));
+                            crate::note_about(
+                                &format!("an item not yet updated: {e}"),
+                                &path.display().to_string(),
+                            );
                         }
                     }
                 }
@@ -699,7 +705,7 @@ async fn fetch_data(remote: &dyn Remote, req: Request, offset: u64, len: u64) {
         let path = match whole.await {
             Ok(path) => path,
             Err(e) => {
-                crate::note(&format!("fetching {}: {e}", item.drivewsid));
+                crate::note_about(&format!("fetching a file: {e}"), &item.drivewsid);
                 fail_data(
                     &req,
                     start,
@@ -734,16 +740,15 @@ async fn fetch_data(remote: &dyn Remote, req: Request, offset: u64, len: u64) {
             match remote.read_part(&item, at, n).await {
                 Ok(part) if part.bytes.len() as u64 == n => part.bytes,
                 Ok(part) => {
-                    crate::note(&format!(
-                        "{} answered {} of {n} bytes at {at}",
-                        item.drivewsid,
-                        part.bytes.len()
-                    ));
+                    crate::note_about(
+                        &format!("Apple answered {} of {n} bytes at {at}", part.bytes.len()),
+                        &item.drivewsid,
+                    );
                     fail_data(&req, at, end - at, STATUS_CLOUD_FILE_UNSUCCESSFUL);
                     return;
                 }
                 Err(e) => {
-                    crate::note(&format!("fetching {}: {e}", item.drivewsid));
+                    crate::note_about(&format!("fetching a file: {e}"), &item.drivewsid);
                     fail_data(&req, at, end - at, STATUS_CLOUD_FILE_NETWORK_UNAVAILABLE);
                     return;
                 }
@@ -752,7 +757,7 @@ async fn fetch_data(remote: &dyn Remote, req: Request, offset: u64, len: u64) {
         if let Err(e) = transfer_data(&req, at, &bytes, STATUS_SUCCESS) {
             // Windows took the request back (the reader closed it, it timed out): nothing more
             // is sent for it.
-            crate::note(&format!("handing {} to Windows: {e}", item.drivewsid));
+            crate::note_about(&format!("handing a file to Windows: {e}"), &item.drivewsid);
             return;
         }
     }
@@ -877,7 +882,7 @@ async fn fetch_placeholders(remote: &dyn Remote, store: &dyn Store, req: Request
         None => match remote.list(&folder).await {
             Ok(items) => items,
             Err(e) => {
-                crate::note(&format!("listing {folder}: {e}"));
+                crate::note_about(&format!("listing a folder: {e}"), &folder);
                 let _ = transfer_placeholders(
                     &req,
                     &mut [],
@@ -942,12 +947,15 @@ fn send(req: &Request, made: &[Placeholder], total: i64, last: bool, folder: &st
     }
     for (one, p) in infos.iter().zip(made) {
         if let Err(e) = transfer_placeholders(req, &mut [*one], total, false, STATUS_SUCCESS) {
-            crate::note(&format!("{} in {folder} could not be shown: {e}", p.name()));
+            crate::note_about(
+                &format!("an item Windows refused was left out: {e}"),
+                &format!("{} in {folder}", p.name()),
+            );
         }
     }
     if last {
         if let Err(e) = transfer_placeholders(req, &mut [], total, true, STATUS_SUCCESS) {
-            crate::note(&format!("{folder} could not be finished: {e}"));
+            crate::note_about(&format!("a folder could not be marked whole: {e}"), &folder);
         }
     }
 }
@@ -1044,10 +1052,10 @@ fn ack(req: &Request, kind: CF_OPERATION_TYPE, status: NTSTATUS) {
     };
     // SAFETY: a plain call with keys Windows gave us.
     if let Err(e) = unsafe { CfExecute(&info, &mut params) } {
-        crate::note(&format!(
-            "answering Windows about {}: {e}",
-            req.path.display()
-        ));
+        crate::note_about(
+            &format!("answering Windows: {e}"),
+            &req.path.display().to_string(),
+        );
     }
 }
 
@@ -1105,7 +1113,9 @@ unsafe extern "system" fn on_deleted(
                 tokio::time::sleep(std::time::Duration::from_secs(wait)).await;
                 match remote.delete(&item).await {
                     Ok(()) => return,
-                    Err(e) => crate::note(&format!("deleting {} at Apple: {e}", item.drivewsid)),
+                    Err(e) => {
+                        crate::note_about(&format!("deleting at Apple: {e}"), &item.drivewsid)
+                    }
                 }
             }
         });
@@ -1152,7 +1162,7 @@ async fn renamed(remote: &dyn Remote, item: DriveItem, now: &Path) {
         };
         match step.await {
             Ok(()) => return,
-            Err(e) => crate::note(&format!("renaming {} at Apple: {e}", item.drivewsid)),
+            Err(e) => crate::note_about(&format!("renaming at Apple: {e}"), &item.drivewsid),
         }
     }
 }
