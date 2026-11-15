@@ -6,18 +6,20 @@ import os
 
 /// The camera, encoded for the computer with the least delay the hardware allows.
 ///
-/// - Capture: the chosen lens at 1920×1080, 60 frames a second when it can, late frames dropped
-///   by the system rather than queued.
+/// - Lenses: the back camera is Apple's combined camera (ultra wide, wide and telephoto as one
+///   device), so zooming glides from lens to lens with no break in the picture, as in the
+///   Camera app. The front camera is its own device.
+/// - Upright: Apple's rotation coordinator says how the phone is held; the picture is turned to
+///   match. What goes to the computer is always 1920×1080: a picture taken in portrait is
+///   centred in it with black at the sides, since calls and recordings expect one camera shape
+///   and lose the camera if it changes.
+/// - Never mirrored: webcams send the true picture and each app mirrors only its own preview,
+///   so others see writing the right way round. The phone's preview is mirrored, as FaceTime's.
 /// - Encoding: the hardware H.264 encoder in its low-latency mode (WWDC21; on iOS 27 the normal
 ///   mode also ignores the keyframe interval), real time, no frame reordering, so each picture
-///   leaves as soon as it's encoded.
-/// - Keyframes: every two seconds, and at once when the computer joins or asks after a drop.
+///   leaves as soon as it's encoded. Keyframes every two seconds, and at once when asked.
 final class Camera: NSObject, @unchecked Sendable, AVCaptureVideoDataOutputSampleBufferDelegate {
-    struct Lens: Identifiable, Hashable, Sendable {
-        let id: String
-        let label: String
-        let front: Bool
-    }
+    enum Side: Sendable { case back, front }
 
     static let width: Int32 = 1920
     static let height: Int32 = 1080
@@ -26,40 +28,45 @@ final class Camera: NSObject, @unchecked Sendable, AVCaptureVideoDataOutputSampl
     var onPicture: (@Sendable (Data, Bool) -> Void)?
     /// Each captured frame, for the floating picture-in-picture preview.
     var onFrame: (@Sendable (CMSampleBuffer) -> Void)?
+    /// The zoom as the Camera app shows it (0.5×, 1×, 2×), whenever it changes.
+    var onZoom: (@Sendable (Double) -> Void)?
     private(set) var fps: Int32 = 60
+    /// Encode only while a computer is connected; the preview alone costs no encoding.
+    let sending = OSAllocatedUnfairLock(initialState: false)
 
     private let sessionQueue = DispatchQueue(label: "camera.session", qos: .userInitiated)
     private let frameQueue = DispatchQueue(label: "camera.frames", qos: .userInteractive)
     private let output = AVCaptureVideoDataOutput()
     private var input: AVCaptureDeviceInput?
     private var encoder: VTCompressionSession?
+    private var transfer: VTPixelTransferSession?
+    private var pool: CVPixelBufferPool?
     private let wantKeyframe = OSAllocatedUnfairLock(initialState: true)
     private var lastKeyframe: CMTime = .zero
-    /// Encode only while a computer is connected; the preview alone costs no encoding.
-    let sending = OSAllocatedUnfairLock(initialState: false)
+    private var zoomObservation: NSKeyValueObservation?
 
-    static func lenses() -> [Lens] {
-        let back = AVCaptureDevice.DiscoverySession(
-            deviceTypes: [.builtInUltraWideCamera, .builtInWideAngleCamera, .builtInTelephotoCamera],
-            mediaType: .video, position: .back
-        ).devices
-        let front = AVCaptureDevice.DiscoverySession(deviceTypes: [.builtInWideAngleCamera], mediaType: .video, position: .front).devices
-        var out: [Lens] = back.map { d in
-            let label: String
-            switch d.deviceType {
-            case .builtInUltraWideCamera: label = "0.5×"
-            case .builtInTelephotoCamera: label = "Tele"
-            default: label = "1×"
-            }
-            return Lens(id: d.uniqueID, label: label, front: false)
+    /// The device for a side: the back's combined camera when the phone has one.
+    static func device(_ side: Side) -> AVCaptureDevice? {
+        switch side {
+        case .back:
+            return AVCaptureDevice.DiscoverySession(
+                deviceTypes: [.builtInTripleCamera, .builtInDualWideCamera, .builtInDualCamera, .builtInWideAngleCamera],
+                mediaType: .video, position: .back
+            ).devices.first
+        case .front:
+            return AVCaptureDevice.default(.builtInWideAngleCamera, for: .video, position: .front)
         }
-        out += front.map { Lens(id: $0.uniqueID, label: "Front", front: true) }
-        return out
     }
 
-    func configure(lens: Lens) {
+    /// The Camera app's lens buttons for a device, as shown zoom values (0.5, 1, 2 or 3).
+    static func presets(for device: AVCaptureDevice) -> [Double] {
+        let shown = Double(device.displayVideoZoomFactorMultiplier)
+        let factors = [1.0] + device.virtualDeviceSwitchOverVideoZoomFactors.map { Double(truncating: $0) }
+        return factors.map { ($0 * shown * 10).rounded() / 10 }
+    }
+
+    func use(_ device: AVCaptureDevice) {
         sessionQueue.async { [self] in
-            guard let device = AVCaptureDevice(uniqueID: lens.id) else { return }
             session.beginConfiguration()
             session.sessionPreset = .inputPriority
             if session.isMultitaskingCameraAccessSupported { session.isMultitaskingCameraAccessEnabled = true }
@@ -76,16 +83,54 @@ final class Camera: NSObject, @unchecked Sendable, AVCaptureVideoDataOutputSampl
                 if session.canAddOutput(output) { session.addOutput(output) }
             }
             if let c = output.connection(with: .video) {
-                if c.isVideoRotationAngleSupported(0) { c.videoRotationAngle = 0 }
                 // Stabilization holds frames back to smooth them: tens of milliseconds a webcam
                 // can't spare, and a camera on a stand doesn't shake.
                 if c.isVideoStabilizationSupported { c.preferredVideoStabilizationMode = .off }
-                if c.isVideoMirroringSupported { c.automaticallyAdjustsVideoMirroring = false; c.isVideoMirrored = lens.front }
+                if c.isVideoMirroringSupported {
+                    c.automaticallyAdjustsVideoMirroring = false
+                    c.isVideoMirrored = false
+                }
             }
             session.commitConfiguration()
             wantKeyframe.withLock { $0 = true }
+            zoomObservation = device.observe(\.videoZoomFactor, options: [.initial, .new]) { [weak self] d, _ in
+                self?.onZoom?(Double(d.videoZoomFactor * d.displayVideoZoomFactorMultiplier))
+            }
             if !session.isRunning { session.startRunning() }
         }
+    }
+
+    /// Turns the picture sent to the computer to the angle the rotation coordinator gives.
+    func setAngle(_ angle: CGFloat) {
+        sessionQueue.async { [self] in
+            guard let c = output.connection(with: .video), c.isVideoRotationAngleSupported(angle), c.videoRotationAngle != angle else { return }
+            c.videoRotationAngle = angle
+            wantKeyframe.withLock { $0 = true }
+        }
+    }
+
+    /// Glides to a shown zoom value (a lens button), as the Camera app does.
+    func glide(toShown value: Double) {
+        sessionQueue.async { [self] in
+            guard let d = input?.device, (try? d.lockForConfiguration()) != nil else { return }
+            d.ramp(toVideoZoomFactor: factor(d, shown: value), withRate: 8)
+            d.unlockForConfiguration()
+        }
+    }
+
+    /// Follows a pinch: the zoom at once, within what the camera allows.
+    func setZoom(toShown value: Double) {
+        sessionQueue.async { [self] in
+            guard let d = input?.device, (try? d.lockForConfiguration()) != nil else { return }
+            d.videoZoomFactor = factor(d, shown: value)
+            d.unlockForConfiguration()
+        }
+    }
+
+    private func factor(_ d: AVCaptureDevice, shown: Double) -> CGFloat {
+        let f = CGFloat(shown) / d.displayVideoZoomFactorMultiplier
+        // Beyond 10× digital zoom only blurs.
+        return min(max(f, d.minAvailableVideoZoomFactor), min(d.maxAvailableVideoZoomFactor, 10 / d.displayVideoZoomFactorMultiplier))
     }
 
     func stop() {
@@ -96,25 +141,28 @@ final class Camera: NSObject, @unchecked Sendable, AVCaptureVideoDataOutputSampl
         wantKeyframe.withLock { $0 = true }
     }
 
-    /// 1920×1080 at the highest rate up to 60 the lens offers.
+    /// 1920×1080 at the highest rate up to 60 the camera offers, with video HDR when the
+    /// format has it (bright windows and dark faces both kept), as the Camera app records.
     private func choose(format device: AVCaptureDevice) {
         let candidates = device.formats.filter {
             let d = CMVideoFormatDescriptionGetDimensions($0.formatDescription)
             return d.width == Self.width && d.height == Self.height
                 && CMFormatDescriptionGetMediaSubType($0.formatDescription) == kCVPixelFormatType_420YpCbCr8BiPlanarVideoRange
         }
+        let rate = { (f: AVCaptureDevice.Format) in min(60, f.videoSupportedFrameRateRanges.map(\.maxFrameRate).max() ?? 0) }
         let best = candidates.max { a, b in
-            (a.videoSupportedFrameRateRanges.map(\.maxFrameRate).max() ?? 0) < (b.videoSupportedFrameRateRanges.map(\.maxFrameRate).max() ?? 0)
+            (rate(a), a.isVideoHDRSupported ? 1 : 0) < (rate(b), b.isVideoHDRSupported ? 1 : 0)
         }
         guard let format = best, (try? device.lockForConfiguration()) != nil else { return }
         device.activeFormat = format
-        let top = min(60, format.videoSupportedFrameRateRanges.map(\.maxFrameRate).max() ?? 30)
-        fps = Int32(top)
+        fps = Int32(rate(format))
         device.activeVideoMinFrameDuration = CMTime(value: 1, timescale: fps)
         device.activeVideoMaxFrameDuration = CMTime(value: 1, timescale: fps)
+        if format.isVideoHDRSupported {
+            device.automaticallyAdjustsVideoHDREnabled = false
+            device.isVideoHDREnabled = true
+        }
         device.unlockForConfiguration()
-        encoder.map { VTCompressionSessionInvalidate($0) }
-        encoder = nil
     }
 
     private func makeEncoder() -> VTCompressionSession? {
@@ -147,9 +195,35 @@ final class Camera: NSObject, @unchecked Sendable, AVCaptureVideoDataOutputSampl
         return s
     }
 
+    /// The frame as the computer gets it: as captured when it's already 1920×1080 (held
+    /// sideways), otherwise fitted inside 1920×1080 with black around it, on the graphics
+    /// hardware.
+    private func landscape(_ image: CVPixelBuffer) -> CVPixelBuffer? {
+        if CVPixelBufferGetWidth(image) == Int(Self.width) && CVPixelBufferGetHeight(image) == Int(Self.height) { return image }
+        if transfer == nil {
+            VTPixelTransferSessionCreate(allocator: nil, pixelTransferSessionOut: &transfer)
+            if let t = transfer { VTSessionSetProperty(t, key: kVTPixelTransferPropertyKey_ScalingMode, value: kVTScalingMode_Letterbox) }
+        }
+        if pool == nil {
+            let attributes: [CFString: Any] = [
+                kCVPixelBufferPixelFormatTypeKey: kCVPixelFormatType_420YpCbCr8BiPlanarVideoRange,
+                kCVPixelBufferWidthKey: Int(Self.width),
+                kCVPixelBufferHeightKey: Int(Self.height),
+                kCVPixelBufferIOSurfacePropertiesKey: [:] as CFDictionary,
+            ]
+            CVPixelBufferPoolCreate(nil, nil, attributes as CFDictionary, &pool)
+        }
+        guard let transfer, let pool else { return nil }
+        var out: CVPixelBuffer?
+        CVPixelBufferPoolCreatePixelBuffer(nil, pool, &out)
+        guard let out, VTPixelTransferSessionTransferImage(transfer, from: image, to: out) == noErr else { return nil }
+        return out
+    }
+
     func captureOutput(_ output: AVCaptureOutput, didOutput sample: CMSampleBuffer, from connection: AVCaptureConnection) {
         onFrame?(sample)
-        guard sending.withLock({ $0 }), onPicture != nil, let image = CMSampleBufferGetImageBuffer(sample) else { return }
+        guard sending.withLock({ $0 }), onPicture != nil, let captured = CMSampleBufferGetImageBuffer(sample),
+              let image = landscape(captured) else { return }
         if encoder == nil { encoder = makeEncoder() }
         guard let encoder else { return }
         let pts = CMSampleBufferGetPresentationTimeStamp(sample)
