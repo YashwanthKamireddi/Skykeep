@@ -29,12 +29,13 @@ for (const [width, height] of [[1300, 1200], [1300, 850], [1300, 520], [760, 600
   await page.locator(".cx-week").first().waitFor();
   await page.waitForTimeout(500);
   const r = await page.evaluate(() => {
-    const out = { spill: [], wrongDays: [], drawn: 0, more: 0 };
+    const out = { spill: [], wrongDays: [], drawn: 0, more: 0, titles: [] };
     for (const week of document.querySelectorAll(".cx-week")) {
       const wr = week.getBoundingClientRect();
       const days = [...week.querySelectorAll(".cx-day")].map((d) => d.getBoundingClientRect());
       for (const bar of week.querySelectorAll(".cx-bar-event")) {
         out.drawn++;
+        out.titles.push(bar.textContent);
         const br = bar.getBoundingClientRect();
         if (br.top < wr.top - 0.5 || br.bottom > wr.bottom + 0.5) out.spill.push(bar.textContent);
         // Its ends inside the first and last day it covers, never past a day's edge.
@@ -49,7 +50,10 @@ for (const [width, height] of [[1300, 1200], [1300, 850], [1300, 520], [760, 600
   const label = `${width}×${height}`;
   ok(r.spill.length === 0, `${label}: no bar runs out of its week  ${JSON.stringify(r.spill)}`);
   ok(r.wrongDays.length === 0, `${label}: each bar starts and ends inside a day it covers  ${JSON.stringify(r.wrongDays)}`);
-  if (height === 1200) ok(r.drawn >= 9 && r.more === 0, `${label}: with room, every bar is drawn  (${r.drawn} bars, ${r.more} more)`);
+  // How many pieces the bars break into depends on the weekday today is (a bar is cut at each
+  // week's end), so what's checked is the promise: with room, every one is drawn, none hidden.
+  const every = ["Conference", "Trip", "Two days", "Workshop"].every((t) => r.titles.some((x) => x.includes(t)));
+  if (height === 1200) ok(every && r.more === 0, `${label}: with room, every bar is drawn  (${r.drawn} bars, ${r.more} more)`);
   else ok(r.more > 0, `${label}: the bars that do not fit are counted in "N more"  (${r.drawn} bars, ${r.more} more)`);
   await ctx.close();
 }

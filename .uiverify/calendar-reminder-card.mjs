@@ -54,12 +54,14 @@ for (const theme of ["light", "dark"]) {
   await page.waitForTimeout(150);
   ok((await card.count()) === 1 && (await page.locator(".cx-block.is-draft").count()) === 0, `${theme}: Week opens it, with no draft event under it`);
   // Show in Reminders.
+  await page.evaluate(() => { window.__windows = []; });
   await card.getByRole("button", { name: "Show in Reminders" }).click();
   await page.waitForTimeout(600);
-  const app = await page.evaluate(() => document.documentElement.dataset.app);
-  // A row's title is its rename field, so it is read from the field's value.
-  const row = await page.evaluate(() => [...document.querySelectorAll(".rx-row input, .rx-row textarea")].filter((f) => f.value.startsWith("Sort out everything")).length);
-  ok(app === "reminders" && row === 1, `${theme}: Show in Reminders goes to it in Reminders  ${app}, rows ${row}`);
+  // Each app is its own window: Calendar's hands the reminder to Reminders' window
+  // (apps.rs app_reveal), which opens on it; it never turns into Reminders itself.
+  const asked = await page.evaluate(() => (window.__windows ?? []).find((w) => w.cmd === "app_reveal"));
+  ok(asked?.key === "reminders" && asked?.reveal?.id && asked.reveal.screen === "reminders",
+    `${theme}: Show in Reminders opens it in Reminders' own window  ${JSON.stringify(asked)}`);
   await ctx.close();
 }
 await b.close();
