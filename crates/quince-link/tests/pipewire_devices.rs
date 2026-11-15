@@ -20,6 +20,9 @@ use spa::utils::SpaTypes;
 
 struct Read_ {
     buffers: u64,
+    /// Buffers whose time stamp moved on from the one before: readers that time their display
+    /// freeze on a stream whose stamps stand still.
+    advancing: u64,
     loud_samples: u64,
 }
 
@@ -38,8 +41,10 @@ fn read_node(target: &str, video: bool, enough: u64, within: Duration) -> Read_ 
     let stream = pw::stream::StreamRc::new(core, "skykeep-test-reader", props).unwrap();
     let got = Arc::new(Mutex::new(Read_ {
         buffers: 0,
+        advancing: 0,
         loud_samples: 0,
     }));
+    let lt = Arc::new(Mutex::new(i64::MIN));
     let (g, quit) = (got.clone(), mainloop.clone());
     let _l = stream
         .add_local_listener_with_user_data(())
@@ -47,11 +52,21 @@ fn read_node(target: &str, video: bool, enough: u64, within: Duration) -> Read_ 
             let Some(mut b) = s.dequeue_buffer() else {
                 return;
             };
+            let time = b
+                .find_meta::<spa::buffer::meta::MetaHeader>()
+                .map(|h| h.pts());
             let datas = b.datas_mut();
             let size = datas[0].chunk().size() as usize;
             let mut r = g.lock().unwrap();
             if size > 0 {
                 r.buffers += 1;
+                if let Some(t) = time {
+                    let mut last = lt.lock().unwrap();
+                    if t > *last {
+                        r.advancing += 1;
+                    }
+                    *last = t;
+                }
             }
             if !video {
                 if let Some(d) = datas[0].data() {
@@ -112,6 +127,7 @@ fn read_node(target: &str, video: bool, enough: u64, within: Duration) -> Read_ 
     let r = got.lock().unwrap();
     Read_ {
         buffers: r.buffers,
+        advancing: r.advancing,
         loud_samples: r.loud_samples,
     }
 }

@@ -38,6 +38,7 @@ pub struct Camera {
 struct State {
     latest: Option<(Picture, i64)>,
     format: VideoFormat,
+    sequence: u64,
     delays: Arc<Mutex<Delays>>,
 }
 
@@ -131,6 +132,7 @@ fn run(
     )?;
 
     let state = Rc::new(RefCell::new(State {
+        sequence: 0,
         latest: None,
         format: VideoFormat::NV12,
         delays,
@@ -150,36 +152,24 @@ fn run(
             state.borrow_mut().format = info.format();
             let size = (width * height * 3 / 2) as i32;
             let buffers = buffers_pod(size, width as i32);
-            let _ = stream.update_params(&mut [Pod::from_bytes(&buffers).unwrap()]);
+            let header = header_pod();
+            let _ = stream.update_params(&mut [
+                Pod::from_bytes(&buffers).unwrap(),
+                Pod::from_bytes(&header).unwrap(),
+            ]);
         })
         .process(|stream, state| {
             let mut st = state.borrow_mut();
             let Some((picture, captured)) = st.latest.take() else {
                 return;
             };
-            let Some(mut buffer) = stream.dequeue_buffer() else {
-                return;
-            };
-            let datas = buffer.datas_mut();
-            let data = &mut datas[0];
             let format = st.format;
-            let Some(out) = data.data() else { return };
-            let n = picture.nv12.len().min(out.len());
-            let stride = match format {
-                VideoFormat::I420 => {
-                    write_i420(&picture, out);
-                    picture.width
-                }
-                _ => {
-                    out[..n].copy_from_slice(&picture.nv12[..n]);
-                    picture.width
-                }
-            };
-            let chunk = data.chunk_mut();
-            *chunk.offset_mut() = 0;
-            *chunk.stride_mut() = stride as i32;
-            *chunk.size_mut() = n as u32;
-            if captured != i64::MIN {
+            st.sequence += 1;
+            let sequence = st.sequence;
+            // SAFETY: the buffer is dequeued from this stream, written within its mapped size,
+            // and queued back before returning, all on the stream's own thread.
+            let written = unsafe { fill(stream.as_raw_ptr(), &picture, format, sequence) };
+            if written && captured != i64::MIN {
                 st.delays.lock().unwrap().record(captured);
             }
         })
@@ -206,6 +196,51 @@ fn run(
     let _ = ready.send(Ok(()));
     mainloop.run();
     Ok(())
+}
+
+/// Writes the picture into the next free buffer and hands it to the readers, stamped with the
+/// time and a sequence number. The stamp matters: readers that time their display (video
+/// windows, call apps) treat buffers with one unchanging time as one picture and freeze on it.
+unsafe fn fill(
+    stream: *mut pw::sys::pw_stream,
+    picture: &Picture,
+    format: VideoFormat,
+    sequence: u64,
+) -> bool {
+    let raw = pw::sys::pw_stream_dequeue_buffer(stream);
+    if raw.is_null() {
+        // Every buffer is still with a reader: this picture is skipped, the next one goes.
+        return false;
+    }
+    let buffer = (*raw).buffer;
+    let data = &mut *(*buffer).datas;
+    if data.data.is_null() {
+        pw::sys::pw_stream_queue_buffer(stream, raw);
+        return false;
+    }
+    let out = std::slice::from_raw_parts_mut(data.data as *mut u8, data.maxsize as usize);
+    let n = picture.nv12.len().min(out.len());
+    match format {
+        VideoFormat::I420 => write_i420(picture, out),
+        _ => out[..n].copy_from_slice(&picture.nv12[..n]),
+    }
+    let chunk = &mut *data.chunk;
+    chunk.offset = 0;
+    chunk.stride = picture.width as i32;
+    chunk.size = n as u32;
+    let header = spa::sys::spa_buffer_find_meta_data(
+        buffer,
+        spa::sys::SPA_META_Header,
+        std::mem::size_of::<spa::sys::spa_meta_header>(),
+    ) as *mut spa::sys::spa_meta_header;
+    if !header.is_null() {
+        (*header).pts = pw::sys::pw_stream_get_nsec(stream) as i64;
+        (*header).flags = 0;
+        (*header).seq = sequence;
+        (*header).dts_offset = 0;
+    }
+    pw::sys::pw_stream_queue_buffer(stream, raw);
+    true
 }
 
 /// NV12's interleaved colour plane split into I420's two, for readers that only take I420.
@@ -244,6 +279,26 @@ fn format_pod(width: u32, height: u32, fps: u32) -> Vec<u8> {
     serialize(obj)
 }
 
+/// Asks for a header on every buffer, to carry each picture's time and sequence number.
+fn header_pod() -> Vec<u8> {
+    serialize(spa::pod::Object {
+        type_: spa::sys::SPA_TYPE_OBJECT_ParamMeta,
+        id: spa::sys::SPA_PARAM_Meta,
+        properties: vec![
+            Property {
+                key: spa::sys::SPA_PARAM_META_type,
+                flags: PropertyFlags::empty(),
+                value: Value::Id(spa::utils::Id(spa::sys::SPA_META_Header)),
+            },
+            Property {
+                key: spa::sys::SPA_PARAM_META_size,
+                flags: PropertyFlags::empty(),
+                value: Value::Int(std::mem::size_of::<spa::sys::spa_meta_header>() as i32),
+            },
+        ],
+    })
+}
+
 fn buffers_pod(size: i32, stride: i32) -> Vec<u8> {
     let int = |key: u32, v: i32| Property {
         key,
@@ -254,7 +309,10 @@ fn buffers_pod(size: i32, stride: i32) -> Vec<u8> {
         type_: spa::sys::SPA_TYPE_OBJECT_ParamBuffers,
         id: spa::sys::SPA_PARAM_Buffers,
         properties: vec![
-            int(spa::sys::SPA_PARAM_BUFFERS_buffers, 4),
+            // Readers that show the picture hold several buffers at once (a video window keeps
+            // the one on screen and the ones being uploaded); with four, pictures waited for a
+            // free buffer and a window showed 20 of 60 a second. Ten keeps a full 60.
+            int(spa::sys::SPA_PARAM_BUFFERS_buffers, 10),
             int(spa::sys::SPA_PARAM_BUFFERS_blocks, 1),
             int(spa::sys::SPA_PARAM_BUFFERS_size, size),
             int(spa::sys::SPA_PARAM_BUFFERS_stride, stride),
