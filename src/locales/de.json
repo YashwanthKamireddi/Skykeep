@@ -26,7 +26,8 @@
     "clearSearch": "Suche löschen",
     "waitingToSync": "Wartet auf Synchronisierung",
     "refusedLink": "Diese Art von Link kann Skykeep nicht öffnen.",
-    "notice": "Hinweis"
+    "notice": "Hinweis",
+    "show": "Anzeigen"
   },
   "sidebar": {
     "reminders": "Erinnerungen",
@@ -207,7 +208,10 @@
     "photosCountAndSizeMany": "{count} Fotos · {size}",
     "photosInBackup": "Fotos im Backup",
     "driveInBackup": "iCloud Drive im Backup",
-    "includeDrive": "iCloud Drive einbeziehen"
+    "includeDrive": "iCloud Drive einbeziehen",
+    "home": "Übersicht",
+    "privacy": "Datenschutz",
+    "sections": "Einstellungsbereiche"
   },
   "signin": {
     "title": "iCloud verbinden",

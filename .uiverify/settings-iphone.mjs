@@ -3,7 +3,7 @@
 // step missing (plug it in, open Skykeep on it), or that it's in use, paused or microphone only,
 // and it changes as the phone does, from the backend's event, with nothing polled.
 import { engine } from "./engine.mjs";
-import { SERVICES, installStub, openSettings } from "./stub.mjs";
+import { SERVICES, installStub, openSettings, openPane } from "./stub.mjs";
 const b = await engine.launch();
 let failures = 0;
 const ok = (p, m) => { console.log(`${p ? "PASS" : "FAIL"} ${m}`); if (!p) failures++; };
@@ -16,7 +16,8 @@ const open = async (state, everyApp = "setUp") => {
   await page.goto(process.env.URL ?? "http://localhost:4173", { waitUntil: "networkidle" });
   await openSettings(page);
   await page.waitForSelector(".settings");
-  await page.locator("#card-computer").waitFor();
+  await page.locator(".prefs-side").waitFor();
+  if (state) await openPane(page, "iPhone");
   return { ctx, page };
 };
 const card = (page) => page.locator('section[aria-labelledby="card-iphone"]');
@@ -25,7 +26,7 @@ const tell = (page, change) => page.evaluate((c) => { window.__iphone = { ...win
 {
   const { ctx, page } = await open();
   await page.waitForTimeout(300);
-  ok((await card(page).count()) === 0, "no card where there's no iPhone link (Windows, the Flatpak)");
+  ok((await card(page).count()) === 0 && (await page.getByRole("tab", { name: "iPhone" }).count()) === 0, "no iPhone section where there's no iPhone link (Windows, the Flatpak)");
   await ctx.close();
 }
 {
@@ -34,7 +35,7 @@ const tell = (page, change) => page.evaluate((c) => { window.__iphone = { ...win
   const sw = card(page).getByRole("switch");
   ok((await sw.getAttribute("aria-checked")) === "false", "off until turned on");
   ok((await card(page).getByText("Show it to every app").count()) === 0, "off: nothing else in the card");
-  ok((await page.locator('section[aria-labelledby="card-computer"]').getByText("Camera and microphone").count()) === 0, "a card of its own, not mixed into This Computer");
+  ok((await page.getByRole("tab", { name: "iPhone" }).getAttribute("aria-selected")) === "true", "a section of its own in the sidebar, not mixed into This Computer");
   await sw.click();
   await card(page).getByText("Plug in your iPhone with a cable and open Skykeep on it.").waitFor({ timeout: 2000 });
   ok(JSON.stringify(await page.evaluate(() => window.__iphoneSet)) === "[true]", "turned on, once");

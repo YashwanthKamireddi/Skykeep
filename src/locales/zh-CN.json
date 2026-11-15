@@ -26,7 +26,8 @@
     "clearSearch": "清除搜索",
     "waitingToSync": "等待同步",
     "refusedLink": "Skykeep 无法打开此类链接。",
-    "notice": "通知"
+    "notice": "通知",
+    "show": "显示"
   },
   "sidebar": {
     "reminders": "提醒事项",
@@ -207,7 +208,10 @@
     "photosCountAndSizeMany": "{count} 张照片 · {size}",
     "photosInBackup": "备份中的照片",
     "driveInBackup": "备份中的 iCloud 云盘",
-    "includeDrive": "包含 iCloud 云盘"
+    "includeDrive": "包含 iCloud 云盘",
+    "home": "概览",
+    "privacy": "隐私",
+    "sections": "设置分区"
   },
   "signin": {
     "title": "连接您的 iCloud",

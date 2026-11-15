@@ -26,7 +26,7 @@ const head = () => calendar.evaluate(() => document.querySelector(".cx-weekdays 
 ok((await head()) === "Sun", `the other window's month starts on the locale's Sunday  [${await head()}]`);
 
 await library.keyboard.press("Control+,");
-await library.locator(".settings-title").waitFor();
+await library.locator(".prefs-side").waitFor();
 await library.getByRole("button", { name: "Dark", exact: true }).click();
 await calendar.waitForTimeout(300);
 ok((await calendar.evaluate(() => document.documentElement.dataset.theme)) === "dark", "Dark chosen in Settings turns the other window dark too");
