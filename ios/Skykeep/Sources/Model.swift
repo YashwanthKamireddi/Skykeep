@@ -124,6 +124,28 @@ final class Model {
         link.setGreeting(greeting(), sendNow: false)
     }
 
+    /// Where the person last tapped (in the preview), and whether it's locked: the yellow square.
+    private(set) var focusMark: (point: CGPoint, locked: Bool, id: Int)?
+
+    func focus(atLayerPoint point: CGPoint, lock: Bool) {
+        guard cameraOn, let layer = previewLayer else { return }
+        camera.focus(at: layer.captureDevicePointConverted(fromLayerPoint: point), lock: lock)
+        let id = (focusMark?.id ?? 0) + 1
+        focusMark = (point, lock, id)
+        if !lock {
+            Task { @MainActor [weak self] in
+                try? await Task.sleep(for: .seconds(1.2))
+                if self?.focusMark?.id == id { self?.focusMark = nil }
+            }
+        }
+    }
+
+    /// Apple's video effects (Portrait, Studio Light, Center Stage where the phone has it,
+    /// Reactions), the same picker as in Control Center.
+    func showVideoEffects() {
+        AVCaptureDevice.showSystemUserInterface(.videoEffects)
+    }
+
     func showMicModes() {
         Microphone.showModes()
     }

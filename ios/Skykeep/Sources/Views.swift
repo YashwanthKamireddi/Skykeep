@@ -39,6 +39,12 @@ struct CameraScreen: View {
                         }
                         .onEnded { _ in pinching = false }
                 )
+            if let mark = model.focusMark {
+                FocusSquare(locked: mark.locked)
+                    .position(mark.point)
+                    .id(mark.id)
+                    .allowsHitTesting(false)
+            }
             VStack {
                 HStack(alignment: .top) {
                     StatusPill(status: model.status)
@@ -136,6 +142,16 @@ struct CameraScreen: View {
                 .disabled(!model.cameraOn)
                 .accessibilityLabel(model.hdr ? "Turn HDR off for less delay" : "Turn HDR on for a better picture")
 
+                Button(action: model.showVideoEffects) {
+                    Image(systemName: "camera.filters")
+                        .font(.footnote.weight(.semibold))
+                        .frame(width: 40, height: 40)
+                }
+                .buttonStyle(.glass)
+                .buttonBorderShape(.circle)
+                .disabled(!model.cameraOn)
+                .accessibilityLabel("Video effects: Portrait, Studio Light and more")
+
                 Button(action: model.showMicModes) {
                     Image(systemName: "waveform")
                         .font(.footnote.weight(.semibold))
@@ -209,6 +225,10 @@ struct Preview: UIViewRepresentable {
         view.preview.session = session
         view.preview.videoGravity = .resizeAspect
         model.attach(preview: view.preview)
+        view.addGestureRecognizer(UITapGestureRecognizer(target: context.coordinator, action: #selector(Coordinator.tap)))
+        let press = UILongPressGestureRecognizer(target: context.coordinator, action: #selector(Coordinator.press))
+        press.minimumPressDuration = 0.6
+        view.addGestureRecognizer(press)
         pip.layer.frame = CGRect(x: 0, y: 0, width: 2, height: 2)
         pip.layer.opacity = 0.01
         view.layer.addSublayer(pip.layer)
@@ -216,9 +236,50 @@ struct Preview: UIViewRepresentable {
     }
 
     func updateUIView(_ view: PreviewView, context: Context) {}
+
+    func makeCoordinator() -> Coordinator { Coordinator(model: model) }
+
+    /// Tap to focus and expose there; long press to lock both (AE/AF Lock), as the Camera app.
+    final class Coordinator: NSObject {
+        let model: Model
+        init(model: Model) { self.model = model }
+
+        @MainActor @objc func tap(_ g: UITapGestureRecognizer) {
+            model.focus(atLayerPoint: g.location(in: g.view), lock: false)
+        }
+
+        @MainActor @objc func press(_ g: UILongPressGestureRecognizer) {
+            if g.state == .began { model.focus(atLayerPoint: g.location(in: g.view), lock: true) }
+        }
+    }
 }
 
 final class PreviewView: UIView {
     override class var layerClass: AnyClass { AVCaptureVideoPreviewLayer.self }
     var preview: AVCaptureVideoPreviewLayer { layer as! AVCaptureVideoPreviewLayer }
+}
+
+/// The Camera app's yellow focus square; with "AE/AF LOCK" above it when locked.
+struct FocusSquare: View {
+    let locked: Bool
+    @State private var shrunk = false
+
+    var body: some View {
+        VStack(spacing: 6) {
+            if locked {
+                Text("AE/AF LOCK")
+                    .font(.caption2.weight(.bold))
+                    .foregroundStyle(.black)
+                    .padding(.horizontal, 6)
+                    .padding(.vertical, 2)
+                    .background(Color.yellow, in: .rect(cornerRadius: 3))
+            }
+            Rectangle()
+                .stroke(Color.yellow, lineWidth: 1.5)
+                .frame(width: 72, height: 72)
+                .scaleEffect(shrunk ? 1 : 1.35)
+        }
+        .onAppear { withAnimation(.snappy(duration: 0.25)) { shrunk = true } }
+        .accessibilityHidden(true)
+    }
 }

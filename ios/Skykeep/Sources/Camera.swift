@@ -142,6 +142,26 @@ final class Camera: NSObject, @unchecked Sendable, AVCaptureVideoDataOutputSampl
         }
     }
 
+    /// Focus and exposure where the person tapped, as the Camera app: a tap keeps both following
+    /// the scene from that point; a long press locks them there (AE/AF Lock). `point` is in the
+    /// camera's own coordinates (0...1).
+    func focus(at point: CGPoint, lock: Bool) {
+        sessionQueue.async { [self] in
+            guard let d = input?.device, (try? d.lockForConfiguration()) != nil else { return }
+            if d.isFocusPointOfInterestSupported {
+                d.focusPointOfInterest = point
+                let mode: AVCaptureDevice.FocusMode = lock ? .autoFocus : .continuousAutoFocus
+                if d.isFocusModeSupported(mode) { d.focusMode = mode }
+            }
+            if d.isExposurePointOfInterestSupported {
+                d.exposurePointOfInterest = point
+                let mode: AVCaptureDevice.ExposureMode = lock ? .autoExpose : .continuousAutoExposure
+                if d.isExposureModeSupported(mode) { d.exposureMode = mode }
+            }
+            d.unlockForConfiguration()
+        }
+    }
+
     /// Follows a pinch: the zoom at once, within what the camera allows.
     func setZoom(toShown value: Double) {
         sessionQueue.async { [self] in
