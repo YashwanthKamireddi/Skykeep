@@ -76,7 +76,10 @@ final class Model {
         self.side = side
         presets = side == .back ? Camera.presets(for: device) : []
         camera.use(device)
-        if side == .back, let one = presets.first(where: { $0 == 1 }) { camera.glide(toShown: one) }
+        // 1× when the camera opens (the combined camera starts at its widest, 0.5×): set at
+        // once, not glided, since a glide before the camera runs is dropped.
+        if side == .back { camera.setZoom(toShown: 1) }
+        microphone.face(side)
         watchRotation(of: device)
         return true
     }

@@ -14,7 +14,9 @@ final class Microphone: @unchecked Sendable {
 
     func start() throws {
         let session = AVAudioSession.sharedInstance()
-        try session.setCategory(.playAndRecord, mode: .videoChat, options: [.mixWithOthers])
+        // As FaceTime on speaker, not a call held to the ear: the receiver's near-mouth tuning
+        // made speech a metre away quiet.
+        try session.setCategory(.playAndRecord, mode: .videoChat, options: [.mixWithOthers, .defaultToSpeaker])
         try session.setPreferredSampleRate(48_000)
         try session.setPreferredIOBufferDuration(0.005)
         try session.setActive(true)
@@ -38,6 +40,21 @@ final class Microphone: @unchecked Sendable {
         engine.prepare()
         try engine.start()
         log.notice("microphone running: \(format.sampleRate, privacy: .public) Hz, \(format.channelCount, privacy: .public) channel(s), \(String(describing: format.commonFormat), privacy: .public), interleaved \(format.isInterleaved, privacy: .public)")
+    }
+
+    /// The built-in microphone on the camera's side, pointed outwards (cardioid), as the Camera
+    /// app picks it: the person the camera sees is the one speaking.
+    func face(_ side: Camera.Side) {
+        let session = AVAudioSession.sharedInstance()
+        guard let builtIn = session.availableInputs?.first(where: { $0.portType == .builtInMic }),
+              let source = builtIn.dataSources?.first(where: { $0.orientation == (side == .front ? .front : .back) })
+        else { return }
+        if let patterns = source.supportedPolarPatterns, patterns.contains(.cardioid) {
+            try? source.setPreferredPolarPattern(.cardioid)
+        }
+        try? builtIn.setPreferredDataSource(source)
+        try? session.setPreferredInput(builtIn)
+        log.notice("microphone facing \(side == .front ? "front" : "back", privacy: .public)")
     }
 
     func stop() {

@@ -98,6 +98,7 @@ final class Camera: NSObject, @unchecked Sendable, AVCaptureVideoDataOutputSampl
             }
             session.commitConfiguration()
             wantKeyframe.withLock { $0 = true }
+            watchPressure(device)
             zoomObservation = device.observe(\.videoZoomFactor, options: [.initial, .new]) { [weak self] d, _ in
                 self?.onZoom?(Double(d.videoZoomFactor * d.displayVideoZoomFactorMultiplier))
             }
@@ -160,11 +161,35 @@ final class Camera: NSObject, @unchecked Sendable, AVCaptureVideoDataOutputSampl
         guard let format = best, (try? device.lockForConfiguration()) != nil else { return }
         device.activeFormat = format
         fps = Int32(rate(format))
-        device.activeVideoMinFrameDuration = CMTime(value: 1, timescale: fps)
-        device.activeVideoMaxFrameDuration = CMTime(value: 1, timescale: fps)
+        frameRates(device, cooler: false)
         device.automaticallyAdjustsVideoHDREnabled = false
         if format.isVideoHDRSupported { device.isVideoHDREnabled = false }
         device.unlockForConfiguration()
+    }
+
+    /// Up to the format's rate (60) in good light; down to 30 when it's dark, as Apple's cameras
+    /// do, so each picture gets twice the light instead of twice the gain (grain). When iOS says
+    /// the phone is under heat or power pressure, 30 at most, until it eases.
+    private func frameRates(_ device: AVCaptureDevice, cooler: Bool) {
+        let fast = cooler ? min(fps, 30) : fps
+        device.activeVideoMinFrameDuration = CMTime(value: 1, timescale: fast)
+        device.activeVideoMaxFrameDuration = CMTime(value: 1, timescale: min(fast, 30))
+    }
+
+    private var pressureObservation: NSKeyValueObservation?
+
+    private func watchPressure(_ device: AVCaptureDevice) {
+        pressureObservation = device.observe(\.systemPressureState, options: [.new]) { [weak self] d, _ in
+            guard let self else { return }
+            let level = d.systemPressureState.level
+            let cooler = level == .serious || level == .critical || level == .shutdown
+            log.notice("system pressure \(level.rawValue, privacy: .public): \(cooler ? "30 fps at most" : "full rate", privacy: .public)")
+            self.sessionQueue.async {
+                guard (try? d.lockForConfiguration()) != nil else { return }
+                self.frameRates(d, cooler: cooler)
+                d.unlockForConfiguration()
+            }
+        }
     }
 
     private func makeEncoder() -> VTCompressionSession? {

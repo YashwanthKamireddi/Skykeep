@@ -1,4 +1,5 @@
 import AVKit
+import os
 import UIKit
 
 /// Keeps the camera running while another app is in front. iOS allows that only to calling
@@ -21,7 +22,14 @@ final class PictureInPicture: NSObject, AVPictureInPictureSampleBufferPlaybackDe
     }
 
     /// Shows a captured frame at once, from the camera's queue.
+    /// While the app is on screen the floating preview isn't showing: a few pictures a second
+    /// keep it ready to take over, without the phone's work (and heat) of all sixty.
+    nonisolated let onScreen = OSAllocatedUnfairLock(initialState: true)
+    nonisolated(unsafe) private var count = 0
+
     nonisolated func show(_ sample: CMSampleBuffer) {
+        count &+= 1
+        if onScreen.withLock({ $0 }) && count % 15 != 0 { return }
         if let attachments = CMSampleBufferGetSampleAttachmentsArray(sample, createIfNecessary: true) as? [NSMutableDictionary] {
             attachments.first?[kCMSampleAttachmentKey_DisplayImmediately] = true
         }

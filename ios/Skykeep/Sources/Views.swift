@@ -4,11 +4,16 @@ import SwiftUI
 @main
 struct SkykeepApp: App {
     @State private var model = Model()
+    @Environment(\.scenePhase) private var phase
 
     var body: some Scene {
         WindowGroup {
             CameraScreen(model: model)
                 .task { await model.start() }
+                .onChange(of: phase) { _, now in
+                    let active = now == .active
+                    model.pip.onScreen.withLock { $0 = active }
+                }
                 .preferredColorScheme(.dark)
         }
     }
