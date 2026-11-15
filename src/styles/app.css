@@ -1807,7 +1807,8 @@
  */
 .library.is-solo { --side: 0px; }
 .library.is-solo > main.content { padding-left: 8px; }
-.library.is-solo > main.content[data-screen="settings"] { padding-left: 34px; }
+/* Settings lays out its own sidebar card and scrolling pane (.prefs): no padding round it. */
+.library.is-solo > main.content[data-screen="settings"] { padding: 0; overflow: hidden; }
 .library.is-solo :is(.notes-folders, .contacts-lists, .rx-side, .px-side, .cx-side, .dx-side) {
   /* Reaching from 8px below the window's top to 8px above its foot, past the content's own
      top and bottom padding. */
@@ -1911,7 +1912,7 @@
 /* Where an app folds its own sidebar away (each at its own width), the content keeps a
    margin from the window's edge instead of the card's 8px. */
 @media (max-width: 1000px) {
-  .library.is-solo > main.content:is([data-screen="notes"], [data-screen="contacts"], [data-screen="settings"]) { padding-left: 16px; }
+  .library.is-solo > main.content:is([data-screen="notes"], [data-screen="contacts"]) { padding-left: 16px; }
 }
 @media (max-width: 720px) {
   .library.is-solo > main.content:is([data-screen="photos"], [data-screen="reminders"], [data-screen="drivews"]) { padding-left: 16px; }
@@ -1934,7 +1935,6 @@
   display: flex; align-items: center; justify-content: space-between; gap: 12px;
   margin: 0 4px 10px;
 }
-.launcher-hint { color: var(--text-2); font-size: var(--t-12); }
 .launcher-grid { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 12px; }
 @media (max-width: 640px) { .launcher-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
 .launch-tile {
@@ -1988,83 +1988,68 @@
   .dx-side { display: none; }
 }
 
-/* Skykeep's window, as a Mac's System Settings: a sidebar of sections on the left — the account
-   first, standing for Home — and one section at a time on the right, each a column of grouped
-   lists. Spacing on an 8 px rhythm; every line that could run long is cut with "…" or wraps,
-   never overflows. */
+/* Skykeep's window, as a Mac's System Settings: the sidebar card every app has, with the same
+   rows as their source lists (kit.css .source-row), Home first; and beside it the section open,
+   in a pane that scrolls on its own and uses its whole width: its groups side by side in columns
+   as wide as a group reads well, as many as fit. One radius for every surface (--r-plateau). */
 .content[data-screen="settings"] { container: settings-page / inline-size; }
 .settings.prefs {
-  display: grid; grid-template-columns: 232px minmax(0, 1fr); gap: 32px; align-items: start;
-  max-width: 1040px; margin-inline: auto; padding-bottom: 32px;
+  display: grid; grid-template-columns: 220px minmax(0, 1fr); height: 100%;
+  max-width: none; margin: 0; padding: 0;
 }
 .prefs-side {
-  position: sticky; top: 0; display: flex; flex-direction: column; gap: 16px; min-width: 0;
+  display: flex; flex-direction: column; gap: 12px; min-width: 0; min-height: 0; overflow-y: auto;
+  margin: 8px 0 8px 8px; padding: 10px 8px;
+  background: var(--veil-frost);
+  box-shadow: var(--veil-rim), 0 0 0 var(--hairline) var(--veil-edge);
+  border-radius: var(--r-plateau);
+  scrollbar-width: none;
 }
 .prefs-group { display: flex; flex-direction: column; gap: 2px; }
-.prefs-account, .prefs-item {
-  display: flex; align-items: center; gap: 10px; min-width: 0; width: 100%;
-  border: 0; border-radius: 8px; background: transparent; color: var(--text); text-align: left;
-  font: inherit; cursor: default;
-  /* Only the colour eases: no layout, no shadow, so a hover never repaints the page. */
-  transition: background-color 120ms var(--ease);
-}
-.prefs-item { height: 32px; padding: 0 8px; font-size: var(--t-13); }
-.prefs-account { padding: 8px; border-radius: 10px; }
-.prefs-account .avatar { flex: none; }
-.prefs-account-text { display: flex; flex-direction: column; min-width: 0; }
-.prefs-account-text strong { font-size: var(--t-13); font-weight: 600; }
-.prefs-account-text span { font-size: var(--t-12); color: var(--text-2); }
-.prefs-account-text > *, .prefs-item-label { overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }
-.prefs-account:hover, .prefs-item:hover { background: color-mix(in srgb, var(--text) 6%, transparent); }
-.prefs-account[aria-selected="true"], .prefs-item[aria-selected="true"] {
-  background: color-mix(in srgb, var(--accent) 22%, transparent);
-}
-.prefs-account:focus-visible, .prefs-item:focus-visible { outline: 2px solid var(--accent); outline-offset: -2px; }
-/* Each section's mark: a white glyph on its colour, lit from above like the system's own. */
-.prefs-tile {
-  display: grid; place-items: center; flex: none; width: 24px; height: 24px; border-radius: 7px; color: #fff;
-  box-shadow: inset 0 0 0 0.5px rgba(255, 255, 255, 0.22);
-}
-.prefs-tile.tone-indigo { background: linear-gradient(180deg, #8a8cff, #5156e0); }
-.prefs-tile.tone-gray { background: linear-gradient(180deg, #a3a9b4, #6b7280); }
-.prefs-tile.tone-blue { background: linear-gradient(180deg, #5ab0ff, #1f7fe8); }
-.prefs-tile.tone-red { background: linear-gradient(180deg, #ff7a6e, #e5372b); }
-.prefs-tile.tone-teal { background: linear-gradient(180deg, #6fd3f5, #1f9fd1); }
-.prefs-tile.tone-green { background: linear-gradient(180deg, #5fe08a, #22b155); }
+.prefs-side .source-row[aria-selected="true"] { background: var(--fill-selected); }
+.prefs-icon { flex: none; color: var(--accent); }
 
-.prefs-main { min-width: 0; max-width: 680px; }
+.prefs-main { min-width: 0; min-height: 0; overflow-y: auto; padding: var(--pane-top) 24px 32px; }
+.prefs-column { max-width: 1240px; }
 /* A section comes in with a short fade, opacity alone (the compositor's, no re-layout). */
-.prefs-pane { animation: prefs-in 140ms var(--ease) both; }
+.prefs-column { animation: prefs-in 140ms var(--ease) both; }
 @keyframes prefs-in { from { opacity: 0; } }
-@media (prefers-reduced-motion: reduce) { .prefs-pane { animation: none; } }
-.prefs-title { margin: 4px 0 24px; font-size: var(--t-22); font-weight: 700; letter-spacing: -0.015em; }
-.prefs-pane > .settings-group + .settings-group,
-.prefs-pane > .settings-group + .settings-heading { margin-top: 24px; }
-.prefs-pane > .settings-heading:first-of-type { margin-top: 0; }
+@media (prefers-reduced-motion: reduce) { .prefs-column { animation: none; } }
+.prefs-pane {
+  display: grid; grid-template-columns: repeat(auto-fill, minmax(min(100%, 440px), 1fr));
+  gap: 16px; align-items: start;
+}
+.prefs-pane > :is(.prefs-title, .settings-heading, .visually-hidden, .prefs-hero, .launcher) { grid-column: 1 / -1; }
+.prefs-title { margin: 0 0 4px; font-size: var(--t-22); font-weight: 700; letter-spacing: -0.015em; line-height: 1.2; }
+.prefs-pane > .settings-heading { margin: 0 0 -8px; }
+.prefs-pane .settings-group { border-radius: var(--r-plateau); }
 .prefs-pane :is(.settings-hint, .settings-label, .settings-stack) { white-space: normal; overflow-wrap: anywhere; }
-.prefs-note { margin: 8px 4px 0; font-size: var(--t-12); color: var(--text-2); }
 
-/* Home: the account, its storage, then the apps. */
-.prefs-hero { display: flex; align-items: center; gap: 16px; margin: 4px 0 32px; min-width: 0; }
+/* Home: the account, its storage and its two actions, then the apps across the whole width. */
+.prefs-hero { display: flex; align-items: center; gap: 16px; min-width: 0; padding: 4px 0 8px; }
 .prefs-hero > .avatar { flex: none; }
-.prefs-hero-text { display: flex; flex-direction: column; gap: 2px; flex: 1; min-width: 0; }
+.prefs-hero-text { display: flex; flex-direction: column; gap: 2px; flex: 1; min-width: 0; max-width: 560px; }
 .prefs-hero-text strong { font-size: var(--t-20); font-weight: 650; letter-spacing: -0.01em; }
 .prefs-hero-mail { font-size: var(--t-13); color: var(--text-2); }
 .prefs-hero-text > strong, .prefs-hero-mail { overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }
 .prefs-storage { display: flex; flex-direction: column; gap: 8px; margin-top: 12px; font-size: var(--t-12); color: var(--text-2); }
 .prefs-storage .storage-bar { height: 6px; }
-.prefs-signout { align-self: flex-start; flex: none; }
+.prefs-hero-actions { display: flex; gap: 8px; margin-left: auto; align-self: flex-start; flex: none; }
+.prefs-main .launcher { margin: 0; }
+/* The six apps in even rows: six across, three, or two — never five and one left over. */
+.prefs-main .launcher-grid { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+@container settings-page (min-width: 1400px) { .prefs-main .launcher-grid { grid-template-columns: repeat(6, minmax(0, 1fr)); } }
+@container settings-page (max-width: 700px) { .prefs-main .launcher-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
+.prefs-main .launch-tile { border-radius: var(--r-plateau); }
 
-/* Narrow: the sections in a row along the top, scrolled sideways, the account first. */
+/* Narrow: the sections in a row along the top, scrolled sideways. */
 @container settings-page (max-width: 700px) {
-  .settings.prefs { grid-template-columns: minmax(0, 1fr); gap: 16px; }
+  .settings.prefs { grid-template-columns: minmax(0, 1fr); grid-template-rows: auto minmax(0, 1fr); }
   .prefs-side {
-    position: static; flex-direction: row; gap: 4px; overflow-x: auto; scrollbar-width: none;
-    padding-bottom: 4px;
+    flex-direction: row; gap: 2px; overflow-x: auto; overflow-y: hidden; margin: 8px 8px 0; padding: 6px;
   }
-  .prefs-group { flex-direction: row; gap: 4px; }
-  .prefs-item, .prefs-account { width: auto; flex: none; }
-  .prefs-account { padding: 4px 10px 4px 4px; }
-  .prefs-account-text span { display: none; }
+  .prefs-group { flex-direction: row; gap: 2px; }
+  .prefs-side .source-row { width: auto; flex: none; }
+  .prefs-main { padding: 16px 16px 32px; }
   .prefs-hero { flex-wrap: wrap; }
 }

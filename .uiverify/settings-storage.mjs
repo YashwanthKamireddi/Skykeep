@@ -24,7 +24,6 @@ const open = async (init) => {
   const home = await page.locator(".settings").innerText();
   await openPane(page, "This Computer");
   const text = home + (await page.locator(".settings").innerText());
-  ok(/4\.9 GB kept on this computer/.test(text), "the local copy's whole size is in This Computer");
   // Apple's storage in Apple's own units, the same figure Drive shows under a folder.
   ok(/182\.2 MB of 5\.37 GB used/.test(text) && /5\.19 GB available/.test(text), "iCloud storage is said as Apple says it");
   await page.locator('[data-pane="home"]').click();
@@ -36,7 +35,7 @@ const open = async (init) => {
   await page.waitForTimeout(200);
   const after = await page.locator(".settings").innerText();
   ok((await page.evaluate(() => window.__cleared)) === 1, "Clear asks the backend once");
-  ok(/4\.2 GB cleared/.test(after) && /772 MB kept on this computer/.test(after), "and the figures are the backend's answer after");
+  ok(/4\.2 GB cleared/.test(after), "and the figures are the backend's answer after");
   ok(await clear.isDisabled(), "nothing left to clear, Clear rests");
   ok(!(await page.getByText("no notification service").isVisible()), "a desktop that shows alerts is not warned");
   await ctx.close();

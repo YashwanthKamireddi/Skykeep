@@ -31,7 +31,8 @@ const go = async (page, s) => {
 const head = (page) => page.evaluate(() => {
   const slot = [...document.querySelectorAll("main.content .screen-slot")].find((e) => !e.hidden) ?? document.querySelector("main.content");
   const vis = (el) => el.getClientRects().length && getComputedStyle(el).visibility !== "hidden";
-  const h1 = [...slot.querySelectorAll("h1")].find(vis);
+  // Settings' first line is its pane's own (its h1 is for screen readers alone).
+  const h1 = slot.querySelector(".prefs-column") ?? [...slot.querySelectorAll("h1")].find(vis);
   const rule = [...slot.querySelectorAll("*")].find((e) => vis(e) && parseFloat(getComputedStyle(e).borderRightWidth) > 0 && e.getBoundingClientRect().height > 300);
   const heading = [...slot.querySelectorAll(".side-heading")].find(vis);
   return {

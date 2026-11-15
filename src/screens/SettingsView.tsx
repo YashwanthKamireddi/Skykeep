@@ -4,7 +4,7 @@ import { ConfirmSheet } from "../components/Confirm";
 import { toast, toastSaved, useErrorToast } from "../components/Toast";
 import { Progress } from "../components/Spinner";
 import { lazy, Suspense, useEffect, useRef, useState, useSyncExternalStore, type Dispatch, type ReactNode, type SetStateAction } from "react";
-import { Archive, ArrowDownCircle, Bell, Laptop, Settings as Gear, ShieldCheck, Smartphone, type LucideIcon } from "lucide-react";
+import { Archive, ArrowDownCircle, Bell, House, Laptop, Settings as Gear, ShieldCheck, Smartphone, type LucideIcon } from "lucide-react";
 import { getVersion } from "@tauri-apps/api/app";
 import { listen } from "@tauri-apps/api/event";
 import { pickOpen } from "../lib/pick";
@@ -604,10 +604,11 @@ export function SettingsView({ onSignOut }: { onSignOut: (keep: boolean) => Prom
   const [iphone, setIphone] = useIphone();
   const [pane, setPane] = useState<PaneId>("home");
   const navRef = useRef<HTMLElement>(null);
+  const mainRef = useRef<HTMLDivElement>(null);
   // A section is opened at its top, never somewhere down the last one's scroll.
   const choose = (next: PaneId) => {
     setPane(next);
-    navRef.current?.closest(".content")?.scrollTo({ top: 0 });
+    mainRef.current?.scrollTo({ top: 0 });
   };
 
   useEffect(() => {
@@ -728,28 +729,27 @@ export function SettingsView({ onSignOut }: { onSignOut: (keep: boolean) => Prom
         ref={navRef}
         onKeyDown={onNavKey}
       >
-        <button
-          className="prefs-account"
-          role="tab"
-          data-pane="home"
-          id="tab-home"
-          aria-controls="pane-home"
-          aria-selected={pane === "home"}
-          tabIndex={pane === "home" ? 0 : -1}
-          onClick={() => choose("home")}
-        >
-          <AccountAvatar account={account} />
-          <span className="prefs-account-text">
-            <strong>{account?.name ?? t("settings.yourAppleAccount")}</strong>
-            <span>{account?.email ?? t("settings.home")}</span>
-          </span>
-        </button>
+        <div className="prefs-group">
+          <button
+            className="source-row"
+            role="tab"
+            data-pane="home"
+            id="tab-home"
+            aria-controls="pane-home"
+            aria-selected={pane === "home"}
+            tabIndex={pane === "home" ? 0 : -1}
+            onClick={() => choose("home")}
+          >
+            <House className="prefs-icon" size={16} strokeWidth={1.75} aria-hidden="true" />
+            <span className="source-name">{t("settings.home")}</span>
+          </button>
+        </div>
         {nav.map((group, i) => (
           <div className="prefs-group" key={i}>
             {group.map((n) => (
               <button
                 key={n.id}
-                className="prefs-item"
+                className="source-row"
                 role="tab"
                 data-pane={n.id}
                 id={`tab-${n.id}`}
@@ -759,13 +759,14 @@ export function SettingsView({ onSignOut }: { onSignOut: (keep: boolean) => Prom
                 onClick={() => choose(n.id)}
               >
                 <NavTile pane={n.id} />
-                <span className="prefs-item-label">{n.label}</span>
+                <span className="source-name">{n.label}</span>
               </button>
             ))}
           </div>
         ))}
       </nav>
-      <div className="prefs-main" key={pane}>
+      <div className="prefs-main" ref={mainRef}>
+        <div className={pane === "home" ? "prefs-column is-wide" : "prefs-column"} key={pane}>
         {pane === "home" && (
           <Pane id="home" title={t("settings.home")} hideTitle>
             <div className="prefs-hero">
@@ -799,17 +800,21 @@ export function SettingsView({ onSignOut }: { onSignOut: (keep: boolean) => Prom
                   </div>
                 </div>
               </div>
-              <button
-                className="quiet prefs-signout"
-                onClick={() => api.unsent().then(setSigningOut, () => setSigningOut({ changes: 0, files: 0, photos: 0 }))}
-              >
-                {t("settings.signOut")}
-              </button>
+              <div className="prefs-hero-actions">
+                <button className="quiet" onClick={() => void refresh(true)} disabled={syncing}>
+                  {syncing ? t("sync.syncing") : t("launcher.syncNow")}
+                </button>
+                <button
+                  className="quiet"
+                  onClick={() => api.unsent().then(setSigningOut, () => setSigningOut({ changes: 0, files: 0, photos: 0 }))}
+                >
+                  {t("settings.signOut")}
+                </button>
+              </div>
             </div>
             <Launcher
               services={report?.services ?? []}
               syncing={syncing}
-              onSync={() => void refresh(true)}
               driveFree={storage ? icloudSize(Math.max(0, storage.totalBytes - storage.usedBytes)) : null}
             />
           </Pane>
@@ -871,7 +876,6 @@ export function SettingsView({ onSignOut }: { onSignOut: (keep: boolean) => Prom
               </div>
               <PhotoCacheCap onError={setError} />
             </div>
-            <p className="prefs-note">{local ? t("settings.keptOnComputer", { size: size(local.total) }) : "\u00a0"}</p>
           </Pane>
         )}
         {pane === "iphone" && <IphoneCard status={iphone} setStatus={setIphone} />}
@@ -1018,7 +1022,6 @@ export function SettingsView({ onSignOut }: { onSignOut: (keep: boolean) => Prom
         {pane === "privacy" && (
           <Pane id="privacy" title={t("settings.privacy")}>
             <ReachGroup />
-            <NetworkNote />
           </Pane>
         )}
         {pane === "updates" && (
@@ -1055,6 +1058,7 @@ export function SettingsView({ onSignOut }: { onSignOut: (keep: boolean) => Prom
             </div>
           </Pane>
         )}
+        </div>
       </div>
       {licences && (
         <Suspense fallback={null}>
@@ -1077,24 +1081,20 @@ export function SettingsView({ onSignOut }: { onSignOut: (keep: boolean) => Prom
 
 type PaneId = "home" | "backup" | "computer" | "iphone" | "notifications" | "general" | "privacy" | "updates";
 
-/** Each section's mark in the sidebar: a white glyph on a rounded tile of its colour. */
-const TILES: Record<Exclude<PaneId, "home">, { icon: LucideIcon; tone: string }> = {
-  backup: { icon: Archive, tone: "indigo" },
-  computer: { icon: Laptop, tone: "gray" },
-  iphone: { icon: Smartphone, tone: "blue" },
-  notifications: { icon: Bell, tone: "red" },
-  general: { icon: Gear, tone: "gray" },
-  privacy: { icon: ShieldCheck, tone: "teal" },
-  updates: { icon: ArrowDownCircle, tone: "green" },
+/** Each section's mark in the sidebar: one plain glyph, as a Mac's own sidebars have them. */
+const TILES: Record<Exclude<PaneId, "home">, LucideIcon> = {
+  backup: Archive,
+  computer: Laptop,
+  iphone: Smartphone,
+  notifications: Bell,
+  general: Gear,
+  privacy: ShieldCheck,
+  updates: ArrowDownCircle,
 };
 
 function NavTile({ pane }: { pane: Exclude<PaneId, "home"> }) {
-  const { icon: Icon, tone } = TILES[pane];
-  return (
-    <span className={`prefs-tile tone-${tone}`} aria-hidden="true">
-      <Icon size={15} strokeWidth={2.2} />
-    </span>
-  );
+  const Icon = TILES[pane];
+  return <Icon className="prefs-icon" size={16} strokeWidth={1.75} aria-hidden="true" />;
 }
 
 /** One section's pane: its title, then its groups. */
@@ -1236,19 +1236,6 @@ function ReachGroup() {
   );
 }
 
-/** The line at the foot of Settings: what Skykeep connects to, true for this copy. */
-function NetworkNote() {
-  const { t } = useI18n();
-  const reach = useReach();
-  if (!reach) return null;
-  return (
-    <p className="settings-note">
-      {reach.updates.length > 0
-        ? t("settings.networkNoteWithUpdates")
-        : t("settings.networkNoteNoUpdates")}
-    </p>
-  );
-}
 
 /** When this copy last checked, said as a person would. */
 function checkedLine(at: number | null): string {
