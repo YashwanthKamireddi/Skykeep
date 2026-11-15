@@ -4483,6 +4483,7 @@ dependencies = [
  "anyhow",
  "ffmpeg-next",
  "pipewire",
+ "plist",
  "quince-link",
  "serde",
  "serde_json",

@@ -6,6 +6,7 @@
 
 pub mod protocol;
 pub mod stats;
+pub mod usbmux;
 
 #[cfg(all(target_os = "linux", feature = "fakephone"))]
 pub mod fakephone;

@@ -30,6 +30,7 @@ targets:
         CFBundleDisplayName: Skykeep
         UILaunchScreen: {}
         UIApplicationSupportsIndirectInputEvents: true
+        UIRequiresFullScreen: true
         UISupportedInterfaceOrientations: [UIInterfaceOrientationPortrait]
         NSCameraUsageDescription: Skykeep sends what your camera sees to your computer, to use as its webcam.
         NSMicrophoneUsageDescription: Skykeep sends what your microphone hears to your computer, to use as its microphone.
