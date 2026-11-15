@@ -179,8 +179,8 @@ function DriveTrash({ onClose, onRecovered }: { onClose: () => void; onRecovered
         </PaneTitle>
         {rows && rows.length > 0 && (
           <div className="toolbar-group">
-            <button className="tool has-label is-accent" onClick={() => void recover(rows)}>Recover All</button>
-            <button className="tool has-label danger" onClick={() => destroy(rows)}>Delete All</button>
+            <button className="tool has-label is-accent" onClick={() => void recover(rows)}>{t("ui.recoverAll")}</button>
+            <button className="tool has-label danger" onClick={() => destroy(rows)}>{t("ui.deleteAll")}</button>
           </div>
         )}
       </header>
@@ -209,7 +209,7 @@ function DriveTrash({ onClose, onRecovered }: { onClose: () => void; onRecovered
                 </span>
                 <span className="drive-row-actions is-shown">
                   <button className="link" onClick={() => void recover([item])}>{t("drive.recover")}</button>
-                  <button className="link danger" onClick={() => destroy([item])}>Delete Now</button>
+                  <button className="link danger" onClick={() => destroy([item])}>{t("ui.deleteNow")}</button>
                 </span>
               </div>
             </li>
@@ -2446,9 +2446,9 @@ function MoveDialog({
         </nav>
 
         <ul className="move-sheet-list">
-          {loading && <li className="move-sheet-none">Loading…</li>}
+          {loading && <li className="move-sheet-none">{t("ui.loading")}</li>}
           {!loading && folders.length === 0 && (
-            <li className="move-sheet-none">No folders here.</li>
+            <li className="move-sheet-none">{t("ui.noFoldersHere")}</li>
           )}
           {!loading &&
             folders.map((folder) => (

@@ -237,7 +237,7 @@ function Filmstrip({ photos, at, onPick }: { photos: PhotoList; at: number; onPi
     if (to !== at) onPick(to);
   };
   return (
-    <div className="px-strip" role="toolbar" aria-label="Photos" onWheel={onWheel}>
+    <div className="px-strip" role="toolbar" aria-label={t("ui.photos")} onWheel={onWheel}>
       <div className="px-strip-run" style={{ transform: `translateX(${shift}px)` }}>
         {slips}
       </div>
@@ -514,7 +514,7 @@ const Tile = memo(function Tile({
         )}
         {left && <span className={`px-badge px-left${soon ? " is-soon" : ""}`}>{left}</span>}
         {(photo.rating ?? 0) > 0 && <span className="px-stars" aria-label={`${photo.rating} stars`}>{photo.rating}★</span>}
-        {photo.favorite && <Heart className="px-heart" size={13} strokeWidth={0} fill="currentColor" aria-label="Favorite" />}
+        {photo.favorite && <Heart className="px-heart" size={13} strokeWidth={0} fill="currentColor" aria-label={t("ui.favorite")} />}
       </span>
     </button>
   );
@@ -3423,8 +3423,8 @@ export function PhotosView() {
       <div className="px-compact">
         <Picker label={t("photos.show")} value={placeNow} options={places} onChange={goTo} />
       </div>
-      <aside className="px-side" aria-label="Photos">
-        <p className="side-heading px-side-heading">Photos</p>
+      <aside className="px-side" aria-label={t("ui.photos")}>
+        <p className="side-heading px-side-heading">{t("ui.photos")}</p>
         {/* Photos' library switcher, only for an account with a Shared Library: the views,
             their counts and the months then show the library chosen. */}
         {library.hasShared && (
@@ -3445,7 +3445,7 @@ export function PhotosView() {
         {VIEWS.map(source)}
         {/* Collections, as icloud.com lists them: Albums and Media Types open to what they
             hold, then Rated, Hidden and Recently Deleted. */}
-        <p className="side-heading px-side-heading px-side-gap">Collections</p>
+        <p className="side-heading px-side-heading px-side-gap">{t("ui.collections")}</p>
         <div className="px-parent-row">
           {/* The chevron opens the list here; the row itself opens the Albums page. */}
           <button className="px-twisty" aria-label={branches.albums ? "Hide Albums" : "Show Albums"} aria-expanded={branches.albums} onClick={() => branch("albums")}>
@@ -3463,9 +3463,9 @@ export function PhotosView() {
             }}
           >
             <AlbumGlyph />
-            <span className="source-name px-label">Albums</span>
+            <span className="source-name px-label">{t("ui.albums")}</span>
           </button>
-          <button className="icon-button small px-side-add" aria-label="New Album" title="New Album or Folder" aria-haspopup="menu" onClick={(e) => {
+          <button className="icon-button small px-side-add" aria-label={t("ui.newAlbum")} title={t("ui.newAlbumOrFolder")} aria-haspopup="menu" onClick={(e) => {
             const b = e.currentTarget.getBoundingClientRect();
             newIn(null, { x: b.left, y: b.bottom + 4, alignRight: false });
           }}>
@@ -3473,24 +3473,24 @@ export function PhotosView() {
           </button>
         </div>
         {branches.albums && (
-          <div className="px-albums px-children" role="group" aria-label="Albums">
+          <div className="px-albums px-children" role="group" aria-label={t("ui.albums")}>
             {albumRows(null, 0)}
           </div>
         )}
         <button className="source-row px-source px-parent" aria-expanded={branches.media} onClick={() => branch("media")}>
           <ChevronRight className="px-chevron" size={12} strokeWidth={2.4} aria-hidden="true" />
           <Layers size={16} strokeWidth={1.8} className="px-glyph" aria-hidden="true" />
-          <span className="source-name px-label">Media Types</span>
+          <span className="source-name px-label">{t("ui.mediaTypes")}</span>
         </button>
         {branches.media && (
-          <div className="px-children" role="group" aria-label="Media Types">
+          <div className="px-children" role="group" aria-label={t("ui.mediaTypes")}>
             {/* As icloud.com lists them: only the kinds the library has. */}
             {MEDIA.filter((m) => (counts[m.key] ?? 0) > 0 || (!album && !albumsPage && view === m.key)).map(source)}
           </div>
         )}
         {UTILITIES.map(source)}
         {/* Sharing, as icloud.com lists it: the shared albums this account has made or joined. */}
-        <p className="side-heading px-side-heading px-side-gap">Sharing</p>
+        <p className="side-heading px-side-heading px-side-gap">{t("ui.sharing")}</p>
         <button
           className="source-row px-source"
           aria-current={sharedPage}
@@ -3502,7 +3502,7 @@ export function PhotosView() {
           }}
         >
           <Users className="px-glyph" size={16} strokeWidth={1.8} aria-hidden="true" />
-          <span className="source-name px-label">Shared Albums</span>
+          <span className="source-name px-label">{t("ui.sharedAlbums")}</span>
         </button>
         <AppFoot />
       </aside>
@@ -3537,7 +3537,7 @@ export function PhotosView() {
                   <header className="px-albums-head">
                     {folder && (
                       <div className="toolbar-group">
-                        <button className="tool px-cap" aria-label="Back" title="Back" onClick={() => openFolder(folder.parent ?? null)}>
+                        <button className="tool px-cap" aria-label={t("ui.back")} title={t("ui.back")} onClick={() => openFolder(folder.parent ?? null)}>
                           <ChevronLeft size={17} strokeWidth={2} aria-hidden="true" />
                         </button>
                       </div>
@@ -3651,7 +3651,7 @@ export function PhotosView() {
           </PaneTitle>
           <div className="px-tools">
           {periodsHere && (
-            <div className="segmented toolbar-group px-levels" role="group" aria-label="Library">
+            <div className="segmented toolbar-group px-levels" role="group" aria-label={t("ui.library")}>
               {LEVELS.map(([key, label]) => (
                 <button key={key} className="segment" aria-pressed={level === key} onClick={() => goLevel(key)}>
                   {t(label)}
@@ -3730,11 +3730,11 @@ export function PhotosView() {
             </div>
           )}
           {jumping && <JumpTo months={monthCovers} at={jumping} current={here ?? monthCovers[0]?.label ?? null} onPick={goToMonth} onClose={() => setJumping(null)} />}
-          {!away && <div className="toolbar-group" role="group" aria-label="Zoom">
-            <button className="tool px-cap" aria-label="Zoom Out" title="Zoom Out (Ctrl −)" disabled={zoom === 0} onClick={() => zoomBy(-1)}>
+          {!away && <div className="toolbar-group" role="group" aria-label={t("ui.zoom")}>
+            <button className="tool px-cap" aria-label={t("ui.zoomOut")} title={t("ui.zoomOutCtrl")} disabled={zoom === 0} onClick={() => zoomBy(-1)}>
               <Minus size={15} strokeWidth={2.2} aria-hidden="true" />
             </button>
-            <button className="tool px-cap" aria-label="Zoom In" title="Zoom In (Ctrl +)" disabled={zoom === ACROSS.length - 1} onClick={() => zoomBy(1)}>
+            <button className="tool px-cap" aria-label={t("ui.zoomIn")} title={t("ui.zoomInCtrl")} disabled={zoom === ACROSS.length - 1} onClick={() => zoomBy(1)}>
               <Plus size={15} strokeWidth={2.2} aria-hidden="true" />
             </button>
           </div>}
@@ -3742,7 +3742,7 @@ export function PhotosView() {
               adding to the album. */}
           {!viewOnly && (
             <div className="toolbar-group">
-              <button className="tool px-cap px-add" onClick={() => void choose()} title="Add photos and videos" aria-label="Add Photos">
+              <button className="tool px-cap px-add" onClick={() => void choose()} title={t("ui.addPhotosAndVideos")} aria-label={t("ui.addPhotos")}>
                 <ImagePlus size={16} strokeWidth={1.9} aria-hidden="true" />
               </button>
             </div>
@@ -3917,7 +3917,7 @@ export function PhotosView() {
               onBlur={() => barAway()}
             >
               <div className="px-full-side">
-                <button className="px-full-btn" aria-label="Exit Full Screen" title="Exit Full Screen (Esc)" onClick={() => void toggleFullscreen(false)}>
+                <button className="px-full-btn" aria-label={t("ui.exitFullScreen")} title={t("ui.exitFullScreenEsc")} onClick={() => void toggleFullscreen(false)}>
                   <Minimize2 size={16} />
                 </button>
                 {photos && photos.length > 1 && (
@@ -3933,7 +3933,7 @@ export function PhotosView() {
                 )}
                 {shown.kind !== "video" && (
                   <div className="px-zoom">
-                    <button className="px-full-btn is-small" aria-label="Zoom Out" title="Zoom Out" onClick={() => zoomMiddle(lensRef.current.k / 1.5)}>
+                    <button className="px-full-btn is-small" aria-label={t("ui.zoomOut")} title={t("ui.zoomOut")} onClick={() => zoomMiddle(lensRef.current.k / 1.5)}>
                       <Minus size={13} />
                     </button>
                     <input
@@ -3946,7 +3946,7 @@ export function PhotosView() {
                       aria-label={t("photos.zoom")}
                       onInput={(e) => zoomMiddle(Number(e.currentTarget.value), false)}
                     />
-                    <button className="px-full-btn is-small" aria-label="Zoom In" title="Zoom In" onClick={() => zoomMiddle(lensRef.current.k * 1.5)}>
+                    <button className="px-full-btn is-small" aria-label={t("ui.zoomIn")} title={t("ui.zoomIn")} onClick={() => zoomMiddle(lensRef.current.k * 1.5)}>
                       <Plus size={13} />
                     </button>
                   </div>
@@ -3954,20 +3954,20 @@ export function PhotosView() {
               </div>
               {when}
               <div className="px-full-side is-end">
-                <button className="px-full-btn" aria-label="Info" aria-pressed={info} title="Info (I)" onClick={() => setInfo((v) => !v)}>
+                <button className="px-full-btn" aria-label={t("ui.info")} aria-pressed={info} title={t("ui.infoI")} onClick={() => setInfo((v) => !v)}>
                   <Info size={17} />
                 </button>
                 {place === "recentlyDeleted" && !inAlbum ? (
                   <>
-                    <button className="px-full-btn" aria-label="Recover" title="Recover" onClick={() => void change(shown, "deleted", false)}>
+                    <button className="px-full-btn" aria-label={t("ui.recover")} title={t("ui.recover")} onClick={() => void change(shown, "deleted", false)}>
                       <RotateCcw size={17} />
                     </button>
-                    <button className="px-full-btn" aria-label="Delete Permanently" title="Delete permanently (Delete)" onClick={() => void change(shown, "expunged", true)}>
+                    <button className="px-full-btn" aria-label={t("ui.deletePermanently")} title={t("ui.deletePermanentlyDelete")} onClick={() => void change(shown, "expunged", true)}>
                       <Trash2 size={17} />
                     </button>
                   </>
                 ) : viewOnly ? (
-                  <button className="px-full-btn" aria-label="Download" title="Download the original" onClick={() => void download(shown)}>
+                  <button className="px-full-btn" aria-label={t("ui.download")} title={t("ui.downloadTheOriginal")} onClick={() => void download(shown)}>
                     <Download size={17} />
                   </button>
                 ) : (
@@ -3981,15 +3981,15 @@ export function PhotosView() {
                     >
                       <Heart size={17} fill={shown.favorite ? "currentColor" : "none"} />
                     </button>
-                    <button className="px-full-btn" aria-label="Download" title="Download the original" onClick={() => void download(shown)}>
+                    <button className="px-full-btn" aria-label={t("ui.download")} title={t("ui.downloadTheOriginal")} onClick={() => void download(shown)}>
                       <Download size={17} />
                     </button>
                     {inAlbum ? (
-                      <button className="px-full-btn" aria-label="Remove from Album" title="Remove from Album (Delete)" onClick={() => void removeFrom([shown.id])}>
+                      <button className="px-full-btn" aria-label={t("ui.removeFromAlbum")} title={t("ui.removeFromAlbumDelete")} onClick={() => void removeFrom([shown.id])}>
                         <CopyMinus size={17} />
                       </button>
                     ) : (
-                      <button className="px-full-btn" aria-label="Delete" title="Delete (Delete)" onClick={() => void change(shown, "deleted", true)}>
+                      <button className="px-full-btn" aria-label="Delete" title={t("ui.deleteDelete")} onClick={() => void change(shown, "deleted", true)}>
                         <Trash2 size={17} />
                       </button>
                     )}
@@ -4012,7 +4012,7 @@ export function PhotosView() {
             ) : (
             <header key="bar" className="px-viewer-bar">
               <div className="toolbar-group">
-                <button className="tool px-cap" aria-label="Close" title="Close (Esc)" onClick={close}>
+                <button className="tool px-cap" aria-label={t("ui.close")} title={t("ui.closeEsc")} onClick={close}>
                   <X size={17} strokeWidth={2} />
                 </button>
                 <button
@@ -4029,10 +4029,10 @@ export function PhotosView() {
               <div className="toolbar-group">
               {viewOnly ? null : place === "recentlyDeleted" && !inAlbum ? (
                 <>
-                  <button className="tool px-cap" aria-label="Recover" title="Recover" onClick={() => void change(shown, "deleted", false)}>
+                  <button className="tool px-cap" aria-label={t("ui.recover")} title={t("ui.recover")} onClick={() => void change(shown, "deleted", false)}>
                     <RotateCcw size={17} />
                   </button>
-                  <button className="tool px-cap" aria-label="Delete Permanently" title="Delete permanently (Delete)" onClick={() => void change(shown, "expunged", true)}>
+                  <button className="tool px-cap" aria-label={t("ui.deletePermanently")} title={t("ui.deletePermanentlyDelete")} onClick={() => void change(shown, "expunged", true)}>
                     <Trash2 size={17} />
                   </button>
                 </>
@@ -4060,11 +4060,11 @@ export function PhotosView() {
                     <CopyPlus size={17} />
                   </button>
                   {inAlbum ? (
-                    <button className="tool px-cap" aria-label="Remove from Album" title="Remove from Album (Delete)" onClick={() => void removeFrom([shown.id])}>
+                    <button className="tool px-cap" aria-label={t("ui.removeFromAlbum")} title={t("ui.removeFromAlbumDelete")} onClick={() => void removeFrom([shown.id])}>
                       <CopyMinus size={17} />
                     </button>
                   ) : (
-                    <button className="tool px-cap" aria-label="Delete" title="Delete (Delete)" onClick={() => void change(shown, "deleted", true)}>
+                    <button className="tool px-cap" aria-label="Delete" title={t("ui.deleteDelete")} onClick={() => void change(shown, "deleted", true)}>
                       <Trash2 size={17} />
                     </button>
                   )}
@@ -4072,13 +4072,13 @@ export function PhotosView() {
               )}
               </div>
               <div className="toolbar-group">
-                <button className="tool px-cap" aria-label="Start Slideshow" title="Start Slideshow" onClick={() => startShow(shown)}>
+                <button className="tool px-cap" aria-label={t("ui.startSlideshow")} title={t("ui.startSlideshow")} onClick={() => startShow(shown)}>
                   <MonitorPlay size={17} />
                 </button>
-                <button className="tool px-cap" aria-label="Download" title="Download the original" onClick={() => void download(shown)}>
+                <button className="tool px-cap" aria-label={t("ui.download")} title={t("ui.downloadTheOriginal")} onClick={() => void download(shown)}>
                   <Download size={17} />
                 </button>
-                <button className="tool px-cap" aria-label="Info" aria-pressed={info} title="Info (I)" onClick={() => setInfo((v) => !v)}>
+                <button className="tool px-cap" aria-label={t("ui.info")} aria-pressed={info} title={t("ui.infoI")} onClick={() => setInfo((v) => !v)}>
                   <Info size={17} />
                 </button>
               </div>
@@ -4117,7 +4117,7 @@ export function PhotosView() {
                 // This computer's engine could not play it (no codec for it): a still, and Play
                 // opens it in the system's own player.
                 <div className="px-video-hold">
-                  <button className="px-video" aria-label="Play in your video player" onClick={() => void play(shown)}>
+                  <button className="px-video" aria-label={t("ui.playInYourVideoPlayer")} onClick={() => void play(shown)}>
                     <img key={shown.id} className="px-shown" src={viewSrc(shown)} alt={shown.filename ?? ""} decoding="async" style={fitted(shown)} />
                     <span className="px-play" aria-hidden="true">
                       <Play size={28} strokeWidth={0} fill="currentColor" />
@@ -4283,12 +4283,12 @@ export function PhotosView() {
                 </div>
               )}
               {open !== null && open > 0 && (
-                <button className="px-nav is-prev" aria-label="Previous" onClick={() => step(-1)}>
+                <button className="px-nav is-prev" aria-label={t("ui.previous")} onClick={() => step(-1)}>
                   <ChevronLeft size={22} />
                 </button>
               )}
               {open !== null && photos && open < photos.length - 1 && (
-                <button className="px-nav is-next" aria-label="Next" onClick={() => step(1)}>
+                <button className="px-nav is-next" aria-label={t("ui.next")} onClick={() => step(1)}>
                   <ChevronRight size={22} />
                 </button>
               )}
@@ -4297,7 +4297,7 @@ export function PhotosView() {
               <Filmstrip photos={photos} at={open} onPick={(i) => step(i - open)} />
             )}
             {info && (
-              <aside className="px-info" aria-label="Info">
+              <aside className="px-info" aria-label={t("ui.info")}>
                 {/* As in Photos' Info: the title and caption first, typed in place, and kept on
                     every device; Return or leaving the field saves them, Escape puts them back. */}
                 <div className="px-caption-row" onBlur={(e) => wordsLeft(shown, e)}>
@@ -4355,7 +4355,7 @@ export function PhotosView() {
                   {/* Stars, as Info sets them: a click gives that many; the same again takes them away. */}
                   <div className="px-fact">
                     <dt>{t("photos.rating")}</dt>
-                    <dd className="px-rating" role="radiogroup" aria-label="Rating">
+                    <dd className="px-rating" role="radiogroup" aria-label={t("ui.rating")}>
                       {[1, 2, 3, 4, 5].map((n) => (
                         <button
                           key={n}

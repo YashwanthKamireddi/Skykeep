@@ -164,11 +164,11 @@ function EventsSheet({ arrival, onDone }: { arrival: Extract<Arrival, { kind: "e
       <div className="ix-head">
         <h2>{heading}</h2>
         {fresh.length > 0 && calendars && calendars.length > 0 && (
-          <Picker value={target} options={options} onChange={setTarget} label="Calendar" disabled={!!busy} />
+          <Picker value={target} options={options} onChange={setTarget} label={t("ui.calendar")} disabled={!!busy} />
         )}
       </div>
       <p className="ix-file">{arrival.file}</p>
-      <ul className="ix-list" aria-label="Events in this file">
+      <ul className="ix-list" aria-label={t("ui.eventsInThisFile")}>
         {arrival.events.map((e, i) => (
           <li key={i} className={e.duplicate ? "is-skipped" : undefined}>
             <span className="ix-title">{e.title}</span>
@@ -186,7 +186,7 @@ function EventsSheet({ arrival, onDone }: { arrival: Extract<Arrival, { kind: "e
         ))}
       </ul>
       {calendars && calendars.length === 0 && fresh.length > 0 && (
-        <p className="ix-reason">This account has no calendar that can take new events.</p>
+        <p className="ix-reason">{t("ui.thisAccountHasNoCalendarThatCanTakeNewEvents")}</p>
       )}
       {finished && <p className="ix-reason ix-error">{finished}</p>}
       <div className="sheet-actions">
@@ -244,7 +244,7 @@ function ContactsSheet({ arrival, onDone }: { arrival: Extract<Arrival, { kind: 
     <Shell label={`Import “${arrival.file}”`} onCancel={busy ? () => {} : onDone}>
       <h2>{heading}</h2>
       <p className="ix-file">{arrival.file}</p>
-      <ul className="ix-list" aria-label="Contacts in this file">
+      <ul className="ix-list" aria-label={t("ui.contactsInThisFile")}>
         {arrival.contacts.map((c, i) => (
           <li key={i} className={c.known ? "is-skipped" : undefined}>
             <span className="ix-title">{c.name}</span>

@@ -866,7 +866,7 @@ export function CalendarView() {
     // icloud.com's own warning: the events go with it, on every device.
     void confirm({
       title: `Delete \u201c${c.title}\u201d?`,
-      body: "All events in this calendar will be deleted from every device.",
+      body: t("ui.allEventsInThisCalendarWillBeDeletedFromEveryDev"),
       action: "Delete",
       danger: true,
       symbol: "trash",
@@ -1107,7 +1107,7 @@ export function CalendarView() {
     if (!e.guid.includes("__")) {
       const sure = await confirm({
         title: t("calendar.deleteTitle", { title: e.title || t("calendar.newEvent") }),
-        body: "It will be deleted from all your devices.",
+        body: t("ui.itWillBeDeletedFromAllYourDevices"),
         action: "Delete",
         danger: true,
         symbol: "trash",
@@ -1165,8 +1165,8 @@ export function CalendarView() {
   const removeAccount = (a: DavAccount) => {
     void confirm({
       title: `Remove \u201c${a.title}\u201d?`,
-      body: "Its calendars leave this computer. Nothing is deleted on the server, and you can add the account again at any time.",
-      action: "Remove",
+      body: t("ui.itsCalendarsLeaveThisComputerNothingIsDeletedOnT"),
+      action: t("ui.remove"),
       danger: true,
     }).then((sure) => {
       if (!sure) return;
@@ -1179,8 +1179,8 @@ export function CalendarView() {
   const unsubscribe = (sub: CalendarSubscription) => {
     void confirm({
       title: `Unsubscribe from \u201c${sub.title}\u201d?`,
-      body: "Its events leave this computer. You can subscribe again at any time.",
-      action: "Unsubscribe",
+      body: t("ui.itsEventsLeaveThisComputerYouCanSubscribeAgainAt"),
+      action: t("ui.unsubscribe"),
       danger: true,
     }).then((sure) => {
       if (!sure) return;
@@ -1328,7 +1328,7 @@ export function CalendarView() {
     // Late in the evening the next whole hour is tomorrow — in Week, often next week, off
     // the screen it was asked for on. It stays on the day: the last hour of it.
     at.setHours(Math.min(now.getHours() + 1, 23), 0, 0, 0);
-    const button = (e?.currentTarget ?? document.querySelector('[aria-label="New event"]'))?.getBoundingClientRect()
+    const button = (e?.currentTarget ?? document.querySelector(`[aria-label="${CSS.escape(t("calendar.newEventAria"))}"]`))?.getBoundingClientRect()
       ?? new DOMRect(window.innerWidth - 40, 40, 0, 0);
     // Under the button, never over the toolbar; in Day and Week it moves beside the new event
     // once that is drawn.
@@ -1506,7 +1506,7 @@ export function CalendarView() {
   return (
     <TickContext.Provider value={tickValue}>
     <div className="cx">
-      <aside className="cx-side" aria-label="Calendars">
+      <aside className="cx-side" aria-label={t("ui.calendars")}>
         <div className="cx-cals">
           {[
             { key: "icloud", heading: "iCloud", list: calendars.filter((c) => c.writable && !c.guid.startsWith(DAV_PREFIX)) } as SideGroup,
@@ -1584,7 +1584,7 @@ export function CalendarView() {
                         style={{ "--cal": tint(c) } as React.CSSProperties}
                       />
                       <span className="source-name cx-cal-name">{c.title}</span>
-                      {sub?.problem && <span className="cx-cal-problem" aria-label="Not refreshed">!</span>}
+                      {sub?.problem && <span className="cx-cal-problem" aria-label={t("ui.notRefreshed")}>!</span>}
                     </label>
                   );
                 })}
@@ -1595,7 +1595,7 @@ export function CalendarView() {
               );
             })}
           {loaded && calendars.length === 0 && (
-            <EmptyState className="cal-empty">There are no calendars on this account yet.</EmptyState>
+            <EmptyState className="cal-empty">{t("ui.thereAreNoCalendarsOnThisAccountYet")}</EmptyState>
           )}
           {adding?.kind === "nextcloud" && (
             <NextcloudForm
@@ -1652,7 +1652,7 @@ export function CalendarView() {
               {title.brief}
             </strong>
           </h1>
-          <div className="segmented toolbar-group" role="group" aria-label="View">
+          <div className="segmented toolbar-group" role="group" aria-label={t("ui.view")}>
             {VIEWS.map((v) => (
               <button
                 key={v.key}
@@ -1701,10 +1701,10 @@ export function CalendarView() {
               </button>
             </span>
             <span className="toolbar-group cx-step">
-              <button className="tool cx-icon" aria-label="Previous" onClick={() => shift(-1)}>
+              <button className="tool cx-icon" aria-label={t("ui.previous")} onClick={() => shift(-1)}>
                 <ChevronLeft size={17} strokeWidth={2} aria-hidden="true" />
               </button>
-              <button className="tool has-label cx-today" title="Today · Shift-Ctrl-T to go to a date" onClick={() => setSelected(midnight(new Date()))}>
+              <button className="tool has-label cx-today" title={t("ui.todayShiftCtrlTToGoToADate")} onClick={() => setSelected(midnight(new Date()))}>
                 {t("calendar.today")}
               </button>
               {goingTo && (
@@ -1738,7 +1738,7 @@ export function CalendarView() {
                   <button type="submit" className="primary">Go</button>
                 </form>
               )}
-              <button className="tool cx-icon" aria-label="Next" onClick={() => shift(1)}>
+              <button className="tool cx-icon" aria-label={t("ui.next")} onClick={() => shift(1)}>
                 <ChevronRight size={17} strokeWidth={2} aria-hidden="true" />
               </button>
             </span>
@@ -1765,7 +1765,7 @@ export function CalendarView() {
         <Unsent refused={outbox.refused} what="a change to an event" onResend={(r) => void outbox.resend(r)} onDiscard={(r) => void outbox.discard(r)} />
 
         {query.trim() && (
-          <div className="popover cx-found" role="listbox" aria-label="Events found" id="cx-found">
+          <div className="popover cx-found" role="listbox" aria-label={t("ui.eventsFound")} id="cx-found">
             {found.length === 0 ? (
               <p className="cx-found-none">No events match “{query.trim()}”.</p>
             ) : (
@@ -1773,7 +1773,7 @@ export function CalendarView() {
                 const pastStarts = i > 0 && found[i - 1].endsAt >= Date.now() / 1000 && e.endsAt < Date.now() / 1000;
                 return (
                   <Fragment key={e.guid}>
-                    {pastStarts && <p className="cx-found-section">Earlier</p>}
+                    {pastStarts && <p className="cx-found-section">{t("ui.earlier")}</p>}
                     <button
                       className={`cx-found-row${i === lit ? " is-lit" : ""}`}
                       role="option"
@@ -1868,7 +1868,7 @@ export function CalendarView() {
                 return [
                   null,
                   ...(a.needsSignIn
-                    ? a.kind === "nextcloud" ? [{ label: "Sign In Again", run: () => setAdding({ kind: "nextcloud" as const, server: a.server }) }] : []
+                    ? a.kind === "nextcloud" ? [{ label: t("ui.signInAgain"), run: () => setAdding({ kind: "nextcloud" as const, server: a.server }) }] : []
                     : [{ label: t("calendar.refreshNow"), run: () => refreshAccount(a) }]),
                   { label: t("calendar.removeAccount"), danger: true, run: () => removeAccount(a) },
                 ];
@@ -2336,7 +2336,7 @@ const MonthView = memo(function MonthView({
           <span key={d.getDay()}>{weekdayShort(d)}</span>
         ))}
       </div>
-      <div className={`cal-grid${carry ? " is-carrying" : ""}`} role="grid" aria-label="Month" ref={grid}>
+      <div className={`cal-grid${carry ? " is-carrying" : ""}`} role="grid" aria-label={t("ui.month")} ref={grid}>
         {weeks.map((row, w) => {
           const all = weekSpans(events, row[0]);
           // Only the lanes that fit under the dates are drawn: in a short week the rest ran on
@@ -2444,7 +2444,7 @@ const MonthView = memo(function MonthView({
               {/* A row holds cells only (ARIA's grid): the week's bars are one more cell, which
                   lays out as if it were not there, so they keep the week as their frame. */}
               {spans.length > 0 && (
-              <div className="cx-week-bars" role="gridcell" aria-label="Across days">
+              <div className="cx-week-bars" role="gridcell" aria-label={t("ui.acrossDays")}>
               {spans.map((s) => (
                 <button
                   key={`${s.event.guid}-${dayKey(row[0])}`}
@@ -3156,7 +3156,7 @@ const TimeGrid = memo(function TimeGrid({
                     className="cx-block is-draft"
                     style={{ top: `${(drag.from / 60) * HOUR}px`, height: `${((drag.to - drag.from) / 60) * HOUR}px` }}
                   >
-                    <span className="cx-block-title">New Event</span>
+                    <span className="cx-block-title">{t("ui.newEvent")}</span>
                   </span>
                 )}
               </div>
@@ -3437,7 +3437,7 @@ function ZoneField({ zone, at, editable, onChange }: { zone: string; at: number;
         }}
       />
       {found.length > 0 && (
-        <span className="cx-zones" id="cx-zones" role="listbox" aria-label="Time zones">
+        <span className="cx-zones" id="cx-zones" role="listbox" aria-label={t("ui.timeZones")}>
           {found.map((z, i) => {
             const n = zoneName(z, at);
             return (
@@ -3668,7 +3668,7 @@ function EventPopover({
         {draft.location && (
           <p className="cx-info-line cx-info-place">
             {draft.location}
-            <a className="cx-maps" href={mapsHref(draft.location)} title="Open in Maps">Open in Maps</a>
+            <a className="cx-maps" href={mapsHref(draft.location)} title={t("ui.openInMaps")}>{t("ui.openInMaps")}</a>
           </p>
         )}
         <p className="cx-info-line">{when}</p>
@@ -3720,7 +3720,7 @@ function EventPopover({
           onChange={(e) => set({ location: e.target.value })}
         />
         {draft.location.trim() && (
-          <a className="cx-pop-link" href={mapsHref(draft.location.trim())} aria-label="Open in Maps" title="Open in Maps">
+          <a className="cx-pop-link" href={mapsHref(draft.location.trim())} aria-label={t("ui.openInMaps")} title={t("ui.openInMaps")}>
             <MapPin size={14} strokeWidth={2} aria-hidden="true" />
           </a>
         )}
@@ -3865,7 +3865,7 @@ function EventPopover({
           onChange={(e) => set({ url: e.target.value || null })}
         />
         {draft.url && /^(https?:\/\/|mailto:)/i.test(draft.url.trim()) && outsideHref(draft.url) && (
-          <a className="cx-pop-link is-text" href={outsideHref(draft.url)!} target="_blank" rel="noreferrer">Open</a>
+          <a className="cx-pop-link is-text" href={outsideHref(draft.url)!} target="_blank" rel="noreferrer">{t("ui.open")}</a>
         )}
       </span>
       <Guests guid={draft.guid} />
@@ -3966,7 +3966,7 @@ const DayPane = memo(function DayPane({
         {week !== null && <span className="cx-pane-week">Week {week}</span>}
       </p>
       {nothing ? (
-        <p className="cx-pane-empty">Nothing on this day.</p>
+        <p className="cx-pane-empty">{t("ui.nothingOnThisDay")}</p>
       ) : (
         <ul className="cx-pane-list">
           {allDay.map((e) => row(e, "all-day"))}
@@ -4118,8 +4118,8 @@ function QuickEvent({ calendar, onAdd, onClose }: {
         </div>
       )}
       <div className="cx-quick-actions">
-        <button type="button" className="quiet" onClick={() => onAdd(text, true, at())}>Details</button>
-        <button type="submit" className="primary" disabled={!q?.title}>Add</button>
+        <button type="button" className="quiet" onClick={() => onAdd(text, true, at())}>{t("ui.details")}</button>
+        <button type="submit" className="primary" disabled={!q?.title}>{t("ui.add")}</button>
       </div>
     </form>
   );
@@ -4189,7 +4189,7 @@ function NextcloudForm({ initial, leaving, onDone, onCancel }: {
         }
       }}
     >
-      <label className="cx-subscribe-label" htmlFor="cx-nextcloud-server">Set up a Nextcloud server</label>
+      <label className="cx-subscribe-label" htmlFor="cx-nextcloud-server">{t("ui.setUpANextcloudServer")}</label>
       {waiting ? (
         <p className="cx-subscribe-note" role="status">
           {t("calendar.approveInBrowser")}
@@ -4212,16 +4212,16 @@ function NextcloudForm({ initial, leaving, onDone, onCancel }: {
           {problem ? (
             <p className="cx-subscribe-note is-problem" role="alert">{problem}</p>
           ) : (
-            <p className="cx-subscribe-note">You’ll sign in on your Nextcloud’s own page. Skykeep finds your calendars by itself.</p>
+            <p className="cx-subscribe-note">{t("ui.youLlSignInOnYourNextcloudSOwnPageSkykeepFindsYo")}</p>
           )}
         </>
       )}
       <div className={waiting ? "cx-subscribe-actions is-full" : "cx-subscribe-actions"}>
         <button type="button" className="quiet" onClick={cancel}>{waiting ? "Cancel" : leaving}</button>
         {waiting ? (
-          <button type="button" className="quiet" onClick={() => { void davApi.nextcloudReopen().catch((err) => setProblem(messageOf(err))); }}>Open Page Again</button>
+          <button type="button" className="quiet" onClick={() => { void davApi.nextcloudReopen().catch((err) => setProblem(messageOf(err))); }}>{t("ui.openPageAgain")}</button>
         ) : (
-          <button type="submit" className="primary" disabled={!server.trim() || busy} aria-busy={busy}>Continue</button>
+          <button type="submit" className="primary" disabled={!server.trim() || busy} aria-busy={busy}>{t("ui.continue")}</button>
         )}
       </div>
     </form>
@@ -4268,22 +4268,22 @@ function CalDavForm({ onNextcloud, onDone, onCancel }: {
         }
       }}
     >
-      <label className="cx-subscribe-label" htmlFor="cx-caldav-server">Add a CalDAV account</label>
-      <input id="cx-caldav-server" className="field" type="text" inputMode="url" placeholder="calendar.example.org" aria-label="Server" autoFocus spellCheck={false} autoCapitalize="off" value={server} disabled={busy} onChange={(e) => { setServer(e.target.value); setProblem(null); }} />
-      <input className="field" type="text" placeholder="Username" aria-label="Username" spellCheck={false} autoCapitalize="off" autoComplete="off" value={username} disabled={busy} onChange={(e) => { setUsername(e.target.value); setProblem(null); }} />
-      <input className="field" type="password" placeholder="Password" aria-label="Password" autoComplete="off" value={password} disabled={busy} onChange={(e) => { setPassword(e.target.value); setProblem(null); }} />
+      <label className="cx-subscribe-label" htmlFor="cx-caldav-server">{t("ui.addACalDAVAccount")}</label>
+      <input id="cx-caldav-server" className="field" type="text" inputMode="url" placeholder="calendar.example.org" aria-label={t("ui.server")} autoFocus spellCheck={false} autoCapitalize="off" value={server} disabled={busy} onChange={(e) => { setServer(e.target.value); setProblem(null); }} />
+      <input className="field" type="text" placeholder={t("ui.username")} aria-label={t("ui.username")} spellCheck={false} autoCapitalize="off" autoComplete="off" value={username} disabled={busy} onChange={(e) => { setUsername(e.target.value); setProblem(null); }} />
+      <input className="field" type="password" placeholder={t("ui.password")} aria-label={t("ui.password")} autoComplete="off" value={password} disabled={busy} onChange={(e) => { setPassword(e.target.value); setProblem(null); }} />
       {problem ? (
         <p className="cx-subscribe-note is-problem" role="alert">{problem}</p>
       ) : (
-        <p className="cx-subscribe-note">The password is kept in your system’s keyring, and only ever sent to this server.</p>
+        <p className="cx-subscribe-note">{t("ui.thePasswordIsKeptInYourSystemSKeyringAndOnlyEver")}</p>
       )}
       <div className="cx-subscribe-actions">
-        <button type="button" className="quiet" onClick={onCancel}>Cancel</button>
-        <button type="submit" className="primary" disabled={!ready} aria-busy={busy}>Add</button>
+        <button type="button" className="quiet" onClick={onCancel}>{t("ui.cancel")}</button>
+        <button type="submit" className="primary" disabled={!ready} aria-busy={busy}>{t("ui.add")}</button>
       </div>
-      <div className="cx-subscribe-presets" role="group" aria-label="Preconfigured servers">
-        <span className="cx-subscribe-note">Preconfigured</span>
-        <button type="button" className="quiet" disabled={busy} onClick={onNextcloud}>Nextcloud Server</button>
+      <div className="cx-subscribe-presets" role="group" aria-label={t("ui.preconfiguredServers")}>
+        <span className="cx-subscribe-note">{t("ui.preconfigured")}</span>
+        <button type="button" className="quiet" disabled={busy} onClick={onNextcloud}>{t("ui.nextcloudServer")}</button>
       </div>
     </form>
   );
@@ -4325,7 +4325,7 @@ function SubscribeForm({ onDone, onCancel }: {
         }
       }}
     >
-      <label className="cx-subscribe-label" htmlFor="cx-subscribe-url">Subscribe to a calendar</label>
+      <label className="cx-subscribe-label" htmlFor="cx-subscribe-url">{t("ui.subscribeToACalendar")}</label>
       <input
         id="cx-subscribe-url"
         className="field"
@@ -4341,11 +4341,11 @@ function SubscribeForm({ onDone, onCancel }: {
       {problem ? (
         <p className="cx-subscribe-note is-problem" role="alert">{problem}</p>
       ) : (
-        <p className="cx-subscribe-note">Skykeep reads it from that address and keeps it up to date.</p>
+        <p className="cx-subscribe-note">{t("ui.skykeepReadsItFromThatAddressAndKeepsItUpToDate")}</p>
       )}
       <div className="cx-subscribe-actions">
-        <button type="button" className="quiet" onClick={onCancel}>Cancel</button>
-        <button type="submit" className="primary" disabled={!url.trim() || busy} aria-busy={busy}>Subscribe</button>
+        <button type="button" className="quiet" onClick={onCancel}>{t("ui.cancel")}</button>
+        <button type="submit" className="primary" disabled={!url.trim() || busy} aria-busy={busy}>{t("ui.subscribe")}</button>
       </div>
     </form>
   );

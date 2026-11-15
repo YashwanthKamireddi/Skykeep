@@ -50,7 +50,7 @@ export function LicencesSheet({ onClose }: { onClose: () => void }) {
           <p className="licences-intro">
             {t("licences.intro")}
           </p>
-          <div className="licences-list" tabIndex={0} aria-label="Licences">
+          <div className="licences-list" tabIndex={0} aria-label={t("ui.licences")}>
             {groups.map((g, n) => (
               <section key={g.name} aria-labelledby={`licences-${n}`}>
                 <h3 id={`licences-${n}`}>{g.name}</h3>

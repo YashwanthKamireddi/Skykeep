@@ -655,7 +655,7 @@ export function ContactsView() {
     // icloud.com's own words for it.
     void confirm({
       title: `Delete \u201c${l.name}\u201d?`,
-      body: "This list will be deleted from every device. The contacts in it stay in Contacts.",
+      body: t("ui.thisListWillBeDeletedFromEveryDeviceTheContactsI"),
       action: "Delete",
       danger: true,
       symbol: "trash",
@@ -1074,7 +1074,7 @@ export function ContactsView() {
   return (
     // A contact being written is always what shows; it has its own Cancel.
     <div className={`contacts${detail || draft ? " is-detail" : ""}`}>
-      <aside className="contacts-lists" aria-label="Contact lists" ref={listsColumn}>
+      <aside className="contacts-lists" aria-label={t("ui.contactLists")} ref={listsColumn}>
         <ListRow
           name={t("contacts.allContacts")}
           count={contacts.length}
@@ -1293,7 +1293,7 @@ export function ContactsView() {
         )}
       </section>
 
-      <article className="contact-detail" aria-label="Contact">
+      <article className="contact-detail" aria-label={t("ui.contact")}>
         {!draft && (
           <button className="compact-back" onClick={() => { setDetail(false); setShowDupes(false); }}>
             <ChevronLeft size={18} strokeWidth={2.25} aria-hidden="true" />
@@ -1478,7 +1478,7 @@ export function ContactsView() {
             </ul>
 
             {draftAddresses.length > 0 && (
-              <ul className="contact-method-rows contact-address-rows" aria-label="Addresses">
+              <ul className="contact-method-rows contact-address-rows" aria-label={t("ui.addresses")}>
                 {draftAddresses.map((d, i) => (
                   <AddressEditor
                     key={d.key}
@@ -1636,7 +1636,7 @@ export function ContactsView() {
                   {t("contacts.removeFromList")}
                 </button>
               )}
-              <button className="quiet" onClick={() => void exportCards(pickedPeople)}>Export vCards</button>
+              <button className="quiet" onClick={() => void exportCards(pickedPeople)}>{t("ui.exportVCards")}</button>
               <button className="quiet danger" disabled={busy} onClick={() => void removeMany(pickedPeople)}>Delete</button>
             </div>
             {pickMenu && (
@@ -1755,7 +1755,7 @@ export function ContactsView() {
             </dl>
 
             {open.methods.length === 0 && !structured?.length && !open.birthday && (
-              <p className="contact-none">No phone numbers or addresses saved.</p>
+              <p className="contact-none">{t("ui.noPhoneNumbersOrAddressesSaved")}</p>
             )}
             {open.notes && <p className="contact-notes">{open.notes}</p>}
 
@@ -1793,7 +1793,7 @@ export function ContactsView() {
             </div>
           </>
         ) : (
-          loaded && <EmptyState className="contact-pick">Select a contact.</EmptyState>
+          loaded && <EmptyState className="contact-pick">{t("ui.selectAContact")}</EmptyState>
         )}
       </article>
     </div>

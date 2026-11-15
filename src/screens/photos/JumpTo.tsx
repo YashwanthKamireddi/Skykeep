@@ -72,7 +72,7 @@ export function JumpTo({
         tabIndex={-1}
         style={{ top: at.bottom + 8, left: Math.max(8, Math.min(at.left - 120, window.innerWidth - 408)) }}
       >
-        <div className="px-jump-years" role="tablist" aria-label="Years">
+        <div className="px-jump-years" role="tablist" aria-label={t("ui.years")}>
           {years.map((y) => (
             <button key={y} role="tab" aria-selected={y === year} className={`px-jump-year${y === year ? " is-on" : ""}`} onClick={() => setYear(y)}>
               {y}

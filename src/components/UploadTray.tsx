@@ -230,7 +230,7 @@ export function UploadTray({
 
 
   return (
-    <section className={`upload-tray${instant ? " is-instant" : ""}`} aria-label="Uploads" aria-live="polite">
+    <section className={`upload-tray${instant ? " is-instant" : ""}`} aria-label={t("ui.uploads")} aria-live="polite">
       <header className="upload-tray-head">
         <span className="upload-tray-title">{heading}</span>
         {active ? (
@@ -241,7 +241,7 @@ export function UploadTray({
             </button>
           </span>
         ) : (
-          <button className="quiet upload-tray-close" onClick={onDismiss} aria-label="Close uploads">
+          <button className="quiet upload-tray-close" onClick={onDismiss} aria-label={t("ui.closeUploads")}>
             {t("uploads.done")}
           </button>
         )}

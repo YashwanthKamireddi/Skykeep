@@ -180,7 +180,7 @@ export function UploadPanel({
   const batches = [...new Set(files.filter((u) => !ended(u)).map((u) => u.batch))];
 
   return (
-    <aside className="px-up" aria-label="Uploads" aria-live="polite">
+    <aside className="px-up" aria-label={t("ui.uploads")} aria-live="polite">
       <header className="px-up-head">
         {active ? (
           <button className="link px-up-link" onClick={() => batches.forEach((b) => void cancel([], b))}>
@@ -202,7 +202,7 @@ export function UploadPanel({
         )}
         <h2 className="px-up-title">{title}</h2>
         {active && (
-          <Progress value={percent} label="Uploaded so far" className="px-up-bar" />
+          <Progress value={percent} label={t("ui.uploadedSoFar")} className="px-up-bar" />
         )}
       </div>
       <ul className="px-up-rows">

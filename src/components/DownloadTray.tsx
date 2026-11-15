@@ -63,7 +63,7 @@ export function DownloadTray() {
             </button>
           </span>
         ) : (
-          <button className="quiet upload-tray-close" onClick={dismissFinished} aria-label="Close downloads">
+          <button className="quiet upload-tray-close" onClick={dismissFinished} aria-label={t("ui.closeDownloads")}>
             {t("downloads.done")}
           </button>
         )}

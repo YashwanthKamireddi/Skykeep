@@ -107,7 +107,7 @@ export function ApprovalNotice({
   const names = listed(access.services);
   const line = standing(access, error ?? access.problem);
   return (
-    <div ref={card} className="toast update-notice device-approval-notice" role="group" aria-label="Advanced Data Protection">
+    <div ref={card} className="toast update-notice device-approval-notice" role="group" aria-label={t("ui.advancedDataProtection")}>
       {waiting ? <Spinner small /> : <Smartphone className="toast-glyph" size={15} strokeWidth={2} aria-hidden="true" />}
       <div className="update-body">
         <p className="update-line" role="status" aria-live="polite">

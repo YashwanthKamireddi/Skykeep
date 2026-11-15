@@ -1909,7 +1909,7 @@ export function RemindersView() {
       className={`rx${detail && !searching ? " is-detail" : ""}${searching ? " is-searching" : ""}`}
       style={{ "--accent": accent } as React.CSSProperties}
     >
-      <aside className="rx-side" aria-label="Reminder lists">
+      <aside className="rx-side" aria-label={t("ui.reminderLists")}>
         <SearchField
           ref={searchRef}
           className="rx-search"
@@ -1998,7 +1998,7 @@ export function RemindersView() {
             );
           })}
         </div>
-        {loaded && lists.length === 0 && !arriving && <p className="side-heading">No lists yet</p>}
+        {loaded && lists.length === 0 && !arriving && <p className="side-heading">{t("ui.noListsYet")}</p>}
 
         {tags.length > 0 && (
           <>
@@ -2297,7 +2297,7 @@ export function RemindersView() {
                 // Deleting a list takes its reminders, so ask before doing it.
                 void confirm({
                   title: `Delete \u201c${list.title}\u201d?`,
-                  body: "Every reminder in it is deleted too, on all your devices.",
+                  body: t("ui.everyReminderInItIsDeletedTooOnAllYourDevices"),
                   action: "Delete",
                   danger: true,
                   symbol: "trash",
@@ -2737,7 +2737,7 @@ const ReminderRow = memo(function ReminderRow({
                   </span>
                 )}
                 {rowMarks?.urgent && (
-                  <span className="rx-urgent" role="img" aria-label="Urgent" title="Urgent">
+                  <span className="rx-urgent" role="img" aria-label={t("ui.urgent")} title={t("ui.urgent")}>
                     <AlarmClock aria-hidden="true" size={13} strokeWidth={2} />
                   </span>
                 )}
@@ -2852,7 +2852,7 @@ const ReminderRow = memo(function ReminderRow({
             </div>
             {moreOf?.guid === reminder.guid && <PlacesAndPeople more={moreOf} />}
             {detailOf?.guid === reminder.guid && detailOf.images.length > 0 && (
-              <div className="rx-images" role="list" aria-label="Pictures">
+              <div className="rx-images" role="list" aria-label={t("ui.pictures")}>
                 {detailOf.images.map((id) => (
                   <img
                     key={id}
@@ -3069,7 +3069,7 @@ function ListInfo({ list, onClose, onDone }: {
           onChange={(e) => setTitle(e.target.value)}
           onKeyDown={(e) => !composing(e) && e.key === "Enter" && done()}
         />
-        <div className="rx-info-colours" role="radiogroup" aria-label="Colour">
+        <div className="rx-info-colours" role="radiogroup" aria-label={t("ui.colour")}>
           {LIST_COLOURS.map((c) => (
             <button
               key={c.key}
@@ -3083,8 +3083,8 @@ function ListInfo({ list, onClose, onDone }: {
           ))}
         </div>
         <div className="sheet-actions rx-info-actions">
-          <button className="quiet" onClick={onClose}>Cancel</button>
-          <button className="primary" onClick={done} disabled={!title.trim()}>Done</button>
+          <button className="quiet" onClick={onClose}>{t("ui.cancel")}</button>
+          <button className="primary" onClick={done} disabled={!title.trim()}>{t("ui.done")}</button>
         </div>
       </div>
     </div>
@@ -3372,7 +3372,7 @@ function RepeatField({ reminder, rule, onChange }: {
           options={REPEATS.map((o) => ({ value: o.key, label: t(o.label), divider: o.divider, disabled: o.disabled }))}
         />
       </div>
-      {!dated && !repeating && <p className="rx-hint">Add a date to repeat it.</p>}
+      {!dated && !repeating && <p className="rx-hint">{t("ui.addADateToRepeatIt")}</p>}
       {custom && (
         <div className="rx-custom" role="group" aria-label={`Custom repeat for ${reminder.title}`}>
           <div className="rx-field">
@@ -3405,14 +3405,14 @@ function RepeatField({ reminder, rule, onChange }: {
                 onBlur={(e) => commitEvery(e.target.value)}
                 onKeyDown={(e) => !composing(e) && e.key === "Enter" && e.currentTarget.blur()}
               />
-              <button type="button" className="rx-step" aria-label="More" disabled={interval >= 999} onClick={() => commitEvery(String(interval + 1))}>
+              <button type="button" className="rx-step" aria-label={t("ui.more")} disabled={interval >= 999} onClick={() => commitEvery(String(interval + 1))}>
                 +
               </button>
               <span className="rx-every-unit">{t(`reminders.unit.${UNIT_KEYS[frequency] ?? "Day"}${interval === 1 ? "One" : "Many"}`)}</span>
             </span>
           </div>
           {frequency === 1 && (
-            <div className="rx-days" role="group" aria-label="Days of the week">
+            <div className="rx-days" role="group" aria-label={t("ui.daysOfTheWeek")}>
               {WEEKDAY_LETTERS.map((letter, i) => {
                 // The days it falls on; none chosen is its due date's day, as the phone shows.
                 const on = days.length ? days.includes(i + 1) : i === dueWeekday;
@@ -3438,7 +3438,7 @@ function RepeatField({ reminder, rule, onChange }: {
             </div>
           )}
           {frequency === 2 && (
-            <div className="rx-days is-month" role="group" aria-label="Days of the month">
+            <div className="rx-days is-month" role="group" aria-label={t("ui.daysOfTheMonth")}>
               {Array.from({ length: 31 }, (_, i) => i + 1).map((d) => (
                 <span key={d} className={`rx-day${!fromPhone && due?.d === d ? " is-on" : ""}`}
                   aria-current={!fromPhone && due?.d === d ? "true" : undefined}>
@@ -3524,7 +3524,7 @@ function ZoneAndUrgent({ reminder, more }: { reminder: Reminder; more: ReminderM
             <span>{t("reminders.urgent")}</span>
             <span className="rx-value">On</span>
           </div>
-          <p className="rx-hint">Set on your iPhone. It rings as an alarm, even in a Focus or on silent.</p>
+          <p className="rx-hint">{t("ui.setOnYourIPhoneItRingsAsAnAlarmEvenInAFocusOrOnS")}</p>
         </>
       )}
     </>
@@ -3554,7 +3554,7 @@ function PlacesAndPeople({ more }: { more: ReminderMore }) {
           <span className="rx-value">{messaging.name ?? messaging.handles[0]}</span>
         </div>
       )}
-      <p className="rx-hint">Set on your iPhone, and kept just as it is when you edit here.</p>
+      <p className="rx-hint">{t("ui.setOnYourIPhoneAndKeptJustAsItIsWhenYouEditHere")}</p>
     </>
   );
 }

@@ -28,7 +28,7 @@ export function DuplicatesBanner({ count, onOpen }: { count: number; onOpen: () 
     <button type="button" className="dupes-banner" onClick={onOpen}>
       <UsersRound size={18} strokeWidth={1.8} aria-hidden="true" />
       <span className="dupes-banner-text">
-        <span className="dupes-banner-title">Duplicates Found</span>
+        <span className="dupes-banner-title">{t("ui.duplicatesFound")}</span>
         <span className="dupes-banner-sub">
           {count === 1 ? "1 person has more than one card" : `${count} people have more than one card`}
         </span>

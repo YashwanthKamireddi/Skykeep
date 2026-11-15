@@ -203,7 +203,7 @@ function ToastCard({ toast: t }: { toast: Toast }) {
           {t.action.label}
         </button>
       )}
-      <button className="icon-button small toast-close" aria-label="Dismiss" title="Dismiss" onClick={dismiss}>
+      <button className="icon-button small toast-close" aria-label={translate("ui.dismiss")} title={translate("ui.dismiss")} onClick={dismiss}>
         <X size={13} strokeWidth={2.25} aria-hidden="true" />
       </button>
     </div>

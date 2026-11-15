@@ -218,14 +218,14 @@ export function PhotoSheet({ hasPhoto, onDone, onRemove, onCancel }: {
           />
           <div className="photo-sheet-actions">
             {hasPhoto && !loaded && (
-              <button type="button" className="quiet danger" onClick={onRemove}>Delete Photo</button>
+              <button type="button" className="quiet danger" onClick={onRemove}>{t("ui.deletePhoto")}</button>
             )}
             {loaded && (
-              <button type="button" className="quiet" onClick={() => input.current?.click()}>Choose Another</button>
+              <button type="button" className="quiet" onClick={() => input.current?.click()}>{t("ui.chooseAnother")}</button>
             )}
             <span className="photo-sheet-gap" />
-            <button type="button" className="quiet" onClick={onCancel}>Cancel</button>
-            <button type="button" className="primary" disabled={!loaded} onClick={done}>Done</button>
+            <button type="button" className="quiet" onClick={onCancel}>{t("ui.cancel")}</button>
+            <button type="button" className="primary" disabled={!loaded} onClick={done}>{t("ui.done")}</button>
           </div>
         </div>
       </div>

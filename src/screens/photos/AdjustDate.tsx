@@ -55,7 +55,7 @@ export function AdjustDate({ photo, onSave, onClose }: { photo: Photo; onSave: (
           if (changed && next !== null) onSave(next);
         }}
       >
-        <button type="button" className="icon-button small round sheet-close" aria-label="Close" onClick={onClose}>
+        <button type="button" className="icon-button small round sheet-close" aria-label={t("ui.close")} onClick={onClose}>
           <X size={16} strokeWidth={2.2} aria-hidden="true" />
         </button>
         <h2>{t("photos.adjustDateTime")}</h2>
