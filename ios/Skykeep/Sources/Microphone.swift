@@ -34,6 +34,9 @@ final class Microphone: @unchecked Sendable {
         }
         engine.attach(sink)
         engine.connect(input, to: sink, format: format)
+        // Voice processing runs input and output as one unit: with no output path it fails
+        // every few milliseconds. A silent one keeps it whole; nothing is played.
+        engine.mainMixerNode.outputVolume = 0
         self.sink = sink
         engine.prepare()
         try engine.start()

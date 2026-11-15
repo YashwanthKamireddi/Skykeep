@@ -4,6 +4,8 @@ import QuartzCore
 import VideoToolbox
 import os
 
+let log = Logger(subsystem: "io.github.yashwanthkamireddi.Skykeep", category: "camera")
+
 /// The camera, encoded for the computer with the least delay the hardware allows.
 ///
 /// - Lenses: the back camera is Apple's combined camera (ultra wide, wide and telephoto as one
@@ -210,10 +212,21 @@ final class Camera: NSObject, @unchecked Sendable, AVCaptureVideoDataOutputSampl
             ]
             CVPixelBufferPoolCreate(nil, nil, attributes as CFDictionary, &pool)
         }
-        guard let transfer, let pool else { return nil }
+        guard let transfer, let pool else {
+            log.error("no pixel transfer session or pool")
+            return nil
+        }
         var out: CVPixelBuffer?
         CVPixelBufferPoolCreatePixelBuffer(nil, pool, &out)
-        guard let out, VTPixelTransferSessionTransferImage(transfer, from: image, to: out) == noErr else { return nil }
+        guard let out else {
+            log.error("the pool gave no buffer")
+            return nil
+        }
+        let status = VTPixelTransferSessionTransferImage(transfer, from: image, to: out)
+        if status != noErr {
+            log.error("fitting a \(CVPixelBufferGetWidth(image))x\(CVPixelBufferGetHeight(image)) picture failed: \(status)")
+            return nil
+        }
         return out
     }
 
@@ -221,7 +234,10 @@ final class Camera: NSObject, @unchecked Sendable, AVCaptureVideoDataOutputSampl
         onFrame?(sample)
         guard sending.withLock({ $0 }), onPicture != nil, let captured = CMSampleBufferGetImageBuffer(sample),
               let image = landscape(captured) else { return }
-        if encoder == nil { encoder = makeEncoder() }
+        if encoder == nil {
+            encoder = makeEncoder()
+            log.notice("encoder \(self.encoder == nil ? "failed" : "ready")")
+        }
         guard let encoder else { return }
         let pts = CMSampleBufferGetPresentationTimeStamp(sample)
         // The capture moment on the shared clock: now, less how long ago the sensor took it.
@@ -232,6 +248,7 @@ final class Camera: NSObject, @unchecked Sendable, AVCaptureVideoDataOutputSampl
         let options = force ? [kVTEncodeFrameOptionKey_ForceKeyFrame: true] as CFDictionary : nil
         VTCompressionSessionEncodeFrame(encoder, imageBuffer: image, presentationTimeStamp: pts, duration: .invalid,
                                         frameProperties: options, infoFlagsOut: nil) { [weak self] status, _, encoded in
+            if status != noErr { log.error("encoding failed: \(status)") }
             guard status == noErr, let encoded, let self else { return }
             let (unit, key) = Self.annexB(encoded)
             guard !unit.isEmpty else { return }

@@ -42,6 +42,7 @@ final class Model {
         microphone.onSound = { packet in link.sendSound(packet) }
         link.onState = { [weak self] state in
             camera.sending.withLock { $0 = state == .connected }
+            log.notice("link \(String(describing: state))")
             Task { @MainActor in self?.linkChanged(state) }
         }
         guard use(.back) || use(.front) else { status = .failed("This iPhone has no camera Skykeep can use."); return }
