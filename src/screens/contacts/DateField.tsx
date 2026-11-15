@@ -1,7 +1,7 @@
+import { dateLocale, dateText } from "../../lib/when";
 import { useEffect, useMemo, useState } from "react";
 import { t } from "../../lib/i18n";
 import { Picker } from "../../components/Picker";
-import { dateText } from "../../lib/when";
 
 /** The year Apple writes for a date given without one. */
 export const NO_YEAR = 1604;
@@ -27,7 +27,7 @@ function written({ month, day, year }: Parts): string | null {
 /** Month, day and year in the order this machine writes a date. */
 function order(): ("month" | "day" | "year")[] {
   try {
-    const parts = new Intl.DateTimeFormat(undefined, { year: "numeric", month: "long", day: "numeric" })
+    const parts = new Intl.DateTimeFormat(dateLocale(), { year: "numeric", month: "long", day: "numeric" })
       .formatToParts(new Date(2000, 10, 22))
       .map((p) => p.type)
       .filter((t): t is "month" | "day" | "year" => t === "month" || t === "day" || t === "year");
@@ -61,7 +61,7 @@ export function DateField({ value, onChange, label, autoFocus, compact }: {
     }
   }, [value, seen, parts]);
   const months = useMemo(() => {
-    const f = new Intl.DateTimeFormat(undefined, { month: compact ? "short" : "long" });
+    const f = new Intl.DateTimeFormat(dateLocale(), { month: compact ? "short" : "long" });
     return Array.from({ length: 12 }, (_, i) => ({ value: String(i + 1), label: f.format(new Date(2000, i, 1)) }));
   }, [compact]);
   const set = (next: Parts) => {

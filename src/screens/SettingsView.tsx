@@ -1,3 +1,4 @@
+import { dateLocale } from "../lib/when";
 import { MOVE_CHECKED_KEY } from "./notes/model";
 import { onWindows } from "../lib/platform";
 import { ConfirmSheet } from "../components/Confirm";
@@ -886,7 +887,7 @@ function LanguageRow() {
 function WeekStartRow() {
   const { t } = useI18n();
   const [choice, setChoice] = useState<WeekStartChoice>(weekStartChoice);
-  const day = (n: number) => new Intl.DateTimeFormat(undefined, { weekday: "long" }).format(new Date(2026, 0, 4 + n));
+  const day = (n: number) => new Intl.DateTimeFormat(dateLocale(), { weekday: "long" }).format(new Date(2026, 0, 4 + n));
   // The locale's own day, named in Automatic, so it is clear what Automatic gives.
   const locale = localeFirstDay();
   return (

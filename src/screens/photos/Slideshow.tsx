@@ -16,6 +16,7 @@
  *
  * A picture that cannot be had is passed over, never shown as a black frame.
  */
+import { t } from "../../lib/i18n";
 import { useActiveRef } from "../../lib/screen";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { ChevronLeft, ChevronRight, Pause, Play, X } from "lucide-react";
@@ -213,7 +214,7 @@ export function Slideshow({
           if (!back || !top) return;
           stopFilm(back);
           back.img.src = url;
-          back.img.alt = p.filename ?? "Photo";
+          back.img.alt = p.filename ?? t("photos.photo");
           // Decoded on the element that will show it, so its first painted frame is whole.
           await back.img.decode().catch(() => undefined);
           if (mine !== asked.current) return;
@@ -361,7 +362,7 @@ export function Slideshow({
     <div ref={mount(k)} className="px-slide" style={{ opacity: 0 }} aria-hidden={k !== front.current || undefined}>
       <img alt="" decoding="sync" draggable={false} />
       <div className="px-slide-film" hidden>
-        <video playsInline preload="auto" aria-label="Video" />
+        <video playsInline preload="auto" aria-label={t("photos.videoAria")} />
       </div>
     </div>
   );

@@ -2,6 +2,8 @@
  * Adjust Date and Time, as icloud.com's: the photo, the timezone the times are in, the original
  * date, and the one to give it — to the second. Save only once it is a different, real date.
  */
+import { dateLocale } from "../../lib/when";
+import { t } from "../../lib/i18n";
 import { useActiveRef } from "../../lib/screen";
 import { useEffect, useRef, useState } from "react";
 import { useModalFocus } from "../../lib/focus";
@@ -39,7 +41,7 @@ export function AdjustDate({ photo, onSave, onClose }: { photo: Photo; onSave: (
   const ms = Date.parse(value);
   const next = Number.isNaN(ms) ? null : Math.floor(ms / 1000);
   const changed = next !== null && next !== photo.takenAt && next > -2_208_988_800 && next < 253_402_300_800;
-  const shown = new Date(photo.takenAt * 1000).toLocaleString(undefined, { dateStyle: "medium", timeStyle: "medium" });
+  const shown = new Date(photo.takenAt * 1000).toLocaleString(dateLocale(), { dateStyle: "medium", timeStyle: "medium" });
   return (
     <div className="modal-veil" role="presentation" onMouseDown={(e) => e.target === e.currentTarget && onClose()}>
       <form
@@ -47,7 +49,7 @@ export function AdjustDate({ photo, onSave, onClose }: { photo: Photo; onSave: (
         className="modal-sheet px-sheet"
         role="dialog"
         aria-modal="true"
-        aria-label="Adjust Date and Time"
+        aria-label={t("photos.adjustDateTime")}
         onSubmit={(e) => {
           e.preventDefault();
           if (changed && next !== null) onSave(next);
@@ -56,15 +58,15 @@ export function AdjustDate({ photo, onSave, onClose }: { photo: Photo; onSave: (
         <button type="button" className="icon-button small round sheet-close" aria-label="Close" onClick={onClose}>
           <X size={16} strokeWidth={2.2} aria-hidden="true" />
         </button>
-        <h2>Adjust Date and Time</h2>
+        <h2>{t("photos.adjustDateTime")}</h2>
         <div className="px-dl-pics" aria-hidden="true">
           <img src={pictureSrc(photo.id, "thumb")} alt="" />
         </div>
         <p className="px-date-zone">All times are {zone()}</p>
         <div className="px-date-grid">
-          <span>Original:</span>
+          <span>{t("photos.original")}</span>
           <output className="px-date-was">{shown}</output>
-          <label htmlFor="px-adjusted">Adjusted:</label>
+          <label htmlFor="px-adjusted">{t("photos.adjusted")}</label>
           <input
             id="px-adjusted"
             className="field px-date-field"
@@ -77,10 +79,10 @@ export function AdjustDate({ photo, onSave, onClose }: { photo: Photo; onSave: (
         </div>
         <div className="sheet-actions">
           <button type="button" className="quiet" onClick={onClose}>
-            Cancel
+            {t("photos.cancel")}
           </button>
           <button type="submit" className="primary" disabled={!changed}>
-            Save
+            {t("photos.save")}
           </button>
         </div>
       </form>

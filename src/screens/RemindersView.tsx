@@ -1,3 +1,4 @@
+import { dateLocale, dateText, dayOf, timeText, useClock } from "../lib/when";
 import { Fragment, memo, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { t, activeLanguage, useI18n, type Key } from "../lib/i18n";
 import { AppFoot } from "../components/AppFoot";
@@ -44,7 +45,6 @@ import { useArriving, useShownRevision } from "../lib/sync";
 import { Picker } from "../components/Picker";
 import { RowMenu } from "../components/RowMenu";
 import { Glyph, emblemGlyph, type GlyphName } from "../components/Glyph";
-import { dateText, dayOf, timeText, useClock } from "../lib/when";
 import { parseReminder, understood, type QuickReminder } from "./reminderQuick.ts";
 import { useReveal } from "../lib/reveal";
 import { instantIn, wallIn, zoneName, type Wall } from "./calendar/model";
@@ -308,7 +308,7 @@ const LOCAL_ZONE = Intl.DateTimeFormat().resolvedOptions().timeZone || "UTC";
 /** "11:00 AM GMT-4": a time on another zone's clock, as the phone writes it in a row. */
 function zonedClock(zone: string, s: number): string {
   try {
-    const time = new Intl.DateTimeFormat(undefined, { hour: "numeric", minute: "2-digit", timeZone: zone }).format(new Date(s * 1000));
+    const time = new Intl.DateTimeFormat(dateLocale(), { hour: "numeric", minute: "2-digit", timeZone: zone }).format(new Date(s * 1000));
     return `${time} ${zoneName(zone, s).offset.replace("−", "-")}`;
   } catch {
     return "";

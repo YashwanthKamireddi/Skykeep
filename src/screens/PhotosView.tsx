@@ -3,6 +3,7 @@
  * for how many across; a photo opens on a dark stage with the arrows to go through them. Everything draws from the local library at once; thumbnails come
  * from the disk cache and are fetched once.
  */
+import { dateLocale } from "../lib/when";
 import { t, useI18n, type Key } from "../lib/i18n";
 import { AppFoot } from "../components/AppFoot";
 import { useActiveRef, useScreenActive } from "../lib/screen";
@@ -58,10 +59,10 @@ import { useOutbox } from "../lib/outbox";
 import { Unsent } from "../components/Unsent";
 
 /** The library switcher's choices, named as Photos names them. */
-const LIBRARIES = [
-  { value: "both", label: "Both Libraries" },
-  { value: "personal", label: "Personal Library" },
-  { value: "shared", label: "Shared Library" },
+const LIBRARIES: { value: string; label: Key }[] = [
+  { value: "both", label: "photos.bothLibraries" as Key },
+  { value: "personal", label: "photos.personalLibrary" as Key },
+  { value: "shared", label: "photos.sharedLibrary" as Key },
 ];
 
 /** The sidebar, in Photos' order, each with the symbol Photos gives it. */
@@ -212,7 +213,7 @@ function Filmstrip({ photos, at, onPick }: { photos: PhotoList; at: number; onPi
         // Placed by transform, eased with its neighbours: the shown one widens as they make
         // room, all on the compositor — before, each step jumped every slip into place.
         style={{ transform: `translateX(${i * (SLIP + GAP) + (i > at ? SHOWN - SLIP : 0)}px)` }}
-        aria-label={p.filename ?? "Photo"}
+        aria-label={p.filename ?? t("photos.photo")}
         aria-current={i === at}
         onClick={() => i !== at && onPick(i)}
       >
@@ -427,9 +428,11 @@ const Tile = memo(function Tile({
       // A photo is chosen as an option in a listbox is: aria-selected belongs to an option.
       role="option"
       className="px-tile"
-      aria-label={`${photo.filename ?? "Photo"}, ${new Date(photo.takenAt * 1000).toLocaleString()}${
-        photo.burst && (photo.burstCount ?? 0) > 1 ? `, burst of ${photo.burstCount} photos` : ""
-      }`}
+      aria-label={t(photo.burst && (photo.burstCount ?? 0) > 1 ? "photos.tileBurst" : "photos.tileAria", {
+        name: photo.filename ?? t("photos.photo"),
+        date: new Date(photo.takenAt * 1000).toLocaleString(dateLocale()),
+        count: photo.burstCount ?? 0,
+      })}
       data-id={photo.id}
       data-index={index}
       aria-selected={selected}
@@ -1256,7 +1259,7 @@ export function PhotosView() {
       let month: string;
       if (rated) {
         const stars = photos.marks[index] >> 3;
-        label = `${stars} ${stars === 1 ? "Star" : "Stars"}`;
+        label = t(stars === 1 ? "photos.starOne" : "photos.starMany", { count: stars });
         month = "";
       } else {
         const at = photos.keys[index];
@@ -1887,9 +1890,9 @@ export function PhotosView() {
     if (
       flag === "deleted" && on &&
       !(await ask({
-        title: n === 1 ? "Delete this photo?" : `Delete ${n} photos?`,
-        body: `${n === 1 ? "It" : "They"} will be deleted from iCloud Photos on all your devices. ${n === 1 ? "It stays" : "They stay"} in Recently Deleted for 30 days.`,
-        action: "Delete",
+        title: n === 1 ? t("photos.deleteOneTitle") : t("photos.deleteManyTitle", { count: n }),
+        body: n === 1 ? t("photos.deleteOneBody") : t("photos.deleteManyBody"),
+        action: t("photos.delete"),
         danger: true,
         symbol: "trash",
       }))
@@ -1900,9 +1903,9 @@ export function PhotosView() {
     if (
       flag === "expunged" &&
       !(await ask({
-        title: n === 1 ? "Are you sure you want to delete this item permanently?" : `Are you sure you want to delete these ${n} items permanently?`,
-        body: "This action cannot be undone.",
-        action: "Delete",
+        title: n === 1 ? t("photos.expungeOneTitle") : t("photos.expungeManyTitle", { count: n }),
+        body: t("photos.cannotUndo"),
+        action: t("photos.delete"),
         danger: true,
         symbol: "trash",
       }))
@@ -1913,9 +1916,9 @@ export function PhotosView() {
     if (
       flag === "hidden" && on &&
       !(await ask({
-        title: n === 1 ? "Hide this photo?" : `Hide ${n} photos?`,
-        body: `${n === 1 ? "It" : "They"} will be hidden from your library, and can be found in the Hidden album.`,
-        action: "Hide",
+        title: n === 1 ? t("photos.hideOneTitle") : t("photos.hideManyTitle", { count: n }),
+        body: n === 1 ? t("photos.hideOneBody") : t("photos.hideManyBody"),
+        action: t("photos.hide"),
         symbol: "hide",
       }))
     ) {
@@ -1992,11 +1995,9 @@ export function PhotosView() {
   const deleteAlbum = async (a: PhotoAlbum) => {
     // A folder, in icloud.com's words: it goes with every album in it.
     const sure = await ask({
-      title: a.folder ? `Delete the folder “${a.name}”?` : `Delete the album “${a.name}”?`,
-      body: a.folder
-        ? "This will also delete all albums inside this folder. The photos in them stay in your library."
-        : "The photos in it stay in your library.",
-      action: "Delete",
+      title: a.folder ? t("photos.deleteFolderTitle", { name: a.name }) : t("photos.deleteAlbumTitle", { name: a.name }),
+      body: a.folder ? t("photos.deleteFolderBody") : t("photos.deleteAlbumBody"),
+      action: t("photos.delete"),
       danger: true,
       symbol: "trash",
     });
@@ -2043,9 +2044,9 @@ export function PhotosView() {
     if (!album || viewOnly) return;
     const n = gone.length;
     const sure = await ask({
-      title: `Remove ${n === 1 ? "this photo" : `${n} photos`} from the album?`,
-      body: `${n === 1 ? "It stays" : "They stay"} in your library.`,
-      action: "Remove",
+      title: n === 1 ? t("photos.removeOneTitle") : t("photos.removeManyTitle", { count: n }),
+      body: n === 1 ? t("photos.removeOneBody") : t("photos.removeManyBody"),
+      action: t("photos.remove"),
     });
     if (!sure) return;
     const before = photos;
@@ -2388,7 +2389,7 @@ export function PhotosView() {
   const albumEntries = (ids: string[]): MenuEntry[] => [
     ...albums.filter(([a]) => !a.folder && a.id !== album?.id && !a.id.startsWith("new:")).map(([a]) => ({ label: a.name, run: () => void addTo(a, ids) })),
     ...(albums.length ? [null] : []),
-    { label: "New Album", run: () => setNaming({ id: null, then: ids, draft: "" }) },
+    { label: t("photos.newAlbum"), run: () => setNaming({ id: null, then: ids, draft: "" }) },
   ];
 
   const photoMenu = (p: Photo, at: { x: number; y: number; alignRight: boolean }) => {
@@ -2406,65 +2407,65 @@ export function PhotosView() {
         at,
         entries: viewOnly
           ? [
-              { label: `Download ${n} Items`, run: () => void downloadAs(group, "originals") },
-              { label: "More Download Options", run: () => void store.load(group).then(setOptions, (e) => setError(messageOf(e))) },
+              { label: t("photos.downloadItems", { count: n }), run: () => void downloadAs(group, "originals") },
+              { label: t("photos.moreDownloadOptions"), run: () => void store.load(group).then(setOptions, (e) => setError(messageOf(e))) },
               null,
-              { label: "Start Slideshow", run: () => startShow(p) },
+              { label: t("photos.startSlideshow"), run: () => startShow(p) },
             ]
           : place === "recentlyDeleted" && !inAlbum
             ? [
-                { label: `Recover ${n} Items`, run: () => void changeAll(group, "deleted", false) },
+                { label: t("photos.recoverItems", { count: n }), run: () => void changeAll(group, "deleted", false) },
                 null,
-                { label: `Delete ${n} Items`, danger: true, run: () => void changeAll(group, "expunged", true) },
+                { label: t("photos.deleteItems", { count: n }), danger: true, run: () => void changeAll(group, "expunged", true) },
               ]
             : [
-                { label: plain ? "Favorite" : "Unfavorite", run: () => void changeAll(group, "favorite", plain) },
+                { label: plain ? t("photos.favorite") : t("photos.unfavorite"), run: () => void changeAll(group, "favorite", plain) },
                 null,
-                { label: `Download ${n} Items`, run: () => void downloadAs(group, "originals") },
-                { label: "More Download Options", run: () => void store.load(group).then(setOptions, (e) => setError(messageOf(e))) },
+                { label: t("photos.downloadItems", { count: n }), run: () => void downloadAs(group, "originals") },
+                { label: t("photos.moreDownloadOptions"), run: () => void store.load(group).then(setOptions, (e) => setError(messageOf(e))) },
                 null,
-                { label: "Start Slideshow", run: () => startShow(p) },
-                { label: "Add to Album", submenu: albumEntries(group) },
+                { label: t("photos.startSlideshow"), run: () => startShow(p) },
+                { label: t("photos.addToAlbum"), submenu: albumEntries(group) },
                 null,
                 place === "hidden" && !inAlbum
-                  ? { label: `Unhide ${n} Photos`, run: () => void changeAll(group, "hidden", false) }
-                  : { label: `Hide ${n} Photos`, run: () => void changeAll(group, "hidden", true) },
+                  ? { label: t("photos.unhidePhotos", { count: n }), run: () => void changeAll(group, "hidden", false) }
+                  : { label: t("photos.hidePhotos", { count: n }), run: () => void changeAll(group, "hidden", true) },
                 inAlbum
-                  ? { label: `Remove ${n} Photos from Album`, danger: true, run: () => void removeFrom(group) }
-                  : { label: `Delete ${n} Photos`, danger: true, run: () => void changeAll(group, "deleted", true) },
+                  ? { label: t("photos.removePhotosFromAlbum", { count: n }), danger: true, run: () => void removeFrom(group) }
+                  : { label: t("photos.deletePhotos", { count: n }), danger: true, run: () => void changeAll(group, "deleted", true) },
               ],
       });
       return;
     }
     const entries: MenuEntry[] = viewOnly
       ? [
-          ...(p.kind !== "video" ? [{ label: "Copy", run: () => void copy([p.id]) }] : []),
-          { label: "Download", run: () => void download(p) },
-          { label: "More Download Options", run: () => setOptions([p]) },
-          { label: "Start Slideshow", run: () => startShow(p) },
+          ...(p.kind !== "video" ? [{ label: t("photos.copy"), run: () => void copy([p.id]) }] : []),
+          { label: t("photos.download"), run: () => void download(p) },
+          { label: t("photos.moreDownloadOptions"), run: () => setOptions([p]) },
+          { label: t("photos.startSlideshow"), run: () => startShow(p) },
         ]
       : place === "recentlyDeleted" && !inAlbum
         ? [
-            { label: "Recover", run: () => void change(p, "deleted", false) },
+            { label: t("photos.recover"), run: () => void change(p, "deleted", false) },
             null,
-            { label: "Delete", danger: true, run: () => void change(p, "expunged", true) },
+            { label: t("photos.delete"), danger: true, run: () => void change(p, "expunged", true) },
           ]
         : [
-            { label: p.favorite ? "Unfavorite" : "Favorite", run: () => void change(p, "favorite", !p.favorite) },
+            { label: p.favorite ? t("photos.unfavorite") : t("photos.favorite"), run: () => void change(p, "favorite", !p.favorite) },
             // A picture to paste anywhere; a video has none to give.
-            ...(p.kind !== "video" ? [{ label: "Copy", run: () => void copy([p.id]) }] : []),
-            { label: "Download", run: () => void download(p) },
-            { label: "More Download Options", run: () => setOptions([p]) },
-            { label: "Start Slideshow", run: () => startShow(p) },
+            ...(p.kind !== "video" ? [{ label: t("photos.copy"), run: () => void copy([p.id]) }] : []),
+            { label: t("photos.download"), run: () => void download(p) },
+            { label: t("photos.moreDownloadOptions"), run: () => setOptions([p]) },
+            { label: t("photos.startSlideshow"), run: () => startShow(p) },
             null,
-            { label: "Add to Album", submenu: albumEntries([p.id]) },
+            { label: t("photos.addToAlbum"), submenu: albumEntries([p.id]) },
             null,
             place === "hidden" && !inAlbum
-              ? { label: "Unhide Photo", run: () => void change(p, "hidden", false) }
-              : { label: "Hide Photo", run: () => void change(p, "hidden", true) },
+              ? { label: t("photos.unhidePhoto"), run: () => void change(p, "hidden", false) }
+              : { label: t("photos.hidePhoto"), run: () => void change(p, "hidden", true) },
             inAlbum
-              ? { label: "Remove from Album", danger: true, run: () => void removeFrom([p.id]) }
-              : { label: "Delete", danger: true, run: () => void change(p, "deleted", true) },
+              ? { label: t("photos.removeFromAlbum"), danger: true, run: () => void removeFrom([p.id]) }
+              : { label: t("photos.delete"), danger: true, run: () => void change(p, "deleted", true) },
           ];
     setMenu({ at, entries });
   };
@@ -2563,10 +2564,10 @@ export function PhotosView() {
   const nameField = (
     <input
       className="field px-naming"
-      aria-label="Album name"
+      aria-label={t("photos.albumName")}
       autoFocus
       value={naming?.draft ?? ""}
-      placeholder="Untitled Album"
+      placeholder={t("photos.untitledAlbum")}
       onChange={(e) => setNaming((n) => (n ? { ...n, draft: e.target.value } : n))}
       onKeyDown={(e) => {
         // A name still being composed (an input method's candidate) is not finished by its Enter.
@@ -2676,14 +2677,14 @@ export function PhotosView() {
     if (!picked) return;
     let waitNote = 0;
     const slow = window.setTimeout(() => {
-      waitNote = toast({ message: "Copying photo", duration: null });
+      waitNote = toast({ message: t("photos.copyingPhoto"), duration: null });
     }, 300);
     try {
       const png = await api.photoCopy(picked.id);
       // Not on Linux or Windows, where the app has put it there itself: the webview's own
       // clipboard, which takes a PNG as the system's picture.
       if (png.byteLength) await navigator.clipboard.write([new ClipboardItem({ "image/png": new Blob([png], { type: "image/png" }) })]);
-      if (mine === copying.current) toast({ message: ids.length > 1 ? "Copied the first photo" : "Copied", tone: "done" });
+      if (mine === copying.current) toast({ message: ids.length > 1 ? t("photos.copiedFirst") : t("photos.copied"), tone: "done" });
     } catch (e) {
       if (mine === copying.current) setError(messageOf(e));
     } finally {
@@ -2774,8 +2775,8 @@ export function PhotosView() {
     try {
       const chosen = await pickOpen({
         multiple: true,
-        title: "Add to iCloud Photos",
-        filters: [{ name: "Photos and Videos", extensions: KINDS }],
+        title: t("photos.addToICloud"),
+        filters: [{ name: t("photos.photosAndVideos"), extensions: KINDS }],
       });
       if (chosen) await add(chosen);
     } catch (e) {
@@ -3246,8 +3247,8 @@ export function PhotosView() {
     setMenu({
       at,
       entries: [
-        { label: "New Album", run: () => startNew(parent, false) },
-        { label: "New Folder", run: () => startNew(parent, true) },
+        { label: t("photos.newAlbum"), run: () => startNew(parent, false) },
+        { label: t("photos.newFolder"), run: () => startNew(parent, true) },
       ],
     });
   const openFolder = (id: string | null) => {
@@ -3276,7 +3277,7 @@ export function PhotosView() {
           <div key={a.id} className="px-parent-row px-depth" style={indent}>
             <button
               className="px-twisty"
-              aria-label={isOpen ? `Hide ${a.name}` : `Show ${a.name}`}
+              aria-label={isOpen ? t("photos.hideName", { name: a.name }) : t("photos.showName", { name: a.name })}
               aria-expanded={isOpen}
               onClick={() =>
                 setOpenFolders((open) => {
@@ -3300,12 +3301,12 @@ export function PhotosView() {
                 setMenu({
                   at: { x: e.clientX, y: e.clientY, alignRight: false },
                   entries: [
-                    { label: "New Album", run: () => startNew(a.id, false) },
-                    { label: "New Folder", run: () => startNew(a.id, true) },
+                    { label: t("photos.newAlbum"), run: () => startNew(a.id, false) },
+                    { label: t("photos.newFolder"), run: () => startNew(a.id, true) },
                     null,
-                    { label: "Rename Folder", run: () => setNaming({ id: a.id, then: [], draft: a.name }) },
+                    { label: t("photos.renameFolder"), run: () => setNaming({ id: a.id, then: [], draft: a.name }) },
                     null,
-                    { label: "Delete Folder", danger: true, run: () => void deleteAlbum(a) },
+                    { label: t("photos.deleteFolder"), danger: true, run: () => void deleteAlbum(a) },
                   ],
                 });
               }}
@@ -3340,9 +3341,9 @@ export function PhotosView() {
             setMenu({
               at: { x: e.clientX, y: e.clientY, alignRight: false },
               entries: [
-                { label: "Rename Album", run: () => setNaming({ id: a.id, then: [], draft: a.name }) },
+                { label: t("photos.renameAlbum"), run: () => setNaming({ id: a.id, then: [], draft: a.name }) },
                 null,
-                { label: "Delete Album", danger: true, run: () => void deleteAlbum(a) },
+                { label: t("photos.deleteAlbum"), danger: true, run: () => void deleteAlbum(a) },
               ],
             });
           }}
@@ -3410,17 +3411,17 @@ export function PhotosView() {
   const placeNow = sharedPage ? "page:shared" : albumsPage ? "page:albums" : album ? `album:${album.id}` : `view:${view}`;
   const places = [
     ...VIEWS.map((v) => ({ value: `view:${v.key}`, label: t(v.label) })),
-    { value: "page:albums", label: "Albums" },
+    { value: "page:albums", label: t("photos.albums") },
     ...albums.filter(([a]) => !a.folder && !a.id.startsWith("new:")).map(([a]) => ({ value: `album:${a.id}`, label: `\u2003${a.name}` })),
     ...MEDIA.filter((m) => (counts[m.key] ?? 0) > 0 || (!album && !albumsPage && view === m.key)).map((v) => ({ value: `view:${v.key}`, label: t(v.label) })),
     ...UTILITIES.map((v) => ({ value: `view:${v.key}`, label: t(v.label) })),
-    { value: "page:shared", label: "Shared Albums" },
+    { value: "page:shared", label: t("photos.sharedAlbums") },
   ];
 
   return (
     <div className={`px${dropping ? " is-dropping" : ""}`} data-drop-label={album ? `Add to ${album.name}` : "Add to Library"}>
       <div className="px-compact">
-        <Picker label="Show" value={placeNow} options={places} onChange={goTo} />
+        <Picker label={t("photos.show")} value={placeNow} options={places} onChange={goTo} />
       </div>
       <aside className="px-side" aria-label="Photos">
         <p className="side-heading px-side-heading">Photos</p>
@@ -3429,9 +3430,9 @@ export function PhotosView() {
         {library.hasShared && (
           <Picker
             className="px-library"
-            label="Library"
+            label={t("photos.library")}
             value={library.showing}
-            options={LIBRARIES}
+            options={LIBRARIES.map((l) => ({ ...l, label: t(l.label) }))}
             onChange={(v) => {
               const which = v as PhotoLibrary;
               api.photosSetLibrary(which).then(
@@ -3516,7 +3517,7 @@ export function PhotosView() {
               // let go of first, so they never show for a frame before the album's own.
               setPhotos(null);
               setFromPage(true);
-              setAlbum({ id: `shared:${a.zone}`, name: a.title ?? "Shared Album", position: 0, changeTag: null, shared: a.zone });
+              setAlbum({ id: `shared:${a.zone}`, name: a.title ?? t("photos.sharedAlbum"), position: 0, changeTag: null, shared: a.zone });
               setAlbumsPage(false);
               setSharedPage(false);
               endSearch();
@@ -3542,13 +3543,13 @@ export function PhotosView() {
                       </div>
                     )}
                     <PaneTitle className="px-heading" countClassName="px-span" count={here.length === 1 ? "1 Item" : `${here.length} Items`}>
-                      {folder ? folder.name : "Albums"}
+                      {folder ? folder.name : t("photos.albums")}
                     </PaneTitle>
                     <div className="toolbar-group">
                       <button
                         className="tool px-cap"
-                        aria-label="New Album or Folder"
-                        title="New Album or Folder"
+                        aria-label={t("photos.newAlbumOrFolder")}
+                        title={t("photos.newAlbumOrFolder")}
                         aria-haspopup="menu"
                         onClick={(e) => {
                           const b = e.currentTarget.getBoundingClientRect();
@@ -3586,17 +3587,17 @@ export function PhotosView() {
                           onContextMenu={(e) => {
                             e.preventDefault();
                             if (a.id.startsWith("new:")) return;
-                            const kind = a.folder ? "Folder" : "Album";
+
                             setMenu({
                               at: { x: e.clientX, y: e.clientY, alignRight: false },
                               entries: [
-                                { label: `Rename ${kind}`, run: () => {
+                                { label: a.folder ? t("photos.renameFolder") : t("photos.renameAlbum"), run: () => {
                                   if (!branches.albums) branch("albums");
                                   if (a.parent) setOpenFolders((open) => new Set(open).add(a.parent!));
                                   setNaming({ id: a.id, then: [], draft: a.name });
                                 } },
                                 null,
-                                { label: `Delete ${kind}`, danger: true, run: () => void deleteAlbum(a) },
+                                { label: a.folder ? t("photos.deleteFolder") : t("photos.deleteAlbum"), danger: true, run: () => void deleteAlbum(a) },
                               ],
                             });
                           }}
@@ -3612,7 +3613,7 @@ export function PhotosView() {
                           </span>
                           <span className="px-card-name">{a.name}</span>
                           <span className="px-card-count">
-                            {a.folder ? (held(a.id) === 1 ? "1 album" : `${held(a.id)} albums`) : n === 1 ? "1 item" : `${n} items`}
+                            {a.folder ? (held(a.id) === 1 ? t("photos.albumOne") : t("photos.albumMany", { count: held(a.id) })) : n === 1 ? t("photos.itemOne") : t("photos.itemMany", { count: n })}
                           </span>
                         </button>
                       ))}
@@ -3665,15 +3666,15 @@ export function PhotosView() {
               {selected.length > 0 ? (
                 <>
                   <button className="tool has-label is-accent px-word" onClick={() => void changeAll(selected, "deleted", false)}>
-                    Recover
+                    {t("photos.recover")}
                   </button>
                   <button className="tool has-label danger px-word" onClick={() => void changeAll(selected, "expunged", true)}>
-                    Delete
+                    {t("photos.delete")}
                   </button>
                 </>
               ) : (
                 <button className="tool has-label danger px-word" onClick={() => void changeAll(photos.ids, "expunged", true)}>
-                  Delete All
+                  {t("photos.deleteAll")}
                 </button>
               )}
             </div>
@@ -3681,9 +3682,9 @@ export function PhotosView() {
           {!away && <div className="toolbar-group">
             <button
               className="tool px-cap is-glyph-state"
-              aria-label={fit ? "Show Square Photos" : "Show Whole Photos"}
+              aria-label={fit ? t("photos.showSquare") : t("photos.showWhole")}
               aria-pressed={fit}
-              title={fit ? "Square photos" : "Whole photos"}
+              title={fit ? t("photos.squarePhotos") : t("photos.wholePhotos")}
               onClick={toggleFit}
             >
               {fit ? <Square size={15} strokeWidth={1.9} aria-hidden="true" /> : <RectangleHorizontal size={16} strokeWidth={1.9} aria-hidden="true" />}
@@ -3718,10 +3719,10 @@ export function PhotosView() {
             <div className="toolbar-group">
               <button
                 className="tool px-cap"
-                aria-label="Go to a Month"
+                aria-label={t("photos.goToMonthAria")}
                 aria-haspopup="dialog"
                 aria-expanded={jumping !== null}
-                title="Go to a month"
+                title={t("photos.goToMonth")}
                 onClick={(e) => setJumping(jumping ? null : e.currentTarget.getBoundingClientRect())}
               >
                 <CalendarDays size={16} strokeWidth={1.9} aria-hidden="true" />
@@ -3751,8 +3752,8 @@ export function PhotosView() {
           <SearchField
             inToolbar
             className="px-search"
-            aria-label="Search Photos"
-            placeholder="Search Photos"
+            aria-label={t("photos.searchPhotos")}
+            placeholder={t("photos.searchPhotos")}
             value={query}
             onChange={setQuery}
             onClear={endSearch}
@@ -3774,9 +3775,9 @@ export function PhotosView() {
           <EmptyState
             className="px-empty px-locked"
             icon={<Lock size={28} strokeWidth={1.6} />}
-            action={{ label: "View Hidden Photos", run: () => setUnlocking(true) }}
+            action={{ label: t("photos.viewHidden"), run: () => setUnlocking(true) }}
           >
-            Enter your Apple Account password to view this album.
+            {t("photos.enterPasswordAlbum")}
           </EmptyState>
         )}
         {unlocking && hiddenLocked && (
@@ -3888,7 +3889,7 @@ export function PhotosView() {
             className={`px-viewer${fullscreen ? " is-full" : ""}${fullscreen && thumbs ? " has-thumbs" : ""}${info ? " has-info" : ""}`}
             ref={viewer}
             role="dialog"
-            aria-label={shown.filename ?? "Photo"}
+            aria-label={shown.filename ?? t("photos.photo")}
             onPointerMove={
               fullscreen
                 ? (e) => {
@@ -3922,9 +3923,9 @@ export function PhotosView() {
                 {photos && photos.length > 1 && (
                   <button
                     className="px-full-btn"
-                    aria-label={thumbs ? "Hide Thumbnails" : "Show Thumbnails"}
+                    aria-label={thumbs ? t("photos.hideThumbs") : t("photos.showThumbs")}
                     aria-pressed={thumbs}
-                    title={thumbs ? "Hide Thumbnails" : "Show Thumbnails"}
+                    title={thumbs ? t("photos.hideThumbs") : t("photos.showThumbs")}
                     onClick={toggleThumbs}
                   >
                     <GalleryThumbnails size={17} />
@@ -3942,7 +3943,7 @@ export function PhotosView() {
                       max={5}
                       step={0.01}
                       defaultValue={lensRef.current.k}
-                      aria-label="Zoom"
+                      aria-label={t("photos.zoom")}
                       onInput={(e) => zoomMiddle(Number(e.currentTarget.value), false)}
                     />
                     <button className="px-full-btn is-small" aria-label="Zoom In" title="Zoom In" onClick={() => zoomMiddle(lensRef.current.k * 1.5)}>
@@ -3973,7 +3974,7 @@ export function PhotosView() {
                   <>
                     <button
                       className="px-full-btn"
-                      aria-label={shown.favorite ? "Unfavorite" : "Favorite"}
+                      aria-label={shown.favorite ? t("photos.unfavorite") : t("photos.favorite")}
                       aria-pressed={shown.favorite}
                       title={shown.favorite ? "Unfavorite (.)" : "Favorite (.)"}
                       onClick={() => void change(shown, "favorite", !shown.favorite)}
@@ -3996,9 +3997,9 @@ export function PhotosView() {
                 )}
                 <button
                   className="px-full-btn"
-                  aria-label="More"
+                  aria-label={t("photos.more")}
                   aria-haspopup="menu"
-                  title="More"
+                  title={t("photos.more")}
                   onClick={(e) => {
                     const r = e.currentTarget.getBoundingClientRect();
                     photoMenu(shown, { x: r.right, y: r.bottom + 4, alignRight: true });
@@ -4016,9 +4017,9 @@ export function PhotosView() {
                 </button>
                 <button
                   className="tool px-cap"
-                  aria-label={fullscreen ? "Exit Full Screen" : "Enter Full Screen"}
+                  aria-label={fullscreen ? t("photos.exitFullScreen") : t("photos.enterFullScreen")}
                   aria-pressed={fullscreen}
-                  title={fullscreen ? "Exit Full Screen" : "Enter Full Screen"}
+                  title={fullscreen ? t("photos.exitFullScreen") : t("photos.enterFullScreen")}
                   onClick={() => void toggleFullscreen()}
                 >
                   {fullscreen ? <Minimize2 size={16} /> : <Maximize2 size={16} />}
@@ -4039,7 +4040,7 @@ export function PhotosView() {
                 <>
                   <button
                     className="tool px-cap"
-                    aria-label={shown.favorite ? "Unfavorite" : "Favorite"}
+                    aria-label={shown.favorite ? t("photos.unfavorite") : t("photos.favorite")}
                     aria-pressed={shown.favorite}
                     title={shown.favorite ? "Unfavorite (.)" : "Favorite (.)"}
                     onClick={() => void change(shown, "favorite", !shown.favorite)}
@@ -4048,9 +4049,9 @@ export function PhotosView() {
                   </button>
                   <button
                     className="tool px-cap"
-                    aria-label="Add to Album"
+                    aria-label={t("photos.addToAlbum")}
                     aria-haspopup="menu"
-                    title="Add to Album"
+                    title={t("photos.addToAlbum")}
                     onClick={(e) => {
                       const r = e.currentTarget.getBoundingClientRect();
                       setMenu({ at: { x: r.right, y: r.bottom + 4, alignRight: true }, entries: albumEntries([shown.id]) });
@@ -4103,7 +4104,7 @@ export function PhotosView() {
                     shape={shapeOf(shown)}
                     src={`${videoBase}/${film}`}
                     poster={viewSrc(shown)}
-                    label={shown.filename ?? "Video"}
+                    label={shown.filename ?? t("photos.video")}
                     style={fitted(shown)}
                     onError={() =>
                       noCopy.has(shown.id)
@@ -4252,7 +4253,7 @@ export function PhotosView() {
               {shown.kind === "live" && videoBase && !zoomed && (
                 <button
                   className={`px-mark${moving === shown.id ? " is-on" : ""}`}
-                  aria-label="Play Live Photo"
+                  aria-label={t("photos.playLive")}
                   onPointerEnter={() => setMoving(shown.id)}
                   onFocus={() => setMoving(shown.id)}
                   onClick={() => setMoving(shown.id)}
@@ -4262,13 +4263,13 @@ export function PhotosView() {
                     <circle cx="8" cy="8" r="4.6" fill="none" stroke="currentColor" strokeWidth="1.3" />
                     <circle cx="8" cy="8" r="7" fill="none" stroke="currentColor" strokeWidth="1.1" strokeDasharray="1.2 1.6" />
                   </svg>
-                  LIVE
+                  {t("photos.live")}
                 </button>
               )}
               {shown.burst && (shown.burstCount ?? 0) > 1 && !inBurst && !zoomed && (
                 <button className="px-mark" aria-label={`View all ${shown.burstCount} photos in this burst`} onClick={() => void viewBurst(shown)}>
                   <Layers size={13} aria-hidden="true" />
-                  BURST
+                  {t("photos.burst")}
                   <span className="px-mark-count">{shown.burstCount}</span>
                 </button>
               )}
@@ -4277,7 +4278,7 @@ export function PhotosView() {
                   <Layers size={13} aria-hidden="true" />
                   Burst · {(open ?? 0) + 1} of {inBurst.count}
                   <button className="px-mark-done" onClick={() => void leaveBurst(true)}>
-                    Done
+                    {t("photos.done")}
                   </button>
                 </div>
               )}
@@ -4304,8 +4305,8 @@ export function PhotosView() {
                     key={`t${shown.id}`}
                     ref={titleField}
                     className="px-title-field"
-                    aria-label="Title"
-                    placeholder="Add a Title"
+                    aria-label={t("photos.title")}
+                    placeholder={t("photos.addTitle")}
                     defaultValue={shown.title ?? ""}
                     maxLength={255}
                     readOnly={place === "recentlyDeleted"}
@@ -4315,8 +4316,8 @@ export function PhotosView() {
                     key={`c${shown.id}`}
                     ref={captionField}
                     className="px-caption"
-                    aria-label="Caption"
-                    placeholder="Add a Caption"
+                    aria-label={t("photos.caption")}
+                    placeholder={t("photos.addCaption")}
                     defaultValue={shown.caption ?? ""}
                     maxLength={2000}
                     rows={1}
@@ -4334,13 +4335,13 @@ export function PhotosView() {
                   </div>
                   {place !== "recentlyDeleted" && (
                     <button className="px-link px-adjust" onClick={() => setAdjusting(shown)}>
-                      Adjust
+                      {t("photos.adjust")}
                     </button>
                   )}
                 </div>
                 {/* The file, as Photos sets it: its name, then what it is, in one quiet block. */}
                 <div className="px-info-file">
-                  <strong>{shown.filename ?? "Photo"}</strong>
+                  <strong>{shown.filename ?? t("photos.photo")}</strong>
                   <span>
                     {shown.kind === "video" ? `Video${shown.duration ? `, ${clock(shown.duration)}` : ""}` : shown.kind === "live" ? "Live Photo" : "Photo"}
                     {shown.width && shown.height && shown.kind !== "video" ? `, ${Math.round((shown.width * shown.height) / 1e6)} MP` : ""}
@@ -4353,7 +4354,7 @@ export function PhotosView() {
                 <dl className="px-facts">
                   {/* Stars, as Info sets them: a click gives that many; the same again takes them away. */}
                   <div className="px-fact">
-                    <dt>Rating</dt>
+                    <dt>{t("photos.rating")}</dt>
                     <dd className="px-rating" role="radiogroup" aria-label="Rating">
                       {[1, 2, 3, 4, 5].map((n) => (
                         <button
@@ -4372,11 +4373,11 @@ export function PhotosView() {
                   </div>
                   {shown.latitude != null && shown.longitude != null && (
                     <div className="px-fact">
-                      <dt>Place</dt>
+                      <dt>{t("photos.place")}</dt>
                       <dd className="px-place">
                         <span>{degrees(shown.latitude, "N", "S")}, {degrees(shown.longitude, "E", "W")}</span>
                         <button className="px-link" onClick={() => void api.photoOpenMap(shown.id).catch((e) => setError(messageOf(e)))}>
-                          Open in Map
+                          {t("photos.openInMap")}
                         </button>
                       </dd>
                     </div>
@@ -4384,14 +4385,14 @@ export function PhotosView() {
                   {/* Keywords, as Info keeps them: each its own chip, taken away with ×; a word
                       typed and Return adds one. */}
                   <div className="px-fact">
-                    <dt>Keywords</dt>
+                    <dt>{t("photos.keywords")}</dt>
                     <dd className="px-words-field">
                       {(shown.keywords ?? []).map((k) => (
                         <span key={k} className="px-chip">
                           {k}
                           {place !== "recentlyDeleted" && (
                             <button
-                              aria-label={`Remove ${k}`}
+                              aria-label={t("photos.removeKeyword", { keyword: k })}
                               onClick={() => void keywords(shown, (shown.keywords ?? []).filter((x) => x !== k))}
                             >
                               <X size={10} strokeWidth={3} aria-hidden="true" />
@@ -4403,8 +4404,8 @@ export function PhotosView() {
                         <input
                           key={`k${shown.id}`}
                           className="px-keyword-field"
-                          aria-label="Add a Keyword"
-                          placeholder="Add a Keyword"
+                          aria-label={t("photos.addKeyword")}
+                          placeholder={t("photos.addKeyword")}
                           maxLength={100}
                           onKeyDown={(e) => {
                             // Enter and comma while composing pick a candidate, not a keyword.
@@ -4509,7 +4510,7 @@ export function UnlockSheet({ onCancel, onUnlocked }: { onCancel: () => void; on
           className="modal-sheet confirm px-unlock"
           role="dialog"
           aria-modal="true"
-          aria-label="View Hidden Photos"
+          aria-label={t("photos.viewHidden")}
           onClick={(e) => e.stopPropagation()}
           onSubmit={(e) => {
             e.preventDefault();
@@ -4523,15 +4524,15 @@ export function UnlockSheet({ onCancel, onUnlocked }: { onCancel: () => void; on
             }
           }}
         >
-          <h2>View Hidden Photos</h2>
-          <p>Enter the password for your Apple Account.</p>
+          <h2>{t("photos.viewHidden")}</h2>
+          <p>{t("photos.enterPassword")}</p>
           <input
             ref={field}
             className="field"
             type="password"
             autoComplete="current-password"
-            placeholder="Password"
-            aria-label="Password"
+            placeholder={t("photos.password")}
+            aria-label={t("photos.password")}
             aria-invalid={problem ? true : undefined}
             aria-describedby={problem ? "px-unlock-problem" : undefined}
             value={password}
@@ -4545,15 +4546,15 @@ export function UnlockSheet({ onCancel, onUnlocked }: { onCancel: () => void; on
           )}
           {hello && (
             <button type="button" className="quiet px-unlock-hello" disabled={busy} onClick={() => void withHello()}>
-              Use Windows Hello
+              {t("photos.windowsHello")}
             </button>
           )}
           <div className="confirm-actions">
             <button type="button" className="quiet" onClick={onCancel}>
-              Cancel
+              {t("photos.cancel")}
             </button>
             <button type="submit" className="primary confirm-answer" disabled={!password || busy}>
-              {busy ? "Checking…" : "View Album"}
+              {busy ? t("photos.checking") : t("photos.viewAlbum")}
             </button>
           </div>
         </form>

@@ -13,6 +13,7 @@
  * The scrubber follows the film every frame (the engine's own timeupdate comes four times a
  * second, and a progress bar that jumps reads as a stutter), and dragging it seeks as it goes.
  */
+import { t } from "../../lib/i18n";
 import { useActiveRef, useScreenActive } from "../../lib/screen";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { Pause, Play, Volume2, VolumeX } from "lucide-react";
@@ -213,7 +214,7 @@ export function VideoPlayer({
         <div
           className="px-scrub"
           role="slider"
-          aria-label="Playback position"
+          aria-label={t("photos.playbackPosition")}
           aria-valuemin={0}
           aria-valuemax={100}
           tabIndex={0}
@@ -254,7 +255,7 @@ export function VideoPlayer({
         </span>
         <button
           className="tool px-cap"
-          aria-label={muted ? "Unmute" : "Mute"}
+          aria-label={muted ? t("photos.unmute") : t("photos.mute")}
           onClick={() => {
             const v = film.current;
             if (v) v.muted = !v.muted;

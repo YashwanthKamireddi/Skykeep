@@ -3,6 +3,7 @@
  * as captured or imported — and, including edits, Highest Resolution or Most Compatible. Each
  * row downloads at once; Escape or × closes.
  */
+import { t } from "../../lib/i18n";
 import { useActiveRef } from "../../lib/screen";
 import { useEffect, useRef } from "react";
 import { useModalFocus } from "../../lib/focus";
@@ -44,7 +45,7 @@ export function DownloadOptions({ photos, onPick, onClose }: { photos: Photo[]; 
         <button className="icon-button small round sheet-close" aria-label="Close" onClick={onClose}>
           <X size={16} strokeWidth={2.2} aria-hidden="true" />
         </button>
-        <h2>Download Options</h2>
+        <h2>{t("photos.downloadOptions")}</h2>
         <div className="px-dl-pics" aria-hidden="true">
           {photos.slice(0, 3).map((p) => (
             <img key={p.id} src={pictureSrc(p.id, "thumb")} alt="" />
@@ -53,8 +54,8 @@ export function DownloadOptions({ photos, onPick, onClose }: { photos: Photo[]; 
         <p className="px-dl-count">{n === 1 ? "1 Item" : `${n} Items`}</p>
         {row("originals", "Unmodified Originals", "Originals as captured or imported")}
         <p className="px-dl-head">Including Edits</p>
-        {row("highestQuality", "Highest Resolution", "Typically includes HEIC or H.265 files")}
-        {row("mostCompatible", "Most Compatible", "JPEG or MP4/H.264 when possible")}
+        {row("highestQuality", t("photos.highestQuality"), t("photos.highestQualityHint"))}
+        {row("mostCompatible", t("photos.mostCompatible"), t("photos.mostCompatibleHint"))}
       </div>
     </div>
   );

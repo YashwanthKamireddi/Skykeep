@@ -7,6 +7,8 @@
  * out from the width alone, so a jump to any one lands exactly, and only the rows near the screen
  * are made, their pictures fetched.
  */
+import { t } from "../../lib/i18n";
+import { dateLocale } from "../../lib/when";
 import { useLayoutEffect, useMemo, useRef, useState, type MutableRefObject } from "react";
 import { fitSrc, type PhotoMonth } from "../../lib/ipc";
 
@@ -16,13 +18,14 @@ export type Place = { year: number; month?: number };
 
 /** "October 2026": the grid's own words for a month (PhotosView's monthOf), so the two agree. */
 export const monthName = (year: number, month: number) =>
-  new Date(year, month - 1, 15).toLocaleDateString(undefined, { month: "long", year: "numeric" });
+  new Date(year, month - 1, 15).toLocaleDateString(dateLocale(), { month: "long", year: "numeric" });
 
 /** "212 Photos, 4 Videos", as the foot of the library counts. */
 const tally = (count: number, videos: number) => {
-  const part = (n: number, one: string) => `${n.toLocaleString()} ${n === 1 ? one : `${one}s`}`;
+  const part = (n: number, kind: "photo" | "video") => t(`photos.${kind}${n === 1 ? "One" : "Many"}`, { count: n.toLocaleString() });
   const stills = count - videos;
-  return [stills && part(stills, "Photo"), videos && part(videos, "Video")].filter(Boolean).join(", ");
+  if (stills && videos) return t("photos.tallyBoth", { photos: part(stills, "photo"), videos: part(videos, "video") });
+  return stills ? part(stills, "photo") : part(videos, "video");
 };
 
 type Year = { year: number; count: number; videos: number; key: string };

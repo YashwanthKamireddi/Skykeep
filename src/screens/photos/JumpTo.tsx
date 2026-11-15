@@ -3,6 +3,8 @@
  * year's months as tiles with a photo from each, in the calendar's order. A tile takes the grid
  * to that month. Only months the library has photos in are offered.
  */
+import { t } from "../../lib/i18n";
+import { dateText } from "../../lib/when";
 import { useActiveRef } from "../../lib/screen";
 import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { fitSrc } from "../../lib/ipc";
@@ -11,7 +13,8 @@ import { grow } from "../../lib/fade";
 
 export type MonthCover = { label: string; year: number; month: number; cover: { id: string } };
 
-const SHORT = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
+/** A month's short name in the reader's language (0 = January). */
+const short = (m: number) => dateText(new Date(2023, m, 1), { month: "short" });
 
 export function JumpTo({
   months,
@@ -65,7 +68,7 @@ export function JumpTo({
         ref={box}
         className="px-jump"
         role="dialog"
-        aria-label="Go to a month"
+        aria-label={t("photos.goToMonth")}
         tabIndex={-1}
         style={{ top: at.bottom + 8, left: Math.max(8, Math.min(at.left - 120, window.innerWidth - 408)) }}
       >
@@ -90,7 +93,7 @@ export function JumpTo({
                 }}
               >
                 <img src={fitSrc(m.cover.id, 128 * dpr)} alt="" decoding="async" draggable={false} />
-                <span>{SHORT[m.month]}</span>
+                <span>{short(m.month)}</span>
               </button>
             ))}
           </div>

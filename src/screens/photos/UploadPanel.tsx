@@ -4,6 +4,7 @@
  * and, at the end, what did not go and why ("Duplicate item."), until Done slides it away. A
  * clean finish goes by itself after a moment.
  */
+import { t } from "../../lib/i18n";
 import { Progress, Spinner } from "../../components/Spinner";
 import { memo, useEffect, useRef, useState, useSyncExternalStore } from "react";
 import { convertFileSrc } from "@tauri-apps/api/core";
@@ -71,7 +72,7 @@ const bytes = (n: number) => {
   return `${(n / 1024 / 1024 / 1024).toFixed(2)} GB`;
 };
 
-const items = (n: number) => `${n.toLocaleString()} ${n === 1 ? "Item" : "Items"}`;
+const items = (n: number) => t(n === 1 ? "photos.upItemOne" : "photos.upItemMany", { count: n.toLocaleString() });
 
 /** The file's own picture, made small by the app; a plain glyph for what cannot be drawn. */
 function Thumb({ id }: { id: string }) {
@@ -102,27 +103,27 @@ const Row = memo(function Row({ u, cancel }: { u: UploadEvent; cancel: (ids: str
         <span className="px-up-name">{u.name}</span>
         <span className="px-up-sub">
           {u.state === "failed"
-            ? u.error ?? "Not uploaded."
+            ? u.error ?? t("photos.notUploaded")
             : u.state === "cancelled"
-              ? "Stopped"
+              ? t("photos.stopped")
               : u.state === "done"
                 ? bytes(u.total)
                 : u.state === "verifying"
-                  ? "Processing…"
-                  : `${bytes(u.sent)} of ${bytes(u.total)}`}
+                  ? t("photos.processing")
+                  : t("photos.sentOf", { sent: bytes(u.sent), total: bytes(u.total) })}
         </span>
       </span>
       <span className="px-up-end">
         {u.state === "waiting" && (
           <>
-            <span className="px-up-pending">Pending</span>
-            <button className="icon-button small round px-up-stop" aria-label={`Stop ${u.name}`} title="Stop" onClick={() => void cancel([u.id])}>
+            <span className="px-up-pending">{t("photos.pending")}</span>
+            <button className="icon-button small round px-up-stop" aria-label={t("photos.stopName", { name: u.name })} title={t("photos.stop")} onClick={() => void cancel([u.id])}>
               <X size={11} strokeWidth={3} aria-hidden="true" />
             </button>
           </>
         )}
-        {(u.state === "sending" || u.state === "verifying") && <Spinner label="Uploading" />}
-        {u.state === "done" && <Check className="px-up-ok" size={15} strokeWidth={2.4} aria-label="Uploaded" />}
+        {(u.state === "sending" || u.state === "verifying") && <Spinner label={t("photos.uploading")} />}
+        {u.state === "done" && <Check className="px-up-ok" size={15} strokeWidth={2.4} aria-label={t("photos.uploaded")} />}
         {u.state === "failed" && <Info className="px-up-why" size={15} strokeWidth={2} aria-label={u.error ?? "Not uploaded"} />}
       </span>
     </li>
@@ -167,15 +168,15 @@ export function UploadPanel({
   const done = files.length - failed.length - cancelled;
   const title = active
     ? processing
-      ? "Finalizing Uploads"
-      : `Uploading ${items(files.length)} to iCloud`
+      ? t("photos.finalizing")
+      : t("photos.uploadingTo", { items: items(files.length) })
     : failed.length
       ? failed.length === files.length
-        ? `${items(failed.length)} Not Uploaded`
-        : `${failed.length} of ${items(files.length)} Not Uploaded`
+        ? t("photos.allNotUploaded", { items: items(failed.length) })
+        : t("photos.someNotUploaded", { count: failed.length, items: items(files.length) })
       : cancelled && !done
-        ? "Upload Stopped"
-        : `${items(done)} Uploaded`;
+        ? t("photos.uploadStopped")
+        : t("photos.uploadedItems", { items: items(done) });
   const batches = [...new Set(files.filter((u) => !ended(u)).map((u) => u.batch))];
 
   return (
@@ -183,11 +184,11 @@ export function UploadPanel({
       <header className="px-up-head">
         {active ? (
           <button className="link px-up-link" onClick={() => batches.forEach((b) => void cancel([], b))}>
-            Stop Upload
+            {t("photos.stopUpload")}
           </button>
         ) : (
           <button className="link px-up-link" onClick={close}>
-            Done
+            {t("photos.done")}
           </button>
         )}
       </header>

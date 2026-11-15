@@ -5,6 +5,8 @@
  * a card opens the album in the grid, to look through, copy and save. Making albums, adding to
  * them and comments come once Apple's ways of writing them are mapped.
  */
+import { t } from "../../lib/i18n";
+import { dateLocale } from "../../lib/when";
 import { EmptyState } from "../../components/EmptyState";
 import { PaneTitle } from "../../components/PaneTitle";
 import { useEffect, useState } from "react";
@@ -15,7 +17,7 @@ import { useRevision } from "../../lib/sync";
 /** When an album ends, as icloud.com says it: "Expires November 19". */
 function expiry(at: number | null): string | null {
   if (!at) return null;
-  return `Expires ${new Date(at * 1000).toLocaleDateString(undefined, { month: "long", day: "numeric" })}`;
+  return t("photos.expires", { date: new Date(at * 1000).toLocaleDateString(dateLocale(), { month: "long", day: "numeric" }) });
 }
 
 /** An album's picture: its cover, or — none, or one that won't load (offline, a link Apple let
@@ -44,17 +46,17 @@ export function SharedAlbums({ onError, onOpen }: { onError: (message: string) =
     <div className="px-albums-page">
       <header className="px-albums-head">
         <PaneTitle className="px-heading" countClassName="px-span" count={albums === null ? " " : n === 1 ? "1 Shared Album" : `${n} Shared Albums`}>
-          Shared Albums
+          {t("photos.sharedAlbums")}
         </PaneTitle>
       </header>
       {albums !== null && n === 0 ? (
         <EmptyState className="px-empty px-shared-empty" icon={<Users size={28} strokeWidth={1.6} />}>
-          Albums you share from your iPhone, and ones you're invited to, show here.
+          {t("photos.sharedAlbumsEmpty")}
         </EmptyState>
       ) : (
         <div className="px-cards" role="list" aria-busy={albums === null}>
           {(albums ?? []).map((a) => {
-            const name = a.title ?? "Shared Album";
+            const name = a.title ?? t("photos.sharedAlbum");
             const ends = expiry(a.expiresAt);
             return (
               <button key={a.zone} type="button" role="listitem" className="px-card" aria-label={name} onClick={() => onOpen(a)}>
