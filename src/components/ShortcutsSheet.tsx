@@ -7,6 +7,7 @@ import { useRef } from "react";
 import { Portal } from "./Portal";
 import { useModalFocus } from "../lib/focus";
 
+/** One action and its keys: each combination pressed together; more than one, either works. */
 type Row = [keys: string[][], action: string];
 export const SHORTCUTS: { app: string; key: string; rows: Row[] }[] = [
   {
@@ -23,27 +24,36 @@ export const SHORTCUTS: { app: string; key: string; rows: Row[] }[] = [
     app: "Notes",
     key: "notes",
     rows: [
-      [[["Ctrl", "N"], ["Ctrl", "Shift", "N"]], "New note / new folder"],
-      [[["Ctrl", "F"], ["Ctrl", "Shift", "F"]], "Search this folder / all notes"],
-      [[["↑"], ["↓"]], "Previous / next note"],
+      [[["Ctrl", "N"]], "New note"],
+      [[["Ctrl", "Shift", "N"]], "New folder"],
+      [[["Ctrl", "F"]], "Search this folder"],
+      [[["Ctrl", "Shift", "F"]], "Search all notes"],
+      [[["↑"]], "Previous note"],
+      [[["↓"]], "Next note"],
       [[["Ctrl", "Delete"]], "Delete note"],
       [[["Ctrl", "S"]], "Finish editing"],
       [[["Ctrl", "K"]], "Add or edit a link"],
-      [[["Ctrl", "Shift", "L"], ["Ctrl", "Shift", "U"]], "Checklist / tick the item"],
+      [[["Ctrl", "Shift", "L"]], "Checklist"],
+      [[["Ctrl", "Shift", "U"]], "Tick the item"],
     ],
   },
   {
     app: "Reminders",
     key: "reminders",
     rows: [
-      [[["Ctrl", "N"], ["Ctrl", "Shift", "N"]], "New reminder / new list"],
-      [[["Tab"], ["Shift", "Tab"]], "Make a subtask / move it back out"],
-      [[["Space"], ["Return"]], "Tick / edit"],
+      [[["Ctrl", "N"]], "New reminder"],
+      [[["Ctrl", "Shift", "N"]], "New list"],
+      [[["Tab"]], "Make a subtask"],
+      [[["Shift", "Tab"]], "Move a subtask back out"],
+      [[["Space"]], "Tick"],
+      [[["Return"]], "Edit"],
       [[["Ctrl", "I"]], "Show details"],
-      [[["Ctrl", "Shift", "F"], ["Ctrl", "Shift", "C"]], "Flag / complete"],
+      [[["Ctrl", "Shift", "F"]], "Flag"],
+      [[["Ctrl", "Shift", "C"]], "Complete"],
       [[["Ctrl", "T"]], "Due today"],
       [[["Ctrl", "Shift", "H"]], "Show or hide completed"],
-      [[["Ctrl", "E"], ["Ctrl", "Shift", "E"]], "Show / hide all subtasks"],
+      [[["Ctrl", "E"]], "Show all subtasks"],
+      [[["Ctrl", "Shift", "E"]], "Hide all subtasks"],
       [[["Ctrl", "F"]], "Search"],
     ],
   },
@@ -51,12 +61,18 @@ export const SHORTCUTS: { app: string; key: string; rows: Row[] }[] = [
     app: "Calendar",
     key: "calendar",
     rows: [
-      [[["Ctrl", "1–4"]], "Day, Week, Month, Year"],
+      [[["Ctrl", "1"]], "Day"],
+      [[["Ctrl", "2"]], "Week"],
+      [[["Ctrl", "3"]], "Month"],
+      [[["Ctrl", "4"]], "Year"],
       [[["T"]], "Today"],
       [[["Ctrl", "Shift", "T"]], "Go to Date"],
-      [[["←"], ["→"]], "Previous / next"],
+      [[["←"]], "Previous"],
+      [[["→"]], "Next"],
       [[["Ctrl", "N"]], "New event"],
-      [[["Ctrl", "D"], ["Ctrl", "C"], ["Ctrl", "V"]], "Duplicate / copy / paste event"],
+      [[["Ctrl", "D"]], "Duplicate event"],
+      [[["Ctrl", "C"]], "Copy event"],
+      [[["Ctrl", "V"]], "Paste event"],
       [[["Ctrl", "Alt", "Arrows"]], "Nudge the selected event"],
       [[["Ctrl", "Z"]], "Undo the last change or deletion"],
     ],
@@ -80,17 +96,22 @@ export const SHORTCUTS: { app: string; key: string; rows: Row[] }[] = [
       [[["Return"], ["Ctrl", "↓"]], "Open"],
       [[["Ctrl", "↑"]], "Enclosing folder"],
       [[["Space"]], "Quick preview"],
-      [[["F2"], ["Delete"]], "Rename / move to Recently Deleted"],
+      [[["F2"]], "Rename"],
+      [[["Delete"]], "Move to Recently Deleted"],
     ],
   },
   {
     app: "Photos",
     key: "photos",
     rows: [
-      [[["←"], ["→"]], "Previous / next"],
+      [[["←"]], "Previous"],
+      [[["→"]], "Next"],
       [[["."], ["F"]], "Favourite"],
-      [[["I"], ["Z"]], "Info / zoom to fit or full size"],
-      [[["Ctrl", "+"], ["Ctrl", "-"], ["Ctrl", "0"]], "Zoom in / out / reset"],
+      [[["I"]], "Info"],
+      [[["Z"]], "Zoom to fit or full size"],
+      [[["Ctrl", "+"]], "Zoom in"],
+      [[["Ctrl", "-"]], "Zoom out"],
+      [[["Ctrl", "0"]], "Reset zoom"],
       [[["Space"]], "Play a video or Live Photo"],
       [[["Esc"]], "Close the viewer"],
     ],
@@ -132,10 +153,17 @@ export function ShortcutsSheet({ front, onClose }: { front: string | null; onClo
                       <dt>{action}</dt>
                       <dd>
                         {keys.map((combo, i) => (
-                          <span key={i} className="shortcuts-combo">
-                            {combo.map((k) => (
-                              <kbd key={k}>{k}</kbd>
-                            ))}
+                          <span key={i} className="shortcuts-either">
+                            {i > 0 && <span className="shortcuts-or">or</span>}
+                            {/* A combination as one cap, its keys joined as they are pressed. */}
+                            <kbd className="shortcuts-combo" aria-label={combo.join(" + ")}>
+                              {combo.map((k, j) => (
+                                <span key={k}>
+                                  {j > 0 && <span className="shortcuts-plus" aria-hidden="true">+</span>}
+                                  {k}
+                                </span>
+                              ))}
+                            </kbd>
                           </span>
                         ))}
                       </dd>

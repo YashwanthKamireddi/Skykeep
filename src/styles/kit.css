@@ -534,13 +534,18 @@ textarea.field { padding-block: 5px; resize: vertical; }
 }
 .shortcuts-row:first-child { border-top: 0; }
 .shortcuts-row dt { color: var(--text-2); min-width: 0; }
-.shortcuts-row dd { margin: 0; display: flex; flex-wrap: wrap; justify-content: flex-end; gap: 6px; flex: none; }
-.shortcuts-combo { display: inline-flex; gap: 2px; }
-.shortcuts-combo kbd {
-  min-width: 20px; padding: 1px 5px; border-radius: 5px; text-align: center;
-  font: inherit; font-size: var(--t-11); font-weight: 600; color: var(--text);
+.shortcuts-row dd { margin: 0; display: flex; flex-wrap: wrap; align-items: center; justify-content: flex-end; gap: 6px; flex: none; }
+/* The title, the list and Done: only the list scrolls, the title is never squeezed. */
+.shortcuts-sheet > :not(.shortcuts-groups) { flex: none; }
+.shortcuts-either { display: inline-flex; align-items: center; gap: 6px; }
+.shortcuts-or { color: var(--text-3); font-size: var(--t-11); }
+.shortcuts-combo {
+  display: inline-flex; align-items: center; gap: 3px; min-width: 22px; height: 20px; padding: 0 6px;
+  border-radius: 5px; justify-content: center;
+  font: inherit; font-size: var(--t-11); font-weight: 600; color: var(--text); white-space: nowrap;
   background: var(--fill); box-shadow: inset 0 calc(-1 * var(--hairline)) 0 var(--separator);
 }
+.shortcuts-plus { color: var(--text-3); font-weight: 500; margin-right: 3px; }
 
 /* Open-Source Licences (Settings): the Keyboard Shortcuts sheet's form, a quiet heading for
    each licence over what is shipped under each of its texts. A row unfolds its text in place,

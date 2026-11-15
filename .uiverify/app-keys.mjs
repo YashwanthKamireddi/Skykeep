@@ -27,7 +27,7 @@ for (const scheme of ["light", "dark"]) {
   await sheet.waitFor();
   const groups = await sheet.locator("h3").allInnerTexts();
   ok(JSON.stringify(groups) === JSON.stringify(["Calendar", "Everywhere"]), `${scheme}: Calendar's window lists Calendar's keys, then those that work everywhere  ${JSON.stringify(groups)}`);
-  ok((await sheet.locator(".shortcuts-row", { hasText: "Settings" }).locator("kbd").allInnerTexts()).join("+") === "Ctrl+,", `${scheme}: it names Ctrl+, for Settings`);
+  ok((await sheet.locator(".shortcuts-row", { hasText: "Settings" }).locator("kbd").getAttribute("aria-label")) === "Ctrl + ,", `${scheme}: it names Ctrl+, for Settings`);
   const box = await sheet.boundingBox();
   ok(box && box.width <= 760 && box.height <= 820 * 0.88 + 1, `${scheme}: it fits the window  ${JSON.stringify(box)}`);
   ok(await page.evaluate(() => document.activeElement?.textContent === "Done"), `${scheme}: Done has the focus`);
