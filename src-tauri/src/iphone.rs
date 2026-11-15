@@ -2,17 +2,15 @@
 //! app, so a phone on the cable with Skykeep open on it is used at once, with nothing to press.
 //! Linux for now; Windows follows with its own camera.
 
-use std::sync::OnceLock;
-
 use serde::Serialize;
 
-#[cfg(target_os = "linux")]
-static LINK: OnceLock<quince_link::service::Service> = OnceLock::new();
+#[cfg(all(target_os = "linux", feature = "iphone"))]
+static LINK: std::sync::OnceLock<quince_link::service::Service> = std::sync::OnceLock::new();
 
 /// Starts watching for the phone. Only the one Skykeep that holds the library gets here, so
 /// two never publish the same camera.
 pub fn start() {
-    #[cfg(target_os = "linux")]
+    #[cfg(all(target_os = "linux", feature = "iphone"))]
     {
         let _ = LINK.set(quince_link::service::start());
     }
@@ -30,7 +28,7 @@ pub struct IphoneStatus {
 
 #[tauri::command]
 pub fn iphone_status() -> IphoneStatus {
-    #[cfg(target_os = "linux")]
+    #[cfg(all(target_os = "linux", feature = "iphone"))]
     if let Some(link) = LINK.get() {
         use quince_link::service::Status;
         let state = match *link.status.lock().unwrap() {

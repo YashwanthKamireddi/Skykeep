@@ -103,6 +103,8 @@ parts:
       - gstreamer1.0-plugins-base
       - gstreamer1.0-plugins-good
       - gstreamer1.0-libav
+      # The iPhone as camera and microphone publishes PipeWire devices (crates/quince-link).
+      - libpipewire-0.3-0t64
     override-prime: |
       craftctl default
       # Each launcher's icon, from inside the snap.
