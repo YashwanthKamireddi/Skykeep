@@ -29,7 +29,7 @@ const row = (page) => page.locator(".settings-row", { hasText: "iPhone as camera
 {
   // No v4l2loopback on this system: says what to install, with nothing to press.
   const { ctx, page } = await open("none");
-  await page.evaluate(() => { window.__iphone.everyApp = "install"; window.__emit("quince://iphone", null); });
+  await page.evaluate(() => { window.__iphone = { ...window.__iphone, everyApp: "install" }; window.__emit("quince://iphone", null); });
   const every = page.locator(".settings-row", { hasText: "Show it to every app" });
   await every.getByText("install v4l2loopback", { exact: false }).waitFor({ timeout: 2000 });
   ok((await every.getByRole("button").count()) === 0, "no module to set up: the step to take instead, no button");
