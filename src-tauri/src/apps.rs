@@ -308,6 +308,8 @@ fn make(app: &AppHandle, key: &str, asking: &str) {
         Ok(w) => w,
         Err(e) => {
             quiet!("the {name} window could not be made: {e}");
+            crate::timing::mark(format_args!("app {key} window NOT made: {e}"));
+            crate::diagnostics::note(&format!("window: the {name} window could not be made: {e}"));
             return;
         }
     };

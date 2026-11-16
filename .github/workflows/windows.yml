@@ -336,7 +336,9 @@ jobs:
               $true }, [System.IntPtr]::Zero) | Out-Null
             $found | Select-Object -First 1
           }
-          $p = Start-Process $exe.FullName -PassThru
+          # Each step of making and showing a window, for the #62 checks below (timing.rs).
+          $env:SKYKEEP_TIMING = "1"
+          $p = Start-Process $exe.FullName -PassThru -RedirectStandardError "$env:RUNNER_TEMP\skykeep-stderr.txt"
           $titles = @()
           for ($i = 0; $i -lt 30 -and -not ($titles -contains "Skykeep"); $i++) {
             Start-Sleep -Seconds 2
@@ -377,10 +379,10 @@ jobs:
             if (-not ($lists | Where-Object { $_.Contains($needle) })) { throw "the jump list has no '$task' task" }
           }
           "jump list: $($tasks -join ', ')"
-          # #62: an app's window made again at the smallest size it was left at drew nothing
-          # (all white) until resized. As a person does it: Reminders opened, made as small as it
-          # goes, closed; after Skykeep let go of the closed window (a minute, apps.rs KEPT) it is
-          # made again at the size it was left, and what it draws is read back from the window.
+          # #62: an app's window made again after it was let go of drew nothing (all white) or
+          # did not come back. As a person does it: the app opened, closed; once Skykeep let go
+          # of the closed window (a minute, apps.rs KEPT) it is opened again and has to be on
+          # screen, drawn. Notes at its own size, then Reminders left at its smallest.
           Add-Type -TypeDefinition '
             using System; using System.Runtime.InteropServices;
             public static class Px {
@@ -390,50 +392,59 @@ jobs:
               [StructLayout(LayoutKind.Sequential)] public struct R { public int L, T, Ri, B; }
               [DllImport("user32.dll")] public static extern bool GetWindowRect(IntPtr h, out R r);
             }'
-          function Colours([IntPtr]$h) {
+          function Windows-Of([int]$procId) {
+            $list = New-Object System.Collections.Generic.List[string]
+            [Win.U]::EnumWindows({ param($w, $l)
+              $owner = 0; [void][Win.U]::GetWindowThreadProcessId($w, [ref]$owner)
+              if ($owner -eq $procId) {
+                $sb = New-Object System.Text.StringBuilder 256; [void][Win.U]::GetWindowText($w, $sb, 256)
+                $r = New-Object Px+R; [void][Px]::GetWindowRect($w, [ref]$r)
+                if ($sb.Length -gt 0) { $list.Add("'$($sb.ToString())' visible=$([Win.U]::IsWindowVisible($w)) at $($r.L),$($r.T) $($r.Ri - $r.L)x$($r.B - $r.T)") }
+              }
+              $true }, [System.IntPtr]::Zero) | Out-Null
+            $list
+          }
+          function Colours([IntPtr]$h, [string]$name) {
             $r = New-Object Px+R; [void][Px]::GetWindowRect($h, [ref]$r)
             $w = $r.Ri - $r.L; $hh = $r.B - $r.T
             $bmp = New-Object System.Drawing.Bitmap $w, $hh
             $g = [System.Drawing.Graphics]::FromImage($bmp); $dc = $g.GetHdc()
             [void][Px]::PrintWindow($h, $dc, 2); $g.ReleaseHdc($dc); $g.Dispose()
             $seen = @{}
-            # The client area only (below the title bar), every fourth pixel.
             for ($y = 48; $y -lt $hh - 8; $y += 4) { for ($x = 8; $x -lt $w - 8; $x += 4) { $seen[$bmp.GetPixel($x, $y).ToArgb()] = 1 } }
-            $bmp.Save("$env:RUNNER_TEMP\reminders-small.png")
-            "window $w x $hh, $($seen.Count) colours"
+            $bmp.Save("$env:RUNNER_TEMP\app-$name.png")
+            "$name window $w x $hh, $($seen.Count) colours"
             return $seen.Count
           }
-          Start-Process $exe.FullName -ArgumentList "--app reminders"
-          $h = $null
-          for ($i = 0; $i -lt 15 -and -not $h; $i++) { Start-Sleep -Seconds 2; $h = Find-Window $p.Id "Reminders" }
-          if (-not $h) { throw "no Reminders window" }
-          [void][Px]::SetWindowPos($h, [IntPtr]::Zero, 100, 100, 200, 200, 0x0014)   # smaller than allowed: held at the minimum
-          Start-Sleep -Seconds 2
-          $r = New-Object Px+R; [void][Px]::GetWindowRect($h, [ref]$r); "Reminders shrunk to $($r.Ri - $r.L)x$($r.B - $r.T)"
-          [void][Px]::PostMessage($h, 0x0010, [IntPtr]::Zero, [IntPtr]::Zero)         # WM_CLOSE
-          Start-Sleep -Seconds 70
-          Start-Process $exe.FullName -ArgumentList "--app reminders"
-          $h = $null
-          for ($i = 0; $i -lt 15 -and -not $h; $i++) { Start-Sleep -Seconds 2; $h = Find-Window $p.Id "Reminders" }
-          if (-not $h) {
-            # Every window the process has, shown or not, with its size: what became of Reminders.
-            [Win.U]::EnumWindows({ param($w, $l)
-              $owner = 0; [void][Win.U]::GetWindowThreadProcessId($w, [ref]$owner)
-              if ($owner -eq $p.Id) {
-                $sb = New-Object System.Text.StringBuilder 256; [void][Win.U]::GetWindowText($w, $sb, 256)
-                $r = New-Object Px+R; [void][Px]::GetWindowRect($w, [ref]$r)
-                if ($sb.Length -gt 0) { "  window '$($sb.ToString())' visible=$([Win.U]::IsWindowVisible($w)) $($r.L),$($r.T) $($r.Ri - $r.L)x$($r.B - $r.T)" }
-              }
-              $true }, [System.IntPtr]::Zero) | Out-Null
-            $b = [System.Windows.Forms.Screen]::PrimaryScreen.Bounds
-            $bmp = New-Object System.Drawing.Bitmap $b.Width, $b.Height
-            [System.Drawing.Graphics]::FromImage($bmp).CopyFromScreen($b.Location, [System.Drawing.Point]::Empty, $b.Size)
-            $bmp.Save("$env:RUNNER_TEMP\reminders-small.png")
-            throw "no Reminders window the second time"
+          function Reopened([string]$app, [string]$title, [int]$w, [int]$hgt) {
+            Start-Process $exe.FullName -ArgumentList "--app $app"
+            $h = $null
+            for ($i = 0; $i -lt 15 -and -not $h; $i++) { Start-Sleep -Seconds 2; $h = Find-Window $p.Id $title }
+            if (-not $h) { throw "no $title window" }
+            if ($w -gt 0) {
+              [void][Px]::SetWindowPos($h, [IntPtr]::Zero, 100, 100, $w, $hgt, 0x0014)
+              Start-Sleep -Seconds 2
+            }
+            $r = New-Object Px+R; [void][Px]::GetWindowRect($h, [ref]$r); "$title left at $($r.Ri - $r.L)x$($r.B - $r.T)"
+            [void][Px]::PostMessage($h, 0x0010, [IntPtr]::Zero, [IntPtr]::Zero)         # WM_CLOSE
+            Start-Sleep -Seconds 70
+            Start-Process $exe.FullName -ArgumentList "--app $app"
+            $h = $null
+            for ($i = 0; $i -lt 15 -and -not $h; $i++) { Start-Sleep -Seconds 2; $h = Find-Window $p.Id $title }
+            if (-not $h) {
+              Windows-Of $p.Id | ForEach-Object { "  window $_" }
+              $b = [System.Windows.Forms.Screen]::PrimaryScreen.Bounds
+              $bmp = New-Object System.Drawing.Bitmap $b.Width, $b.Height
+              [System.Drawing.Graphics]::FromImage($bmp).CopyFromScreen($b.Location, [System.Drawing.Point]::Empty, $b.Size)
+              $bmp.Save("$env:RUNNER_TEMP\app-$app-screen.png")
+              throw "$title did not come back after Skykeep let go of its window (#62)"
+            }
+            Start-Sleep -Seconds 4
+            $n = Colours $h $app
+            if ($n -lt 8) { throw "$title, made again, drew nothing (#62): $n colours" }
           }
-          Start-Sleep -Seconds 4
-          $n = Colours $h
-          if ($n -lt 8) { throw "Reminders at its smallest drew nothing (#62): $n colours" }
+          Reopened "notes" "Notes" 0 0
+          Reopened "reminders" "Reminders" 480 400
           Stop-Process -Id $p.Id
           Start-Sleep -Seconds 2
           # Uninstalled, every entry goes with it. The uninstaller hands itself to a copy and
@@ -455,10 +466,12 @@ jobs:
           path: skykeep-on-windows.png
           if-no-files-found: ignore
 
-      - name: What Reminders drew at its smallest (#62)
+      - name: What the app windows drew, and Skykeep's own account of it (#62)
         if: ${{ always() }}
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
-          name: reminders-small
-          path: ${{ runner.temp }}/reminders-small.png
+          name: app-windows
+          path: |
+            ${{ runner.temp }}/app-*.png
+            ${{ runner.temp }}/skykeep-stderr.txt
           if-no-files-found: ignore
