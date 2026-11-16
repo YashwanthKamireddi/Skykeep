@@ -4,8 +4,8 @@ import { onWindows } from "../lib/platform";
 import { ConfirmSheet } from "../components/Confirm";
 import { toast, toastSaved, useErrorToast } from "../components/Toast";
 import { Progress } from "../components/Spinner";
-import { lazy, Suspense, useEffect, useRef, useState, useSyncExternalStore, type ReactNode } from "react";
-import { Archive, ArrowDownCircle, Bell, House, Laptop, Settings as Gear, ShieldCheck, type LucideIcon } from "lucide-react";
+import { lazy, Suspense, useEffect, useRef, useState, useSyncExternalStore, type Dispatch, type ReactNode, type SetStateAction } from "react";
+import { Archive, ArrowDownCircle, Bell, House, Laptop, Settings as Gear, ShieldCheck, Smartphone, type LucideIcon } from "lucide-react";
 import { getVersion } from "@tauri-apps/api/app";
 import { listen } from "@tauri-apps/api/event";
 import { pickOpen } from "../lib/pick";
@@ -23,6 +23,9 @@ import {
   type LocalStorage,
   type LoginItem,
   messageOf,
+  IPHONE_CHANGED,
+  iphoneApi,
+  type IphoneStatus,
   PHOTO_CACHE,
   photoCacheApi,
   type PhotoCache,
@@ -474,6 +477,152 @@ function PhotoCacheCap({ onError }: { onError: (m: string) => void }) {
   );
 }
 
+/**
+ * The iPhone as this computer's camera and microphone, in a card of its own: one switch, off
+ * until turned on, so nothing runs for those who don't use it. On, it says the one step
+ * missing (plug it in, open Skykeep on it) or that it's in use, as the phone changes.
+ */
+function useIphone() {
+  const [status, setStatus] = useState<IphoneStatus | null>(null);
+  useEffect(() => {
+    let live = true;
+    const read = () => iphoneApi.status().then((s) => live && setStatus(s), () => {});
+    void read();
+    const off = listen(IPHONE_CHANGED, read);
+    return () => {
+      live = false;
+      off.then((f) => f());
+    };
+  }, []);
+  return [status, setStatus] as const;
+}
+
+function IphoneCard({
+  status,
+  setStatus,
+  shown,
+}: {
+  status: IphoneStatus | null;
+  setStatus: Dispatch<SetStateAction<IphoneStatus | null>>;
+  shown: boolean;
+}) {
+  const { t } = useI18n();
+  const [busy, setBusy] = useState(false);
+  const inUse = status?.state === "inUse" || status?.state === "cameraPaused" || status?.state === "micOnly";
+  // While it's in use and this section is open, how quick the picture and sound are, read
+  // each second from the link's own counters (a local read; nothing leaves the computer).
+  useEffect(() => {
+    if (!inUse || !shown) return undefined;
+    const tick = window.setInterval(() => {
+      iphoneApi.status().then((s) => setStatus((was) => (JSON.stringify(was) === JSON.stringify(s) ? was : s)), () => {});
+    }, 1000);
+    return () => window.clearInterval(tick);
+  }, [inUse, shown, setStatus]);
+  if (!status || status.state === "unavailable") return null;
+  const on = status.state !== "off";
+  const hint = !on
+    ? t("settings.iphoneOffHint")
+    : status.state === "inUse"
+      ? t("settings.iphoneInUse")
+      : status.state === "cameraPaused"
+        ? t("settings.iphoneCameraPaused")
+        : status.state === "micOnly"
+          ? t("settings.iphoneMicOnly")
+          : status.state === "plugged"
+            ? t("settings.iphonePlugged")
+            : t("settings.iphoneNone");
+  const toggle = async () => {
+    setBusy(true);
+    try {
+      setStatus(await iphoneApi.set(!on));
+    } catch {
+      /* the switch shows what is still true */
+    } finally {
+      setBusy(false);
+    }
+  };
+  const setUp = async () => {
+    setBusy(true);
+    try {
+      const everyApp = await iphoneApi.everyApp();
+      setStatus((s) => (s ? { ...s, everyApp } : s));
+    } catch {
+      /* the row says what is still true */
+    } finally {
+      setBusy(false);
+    }
+  };
+  // Each part as it is now: a light (green live, amber waiting, grey off) and a word.
+  type Light = "live" | "wait" | "off";
+  const connection: [Light, string] =
+    status.state === "none" ? ["off", t("settings.iphoneStateNotConnected")]
+    : status.state === "plugged" ? ["wait", t("settings.iphoneStateOpenApp")]
+    : ["live", t("settings.iphoneStateConnected")];
+  const ms = (v: number | null) => (v == null ? "" : ` · ${Math.round(v)} ms`);
+  const camera: [Light, string] =
+    status.state === "inUse" ? ["live", t("settings.iphoneStateLive") + ms(status.cameraMs)]
+    : status.state === "cameraPaused" ? ["wait", t("settings.iphoneStatePaused")]
+    : ["off", t("settings.iphoneStateOff")];
+  const microphone: [Light, string] = inUse
+    ? ["live", t("settings.iphoneStateLive") + ms(status.microphoneMs)]
+    : ["off", t("settings.iphoneStateOff")];
+  const Row = ({ label, light: [light, word] }: { label: string; light: [Light, string] }) => (
+    <div className="settings-row">
+      <span className="settings-label">{label}</span>
+      <span className={`prefs-state is-${light}`}>
+        <span className="prefs-light" aria-hidden="true" />
+        {word}
+      </span>
+    </div>
+  );
+  return (
+    <Pane id="iphone" shown={shown} title={t("settings.iphone")} badge={t("settings.beta")}>
+      <div className="settings-group">
+        <div className="settings-row">
+          <span className="settings-label settings-stack">
+            {t("settings.iphoneCamera")}
+            <span className="settings-hint" aria-live="polite">
+              {hint}
+            </span>
+          </span>
+          <button
+            className="switch"
+            role="switch"
+            aria-checked={on}
+            aria-label={t("settings.iphoneCamera")}
+            disabled={busy}
+            onClick={toggle}
+          >
+            <span className="switch-knob" />
+          </button>
+        </div>
+        {on && status.everyApp !== "ready" && (
+          <div className="settings-row">
+            <span className="settings-label settings-stack">
+              {t("settings.iphoneEveryApp")}
+              <span className="settings-hint">
+                {status.everyApp === "install" ? t("settings.iphoneEveryAppInstall") : t("settings.iphoneEveryAppHint")}
+              </span>
+            </span>
+            {status.everyApp === "setUp" && (
+              <button className="quiet" onClick={setUp} disabled={busy}>
+                {busy ? t("settings.iphoneSettingUp") : t("settings.iphoneSetUp")}
+              </button>
+            )}
+          </div>
+        )}
+      </div>
+      {on && (
+        <div className="settings-group" role="group" aria-label={t("settings.iphoneNow")} aria-live="polite">
+          <Row label={t("settings.iphoneConnection")} light={connection} />
+          <Row label={t("settings.iphoneCameraPart")} light={camera} />
+          <Row label={t("settings.iphoneMicrophonePart")} light={microphone} />
+        </div>
+      )}
+    </Pane>
+  );
+}
+
 export function SettingsView({ onSignOut }: { onSignOut: (keep: boolean) => Promise<void> }) {
   const { t } = useI18n();
   const [account, setAccount] = useState<AccountInfo | null>(null);
@@ -497,6 +646,7 @@ export function SettingsView({ onSignOut }: { onSignOut: (keep: boolean) => Prom
   const [licences, setLicences] = useState(false);
   const { report, syncing, refresh } = useSync();
   const notKept = useNotKept();
+  const [iphone, setIphone] = useIphone();
   const [pane, setPane] = useState<PaneId>("home");
   const navRef = useRef<HTMLElement>(null);
   const mainRef = useRef<HTMLDivElement>(null);
@@ -586,6 +736,7 @@ export function SettingsView({ onSignOut }: { onSignOut: (keep: boolean) => Prom
     [
       { id: "backup", label: t("settings.backupTitle") },
       { id: "computer", label: t("settings.thisComputer") },
+      ...(iphone && iphone.state !== "unavailable" ? [{ id: "iphone" as const, label: t("settings.iphone") }] : []),
     ],
     [
       { id: "notifications", label: t("settings.notifications") },
@@ -766,6 +917,7 @@ export function SettingsView({ onSignOut }: { onSignOut: (keep: boolean) => Prom
               <PhotoCacheCap onError={setError} />
             </div>
           </Pane>
+        <IphoneCard status={iphone} setStatus={setIphone} shown={pane === "iphone"} />
         <Pane id="notifications" shown={pane === "notifications"} title={t("settings.notifications")}>
             <div className="settings-group">
               {(
@@ -965,12 +1117,13 @@ function AppMark({ app }: { app: string }) {
   return src ? <img className="prefs-app-icon" src={src} alt="" draggable={false} /> : null;
 }
 
-type PaneId = "home" | "backup" | "computer" | "notifications" | "general" | "privacy" | "updates";
+type PaneId = "home" | "backup" | "computer" | "iphone" | "notifications" | "general" | "privacy" | "updates";
 
 /** Each section's mark in the sidebar: one plain glyph, as a Mac's own sidebars have them. */
 const TILES: Record<Exclude<PaneId, "home">, LucideIcon> = {
   backup: Archive,
   computer: Laptop,
+  iphone: Smartphone,
   notifications: Bell,
   general: Gear,
   privacy: ShieldCheck,
@@ -987,12 +1140,15 @@ function Pane({
   id,
   title,
   hideTitle,
+  badge,
   shown,
   children,
 }: {
   id: PaneId;
   title: string;
   hideTitle?: boolean;
+  /** A word beside the title, such as Beta, said as part of it. */
+  badge?: string;
   shown: boolean;
   children: ReactNode;
 }) {
@@ -1003,6 +1159,7 @@ function Pane({
     <section className="prefs-pane" id={`pane-${id}`} role="tabpanel" aria-labelledby={`card-${id}`} hidden={!shown}>
       <h2 id={`card-${id}`} className={hideTitle ? "visually-hidden" : "prefs-title"}>
         {title}
+        {badge && <span className="prefs-badge">{badge}</span>}
       </h2>
       {children}
     </section>
