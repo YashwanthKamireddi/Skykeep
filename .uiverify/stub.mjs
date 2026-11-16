@@ -112,7 +112,7 @@ export function installStub({ screen, services, twoFactor, calendarFixture, note
     { guid: "l1", title: "Daily", colour: "#63da38", ctag: null, sortOrder: 0, enabled: true },
     { guid: "l2", title: "GYM", colour: "#cc73e1", ctag: null, sortOrder: 1, enabled: true },
     { guid: "l3", title: "Life Goals", colour: "#1badf8", ctag: null, sortOrder: 2, enabled: true },
-  ].map((l) => ({ ...l, emblem: window.__listEmblems?.[l.guid] ?? null })); // a suite's own list icons
+  ].map((l) => ({ ...l, emblem: window.__listEmblems?.[l.guid] ?? null, ...(window.__listPins?.[l.guid] ?? {}) })); // a suite's own list icons and pins
   const reminderItems = !remindersFixture ? [] : [
     { guid: "r1", listGuid: "l1", title: "Plan tomorrow", notes: null,
       dueAt: base - 2 * HOUR, completedAt: null, priority: 0, flagged: false, parentGuid: null, etag: null },
@@ -170,6 +170,9 @@ export function installStub({ screen, services, twoFactor, calendarFixture, note
         case "auth_sign_in":     return screen === "code" ? "needs_two_factor" : "complete";
         case "auth_submit_code": window.__codeVia = "devices"; return null;
         case "account_services": return services;
+        case "iphone_status": return window.__iphone ?? { state: "unavailable", cameraMs: null, microphoneMs: null, everyApp: "install" };
+        case "iphone_set": { window.__iphoneSet = [...(window.__iphoneSet ?? []), args.on]; window.__iphone = { ...(window.__iphone ?? {}), state: args.on ? "none" : "off", everyApp: window.__iphone?.everyApp ?? "setUp" }; return window.__iphone; }
+        case "iphone_every_app": window.__everyAppAsked = (window.__everyAppAsked ?? 0) + 1; if (window.__iphone) window.__iphone.everyApp = "ready"; return "ready";
         case "calendar_events": {
           window.__eventReads = (window.__eventReads ?? 0) + 1;
           // A heavy account, for measuring: `window.__manyEvents = n` adds n events spread over

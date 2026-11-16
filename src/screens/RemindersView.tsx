@@ -1741,7 +1741,13 @@ export function RemindersView() {
    * The sidebar in Apple's order: a list or group at the top level wherever it was walked,
    * with a group's lists beneath it. Pinned lists are tiles instead, as on the phone.
    */
-  const pinned = lists.filter((l) => l.pinned);
+  // In the order they were pinned, oldest first, as the phone shows them (not the lists' own
+  // order); a pin with no date (kept before it was read) goes last, in the lists' order.
+  const pinned = lists
+    .filter((l) => l.pinned)
+    .map((l, i) => ({ l, i }))
+    .sort((a, b) => (a.l.pinnedAt ?? Infinity) - (b.l.pinnedAt ?? Infinity) || a.i - b.i)
+    .map(({ l }) => l);
   const topLevel = [
     ...lists
       .filter((l) => !l.pinned && !(l.groupGuid && groups.some((g) => g.guid === l.groupGuid)))

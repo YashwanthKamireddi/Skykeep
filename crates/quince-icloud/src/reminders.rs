@@ -513,7 +513,8 @@ fn list_from_record(record: &Value) -> Option<ReminderList> {
         ctag: None,
         emblem: field::string(record, "BadgeEmblem").filter(|e| !e.trim().is_empty()),
         group_guid: field::reference(record, "ParentList"),
-        pinned: is_pinned(record),
+        pinned: pinned_at(record).is_some(),
+        pinned_at: pinned_at(record),
         sorting: field::string(record, "SortingStyle"),
         // A JSON array of reminder ids in a string field, in the order they were arranged.
         reminder_order: field::string(record, "ReminderIDs")
@@ -580,15 +581,15 @@ fn hex_colour(raw: &str) -> Option<String> {
     ))
 }
 
-/// Whether a list is pinned beside Today and Scheduled.
+/// When a list was pinned beside Today and Scheduled, if it is.
 ///
 /// Unpinning does not clear `PinnedDate`; it sets it to the first day of year one, which as
 /// milliseconds since 1970 is a large negative number. Only a real date means pinned.
-fn is_pinned(record: &Value) -> bool {
+fn pinned_at(record: &Value) -> Option<i64> {
     record
         .pointer("/fields/PinnedDate/value")
         .and_then(Value::as_i64)
-        .is_some_and(|ms| ms > 0)
+        .filter(|ms| *ms > 0)
 }
 
 /// The order lists appear in on the user's other devices.
@@ -4680,6 +4681,8 @@ mod list_shape_tests {
             Some("List/43A40727-5DAF-4107-B7C9-6B9161592F5D")
         );
         assert!(l.pinned);
+        // When, so the tiles stand in the order they were pinned (his To-Do before Daily).
+        assert_eq!(l.pinned_at, Some(1_781_974_802_494));
         assert_eq!(l.sorting.as_deref(), Some("displayDate_asc"));
     }
 
@@ -4706,6 +4709,7 @@ mod list_shape_tests {
         let mut r = gym_record();
         r["fields"]["PinnedDate"]["value"] = json!(-62_135_769_600_000_i64);
         assert!(!list_from_record(&r).unwrap().pinned);
+        assert_eq!(list_from_record(&r).unwrap().pinned_at, None);
         r["fields"].as_object_mut().unwrap().remove("PinnedDate");
         assert!(!list_from_record(&r).unwrap().pinned);
     }

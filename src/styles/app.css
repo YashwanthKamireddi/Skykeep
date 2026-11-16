@@ -2019,6 +2019,12 @@
 }
 .prefs-pane[hidden] { display: none; }
 .prefs-pane > :is(.prefs-title, .settings-heading, .visually-hidden, .prefs-hero, .launcher) { grid-column: 1 / -1; }
+/* A word beside a section's title (the iPhone's Beta): small, quiet, never a second title. */
+.prefs-badge {
+  display: inline-block; margin-left: 8px; padding: 2px 7px; border-radius: var(--r-pill);
+  vertical-align: 4px; font-size: var(--t-11); font-weight: 600; letter-spacing: 0.01em;
+  color: var(--text-2); background: color-mix(in srgb, var(--text) 8%, transparent);
+}
 .prefs-title { margin: 0 0 4px; font-size: var(--t-22); font-weight: 700; letter-spacing: -0.015em; line-height: 1.2; }
 .prefs-pane > .settings-heading { margin: 0 0 -8px; }
 .prefs-pane .settings-group { border-radius: var(--r-plateau); }
@@ -2043,6 +2049,12 @@
 /* A row's button: one width for all of them, so a column of Save, Show, Clear lines up. */
 .prefs-pane .settings-row > button.quiet { min-width: 84px; justify-content: center; }
 .prefs-app-icon { width: 24px; height: 24px; flex: none; }
+/* What the iPhone is doing, part by part: a light and a word, as it changes. */
+.prefs-state { display: inline-flex; align-items: center; gap: 8px; color: var(--text-2); font-size: var(--t-13); font-variant-numeric: tabular-nums; white-space: nowrap; }
+.prefs-light { width: 8px; height: 8px; border-radius: 50%; background: var(--sk-gray, #8e8e93); }
+.prefs-state.is-live { color: var(--text); }
+.prefs-state.is-live .prefs-light { background: #30d158; box-shadow: 0 0 0 3px color-mix(in srgb, #30d158 22%, transparent); }
+.prefs-state.is-wait .prefs-light { background: #ff9f0a; }
 
 /* Narrow: the sections in a row along the top, scrolled sideways. */
 @container settings-page (max-width: 700px) {
