@@ -19,9 +19,10 @@ on:
   push:
     branches: [main]
     paths-ignore: ["**.md", "docs/media/**"]
+  # Every pull request runs, so `ci-ok` (below) always reports and main's ruleset can require it;
+  # `scope` skips the build for a change to words or README pictures alone.
   pull_request:
     branches: [main]
-    paths-ignore: ["**.md", "docs/media/**"]
 
 permissions:
   contents: read
@@ -110,6 +111,7 @@ jobs:
       pull-requests: read
     outputs:
       full: ${{ steps.files.outputs.full }}
+      docs: ${{ steps.files.outputs.docs }}
     steps:
       - id: files
         env:
@@ -117,15 +119,20 @@ jobs:
           PR: ${{ github.event.pull_request.number }}
         run: |
           full=true
+          docs=false
           if [ -n "$PR" ]; then
             files=$(gh api --paginate "repos/$GITHUB_REPOSITORY/pulls/$PR/files" --jq '.[].filename')
-            if [ -n "$files" ] && ! grep -qvE '^src/locales/[^/]+\.json$' <<< "$files"; then full=false; fi
+            # Words or README pictures alone: nothing to build or test.
+            if [ -n "$files" ] && ! grep -qvE '(\.md$|^docs/media/)' <<< "$files"; then full=false; docs=true
+            # Translations alone: the type check and the language test (job `languages`).
+            elif [ -n "$files" ] && ! grep -qvE '^src/locales/[^/]+\.json$' <<< "$files"; then full=false; fi
           fi
           echo "full=$full" | tee -a "$GITHUB_OUTPUT"
+          echo "docs=$docs" | tee -a "$GITHUB_OUTPUT"
 
   languages:
     needs: scope
-    if: needs.scope.outputs.full != 'true'
+    if: needs.scope.outputs.full != 'true' && needs.scope.outputs.docs != 'true'
     runs-on: ubuntu-24.04
     timeout-minutes: 10
     steps:
@@ -363,3 +370,21 @@ jobs:
           path: ${{ runner.temp }}/shots
           if-no-files-found: ignore
           retention-days: 7
+
+  # The one check main's ruleset requires: every job above passed or was skipped on purpose by
+  # `scope`. One stable name, whatever the matrix or the scope ran (a skipped matrix job reports
+  # under another name, and a required check that never reports blocks a pull request forever).
+  ci-ok:
+    if: always()
+    needs: [published, supply-chain, scope, languages, rust, android, web]
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    steps:
+      - env:
+          RESULTS: ${{ toJSON(needs.*.result) }}
+        run: |
+          echo "$RESULTS"
+          if jq -e 'any(.[]; . == "failure" or . == "cancelled")' <<< "$RESULTS" >/dev/null; then
+            echo "::error::a check failed or was cancelled"; exit 1
+          fi
+
