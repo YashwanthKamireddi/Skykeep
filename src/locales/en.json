@@ -26,7 +26,8 @@
     "clearSearch": "Clear Search",
     "waitingToSync": "Waiting to sync",
     "refusedLink": "This kind of link can't be opened from Skykeep.",
-    "notice": "Notice"
+    "notice": "Notice",
+    "show": "Show"
   },
   "sidebar": {
     "reminders": "Reminders",
@@ -97,11 +98,9 @@
     "exportCopyHint": "A one-time copy of notes, reminders, contacts, calendars and Drive, in formats any app opens",
     "chooseExportLocation": "Choose where to export",
     "export": "Export",
-    "exporting": "Exporting…",
     "exportProgress": "Export progress",
     "exportProgressCount": "{done} of {total}",
     "nothingToExport": "nothing to export",
-    "cancelExport": "Cancel Export",
     "exportCancelled": "Export cancelled. Nothing was left behind.",
     "exportedTo": "Exported to {folder}",
     "thisComputer": "This Computer",
@@ -123,7 +122,6 @@
     "keepPhotosUpTo": "Keep photos up to",
     "photosOfflineHint": "{size} of recently viewed photos, ready offline",
     "diskRoomHint": "Using up to {size} for now, to leave room on this disk.",
-    "keptOnComputer": "{size} kept on this computer",
     "zeroKB": "Zero KB",
     "general": "General",
     "appearance": "Appearance",
@@ -132,7 +130,6 @@
     "dark": "Dark",
     "language": "Language",
     "firstDayOfWeek": "First Day of Week",
-    "automaticDay": "Automatic ({day})",
     "moveChecked": "Sort Checked Items Automatically",
     "moveCheckedHint": "Ticked checklist items move below the rest",
     "openAtLogin": "Open at Login",
@@ -175,8 +172,6 @@
     "updates": "Updates",
     "noUpdatesReach": "None. This copy of Skykeep is updated by the way you installed it.",
     "githubUpdatesReachDesc": "GitHub’s release servers, to check for new versions of Skykeep and download them. Nothing about you is sent.",
-    "networkNoteWithUpdates": "Skykeep connects to Apple for your iCloud, to calendars you subscribe to and calendar accounts you add, and to GitHub for its own updates. No Skykeep account, no analytics.",
-    "networkNoteNoUpdates": "Skykeep connects to Apple for your iCloud, and to calendars you subscribe to and calendar accounts you add. No Skykeep account, no analytics.",
     "saveDiagnosticReport": "Save Diagnostic Report",
     "openSourceLicences": "Open-Source Licences",
     "licence": "Free software under the GPL-3.0, with no warranty. Not affiliated with Apple.",
@@ -198,7 +193,10 @@
     "photosCountAndSizeMany": "{count} photos · {size}",
     "photosInBackup": "Photos in the backup",
     "driveInBackup": "iCloud Drive in the backup",
-    "includeDrive": "Include iCloud Drive"
+    "includeDrive": "Include iCloud Drive",
+    "home": "Home",
+    "privacy": "Privacy",
+    "sections": "Settings sections"
   },
   "signin": {
     "title": "Connect your iCloud",

@@ -104,12 +104,10 @@ function fresh(
 export function Launcher({
   services,
   syncing,
-  onSync,
   driveFree,
 }: {
   services: ServiceReport[];
   syncing: boolean;
-  onSync: () => void;
   driveFree: string | null;
 }) {
   const { t } = useI18n();
@@ -149,12 +147,6 @@ export function Launcher({
 
   return (
     <section className="launcher" aria-label={t("launcher.appsAria")}>
-      <div className="launcher-head">
-        <span className="launcher-hint">{t("launcher.hint")}</span>
-        <button className="quiet" onClick={onSync} disabled={syncing}>
-          {syncing ? t("sync.syncing") : t("launcher.syncNow")}
-        </button>
-      </div>
       <div className="launcher-grid" role="group" aria-label={t("launcher.appsGridAria")}>
         {offered.map((a, i) => {
           const f = fresh(

@@ -1336,6 +1336,10 @@ export function installStub({ screen, services, twoFactor, calendarFixture, note
         }
         // One refresh covers every service, so there is one command to stub rather than
         // a pair per screen.
+        // Part of the library refreshed (a screen opened stale): nothing new to report. Without
+        // it a stale screen showed "unstubbed command: sync_some" in its sidebar (README shots).
+        case "sync_some":
+          return { services: [], asOf: null, tookMs: 0 };
         case "sync_all":
         case "sync_status":
           return {
@@ -1460,6 +1464,12 @@ export async function openScreen(page, name) {
 }
 
 /* Settings: Skykeep's own window, the address with no app (docs/apps-as-windows.md). */
+/* One of Settings' sections, from its sidebar ("This Computer", "Backup", …; Home is the account). */
+export async function openPane(page, name) {
+  await page.getByRole("tab", { name, exact: true }).click();
+  await page.locator(".prefs-pane:not([hidden])").first().waitFor();
+}
+
 export async function openSettings(page) {
   const url = new URL(page.url());
   if (url.searchParams.get("app")) {

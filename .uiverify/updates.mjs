@@ -7,7 +7,7 @@
 //
 //   BASE=http://localhost:4173 node .uiverify/updates.mjs
 import { engine, engineName } from "./engine.mjs";
-import { SERVICES, installStub, openSettings, openScreen } from "./stub.mjs";
+import { SERVICES, installStub, openSettings, openScreen, openPane } from "./stub.mjs";
 const BASE = process.env.BASE ?? process.env.URL ?? "http://localhost:4173";
 const b = await engine.launch();
 let failures = 0;
@@ -109,6 +109,7 @@ for (const scheme of ["light", "dark"]) {
   ok((await notice(page).count()) === 0, `${scheme}: up to date, no notice`);
   await openSettings(page);
   await page.locator(".settings").waitFor();
+  await openPane(page, "Software Update");
   const group = page.getByRole("region", { name: "Software Update" });
   await group.waitFor();
   ok(/Skykeep 0\.1\.0 is up to date/.test(await group.innerText()), `${scheme}: Settings says it is up to date`);
@@ -134,10 +135,10 @@ for (const scheme of ["light", "dark"]) {
   ok((await notice(page).count()) === 1, `${scheme}: and the notice offers it once`);
 
   // What Skykeep talks to names GitHub's release servers, for updates.
+  // Privacy's list says it; the line under it that repeated it is gone (he asked for less text).
+  await openPane(page, "Privacy");
   const reach = await page.locator(".settings-reach").innerText();
   ok(/Updates/.test(reach) && reach.includes("github.com") && reach.includes("release-assets.githubusercontent.com"), `${scheme}: GitHub's release servers are listed for updates`);
-  const note = await page.locator(".settings-note").innerText();
-  ok(/GitHub for its own updates/.test(note) && !/only to Apple/.test(note), `${scheme}: the footer says what Skykeep connects to  ${JSON.stringify(note)}`);
   await ctx.close();
 }
 
@@ -145,11 +146,14 @@ for (const scheme of ["light", "dark"]) {
 {
   const { ctx, page } = await open({ install: "packageManager" });
   await openSettings(page);
+  await openPane(page, "Software Update");
   const group = page.getByRole("region", { name: "Software Update" });
   await group.waitFor();
   const text = await group.innerText();
   ok(/Updates come through your package manager/.test(text), "a packaged copy says its package manager updates it");
   ok((await group.getByRole("button").count()) === 0 && (await group.getByRole("switch").count()) === 0, "with nothing to check or switch");
+  // Privacy's list says it; the line under it that repeated it is gone (he asked for less text).
+  await openPane(page, "Privacy");
   const reach = await page.locator(".settings-reach").innerText();
   ok(!reach.includes("github.com"), "and lists no GitHub host, since it never contacts one");
   ok((await notice(page).count()) === 0, "and shows no notice");

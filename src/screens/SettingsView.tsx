@@ -4,7 +4,8 @@ import { onWindows } from "../lib/platform";
 import { ConfirmSheet } from "../components/Confirm";
 import { toast, toastSaved, useErrorToast } from "../components/Toast";
 import { Progress } from "../components/Spinner";
-import { lazy, Suspense, useEffect, useState, useSyncExternalStore } from "react";
+import { lazy, Suspense, useEffect, useRef, useState, useSyncExternalStore, type ReactNode } from "react";
+import { Archive, ArrowDownCircle, Bell, House, Laptop, Settings as Gear, ShieldCheck, type LucideIcon } from "lucide-react";
 import { getVersion } from "@tauri-apps/api/app";
 import { listen } from "@tauri-apps/api/event";
 import { pickOpen } from "../lib/pick";
@@ -30,7 +31,10 @@ import {
 import { checkedFreshness, useSync } from "../lib/sync";
 import { useUpdateStatus } from "../lib/updates";
 import { setTheme, storedTheme, type Theme } from "../lib/theme";
-import { AppIcon } from "../components/AppIcon";
+import remindersIcon from "../assets/apps/reminders.svg";
+import driveIcon from "../assets/apps/drive.svg";
+import photosIcon from "../assets/apps/photos.svg";
+import calendarIcon from "../assets/apps/calendar.svg";
 import { Launcher } from "../components/Launcher";
 import { AccountAvatar, useNotKept } from "../components/Account";
 import { Picker } from "../components/Picker";
@@ -150,7 +154,7 @@ function FolderRow({
   const trouble = Boolean(problem || folder?.waiting?.failure);
   return (
     <div className="settings-row">
-      <AppIcon app={app} />
+      <AppMark app={app} />
       <span className="settings-label settings-stack">
         {label}
         <span className={`settings-hint${trouble ? " is-trouble" : ""}`} title={folder?.on ? folder.path : undefined}>
@@ -336,7 +340,7 @@ function BackupRow({ onError }: { onError: (m: string) => void }) {
         )}
       </div>
       <div className="backup-source" aria-label={t("settings.photosInBackup")} role="group">
-        <AppIcon app="photos" />
+        <AppMark app="photos" />
         <span className="settings-label settings-stack">
           {t("sidebar.photos")}
           <span className="settings-hint" aria-live="polite">{photosLine}</span>
@@ -350,7 +354,7 @@ function BackupRow({ onError }: { onError: (m: string) => void }) {
         </button>
       </div>
       <div className="backup-source" aria-label={t("settings.driveInBackup")} role="group">
-        <AppIcon app="drivews" />
+        <AppMark app="drivews" />
         <span className="settings-label settings-stack">
           {t("settings.icloudDrive")}
           <span className={`settings-hint${state?.driveNote ? " is-trouble" : ""}`} aria-live="polite">
@@ -360,7 +364,7 @@ function BackupRow({ onError }: { onError: (m: string) => void }) {
         <button
           className="switch"
           role="switch"
-          aria-checked={state?.drive ?? true}
+          aria-checked={state?.drive ?? false}
           aria-label={t("settings.includeDrive")}
           disabled={!state}
           onClick={() => state && void set(state.folder, state.hidden, !state.drive)}
@@ -493,6 +497,14 @@ export function SettingsView({ onSignOut }: { onSignOut: (keep: boolean) => Prom
   const [licences, setLicences] = useState(false);
   const { report, syncing, refresh } = useSync();
   const notKept = useNotKept();
+  const [pane, setPane] = useState<PaneId>("home");
+  const navRef = useRef<HTMLElement>(null);
+  const mainRef = useRef<HTMLDivElement>(null);
+  // A section is opened at its top, never somewhere down the last one's scroll.
+  const choose = (next: PaneId) => {
+    setPane(next);
+    mainRef.current?.scrollTo({ top: 0 });
+  };
 
   useEffect(() => {
     api.accountInfo().then(setAccount, () => setAccount({ name: null, email: null }));
@@ -570,293 +582,430 @@ export function SettingsView({ onSignOut }: { onSignOut: (keep: boolean) => Prom
   const showPhotos = photosFolder?.available !== false;
   const MB = 1024 ** 2;
 
+  const nav: { id: Exclude<PaneId, "home">; label: string }[][] = [
+    [
+      { id: "backup", label: t("settings.backupTitle") },
+      { id: "computer", label: t("settings.thisComputer") },
+    ],
+    [
+      { id: "notifications", label: t("settings.notifications") },
+      { id: "general", label: t("settings.general") },
+    ],
+    [
+      { id: "privacy", label: t("settings.privacy") },
+      { id: "updates", label: t("settings.softwareUpdate") },
+    ],
+  ];
+  const order: PaneId[] = ["home", ...nav.flat().map((n) => n.id)];
+  // Up and down move through the sections, as in a list; Home and End to either end.
+  const onNavKey = (e: React.KeyboardEvent) => {
+    const at = order.indexOf(pane);
+    const next =
+      e.key === "ArrowDown" ? order[Math.min(order.length - 1, at + 1)]
+      : e.key === "ArrowUp" ? order[Math.max(0, at - 1)]
+      : e.key === "Home" ? order[0]
+      : e.key === "End" ? order[order.length - 1]
+      : null;
+    if (!next) return;
+    e.preventDefault();
+    choose(next);
+    navRef.current?.querySelector<HTMLElement>(`[data-pane="${next}"]`)?.focus();
+  };
+
   return (
-    <div className="settings dash">
-      <h1 className="settings-title">Skykeep</h1>
-      <Launcher
-        services={report?.services ?? []}
-        syncing={syncing}
-        onSync={() => void refresh(true)}
-        driveFree={storage ? icloudSize(Math.max(0, storage.totalBytes - storage.usedBytes)) : null}
-      />
-      {/* Under the apps, cards in balanced rows: what matters at a glance, the long lists behind
-          each card's Details. Three across, then two, in a wide window; one under another in a
-          narrow one. */}
-      <div className="dash-row dash-three">
-        <section className="dash-card" aria-labelledby="card-account">
-          <h2 id="card-account" className="dash-title">{t("settings.account")}</h2>
-          <div className="dash-account">
-            <AccountAvatar account={account} large />
-            <div className="settings-account-text">
-              <strong>{account?.name ?? t("settings.yourAppleAccount")}</strong>
-              <span>{account?.email ?? ""}</span>
-              {notKept && <span className="settings-account-note">{t("account.notKeptNotice")}</span>}
-            </div>
+    <div className="settings prefs">
+      <h1 className="visually-hidden">Skykeep</h1>
+      <nav
+        className="prefs-side"
+        role="tablist"
+        aria-orientation="vertical"
+        aria-label={t("settings.sections")}
+        ref={navRef}
+        onKeyDown={onNavKey}
+      >
+        <div className="prefs-group">
+          <button
+            className="source-row"
+            role="tab"
+            data-pane="home"
+            id="tab-home"
+            aria-controls="pane-home"
+            aria-selected={pane === "home"}
+            tabIndex={pane === "home" ? 0 : -1}
+            onClick={() => choose("home")}
+          >
+            <House className="prefs-icon" size={16} strokeWidth={1.75} aria-hidden="true" />
+            <span className="source-name">{t("settings.home")}</span>
+          </button>
+        </div>
+        {nav.map((group, i) => (
+          <div className="prefs-group" key={i}>
+            {group.map((n) => (
+              <button
+                key={n.id}
+                className="source-row"
+                role="tab"
+                data-pane={n.id}
+                id={`tab-${n.id}`}
+                aria-controls={`pane-${n.id}`}
+                aria-selected={pane === n.id}
+                tabIndex={pane === n.id ? 0 : -1}
+                onClick={() => choose(n.id)}
+              >
+                <NavTile pane={n.id} />
+                <span className="source-name">{n.label}</span>
+              </button>
+            ))}
           </div>
-          <div className="settings-row is-stacked">
-            <div className="settings-row-line">
-              <span>{storage ? t("settings.storageUsed", { used: icloudSize(storage.usedBytes), total: icloudSize(storage.totalBytes) }) : t("settings.readingStorage")}</span>
-              {storage && (
-                <span className="settings-value">{t("settings.storageAvailable", { available: icloudSize(Math.max(0, storage.totalBytes - storage.usedBytes)) })}</span>
-              )}
-            </div>
-            <div
-              className="storage-bar"
-              role="meter"
-              aria-label={t("settings.storageAria")}
-              aria-valuemin={0}
-              aria-valuemax={100}
-              aria-valuenow={Math.round(used * 100)}
-            >
-              <span style={{ width: `${used * 100}%` }} />
-            </div>
-          </div>
-          <div className="dash-actions">
-            <button
-              className="quiet"
-              onClick={() =>
-                api.unsent().then(setSigningOut, () => setSigningOut({ changes: 0, files: 0, photos: 0 }))
-              }
-            >
-              {t("settings.signOut")}
-            </button>
-          </div>
-        </section>
-        <section className="dash-card" aria-labelledby="card-backup">
-          <h2 id="card-backup" className="dash-title">{t("settings.backupTitle")}</h2>
-          <BackupRow onError={setError} />
-          <ExportRow onError={setError} />
-        </section>
-        <section className="dash-card" aria-labelledby="card-computer">
-          <h2 id="card-computer" className="dash-title">{t("settings.thisComputer")}</h2>
-          {(showDrive || showPhotos) && (
-            <>
-              {showDrive && (
-                <FolderRow
-                  app="drivews"
-                  label={t("settings.driveFolder")}
-                  off={onWindows ? t("settings.driveFolderExplorerHint") : t("settings.driveFolderFilesHint")}
-                  folder={folder}
-                  busy={folderBusy}
-                  line={(f) => folderState(f, t)}
-                  onOpen={api.driveFolderOpen}
-                  onSet={(on) => folder && setFolderOn(folder, on, setFolder, setFolderBusy, api.driveFolderSet)}
-                />
-              )}
-              {showPhotos && (
-                <FolderRow
-                  app="photos"
-                  label={t("settings.photosFolder")}
-                  off={t("settings.photosFolderHint")}
-                  folder={photosFolder}
-                  busy={photosBusy}
-                  line={(f) => f.path}
-                  onOpen={api.photosFolderOpen}
-                  onSet={(on) =>
-                    photosFolder && setFolderOn(photosFolder, on, setPhotosFolder, setPhotosBusy, api.photosFolderSet)
-                  }
-                />
-              )}
-            </>
-          )}
-          <div className="settings-row">
-            <span className="settings-label settings-stack">
-              {t("settings.cachedPictures")}
-              <span className="settings-hint" aria-live="polite">
-                {freed != null ? t("settings.clearedHint", { size: size(freed) }) : t("settings.cachedPicturesHint")}
-              </span>
-            </span>
-            {local && local.clearable >= MB && <span className="settings-value">{size(local.clearable)}</span>}
-            <button className="quiet" onClick={clearPictures} disabled={!local || clearing || local.clearable < MB}>
-              {clearing ? t("common.clearing") : t("common.clear")}
-            </button>
-          </div>
-          <PhotoCacheCap onError={setError} />
-          <div className="dash-actions">
-            <span className="settings-hint">{local ? t("settings.keptOnComputer", { size: size(local.total) }) : "\u00a0"}</span>
-          </div>
-        </section>
-      </div>
-      <div className="dash-row dash-two">
-        <section className="dash-card" aria-labelledby="card-general">
-          <h2 id="card-general" className="dash-title">{t("settings.general")}</h2>
-          <div className="settings-row">
-            <span className="settings-label">{t("settings.appearance")}</span>
-            <div className="segmented" role="group" aria-label={t("settings.appearance")}>
-              {(["auto", "light", "dark"] as const).map((tOpt) => (
-                <button
-                  key={tOpt}
-                  className="segment"
-                  aria-pressed={theme === tOpt}
-                  onClick={() => {
-                    chooseTheme(tOpt);
-                    setTheme(tOpt);
-                  }}
-                >
-                  {tOpt === "auto" ? t("settings.auto") : tOpt === "light" ? t("settings.light") : t("settings.dark")}
+        ))}
+      </nav>
+      <div className="prefs-main" ref={mainRef}>
+        <div className="prefs-column">
+        <Pane id="home" shown={pane === "home"} title={t("settings.home")} hideTitle>
+            <div className="prefs-hero">
+              <AccountAvatar account={account} large />
+              <div className="prefs-hero-text">
+                <strong>{account?.name ?? t("settings.yourAppleAccount")}</strong>
+                <span className="prefs-hero-mail">{account?.email ?? ""}</span>
+                {notKept && <span className="settings-account-note">{t("account.notKeptNotice")}</span>}
+                <div className="prefs-storage">
+                  <div className="settings-row-line">
+                    <span>
+                      {storage
+                        ? t("settings.storageUsed", { used: icloudSize(storage.usedBytes), total: icloudSize(storage.totalBytes) })
+                        : t("settings.readingStorage")}
+                    </span>
+                    {storage && (
+                      <span className="settings-value">
+                        {t("settings.storageAvailable", { available: icloudSize(Math.max(0, storage.totalBytes - storage.usedBytes)) })}
+                      </span>
+                    )}
+                  </div>
+                  <div
+                    className="storage-bar"
+                    role="meter"
+                    aria-label={t("settings.storageAria")}
+                    aria-valuemin={0}
+                    aria-valuemax={100}
+                    aria-valuenow={Math.round(used * 100)}
+                  >
+                    <span style={{ width: `${used * 100}%` }} />
+                  </div>
+                </div>
+              </div>
+              <div className="prefs-hero-actions">
+                <button className="quiet" onClick={() => void refresh(true)} disabled={syncing}>
+                  {syncing ? t("sync.syncing") : t("launcher.syncNow")}
                 </button>
+                <button
+                  className="quiet"
+                  onClick={() => api.unsent().then(setSigningOut, () => setSigningOut({ changes: 0, files: 0, photos: 0 }))}
+                >
+                  {t("settings.signOut")}
+                </button>
+              </div>
+            </div>
+            <Launcher
+              services={report?.services ?? []}
+              syncing={syncing}
+              driveFree={storage ? icloudSize(Math.max(0, storage.totalBytes - storage.usedBytes)) : null}
+            />
+          </Pane>
+        <Pane id="backup" shown={pane === "backup"} title={t("settings.backupTitle")}>
+            <div className="settings-group">
+              <BackupRow onError={setError} />
+            </div>
+            <div className="settings-group">
+              <ExportRow onError={setError} />
+            </div>
+          </Pane>
+        <Pane id="computer" shown={pane === "computer"} title={t("settings.thisComputer")}>
+            {(showDrive || showPhotos) && (
+              <div className="settings-group">
+                {showDrive && (
+                  <FolderRow
+                    app="drivews"
+                    label={t("settings.driveFolder")}
+                    off={onWindows ? t("settings.driveFolderExplorerHint") : t("settings.driveFolderFilesHint")}
+                    folder={folder}
+                    busy={folderBusy}
+                    line={(f) => folderState(f, t)}
+                    onOpen={api.driveFolderOpen}
+                    onSet={(on) => folder && setFolderOn(folder, on, setFolder, setFolderBusy, api.driveFolderSet)}
+                  />
+                )}
+                {showPhotos && (
+                  <FolderRow
+                    app="photos"
+                    label={t("settings.photosFolder")}
+                    off={t("settings.photosFolderHint")}
+                    folder={photosFolder}
+                    busy={photosBusy}
+                    line={(f) => f.path}
+                    onOpen={api.photosFolderOpen}
+                    onSet={(on) =>
+                      photosFolder && setFolderOn(photosFolder, on, setPhotosFolder, setPhotosBusy, api.photosFolderSet)
+                    }
+                  />
+                )}
+              </div>
+            )}
+            <div className="settings-group">
+              <div className="settings-row">
+                <span className="settings-label settings-stack">
+                  {t("settings.cachedPictures")}
+                  <span className="settings-hint" aria-live="polite">
+                    {freed != null ? t("settings.clearedHint", { size: size(freed) }) : t("settings.cachedPicturesHint")}
+                  </span>
+                </span>
+                {local && local.clearable >= MB && <span className="settings-value">{size(local.clearable)}</span>}
+                <button className="quiet" onClick={clearPictures} disabled={!local || clearing || local.clearable < MB}>
+                  {clearing ? t("common.clearing") : t("common.clear")}
+                </button>
+              </div>
+              <PhotoCacheCap onError={setError} />
+            </div>
+          </Pane>
+        <Pane id="notifications" shown={pane === "notifications"} title={t("settings.notifications")}>
+            <div className="settings-group">
+              {(
+                [
+                  ["reminderAlerts", t("settings.reminderAlerts"), "reminders"],
+                  ["eventAlerts", t("settings.calendarAlerts"), "calendar"],
+                ] as const
+              ).map(([key, label, icon]) => (
+                <div className="settings-row" key={key}>
+                  <img className="prefs-app-icon" src={icon === "reminders" ? remindersIcon : calendarIcon} alt="" draggable={false} />
+                  <span className="settings-label">{label}</span>
+                  <button
+                    className="switch"
+                    role="switch"
+                    aria-checked={alerts?.[key] ?? false}
+                    aria-label={label}
+                    disabled={!alerts}
+                    onClick={() => toggle(key)}
+                  >
+                    <span className="switch-knob" />
+                  </button>
+                </div>
               ))}
+              {/* Asked of the desktop itself: without a notification service every alert is dropped. */}
+              {alertsShown === false && (
+                <div className="settings-row">
+                  <span className="settings-label settings-hint is-trouble">{t("settings.noNotificationService")}</span>
+                </div>
+              )}
             </div>
-          </div>
-          <LanguageRow />
-          <WeekStartRow />
-          <MoveCheckedRow />
-          {login?.available === false ? (
-            <div className="settings-row">
-              <span className="settings-label settings-stack">
-                {t("settings.openAtLogin")}
-                <span className="settings-hint">
-                  {t("settings.openAtLoginUnavailable")}
+          </Pane>
+        <Pane id="general" shown={pane === "general"} title={t("settings.general")}>
+            <div className="settings-group">
+              <div className="settings-row">
+                <span className="settings-label">{t("settings.appearance")}</span>
+                <div className="segmented" role="group" aria-label={t("settings.appearance")}>
+                  {(["auto", "light", "dark"] as const).map((tOpt) => (
+                    <button
+                      key={tOpt}
+                      className="segment"
+                      aria-pressed={theme === tOpt}
+                      onClick={() => {
+                        chooseTheme(tOpt);
+                        setTheme(tOpt);
+                      }}
+                    >
+                      {tOpt === "auto" ? t("settings.auto") : tOpt === "light" ? t("settings.light") : t("settings.dark")}
+                    </button>
+                  ))}
+                </div>
+              </div>
+              <LanguageRow />
+              <WeekStartRow />
+              <MoveCheckedRow />
+            </div>
+            <div className="settings-group">
+              {login?.available === false ? (
+                <div className="settings-row">
+                  <span className="settings-label settings-stack">
+                    {t("settings.openAtLogin")}
+                    <span className="settings-hint">{t("settings.openAtLoginUnavailable")}</span>
+                  </span>
+                </div>
+              ) : (
+                <div className="settings-row">
+                  <span className="settings-label settings-stack">
+                    {t("settings.openAtLogin")}
+                    <span className="settings-hint">
+                      {login?.elsewhere
+                        ? login.elsewhere
+                        : login?.on && !login.honoured
+                          ? t("settings.openAtLoginUnsupported")
+                          : t("settings.openAtLoginDesc")}
+                    </span>
+                    {login?.on && !login.honoured && <code className="settings-command">{login.command}</code>}
+                  </span>
+                  <button
+                    className="switch"
+                    role="switch"
+                    aria-checked={login?.on ?? false}
+                    aria-label={t("settings.openAtLogin")}
+                    disabled={!login || loginBusy || Boolean(login.elsewhere)}
+                    onClick={() => {
+                      if (!login) return;
+                      const was = login;
+                      setLogin({ ...login, on: !login.on });
+                      setLoginBusy(true);
+                      api
+                        .loginItemSet(!was.on)
+                        .then(setLogin, (e) => {
+                          setLogin(was);
+                          setError(messageOf(e));
+                        })
+                        .finally(() => setLoginBusy(false));
+                    }}
+                  >
+                    <span className="switch-knob" />
+                  </button>
+                </div>
+              )}
+              {/* Only where Skykeep starts itself at login, with the flag this setting is read for. */}
+              {login?.available !== false && login?.on && (
+                <div className="settings-row">
+                  <span className="settings-label settings-stack">
+                    {t("settings.startInTray")}
+                    <span className="settings-hint">
+                      {login.startInTray !== false ? t("settings.startInTrayDesc") : t("settings.startInTrayOpen")}
+                    </span>
+                  </span>
+                  <button
+                    className="switch"
+                    role="switch"
+                    aria-checked={login.startInTray !== false}
+                    aria-label={t("settings.startInTray")}
+                    disabled={loginBusy}
+                    onClick={() => {
+                      const was = login;
+                      const on = was.startInTray === false;
+                      setLogin({ ...was, startInTray: on });
+                      setLoginBusy(true);
+                      api
+                        .loginStartInTraySet(on)
+                        .then(setLogin, (e) => {
+                          setLogin(was);
+                          setError(messageOf(e));
+                        })
+                        .finally(() => setLoginBusy(false));
+                    }}
+                  >
+                    <span className="switch-knob" />
+                  </button>
+                </div>
+              )}
+            </div>
+          </Pane>
+        {/* What Skykeep talks to, in plain sight: a statement of trust is not hidden behind a link. */}
+        <Pane id="privacy" shown={pane === "privacy"} title={t("settings.privacy")}>
+            <ReachGroup />
+          </Pane>
+        <Pane id="updates" shown={pane === "updates"} title={t("settings.softwareUpdate")}>
+            <UpdatesGroup />
+            <div className="settings-group">
+              <div className="settings-row">
+                <span className="settings-label settings-stack">
+                  Skykeep {version ?? ""}
+                  <span className="settings-hint">Copyright (C) 2026 Yashwanth Kamireddi. {t("settings.licence")}</span>
                 </span>
-              </span>
+              </div>
+              <div className="settings-row">
+                <span className="settings-label">{t("settings.saveDiagnosticReport")}</span>
+                <button
+                  className="quiet"
+                  aria-label={t("settings.saveDiagnosticReport")}
+                  onClick={() =>
+                    api.diagnosticsSave().then(
+                      (path) => void toastSaved(path),
+                      (e) => setError(messageOf(e)),
+                    )
+                  }
+                >
+                  {t("common.save")}
+                </button>
+              </div>
+              <div className="settings-row">
+                <span className="settings-label">{t("settings.openSourceLicences")}</span>
+                <button className="quiet" onClick={() => setLicences(true)}>
+                  {t("common.show")}
+                </button>
+              </div>
             </div>
-          ) : (
-            <div className="settings-row">
-              <span className="settings-label settings-stack">
-                {t("settings.openAtLogin")}
-                <span className="settings-hint">
-                  {login?.elsewhere
-                    ? login.elsewhere
-                    : login?.on && !login.honoured
-                      ? t("settings.openAtLoginUnsupported")
-                      : t("settings.openAtLoginDesc")}
-                </span>
-                {login?.on && !login.honoured && <code className="settings-command">{login.command}</code>}
-              </span>
-              <button
-                className="switch"
-                role="switch"
-                aria-checked={login?.on ?? false}
-                aria-label={t("settings.openAtLogin")}
-                disabled={!login || loginBusy || Boolean(login.elsewhere)}
-                onClick={() => {
-                  if (!login) return;
-                  const was = login;
-                  setLogin({ ...login, on: !login.on });
-                  setLoginBusy(true);
-                  api
-                    .loginItemSet(!was.on)
-                    .then(setLogin, (e) => {
-                      setLogin(was);
-                      setError(messageOf(e));
-                    })
-                    .finally(() => setLoginBusy(false));
-                }}
-              >
-                <span className="switch-knob" />
-              </button>
-            </div>
-          )}
-          {/* Only where Skykeep starts itself at login, with the flag this setting is read for. */}
-          {login?.available !== false && login?.on && (
-            <div className="settings-row">
-              <span className="settings-label settings-stack">
-                {t("settings.startInTray")}
-                <span className="settings-hint">
-                  {login.startInTray !== false
-                    ? t("settings.startInTrayDesc")
-                    : t("settings.startInTrayOpen")}
-                </span>
-              </span>
-              <button
-                className="switch"
-                role="switch"
-                aria-checked={login.startInTray !== false}
-                aria-label={t("settings.startInTray")}
-                disabled={loginBusy}
-                onClick={() => {
-                  const was = login;
-                  const on = was.startInTray === false;
-                  setLogin({ ...was, startInTray: on });
-                  setLoginBusy(true);
-                  api
-                    .loginStartInTraySet(on)
-                    .then(setLogin, (e) => {
-                      setLogin(was);
-                      setError(messageOf(e));
-                    })
-                    .finally(() => setLoginBusy(false));
-                }}
-              >
-                <span className="switch-knob" />
-              </button>
-            </div>
-          )}
-        </section>
-        <section className="dash-card" aria-labelledby="card-notifications">
-          <h2 id="card-notifications" className="dash-title">{t("settings.notifications")}</h2>
-          {(
-            [
-              ["reminderAlerts", t("settings.reminderAlerts"), "reminders"],
-              ["eventAlerts", t("settings.calendarAlerts"), "calendar"],
-            ] as const
-          ).map(([key, label, icon]) => (
-            <div className="settings-row" key={key}>
-              <AppIcon app={icon} />
-              <span className="settings-label">{label}</span>
-              <button
-                className="switch"
-                role="switch"
-                aria-checked={alerts?.[key] ?? false}
-                aria-label={label}
-                disabled={!alerts}
-                onClick={() => toggle(key)}
-              >
-                <span className="switch-knob" />
-              </button>
-            </div>
-          ))}
-          {/* Asked of the desktop itself: without a notification service every alert is dropped. */}
-          {alertsShown === false && (
-            <div className="settings-row">
-              <span className="settings-label settings-hint is-trouble">
-                {t("settings.noNotificationService")}
-              </span>
-            </div>
-          )}
-          <UpdatesGroup />
-        </section>
+          </Pane>
+        </div>
       </div>
-      {/* What Skykeep talks to, in plain sight: a statement of trust is not hidden behind a link. */}
-      <div className="dash-reach">
-        <ReachGroup />
-        <NetworkNote />
-      </div>
-      <footer className="dash-foot">
-        <span>Skykeep {version ?? ""}</span>
-        <span>Copyright (C) 2026 Yashwanth Kamireddi. {t("settings.licence")}</span>
-            <button
-              className="quiet"
-              aria-label={t("settings.saveDiagnosticReport")}
-              onClick={() =>
-                api.diagnosticsSave().then(
-                  (path) => void toastSaved(path),
-                  (e) => setError(messageOf(e)),
-                )
-              }
-            >
-              {t("settings.saveDiagnosticReport")}
-            </button>
-            <button className="quiet" onClick={() => setLicences(true)}>
-              {t("settings.openSourceLicences")}
-            </button>
-      </footer>
-        {licences && (
-          <Suspense fallback={null}>
-            <LicencesSheet onClose={() => setLicences(false)} />
-          </Suspense>
-        )}
-        {signingOut && (
-          <SignOutSheet
-            unsent={signingOut}
-            onCancel={() => setSigningOut(null)}
-            onChoose={(keep) => {
-              setSigningOut(null);
-              onSignOut(keep).catch((e) => setError(messageOf(e)));
-            }}
-          />
-        )}
+      {licences && (
+        <Suspense fallback={null}>
+          <LicencesSheet onClose={() => setLicences(false)} />
+        </Suspense>
+      )}
+      {signingOut && (
+        <SignOutSheet
+          unsent={signingOut}
+          onCancel={() => setSigningOut(null)}
+          onChoose={(keep) => {
+            setSigningOut(null);
+            onSignOut(keep).catch((e) => setError(messageOf(e)));
+          }}
+        />
+      )}
     </div>
+  );
+}
+
+/** An app's own icon, the one on its tile in Home and in the launcher. */
+const MARKS: Record<string, string> = { drivews: driveIcon, photos: photosIcon, reminders: remindersIcon, calendar: calendarIcon };
+function AppMark({ app }: { app: string }) {
+  const src = MARKS[app];
+  return src ? <img className="prefs-app-icon" src={src} alt="" draggable={false} /> : null;
+}
+
+type PaneId = "home" | "backup" | "computer" | "notifications" | "general" | "privacy" | "updates";
+
+/** Each section's mark in the sidebar: one plain glyph, as a Mac's own sidebars have them. */
+const TILES: Record<Exclude<PaneId, "home">, LucideIcon> = {
+  backup: Archive,
+  computer: Laptop,
+  notifications: Bell,
+  general: Gear,
+  privacy: ShieldCheck,
+  updates: ArrowDownCircle,
+};
+
+function NavTile({ pane }: { pane: Exclude<PaneId, "home"> }) {
+  const Icon = TILES[pane];
+  return <Icon className="prefs-icon" size={16} strokeWidth={1.75} aria-hidden="true" />;
+}
+
+/** One section's pane: its title, then its groups. */
+function Pane({
+  id,
+  title,
+  hideTitle,
+  shown,
+  children,
+}: {
+  id: PaneId;
+  title: string;
+  hideTitle?: boolean;
+  shown: boolean;
+  children: ReactNode;
+}) {
+  // Every section is made once, when Settings opens, and kept: hidden while another is shown, it
+  // has its answers ready, so showing it again draws what is true at once, never a first frame
+  // of placeholders that then flips (a switch on, then off).
+  return (
+    <section className="prefs-pane" id={`pane-${id}`} role="tabpanel" aria-labelledby={`card-${id}`} hidden={!shown}>
+      <h2 id={`card-${id}`} className={hideTitle ? "visually-hidden" : "prefs-title"}>
+        {title}
+      </h2>
+      {children}
+    </section>
   );
 }
 
@@ -987,19 +1136,6 @@ function ReachGroup() {
   );
 }
 
-/** The line at the foot of Settings: what Skykeep connects to, true for this copy. */
-function NetworkNote() {
-  const { t } = useI18n();
-  const reach = useReach();
-  if (!reach) return null;
-  return (
-    <p className="settings-note">
-      {reach.updates.length > 0
-        ? t("settings.networkNoteWithUpdates")
-        : t("settings.networkNoteNoUpdates")}
-    </p>
-  );
-}
 
 /** When this copy last checked, said as a person would. */
 function checkedLine(at: number | null): string {
@@ -1060,7 +1196,6 @@ function UpdatesGroup() {
   }
   return (
     <>
-      <h2 className="settings-heading">{t("settings.softwareUpdate")}</h2>
       <section className="settings-group" aria-label={t("settings.softwareUpdate")}>
         {!here ? (
           <div className="settings-row">

@@ -113,8 +113,10 @@ for (const [app, side] of APPS) {
   await page.evaluate(() => { window.__windows = []; });
   await tiles.filter({ hasText: "Photos" }).click();
   ok((await page.evaluate(() => window.__windows ?? [])).some((w) => w.cmd === "app_open" && w.key === "photos"), "a tile opens its app's own window");
-  const box = await page.locator(".settings").first().boundingBox();
-  ok(box && box.x >= 24, `Settings sit clear of the window's edge (${box && Math.round(box.x)}px)`);
+  // The sidebar card 8 px in, as every app's is; the section beside it clear of the card.
+  const side = await page.locator(".prefs-side").first().boundingBox();
+  const main = await page.locator(".prefs-main").first().boundingBox();
+  ok(side && Math.round(side.x) === 8 && main && main.x >= side.x + side.width, `Settings' sidebar sits 8 px in, its section clear of it (${side && Math.round(side.x)}px, ${main && Math.round(main.x)}px)`);
   await ctx.close();
 }
 await b.close();

@@ -2,7 +2,7 @@
 // every switch is the backend's and moves at once, going back with the reason if it could not
 // be kept; the appearance chosen applies at once and survives a restart.
 import { engine } from "./engine.mjs";
-import { SERVICES, installStub, openSettings } from "./stub.mjs";
+import { SERVICES, installStub, openSettings, openPane } from "./stub.mjs";
 const b = await engine.launch();
 const ctx = await b.newContext({ viewport: { width: 1180, height: 820 } });
 await ctx.addInitScript(installStub, { screen: "library", services: SERVICES, twoFactor: null, remindersFixture: true });
@@ -19,8 +19,9 @@ await card.click();
 await page.waitForTimeout(150);
 ok((await page.evaluate(() => window.__windows ?? [])).some((w) => w.cmd === "settings_open"), "the account opens Settings, in Skykeep's own window");
 await openSettings(page);
-ok(await page.getByRole("heading", { name: "Skykeep", level: 1 }).isVisible(), "which is Skykeep: the account, sync and settings");
+ok((await page.getByRole("heading", { name: "Skykeep", level: 1 }).count()) === 1, "which is Skykeep: the account, sync and settings");
 
+await openPane(page, "Notifications");
 const sw = page.getByRole("switch", { name: "Calendar alerts" });
 await page.waitForFunction(() => !document.querySelector('[role=switch]')?.disabled);
 await sw.click();
@@ -32,18 +33,22 @@ await page.waitForTimeout(100);
 ok((await sw.getAttribute("aria-checked")) === "false" && (await page.locator(".toast.is-error").isVisible()), "a setting that could not be kept goes back, and says why");
 await page.evaluate(() => { window.__settingsFail = false; });
 
+await openPane(page, "General");
 await page.getByRole("button", { name: "Dark", exact: true }).click();
 ok((await page.evaluate(() => document.documentElement.dataset.theme)) === "dark", "Dark applies at once");
 const bg = await page.evaluate(() => getComputedStyle(document.body).backgroundColor);
 ok(bg !== "rgb(238, 242, 247)", `the window turns dark whatever the system says  [${bg}]`);
 await page.reload({ waitUntil: "networkidle" });
 ok((await page.evaluate(() => document.documentElement.dataset.theme)) === "dark", "and is still chosen after a restart");
+await openSettings(page);
+await openPane(page, "General");
 await page.getByRole("button", { name: "Automatic", exact: true }).click();
 ok((await page.evaluate(() => document.documentElement.dataset.theme)) === undefined, "Automatic follows the system again");
 
 // A diagnostic report is written for the person to read and send, and says where.
 await openSettings(page);
 await page.waitForSelector(".settings");
+await openPane(page, "Software Update");
 await page.getByRole("button", { name: "Save Diagnostic Report" }).click();
 await page.waitForTimeout(150);
 ok((await page.evaluate(() => window.__diagnostics)) === 1 && /Saved to Downloads/.test(await page.locator(".toast").last().innerText()), "a diagnostic report is saved, and the screen says where");

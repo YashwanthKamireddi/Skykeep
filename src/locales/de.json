@@ -26,7 +26,8 @@
     "clearSearch": "Suche löschen",
     "waitingToSync": "Wartet auf Synchronisierung",
     "refusedLink": "Diese Art von Link kann Skykeep nicht öffnen.",
-    "notice": "Hinweis"
+    "notice": "Hinweis",
+    "show": "Anzeigen"
   },
   "sidebar": {
     "reminders": "Erinnerungen",
@@ -97,11 +98,9 @@
     "exportCopyHint": "Eine einmalige Kopie von Notizen, Erinnerungen, Kontakten, Kalendern und Drive, in Formaten, die jede App öffnet",
     "chooseExportLocation": "Wähle, wohin exportiert wird",
     "export": "Exportieren",
-    "exporting": "Wird exportiert …",
     "exportProgress": "Exportfortschritt",
     "exportProgressCount": "{done} von {total}",
     "nothingToExport": "nichts zu exportieren",
-    "cancelExport": "Export abbrechen",
     "exportCancelled": "Export abgebrochen. Es ist nichts zurückgeblieben.",
     "exportedTo": "Exportiert nach {folder}",
     "thisComputer": "Dieser Computer",
@@ -123,7 +122,6 @@
     "keepPhotosUpTo": "Fotos behalten bis zu",
     "photosOfflineHint": "{size} zuletzt angesehener Fotos, offline bereit",
     "diskRoomHint": "Vorerst bis zu {size}, damit auf diesem Laufwerk Platz bleibt.",
-    "keptOnComputer": "{size} auf diesem Computer gespeichert",
     "zeroKB": "Null KB",
     "general": "Allgemein",
     "appearance": "Erscheinungsbild",
@@ -132,7 +130,6 @@
     "dark": "Dunkel",
     "language": "Sprache",
     "firstDayOfWeek": "Erster Wochentag",
-    "automaticDay": "Automatisch ({day})",
     "moveChecked": "Abgehakte Objekte automatisch sortieren",
     "moveCheckedHint": "Abgehakte Einträge in Checklisten rutschen unter die übrigen",
     "openAtLogin": "Beim Anmelden öffnen",
@@ -175,8 +172,6 @@
     "updates": "Updates",
     "noUpdatesReach": "Keine. Diese Kopie von Skykeep wird auf dem Weg aktualisiert, auf dem du sie installiert hast.",
     "githubUpdatesReachDesc": "Die Release-Server von GitHub, um nach neuen Versionen von Skykeep zu suchen und sie zu laden. Über dich wird nichts gesendet.",
-    "networkNoteWithUpdates": "Skykeep verbindet sich mit Apple für dein iCloud, mit Kalendern, die du abonnierst, und Kalender-Accounts, die du hinzufügst, und mit GitHub für die eigenen Updates. Kein Skykeep-Account, keine Analysen.",
-    "networkNoteNoUpdates": "Skykeep verbindet sich mit Apple für dein iCloud sowie mit Kalendern, die du abonnierst, und Kalender-Accounts, die du hinzufügst. Kein Skykeep-Account, keine Analysen.",
     "saveDiagnosticReport": "Diagnosebericht speichern",
     "openSourceLicences": "Open-Source-Lizenzen",
     "licence": "Freie Software unter der GPL-3.0, ohne Gewährleistung. Nicht mit Apple verbunden.",
@@ -198,7 +193,10 @@
     "photosCountAndSizeMany": "{count} Fotos · {size}",
     "photosInBackup": "Fotos im Backup",
     "driveInBackup": "iCloud Drive im Backup",
-    "includeDrive": "iCloud Drive einbeziehen"
+    "includeDrive": "iCloud Drive einbeziehen",
+    "home": "Übersicht",
+    "privacy": "Datenschutz",
+    "sections": "Einstellungsbereiche"
   },
   "signin": {
     "title": "iCloud verbinden",

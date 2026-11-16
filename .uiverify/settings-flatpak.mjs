@@ -2,7 +2,7 @@
 // reads — the row says how to add Skykeep to the desktop's startup apps instead. Outside it the
 // switch is there as before.
 import { engine } from "./engine.mjs";
-import { SERVICES, installStub, openSettings } from "./stub.mjs";
+import { SERVICES, installStub, openSettings, openPane } from "./stub.mjs";
 const BASE = process.env.BASE ?? process.env.URL ?? "http://localhost:4173";
 const b = await engine.launch();
 let failures = 0;
@@ -16,6 +16,7 @@ for (const flatpak of [true, false]) {
   await page.goto(BASE, { waitUntil: "networkidle" });
   await openSettings(page);
   await page.waitForSelector(".settings");
+  await openPane(page, "General");
   await page.waitForTimeout(300);
   const sw = page.getByRole("switch", { name: "Open at Login" });
   const row = page.locator(".settings-row", { hasText: "Open at Login" });

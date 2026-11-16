@@ -2,9 +2,9 @@
 // and each one's layout ("the content does not scroll; the screen scrolls inside") was keyed on
 // it merely being there: once any app had been opened, Settings could not scroll at all.
 import { engine } from "./engine.mjs";
-import { SERVICES, installStub, openScreen, openSettings } from "./stub.mjs";
+import { SERVICES, installStub, openScreen, openSettings, openPane } from "./stub.mjs";
 const b = await engine.launch();
-const ctx = await b.newContext({ viewport: { width: 1200, height: 600 } });
+const ctx = await b.newContext({ viewport: { width: 1200, height: 420 } });
 await ctx.addInitScript(installStub, { screen: "library", services: SERVICES, twoFactor: null, notesFixture: true });
 const page = await ctx.newPage();
 page.on("pageerror", (e) => { console.log(`FAIL page error: ${e.message}`); process.exitCode = 1; });
@@ -16,11 +16,12 @@ const settings = () => openSettings(page);
 const scrolls = async () => {
   const box = await page.locator(".settings").boundingBox();
   await page.mouse.move(box.x + box.width / 2, 300);
-  const before = await page.evaluate(() => document.querySelector(".content").scrollTop);
+  // Settings scrolls its own pane (.prefs-main), its sidebar standing still.
+  const before = await page.evaluate(() => document.querySelector(".prefs-main").scrollTop);
   await page.mouse.wheel(0, 600);
   await page.waitForTimeout(300);
-  const after = await page.evaluate(() => document.querySelector(".content").scrollTop);
-  await page.evaluate(() => { document.querySelector(".content").scrollTop = 0; });
+  const after = await page.evaluate(() => document.querySelector(".prefs-main").scrollTop);
+  await page.evaluate(() => { document.querySelector(".prefs-main").scrollTop = 0; });
   return after > before;
 };
 await settings();

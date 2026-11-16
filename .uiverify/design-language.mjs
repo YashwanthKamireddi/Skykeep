@@ -6,7 +6,7 @@
 //   - an empty contact list says so in the middle of its column; "Not synced yet" has a grey dot
 // BASE=http://localhost:4201 node .uiverify/design-language.mjs
 import { engine } from "./engine.mjs";
-import { SERVICES, installStub, openScreen, openSettings } from "./stub.mjs";
+import { SERVICES, installStub, openScreen, openSettings, openPane } from "./stub.mjs";
 
 const BASE = process.env.BASE ?? "http://localhost:4173";
 let failures = 0;
@@ -31,7 +31,8 @@ const go = async (page, s) => {
 const head = (page) => page.evaluate(() => {
   const slot = [...document.querySelectorAll("main.content .screen-slot")].find((e) => !e.hidden) ?? document.querySelector("main.content");
   const vis = (el) => el.getClientRects().length && getComputedStyle(el).visibility !== "hidden";
-  const h1 = [...slot.querySelectorAll("h1")].find(vis);
+  // Settings' first line is its pane's own (its h1 is for screen readers alone).
+  const h1 = slot.querySelector(".prefs-column") ?? [...slot.querySelectorAll("h1")].find(vis);
   const rule = [...slot.querySelectorAll("*")].find((e) => vis(e) && parseFloat(getComputedStyle(e).borderRightWidth) > 0 && e.getBoundingClientRect().height > 300);
   const heading = [...slot.querySelectorAll(".side-heading")].find(vis);
   return {
@@ -94,12 +95,13 @@ const resolve = (page, value) => page.evaluate((v) => {
 
   // ---- controls ---------------------------------------------------------------------------
   await go(page, "Settings");
+  await openPane(page, "General");
   const control = await page.evaluate(() => parseFloat(getComputedStyle(document.documentElement).getPropertyValue("--h-control")));
   const pickers = await page.locator(".settings .picker-button:visible").evaluateAll((els) => els.map((e) => Math.round(e.getBoundingClientRect().height)));
   ok(pickers.length > 0 && pickers.every((h) => h === control), `Settings' pop-up buttons are the control height  [${pickers.join(", ")} vs ${control}]`);
   const tracks = await page.locator(".settings .segmented:visible").evaluateAll((els) => els.map((e) => Math.round(e.getBoundingClientRect().height)));
   ok(tracks.every((h) => h === control), `a segmented control is the control height  [${tracks.join(", ")}]`);
-  const weight = await page.locator(".settings-title").evaluate((el) => getComputedStyle(el).fontWeight);
+  const weight = await page.locator(".prefs-pane:not([hidden]) .prefs-title").evaluate((el) => getComputedStyle(el).fontWeight);
   ok(weight === "700", `Settings' title has the weight it asks for  [${weight}]`);
   // The pop-up button's keyboard focus: the shell's ring, not a translucent glow.
   const picker = page.locator(".settings .picker-button:visible").first();
@@ -115,6 +117,7 @@ const resolve = (page, value) => page.evaluate((v) => {
   ok(ring?.style === "solid" && ring?.width === "2px", `a focused pop-up button takes the shell's focus ring  ${JSON.stringify(ring)}`);
 
   // ---- motion stays small -----------------------------------------------------------------
+  await openPane(page, "This Computer");
   const motion = await page.evaluate(() => {
     const ms = (v) => Math.max(...v.split(",").map((s) => parseFloat(s) * (s.trim().endsWith("ms") ? 1 : 1000)));
     const quiet = document.querySelector(".quiet");

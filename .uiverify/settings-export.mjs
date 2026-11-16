@@ -2,7 +2,7 @@
 // service, it can be cancelled, it ends with Show in Folder, and a refusal is said. Photos are
 // Back Up Photos' own, never part of a copy.
 import { engine } from "./engine.mjs";
-import { SERVICES, installStub, openSettings } from "./stub.mjs";
+import { SERVICES, installStub, openSettings, openPane } from "./stub.mjs";
 const b = await engine.launch();
 let failures = 0;
 const ok = (p, m) => { console.log(`${p ? "PASS" : "FAIL"} ${m}`); if (!p) failures++; };
@@ -16,6 +16,7 @@ const open = async (init) => {
   page.on("pageerror", (e) => ok(false, `page error: ${e.message}`));
   await page.goto(process.env.URL ?? "http://localhost:4173", { waitUntil: "networkidle" });
   await openSettings(page);
+  await openPane(page, "Backup");
   await page.waitForSelector(".settings");
   await page.waitForTimeout(300);
   return { ctx, page, row: page.getByRole("group", { name: "Export a Copy" }) };
@@ -47,8 +48,10 @@ const open = async (init) => {
   await page.evaluate(() => { window.__exportStepMs = 120; });
   await row.getByRole("button", { name: "Export" }).click();
   await page.waitForTimeout(200);
+  await page.locator('[data-pane="home"]').click();
   await page.locator(".launch-tile", { hasText: "Reminders" }).click();
   await page.waitForTimeout(200);
+  await openPane(page, "Backup");
   const back = page.getByRole("group", { name: "Export a Copy" });
   ok(await back.getByRole("progressbar").isVisible(), "an export under way is still shown after opening an app");
   await page.waitForFunction(() => document.body.innerText.includes("Exported to"), null, { timeout: 8000 });

@@ -2,7 +2,7 @@
 // at once; once on, where it is and an Open button; one that cannot come up says why and is
 // left off.
 import { engine } from "./engine.mjs";
-import { SERVICES, installStub, openScreen, openSettings } from "./stub.mjs";
+import { SERVICES, installStub, openScreen, openSettings, openPane } from "./stub.mjs";
 const b = await engine.launch();
 const ctx = await b.newContext({ viewport: { width: 1200, height: 900 } });
 await ctx.addInitScript(installStub, { screen: "library", services: SERVICES, twoFactor: null });
@@ -12,6 +12,7 @@ await page.goto(`${process.env.URL ?? "http://localhost:4173"}`, { waitUntil: "n
 let failures = 0;
 const ok = (p, m) => { console.log(`${p ? "PASS" : "FAIL"} ${m}`); if (!p) failures++; };
 await openSettings(page);
+await openPane(page, "This Computer");
 await page.waitForTimeout(400);
 const sw = page.getByRole("switch", { name: "Drive folder" });
 ok((await sw.getAttribute("aria-checked")) === "false", "off until turned on");

@@ -5,7 +5,7 @@
 //
 //   BASE=http://localhost:4320 ENGINE=webkit node .uiverify/app-keys.mjs
 import { engine, engineName } from "./engine.mjs";
-import { SERVICES, installStub, openScreen, openSettings } from "./stub.mjs";
+import { SERVICES, installStub, openScreen, openSettings, openPane } from "./stub.mjs";
 const BASE = process.env.BASE ?? "http://localhost:4173";
 const b = await engine.launch();
 let failures = 0;
@@ -47,7 +47,8 @@ for (const scheme of ["light", "dark"]) {
   await page.waitForTimeout(200);
   ok((await page.evaluate(() => window.__windows ?? [])).some((w) => w.cmd === "settings_open"), `${scheme}: Ctrl+, opens Settings`);
   await openSettings(page);
-  await page.locator(".settings-title").waitFor();
+  await page.locator(".prefs-side").waitFor();
+  await openPane(page, "Privacy");
 
   // ── What Skykeep talks to, from the network lock ──
   const reach = page.getByRole("region", { name: "What Skykeep Talks To" }).or(page.locator(".settings-reach"));
@@ -58,6 +59,7 @@ for (const scheme of ["light", "dark"]) {
     `${scheme}: and GitHub's release servers, for updates`);
 
   // ── First Day of Week ──
+  await openPane(page, "General");
   const picker = page.getByRole("button", { name: /First Day of Week/ });
   ok((await picker.innerText()).startsWith("Automatic ("), `${scheme}: the week starts as the locale says  ${await picker.innerText()}`);
   await picker.click();
@@ -69,6 +71,7 @@ for (const scheme of ["light", "dark"]) {
   const firstHead = await page.evaluate(() => [document.querySelector(".cx-weekdays span")?.textContent, document.querySelector(".cx-day-hit")?.getAttribute("aria-label")]);
   ok(firstHead[0] === "Mon" && /^Monday/.test(firstHead[1] ?? ""), `${scheme}: Month starts its rows on Monday, at once  ${JSON.stringify(firstHead)}`);
   await openSettings(page);
+  await openPane(page, "General");
   await page.getByRole("button", { name: /First Day of Week/ }).click();
   await page.getByRole("option", { name: /^Automatic/ }).click();
   ok(await page.evaluate(() => localStorage.getItem("quince.weekStart")) === null, `${scheme}: Automatic goes back to the locale's`);

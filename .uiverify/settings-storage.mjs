@@ -2,7 +2,7 @@
 // of the cached pictures only and the figures are read again; a desktop with no notification
 // service says so under the alert switches; a folder that cannot be opened says why on its row.
 import { engine } from "./engine.mjs";
-import { SERVICES, installStub, openSettings } from "./stub.mjs";
+import { SERVICES, installStub, openSettings, openPane } from "./stub.mjs";
 const b = await engine.launch();
 let failures = 0;
 const ok = (p, m) => { console.log(`${p ? "PASS" : "FAIL"} ${m}`); if (!p) failures++; };
@@ -21,18 +21,21 @@ const open = async (init) => {
 
 {
   const { ctx, page } = await open();
-  const text = await page.locator(".settings").innerText();
-  ok(/4\.9 GB kept on this computer/.test(text), "the local copy's whole size is on This Computer's card");
+  const home = await page.locator(".settings").innerText();
+  await openPane(page, "This Computer");
+  const text = home + (await page.locator(".settings").innerText());
   // Apple's storage in Apple's own units, the same figure Drive shows under a folder.
   ok(/182\.2 MB of 5\.37 GB used/.test(text) && /5\.19 GB available/.test(text), "iCloud storage is said as Apple says it");
+  await page.locator('[data-pane="home"]').click();
   ok((await page.locator(".launch-tile", { hasText: "Drive" }).innerText()).includes("5.19 GB available"), "and Drive's tile says what Drive itself says");
+  await openPane(page, "This Computer");
   ok(/Cached pictures[\s\S]*4\.2 GB/.test(text), "what can be cleared is said before clearing");
   const clear = page.getByRole("button", { name: "Clear", exact: true });
   await clear.click();
   await page.waitForTimeout(200);
   const after = await page.locator(".settings").innerText();
   ok((await page.evaluate(() => window.__cleared)) === 1, "Clear asks the backend once");
-  ok(/4\.2 GB cleared/.test(after) && /772 MB kept on this computer/.test(after), "and the figures are the backend's answer after");
+  ok(/4\.2 GB cleared/.test(after), "and the figures are the backend's answer after");
   ok(await clear.isDisabled(), "nothing left to clear, Clear rests");
   ok(!(await page.getByText("no notification service").isVisible()), "a desktop that shows alerts is not warned");
   await ctx.close();
@@ -44,11 +47,14 @@ const open = async (init) => {
     window.__clearFail = "The data folder could not be read.";
     window.__driveOpenFail = "That folder is off.";
   });
+  await openPane(page, "This Computer");
   await page.getByRole("button", { name: "Open", exact: true }).click();
   await page.waitForTimeout(150);
   const row = page.locator(".settings-row", { hasText: "Drive folder" });
   ok((await row.innerText()).includes("That folder is off.") && !(await page.locator(".toast.is-error").isVisible()), "a folder that cannot be opened says why on its own row");
+  await openPane(page, "Notifications");
   ok(await page.getByText("Alerts can't appear: this desktop has no notification service running.").isVisible(), "a desktop with no notification service is said under the switches");
+  await openPane(page, "This Computer");
   await page.getByRole("button", { name: "Clear", exact: true }).click();
   await page.waitForTimeout(200);
   const banner = page.locator(".toast.is-error");

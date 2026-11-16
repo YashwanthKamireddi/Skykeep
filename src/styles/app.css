@@ -1807,7 +1807,8 @@
  */
 .library.is-solo { --side: 0px; }
 .library.is-solo > main.content { padding-left: 8px; }
-.library.is-solo > main.content[data-screen="settings"] { padding-left: 34px; }
+/* Settings lays out its own sidebar card and scrolling pane (.prefs): no padding round it. */
+.library.is-solo > main.content[data-screen="settings"] { padding: 0; overflow: hidden; }
 .library.is-solo :is(.notes-folders, .contacts-lists, .rx-side, .px-side, .cx-side, .dx-side) {
   /* Reaching from 8px below the window's top to 8px above its foot, past the content's own
      top and bottom padding. */
@@ -1911,7 +1912,7 @@
 /* Where an app folds its own sidebar away (each at its own width), the content keeps a
    margin from the window's edge instead of the card's 8px. */
 @media (max-width: 1000px) {
-  .library.is-solo > main.content:is([data-screen="notes"], [data-screen="contacts"], [data-screen="settings"]) { padding-left: 16px; }
+  .library.is-solo > main.content:is([data-screen="notes"], [data-screen="contacts"]) { padding-left: 16px; }
 }
 @media (max-width: 720px) {
   .library.is-solo > main.content:is([data-screen="photos"], [data-screen="reminders"], [data-screen="drivews"]) { padding-left: 16px; }
@@ -1934,7 +1935,6 @@
   display: flex; align-items: center; justify-content: space-between; gap: 12px;
   margin: 0 4px 10px;
 }
-.launcher-hint { color: var(--text-2); font-size: var(--t-12); }
 .launcher-grid { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 12px; }
 @media (max-width: 640px) { .launcher-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
 .launch-tile {
@@ -1988,43 +1988,70 @@
   .dx-side { display: none; }
 }
 
-/* Skykeep's window: the apps on top, then cards in balanced rows — Account, Backup, This
-   Computer; General, Notifications — each card's actions at its foot so a row ends level, the
-   long lists behind its Details. One page, centred, no scrolling on a large screen. */
+/* Skykeep's window, as a Mac's System Settings: the sidebar card every app has, with the same
+   rows as their source lists (kit.css .source-row), Home first; and beside it the section open,
+   in a pane that scrolls on its own and uses its whole width: its groups side by side in columns
+   as wide as a group reads well, as many as fit. One radius for every surface (--r-plateau). */
 .content[data-screen="settings"] { container: settings-page / inline-size; }
-.settings.dash { max-width: 1080px; margin-inline: auto; }
-.dash-row { display: grid; gap: 12px; margin-top: 14px; align-items: stretch; }
-.dash-three { grid-template-columns: repeat(3, minmax(0, 1fr)); }
-.dash-two { grid-template-columns: repeat(2, minmax(0, 1fr)); }
-.dash-card {
-  display: flex; flex-direction: column; min-width: 0; padding: 14px 14px 12px; border-radius: 14px;
-  background: color-mix(in srgb, var(--text) 4%, transparent);
-  border: var(--hairline) solid color-mix(in srgb, var(--text) 8%, transparent);
+.settings.prefs {
+  display: grid; grid-template-columns: 220px minmax(0, 1fr); height: 100%;
+  max-width: none; margin: 0; padding: 0;
 }
-.dash-title { margin: 0 0 8px; font-size: var(--t-13); font-weight: 650; color: var(--text-2); }
-.dash-card .settings-row { padding-inline: 0; }
-.dash-card .settings-heading { margin: 12px 0 2px; }
-.dash-card .settings-group { background: none; border: 0; }
-.dash-account { display: flex; align-items: center; gap: 12px; margin: 2px 0 8px; min-width: 0; }
-.dash-account .settings-account-text { min-width: 0; }
-.dash-actions {
-  display: flex; align-items: center; gap: 10px; margin-top: auto; padding-top: 10px;
+.prefs-side {
+  display: flex; flex-direction: column; gap: 2px; min-width: 0; min-height: 0; overflow-y: auto;
+  margin: 8px 0 8px 8px; padding: 10px 8px;
+  background: var(--veil-frost);
+  box-shadow: var(--veil-rim), 0 0 0 var(--hairline) var(--veil-edge);
+  border-radius: var(--r-plateau);
+  scrollbar-width: none;
 }
-.dash-actions > :last-child { margin-left: auto; }
-.dash-foot {
-  display: flex; flex-wrap: wrap; align-items: center; justify-content: center; gap: 10px;
-  margin: 18px 0 6px; color: var(--text-2); font-size: var(--t-12);
-}
-.dash-foot-sep { width: 3px; height: 3px; border-radius: 50%; background: currentColor; opacity: 0.5; }
-@container settings-page (min-width: 1180px) {
-  .launcher-grid { grid-template-columns: repeat(6, minmax(0, 1fr)); }
-}
-@container settings-page (max-width: 820px) {
-  .dash-three, .dash-two { grid-template-columns: minmax(0, 1fr); }
-}
+.prefs-group { display: flex; flex-direction: column; gap: 2px; }
+.prefs-side .source-row[aria-selected="true"] { background: var(--fill-selected); }
+.prefs-icon { flex: none; color: var(--accent); }
 
-/* In a card a line wraps rather than being cut with "…": its words and any link at its end
-   (the backup's Show in Folder) stay readable and reachable at every card width. */
-.dash-card :is(.settings-hint, .settings-label, .settings-stack) { white-space: normal; overflow: visible; text-overflow: clip; }
-.dash-reach { margin-top: 14px; }
-.dash-reach > .settings-heading:first-child { margin-top: 6px; }
+.prefs-main { min-width: 0; min-height: 0; overflow-y: auto; padding: var(--pane-top) 24px 32px; }
+.prefs-column { max-width: 1240px; }
+/* A section is shown at once, never faded in: a fade here was the compositor's, and on
+   WebKitGTK under Hyprland every such fade flickered (as the viewers' did). */
+.prefs-pane {
+  display: grid; grid-template-columns: repeat(auto-fill, minmax(min(100%, 440px), 1fr));
+  gap: 16px; align-items: start;
+}
+.prefs-pane[hidden] { display: none; }
+.prefs-pane > :is(.prefs-title, .settings-heading, .visually-hidden, .prefs-hero, .launcher) { grid-column: 1 / -1; }
+.prefs-title { margin: 0 0 4px; font-size: var(--t-22); font-weight: 700; letter-spacing: -0.015em; line-height: 1.2; }
+.prefs-pane > .settings-heading { margin: 0 0 -8px; }
+.prefs-pane .settings-group { border-radius: var(--r-plateau); }
+.prefs-pane :is(.settings-hint, .settings-label, .settings-stack) { white-space: normal; overflow-wrap: anywhere; }
+
+/* Home: the account, its storage and its two actions, then the apps across the whole width. */
+.prefs-hero { display: flex; align-items: center; gap: 16px; min-width: 0; padding: 4px 0 8px; }
+.prefs-hero > .avatar { flex: none; }
+.prefs-hero-text { display: flex; flex-direction: column; gap: 2px; flex: 1; min-width: 0; max-width: 560px; }
+.prefs-hero-text strong { font-size: var(--t-20); font-weight: 650; letter-spacing: -0.01em; }
+.prefs-hero-mail { font-size: var(--t-13); color: var(--text-2); }
+.prefs-hero-text > strong, .prefs-hero-mail { overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }
+.prefs-storage { display: flex; flex-direction: column; gap: 8px; margin-top: 12px; font-size: var(--t-12); color: var(--text-2); }
+.prefs-storage .storage-bar { height: 6px; }
+.prefs-hero-actions { display: flex; gap: 8px; margin-left: auto; align-self: flex-start; flex: none; }
+.prefs-main .launcher { margin: 0; }
+/* The six apps in even rows: six across, three, or two — never five and one left over. */
+.prefs-main .launcher-grid { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+@container settings-page (min-width: 1400px) { .prefs-main .launcher-grid { grid-template-columns: repeat(6, minmax(0, 1fr)); } }
+@container settings-page (max-width: 700px) { .prefs-main .launcher-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
+.prefs-main .launch-tile { border-radius: var(--r-plateau); }
+/* A row's button: one width for all of them, so a column of Save, Show, Clear lines up. */
+.prefs-pane .settings-row > button.quiet { min-width: 84px; justify-content: center; }
+.prefs-app-icon { width: 24px; height: 24px; flex: none; }
+
+/* Narrow: the sections in a row along the top, scrolled sideways. */
+@container settings-page (max-width: 700px) {
+  .settings.prefs { grid-template-columns: minmax(0, 1fr); grid-template-rows: auto minmax(0, 1fr); }
+  .prefs-side {
+    flex-direction: row; gap: 2px; overflow-x: auto; overflow-y: hidden; margin: 8px 8px 0; padding: 6px;
+  }
+  .prefs-group { flex-direction: row; gap: 2px; }
+  .prefs-side .source-row { width: auto; flex: none; }
+  .prefs-main { padding: 16px 16px 32px; }
+  .prefs-hero { flex-wrap: wrap; }
+}

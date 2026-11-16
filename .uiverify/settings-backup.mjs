@@ -2,7 +2,7 @@
 // how far it is and where, with Change Folder and the switch to turn it off. "Include the Hidden
 // album" shows always, and switching it on while locked asks for the unlock right there.
 import { engine } from "./engine.mjs";
-import { SERVICES, installStub, openSettings } from "./stub.mjs";
+import { SERVICES, installStub, openSettings, openPane } from "./stub.mjs";
 const b = await engine.launch();
 let failures = 0;
 const ok = (p, m) => { console.log(`${p ? "PASS" : "FAIL"} ${m}`); if (!p) failures++; };
@@ -17,7 +17,8 @@ for (const scheme of ["light", "dark"]) {
   await page.goto(process.env.URL ?? "http://localhost:4173", { waitUntil: "networkidle" });
   await openSettings(page);
   await page.waitForSelector(".settings");
-  const section = page.locator(".dash-card", { has: page.getByRole("heading", { name: "Backup", exact: true }) });
+  await openPane(page, "Backup");
+  const section = page.locator("#pane-backup");
   const row = page.getByRole("group", { name: "Backup", exact: true });
   await row.scrollIntoViewIfNeeded();
   await page.waitForTimeout(200);
