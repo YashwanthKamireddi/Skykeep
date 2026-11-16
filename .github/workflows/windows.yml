@@ -377,6 +377,47 @@ jobs:
             if (-not ($lists | Where-Object { $_.Contains($needle) })) { throw "the jump list has no '$task' task" }
           }
           "jump list: $($tasks -join ', ')"
+          # #62: an app's window made again at the smallest size it was left at drew nothing
+          # (all white) until resized. As a person does it: Reminders opened, made as small as it
+          # goes, closed; after Skykeep let go of the closed window (a minute, apps.rs KEPT) it is
+          # made again at the size it was left, and what it draws is read back from the window.
+          Add-Type -TypeDefinition '
+            using System; using System.Runtime.InteropServices;
+            public static class Px {
+              [DllImport("user32.dll")] public static extern bool SetWindowPos(IntPtr h, IntPtr after, int x, int y, int cx, int cy, uint flags);
+              [DllImport("user32.dll")] public static extern bool PostMessage(IntPtr h, uint msg, IntPtr w, IntPtr l);
+              [DllImport("user32.dll")] public static extern bool PrintWindow(IntPtr h, IntPtr hdc, uint flags);
+              [StructLayout(LayoutKind.Sequential)] public struct R { public int L, T, Ri, B; }
+              [DllImport("user32.dll")] public static extern bool GetWindowRect(IntPtr h, out R r);
+            }'
+          function Colours([IntPtr]$h) {
+            $r = New-Object Px+R; [void][Px]::GetWindowRect($h, [ref]$r)
+            $w = $r.Ri - $r.L; $hh = $r.B - $r.T
+            $bmp = New-Object System.Drawing.Bitmap $w, $hh
+            $g = [System.Drawing.Graphics]::FromImage($bmp); $dc = $g.GetHdc()
+            [void][Px]::PrintWindow($h, $dc, 2); $g.ReleaseHdc($dc); $g.Dispose()
+            $seen = @{}
+            # The client area only (below the title bar), every fourth pixel.
+            for ($y = 48; $y -lt $hh - 8; $y += 4) { for ($x = 8; $x -lt $w - 8; $x += 4) { $seen[$bmp.GetPixel($x, $y).ToArgb()] = 1 } }
+            $bmp.Save("$env:RUNNER_TEMP\reminders-small.png")
+            "window $w x $hh, $($seen.Count) colours"
+            return $seen.Count
+          }
+          Start-Process $exe.FullName -ArgumentList "--app reminders"
+          $h = $null
+          for ($i = 0; $i -lt 15 -and -not $h; $i++) { Start-Sleep -Seconds 2; $h = Find-Window $p.Id "Reminders" }
+          if (-not $h) { throw "no Reminders window" }
+          [void][Px]::SetWindowPos($h, [IntPtr]::Zero, 100, 100, 200, 200, 0x0014)   # smaller than allowed: held at the minimum
+          Start-Sleep -Seconds 2
+          [void][Px]::PostMessage($h, 0x0010, [IntPtr]::Zero, [IntPtr]::Zero)         # WM_CLOSE
+          Start-Sleep -Seconds 70
+          Start-Process $exe.FullName -ArgumentList "--app reminders"
+          $h = $null
+          for ($i = 0; $i -lt 15 -and -not $h; $i++) { Start-Sleep -Seconds 2; $h = Find-Window $p.Id "Reminders" }
+          if (-not $h) { throw "no Reminders window the second time" }
+          Start-Sleep -Seconds 4
+          $n = Colours $h
+          if ($n -lt 8) { throw "Reminders at its smallest drew nothing (#62): $n colours" }
           Stop-Process -Id $p.Id
           Start-Sleep -Seconds 2
           # Uninstalled, every entry goes with it. The uninstaller hands itself to a copy and
@@ -396,4 +437,12 @@ jobs:
         with:
           name: skykeep-on-windows
           path: skykeep-on-windows.png
+          if-no-files-found: ignore
+
+      - name: What Reminders drew at its smallest (#62)
+        if: ${{ always() }}
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: reminders-small
+          path: ${{ runner.temp }}/reminders-small.png
           if-no-files-found: ignore
