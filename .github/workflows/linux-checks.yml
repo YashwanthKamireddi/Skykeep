@@ -19,9 +19,13 @@ on:
   schedule:
     - cron: "0 6 * * 1"
 
+# A newer push to main cancels an older commit's run (only the newest needs checking), except a
+# release commit ("Skykeep x.y.z"): it keeps a group of its own, so nothing that lands after it
+# can cancel the runs its tag waits for (tag.yml). Before, every commit kept its run, and four
+# merges in a row ran sixteen workflows to the end.
 concurrency:
-  group: linux-checks-${{ github.sha }}
-  cancel-in-progress: false
+  group: linux-checks-${{ (startsWith(github.event.head_commit.message, 'Skykeep ') && github.sha) || github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'push' && !startsWith(github.event.head_commit.message, 'Skykeep ') }}
 
 permissions:
   contents: read

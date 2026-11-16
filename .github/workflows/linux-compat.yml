@@ -34,10 +34,13 @@ on:
 permissions:
   contents: read
 
-# One run per commit: a newer push never cancels the run a release candidate is waiting on.
+# A newer push to main cancels an older commit's run (only the newest needs checking), except a
+# release commit ("Skykeep x.y.z"): it keeps a group of its own, so nothing that lands after it
+# can cancel the runs its tag waits for (tag.yml). Before, every commit kept its run, and four
+# merges in a row ran sixteen workflows to the end.
 concurrency:
-  group: linux-compat-${{ github.sha }}
-  cancel-in-progress: true
+  group: linux-compat-${{ (startsWith(github.event.head_commit.message, 'Skykeep ') && github.sha) || github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'push' && !startsWith(github.event.head_commit.message, 'Skykeep ') }}
 
 jobs:
   # On x86_64 and on 64-bit ARM (Apple Silicon Macs run Linux on aarch64): each architecture's
