@@ -667,6 +667,8 @@ export type ReminderList = {
   groupGuid?: string | null;
   /** Shown as a tile beside Today and Scheduled. */
   pinned?: boolean;
+  /** When it was pinned (ms since 1970): the tiles stand in that order, as on the phone. */
+  pinnedAt?: number | null;
   /** How the list orders its reminders: "manual", "displayDate_asc", … */
   sorting?: string | null;
 };
