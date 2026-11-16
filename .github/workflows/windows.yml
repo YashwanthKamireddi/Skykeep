@@ -436,15 +436,19 @@ jobs:
               $b = [System.Windows.Forms.Screen]::PrimaryScreen.Bounds
               $bmp = New-Object System.Drawing.Bitmap $b.Width, $b.Height
               [System.Drawing.Graphics]::FromImage($bmp).CopyFromScreen($b.Location, [System.Drawing.Point]::Empty, $b.Size)
-              $bmp.Save("$env:RUNNER_TEMP\app-$app-screen.png")
+              $bmp.Save("$env:RUNNER_TEMP\app-$app-$w-screen.png")
               throw "$title did not come back after Skykeep let go of its window (#62)"
             }
             Start-Sleep -Seconds 4
             $n = Colours $h $app
             if ($n -lt 8) { throw "$title, made again, drew nothing (#62): $n colours" }
           }
-          Reopened "notes" "Notes" 0 0
-          Reopened "reminders" "Reminders" 480 400
+          # Which matters, the app or the size: each app at both.
+          $failed = @()
+          foreach ($case in @(@("notes","Notes",0,0), @("reminders","Reminders",0,0), @("notes","Notes",480,400), @("reminders","Reminders",480,400))) {
+            try { Reopened $case[0] $case[1] $case[2] $case[3] } catch { "FAILED: $($case[1]) at $($case[2])x$($case[3]): $_"; $failed += "$($case[1]) $($case[2])x$($case[3])" }
+          }
+          if ($failed) { throw "#62: $($failed -join '; ')" }
           Stop-Process -Id $p.Id
           Start-Sleep -Seconds 2
           # Uninstalled, every entry goes with it. The uninstaller hands itself to a copy and
