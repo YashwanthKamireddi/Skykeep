@@ -58,6 +58,7 @@ pub fn start(dir: &Path) {
     }
     quince_auth::diag::set_sink(line);
     quince_vfs::set_notes(line);
+    quince_icloud::set_notes(line);
     quince_icloud::set_diagnostics(refused);
     line(&format!(
         "diagnostics on: Skykeep {} on {} {}",

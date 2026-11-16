@@ -661,7 +661,20 @@ fn apply_list_order(
         .iter()
         .filter(|id| known.iter().any(|k| k.eq_ignore_ascii_case(id)))
         .count();
-    if still_here * 2 < order.len() {
+    // Counts only, for the diagnostics log: why a sidebar's order matches the phone or not (#64).
+    let used = still_here * 2 >= order.len();
+    crate::note(&format!(
+        "reminders: Apple's list order names {}, {} of them here ({} lists and groups here): {}",
+        order.len(),
+        still_here,
+        known.len(),
+        if used {
+            "used"
+        } else {
+            "ignored as a leftover"
+        }
+    ));
+    if !used {
         return;
     }
     // A list or group the arrangement has not heard of sits after the ones it has, keeping

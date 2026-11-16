@@ -14,6 +14,23 @@ macro_rules! quiet {
     };
 }
 
+/// Where a note for the diagnostics log goes, when the person turned the log on (src-tauri's
+/// diagnostics.rs sets it). Set once, at start.
+static NOTES: std::sync::OnceLock<fn(&str)> = std::sync::OnceLock::new();
+
+/// Sends the engine's notes to `sink`. Set once, at start.
+pub fn set_notes(sink: fn(&str)) {
+    let _ = NOTES.set(sink);
+}
+
+/// A line for the diagnostics log: what happened, in counts and Apple's codes only, never a
+/// name, an id or anything of the person's (the log's promise).
+pub(crate) fn note(public: &str) {
+    if let Some(sink) = NOTES.get() {
+        sink(public);
+    }
+}
+
 pub mod bounded;
 pub mod caldav;
 pub mod calendar;
