@@ -380,9 +380,10 @@ jobs:
           }
           "jump list: $($tasks -join ', ')"
           # #62: an app's window made again after it was let go of drew nothing (all white) or
-          # did not come back. As a person does it: the app opened, closed; once Skykeep let go
-          # of the closed window (a minute, apps.rs KEPT) it is opened again and has to be on
-          # screen, drawn. Notes at its own size, then Reminders left at its smallest.
+          # did not come back: the window-state plugin restored its size inside Tauri's window-ready
+          # hook and froze the app (main.rs, restore_window_state). As a person does it: the app
+          # opened, made as small as it goes, closed; once Skykeep let go of the closed window (a
+          # minute, apps.rs KEPT) it is opened again and has to be on screen, drawn.
           Add-Type -TypeDefinition '
             using System; using System.Runtime.InteropServices;
             public static class Px {
@@ -443,12 +444,8 @@ jobs:
             $n = Colours $h $app
             if ($n -lt 8) { throw "$title, made again, drew nothing (#62): $n colours" }
           }
-          # Which matters, the app or the size: each app at both.
-          $failed = @()
-          foreach ($case in @(@("notes","Notes",0,0), @("reminders","Reminders",0,0), @("notes","Notes",480,400), @("reminders","Reminders",480,400))) {
-            try { Reopened $case[0] $case[1] $case[2] $case[3] } catch { "FAILED: $($case[1]) at $($case[2])x$($case[3]): $_"; $failed += "$($case[1]) $($case[2])x$($case[3])" }
-          }
-          if ($failed) { throw "#62: $($failed -join '; ')" }
+          # The case that froze before the fix: left at its smallest, its window let go, opened again.
+          Reopened "reminders" "Reminders" 480 400
           Stop-Process -Id $p.Id
           Start-Sleep -Seconds 2
           # Uninstalled, every entry goes with it. The uninstaller hands itself to a copy and
