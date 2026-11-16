@@ -89,7 +89,7 @@ modules:
       - npm run build
       # The app. tauri/custom-protocol is what `tauri build` turns on: without it the binary
       # is a dev build (cfg(dev)) — dev CSP and dev behaviour in a release package.
-      - cargo --offline build --release --locked -p quince-app --features tauri/custom-protocol
+      - cargo --offline build --release --locked -p quince-app --no-default-features --features tauri/custom-protocol
       - install -Dm755 target/release/quince-app ${FLATPAK_DEST}/bin/skykeep
 
       # The main launcher entry and the metainfo: written for this app ID, kept beside this

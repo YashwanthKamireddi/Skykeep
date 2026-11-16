@@ -8,6 +8,12 @@ license.workspace = true
 [build-dependencies]
 tauri-build = { version = "2", features = [] }
 
+[features]
+# The iPhone as camera and microphone over the cable. Off only where it can't work: the
+# Flatpak's sandbox can't reach usbmuxd, and its SDK lacks the libclang PipeWire's bindings need.
+default = ["iphone"]
+iphone = ["dep:quince-link"]
+
 [dependencies]
 futures-util = { version = "0.3", default-features = false, features = ["std"] }
 quince-vfs = { path = "../crates/quince-vfs" }
@@ -92,6 +98,8 @@ windows = { version = "0.62", features = [
 ] }
 
 [target.'cfg(target_os = "linux")'.dependencies]
+# The iPhone as camera and microphone (iphone.rs), on by default (the iphone feature).
+quince-link = { path = "../crates/quince-link", optional = true }
 fuser = { version = "0.18", default-features = false }
 # What the window's player can decode here (video.rs), asked of GStreamer, which WebKitGTK
 # plays through. The poster reader is quince-media's (poster.rs).

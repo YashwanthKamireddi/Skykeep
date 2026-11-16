@@ -128,7 +128,9 @@ jobs:
         env:
           RUSTFLAGS: --remap-path-prefix=${{ github.workspace }}=skykeep
           APPIMAGE_EXTRACT_AND_RUN: "1"
-        run: npx tauri build --bundles appimage
+        # Without the iPhone camera and microphone (the iphone feature): 22.04's PipeWire is
+        # older than its bindings build against. Every other Linux package has it.
+        run: npx tauri build --bundles appimage -- --no-default-features
       - name: Nothing in it needs more than Ubuntu 22.04 has
         # Every ELF file's version needs (objdump -p, "Version References"), against 22.04's
         # glibc 2.35 and libstdc++ (GCC 12's: GLIBCXX 3.4.30, CXXABI 1.3.13).

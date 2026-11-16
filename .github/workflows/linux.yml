@@ -53,7 +53,7 @@ jobs:
           sudo apt-get -o Acquire::Retries=5 install -y --no-install-recommends \
             libwebkit2gtk-4.1-dev libgtk-3-dev libayatana-appindicator3-dev librsvg2-dev \
             libsecret-1-dev libheif-dev libheif-plugin-libde265 libfuse3-dev pkg-config patchelf rpm file \
-            libgstreamer1.0-dev libgstreamer-plugins-base1.0-dev \
+            libgstreamer1.0-dev libgstreamer-plugins-base1.0-dev libpipewire-0.3-dev libclang-dev \
             gstreamer1.0-plugins-base gstreamer1.0-plugins-good gstreamer1.0-libav \
             xvfb xauth dbus
           # The GStreamer plugins are here for two reasons: the AppImage carries the ones
@@ -155,7 +155,7 @@ jobs:
           sudo apt-get -o Acquire::Retries=5 install -y --no-install-recommends \
             libwebkit2gtk-4.1-dev libgtk-3-dev libayatana-appindicator3-dev librsvg2-dev \
             libsecret-1-dev libheif-dev libheif-plugin-libde265 libfuse3-dev pkg-config patchelf rpm file \
-            libgstreamer1.0-dev libgstreamer-plugins-base1.0-dev \
+            libgstreamer1.0-dev libgstreamer-plugins-base1.0-dev libpipewire-0.3-dev libclang-dev \
             gstreamer1.0-plugins-base gstreamer1.0-plugins-good gstreamer1.0-libav \
             xvfb xauth dbus
           # The GStreamer plugins are here for two reasons: the AppImage carries the ones

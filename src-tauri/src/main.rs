@@ -30,6 +30,7 @@ mod folder_download;
 mod grants;
 mod hello;
 mod intake;
+mod iphone;
 mod launcher;
 /// The library behind one lock: shared with the phone's engine (crates/quince-sync).
 pub use quince_sync::library_lock;
@@ -7352,6 +7353,7 @@ fn main() {
             }
             // Before anything reaches Apple, so a run with diagnostics on has all of it.
             diagnostics::start(&dir);
+            iphone::start(app.handle(), &dir);
             let client = match Client::new(&dir) {
                 Ok(client) => client,
                 Err(quince_auth::Error::Io(e)) => cannot_start(&dir, &folder_problem(&e)),
@@ -7507,6 +7509,9 @@ fn main() {
             Ok(())
         })
         .invoke_handler(tauri::generate_handler![
+            iphone::iphone_status,
+            iphone::iphone_every_app,
+            iphone::iphone_set,
             data_access::data_access_status,
             data_access::data_access_ask,
             account_refresh,

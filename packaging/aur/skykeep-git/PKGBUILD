@@ -24,10 +24,15 @@ license=('GPL-3.0-only')
 # .mov/.mp4) and videoflip, and gst-libav for the H.264/HEVC decoders. Without them a video
 # shows a black frame and won't play.
 depends=('webkit2gtk-4.1' 'gtk3' 'libsecret' 'libheif' 'gstreamer' 'gst-plugins-base-libs'
-         'gst-plugins-base' 'gst-plugins-good' 'gst-libav')
+         'gst-plugins-base' 'gst-plugins-good' 'gst-libav' 'libpipewire')
 # The iCloud Drive and Photos folders are mounted through fusermount3.
-optdepends=('fuse3: iCloud Drive and Photos as folders in the file manager')
-makedepends=('rust' 'nodejs' 'npm' 'pkgconf' 'git')
+# The iPhone as camera and microphone comes over the cable through usbmuxd, and is decoded on
+# the graphics chip with the VA plugin (in software through gst-libav without it).
+optdepends=('fuse3: iCloud Drive and Photos as folders in the file manager'
+            'usbmuxd: the iPhone as camera and microphone over the cable'
+            'gst-plugin-va: the iPhone camera decoded on the graphics chip'
+            'gst-plugins-bad: the iPhone camera decoded on the graphics chip')
+makedepends=('rust' 'nodejs' 'npm' 'pkgconf' 'clang' 'git')
 
 # makepkg turns link-time optimisation on for everything, which compiles the C and assembly
 # inside ring and libsqlite3-sys to LLVM bitcode. Rust links its own way and cannot see into

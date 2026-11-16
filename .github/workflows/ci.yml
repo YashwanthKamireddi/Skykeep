@@ -166,8 +166,8 @@ jobs:
           sudo apt-get -o Acquire::Retries=5 install -y --no-install-recommends \
             libwebkit2gtk-4.1-dev libgtk-3-dev libayatana-appindicator3-dev librsvg2-dev \
             libsecret-1-dev libheif-dev libheif-plugin-libde265 libfuse3-dev pkg-config \
-            libgstreamer1.0-dev libgstreamer-plugins-base1.0-dev \
-            gstreamer1.0-plugins-base gstreamer1.0-plugins-good gstreamer1.0-libav
+            libgstreamer1.0-dev libgstreamer-plugins-base1.0-dev libpipewire-0.3-dev libclang-dev \
+            gstreamer1.0-plugins-base gstreamer1.0-plugins-good gstreamer1.0-plugins-ugly gstreamer1.0-libav
           # The codecs, not only their headers: a video test reads an .mp4's first frames, and
           # Copy's test decodes a HEIC (libde265, which the .deb depends on too).
       - uses: dtolnay/rust-toolchain@b725eda525362e7cf34af9a7243cac1e3f01a7ec # stable
@@ -275,7 +275,7 @@ jobs:
         run: |
           sudo apt-get -o Acquire::Retries=5 update
           sudo apt-get -o Acquire::Retries=5 install -y --no-install-recommends pkg-config libheif-dev \
-            libgstreamer1.0-dev libgstreamer-plugins-base1.0-dev
+            libgstreamer1.0-dev libgstreamer-plugins-base1.0-dev libpipewire-0.3-dev libclang-dev
       # The repository's own Rust (rust-toolchain.toml), with the two phone targets added to it.
       - run: rustup target add aarch64-linux-android x86_64-linux-android
       - uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2.9.3

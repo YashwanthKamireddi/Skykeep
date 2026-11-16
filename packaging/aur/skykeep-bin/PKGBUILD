@@ -22,9 +22,14 @@ license=('GPL-3.0-only')
 
 # The same run-time needs as ../skykeep, which explains each one.
 depends=('webkit2gtk-4.1' 'gtk3' 'libsecret' 'libheif' 'gstreamer' 'gst-plugins-base-libs'
-         'gst-plugins-base' 'gst-plugins-good' 'gst-libav')
+         'gst-plugins-base' 'gst-plugins-good' 'gst-libav' 'libpipewire')
 # The iCloud Drive and Photos folders are mounted through fusermount3.
-optdepends=('fuse3: iCloud Drive and Photos as folders in the file manager')
+# The iPhone as camera and microphone comes over the cable through usbmuxd, and is decoded on
+# the graphics chip with the VA plugin (in software through gst-libav without it).
+optdepends=('fuse3: iCloud Drive and Photos as folders in the file manager'
+            'usbmuxd: the iPhone as camera and microphone over the cable'
+            'gst-plugin-va: the iPhone camera decoded on the graphics chip'
+            'gst-plugins-bad: the iPhone camera decoded on the graphics chip')
 provides=("$_pkgname")
 conflicts=("$_pkgname")
 # The binary is the release's, already stripped; there is nothing to make a debug package from.
