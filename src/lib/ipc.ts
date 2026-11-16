@@ -295,6 +295,10 @@ export const api = {
   videoSupport: () => invoke<{ h264: boolean; hevc: boolean; missing: string[] }>("video_support"),
   /** The window full screen or back; answers whether it now is. */
   windowFullscreen: (on: boolean) => invoke<boolean>("window_fullscreen", { on }),
+  /** Float on Top: this window above the others (#40); answers whether it now is. */
+  windowFloat: (on: boolean) => invoke<boolean>("window_float", { on }),
+  /** Whether this desktop lets an app keep its window on top (not on Wayland). */
+  windowFloatPossible: () => invoke<boolean>("window_float_possible"),
   /** What the window shows pictures at, so the app makes them before they are shown. */
   photosPrepare: (shown: { cell: number; fit: boolean; stageW: number; stageH: number; dpr: number; view?: PhotoView | null }) =>
     invoke<void>("photos_prepare", { shown }),

@@ -971,7 +971,6 @@ export function SettingsView({ onSignOut }: { onSignOut: (keep: boolean) => Prom
               </div>
               <LanguageRow />
               <WeekStartRow />
-              <MoveCheckedRow />
             </div>
             <div className="settings-group">
               {login?.available === false ? (
@@ -1051,6 +1050,11 @@ export function SettingsView({ onSignOut }: { onSignOut: (keep: boolean) => Prom
                   </button>
                 </div>
               )}
+            </div>
+          {/* Notes' own setting, as Apple keeps it in Notes' settings on the iPhone and the Mac. */}
+            <h2 className="settings-heading">{t("sidebar.notes")}</h2>
+            <div className="settings-group">
+              <MoveCheckedRow />
             </div>
           </Pane>
         {/* What Skykeep talks to, in plain sight: a statement of trust is not hidden behind a link. */}
@@ -1421,29 +1425,26 @@ function MoveCheckedRow() {
       return false;
     }
   });
+  const choose = (next: boolean) => {
+    setOn(next);
+    try {
+      localStorage.setItem(MOVE_CHECKED_KEY, next ? "1" : "0");
+    } catch {
+      /* kept for this session only */
+    }
+  };
+  // Apple's own choice, worded as Apple words it: Sort Checked Items, Manually or Automatically.
   return (
     <div className="settings-row">
-      <span className="settings-label settings-stack">
-        {t("settings.moveChecked")}
-        <span className="settings-hint">{t("settings.moveCheckedHint")}</span>
-      </span>
-      <button
-        className="switch"
-        role="switch"
-        aria-checked={on}
-        aria-label={t("settings.moveChecked")}
-        onClick={() => {
-          const next = !on;
-          setOn(next);
-          try {
-            localStorage.setItem(MOVE_CHECKED_KEY, next ? "1" : "0");
-          } catch {
-            /* kept for this session only */
-          }
-        }}
-      >
-        <span className="switch-knob" />
-      </button>
+      <span className="settings-label">{t("settings.sortChecked")}</span>
+      <div className="segmented" role="group" aria-label={t("settings.sortChecked")}>
+        <button className="segment" aria-pressed={!on} onClick={() => choose(false)}>
+          {t("settings.manually")}
+        </button>
+        <button className="segment" aria-pressed={on} onClick={() => choose(true)}>
+          {t("settings.automatically")}
+        </button>
+      </div>
     </div>
   );
 }

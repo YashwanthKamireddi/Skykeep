@@ -40,7 +40,10 @@ for (const name of Object.keys(SIDE)) {
   const { ctx, page } = await open(name, 1280);
   const btn = page.locator(".side-toggle");
   const at = await box(page, ".side-toggle");
-  ok(at.display !== "none" && Math.round(at.x) === 20 && Math.round(at.y) === 16, `${name}: the button sits at the window's top left (${Math.round(at.x)}, ${Math.round(at.y)})`);
+  // The round glass button (058155d): 16 from the left, centred on the first line beside it,
+  // 14 from the top, 18 where a toolbar of taller groups starts the window (Calendar, Photos).
+  const top = name === "Calendar" || name === "Photos" ? 18 : 14;
+  ok(at.display !== "none" && Math.round(at.x) === 16 && Math.round(at.y) === top, `${name}: the button sits at the window's top left (${Math.round(at.x)}, ${Math.round(at.y)})`);
   ok((await btn.getAttribute("aria-label")) === "Hide Sidebar" && (await btn.getAttribute("aria-expanded")) === "true", `${name}: it says Hide Sidebar while the sidebar shows`);
   // Shown: the button lies over the card's own row, not over any of the sidebar's items.
   const items = await page.locator(`${SIDE[name]} :is(button, input, label, h2, h3, .side-heading)`).evaluateAll((els) =>

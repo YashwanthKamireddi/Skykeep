@@ -131,8 +131,6 @@
     "dark": "Dark",
     "language": "Language",
     "firstDayOfWeek": "First Day of Week",
-    "moveChecked": "Sort Checked Items Automatically",
-    "moveCheckedHint": "Ticked checklist items move below the rest",
     "openAtLogin": "Open at Login",
     "openAtLoginDesc": "Starts in the background, so alerts ring and changes sync",
     "openAtLoginUnsupported": "This desktop doesn't open apps at login by itself. Add this to its startup:",
@@ -221,7 +219,10 @@
     "iphoneStateLive": "Live",
     "iphoneStatePaused": "Paused",
     "iphoneStateOff": "Off",
-    "beta": "Beta"
+    "beta": "Beta",
+    "sortChecked": "Sort Checked Items",
+    "manually": "Manually",
+    "automatically": "Automatically"
   },
   "signin": {
     "title": "Connect your iCloud",
@@ -1471,7 +1472,8 @@
       "zoomOut": "Zoom out",
       "resetZoom": "Reset zoom",
       "playAVideoOrLivePhoto": "Play a video or Live Photo",
-      "closeTheViewer": "Close the viewer"
+      "closeTheViewer": "Close the viewer",
+      "floatOnTop": "Float the window on top"
     }
   },
   "downloads": {
@@ -1708,6 +1710,7 @@
     "zoomInCtrl": "Zoom In (Ctrl +)",
     "zoomOut": "Zoom Out",
     "zoomOutCtrl": "Zoom Out (Ctrl −)",
+    "floatOnTop": "Float on Top",
     "hideSidebar": "Hide Sidebar",
     "showSidebar": "Show Sidebar",
     "alreadyInCalendar": "Already in your calendar",

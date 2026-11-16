@@ -170,6 +170,9 @@ export function installStub({ screen, services, twoFactor, calendarFixture, note
         case "auth_sign_in":     return screen === "code" ? "needs_two_factor" : "complete";
         case "auth_submit_code": window.__codeVia = "devices"; return null;
         case "account_services": return services;
+        // Float on Top (#40): possible unless a suite says this is Wayland; each ask recorded.
+        case "window_float_possible": return window.__floatPossible ?? true;
+        case "window_float": (window.__floatAsks ??= []).push(args.on); return args.on;
         case "iphone_status": return window.__iphone ?? { state: "unavailable", cameraMs: null, microphoneMs: null, everyApp: "install" };
         case "iphone_set": { window.__iphoneSet = [...(window.__iphoneSet ?? []), args.on]; window.__iphone = { ...(window.__iphone ?? {}), state: args.on ? "none" : "off", everyApp: window.__iphone?.everyApp ?? "setUp" }; return window.__iphone; }
         case "iphone_every_app": window.__everyAppAsked = (window.__everyAppAsked ?? 0) + 1; if (window.__iphone) window.__iphone.everyApp = "ready"; return "ready";

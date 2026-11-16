@@ -3,7 +3,8 @@
  * lists them: what it does on the left, the keys on the right. The app in front comes first.
  * The same list as the README's, kept here as data so the two are read side by side.
  */
-import { useRef } from "react";
+import { useEffect, useRef, useState } from "react";
+import { api } from "../lib/ipc";
 import { t, useI18n, type Key } from "../lib/i18n";
 import { Portal } from "./Portal";
 import { useModalFocus } from "../lib/focus";
@@ -18,6 +19,7 @@ export const SHORTCUTS: { app: Key; key: string; rows: Row[] }[] = [
       [[["Ctrl", "R"], ["F5"]], "shortcuts.actions.syncTheAppInFront"],
       [[["Ctrl", ","]], "shortcuts.actions.settings"],
       [[["F9"]], "shortcuts.actions.showOrHideTheSidebar"],
+      [[["Ctrl", "Shift", "P"]], "shortcuts.actions.floatOnTop"],
       [[["Ctrl", "/"]], "shortcuts.actions.keyboardShortcuts"],
     ],
   },
@@ -125,8 +127,21 @@ export function ShortcutsSheet({ front, onClose }: { front: string | null; onClo
   useModalFocus(sheetRef);
   // An app's own window shows its own keys and those that work everywhere, nothing of the
   // other five apps (each is a window of its own); Skykeep's window, the overview, shows all.
-  const app = SHORTCUTS.find((g) => g.key !== "" && g.key === front);
-  const groups = app ? [app, ...SHORTCUTS.filter((g) => g.key === "")] : SHORTCUTS;
+  // Float on Top only where the desktop lets an app float (not Wayland: FloatOnTop.tsx).
+  const [floats, setFloats] = useState(false);
+  useEffect(() => {
+    let live = true;
+    api.windowFloatPossible().then((can) => live && setFloats(can), () => {});
+    return () => {
+      live = false;
+    };
+  }, []);
+  const shown = SHORTCUTS.map((g) => ({
+    ...g,
+    rows: g.rows.filter(([, action]) => floats || action !== "shortcuts.actions.floatOnTop"),
+  }));
+  const app = shown.find((g) => g.key !== "" && g.key === front);
+  const groups = app ? [app, ...shown.filter((g) => g.key === "")] : shown;
   return (
     <Portal>
       <div className="modal-veil" onClick={onClose}>

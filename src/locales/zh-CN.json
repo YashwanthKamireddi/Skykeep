@@ -131,8 +131,6 @@
     "dark": "深色",
     "language": "语言",
     "firstDayOfWeek": "每周起始日",
-    "moveChecked": "自动下移已完成项目",
-    "moveCheckedHint": "勾选完成的项目将自动排序到底部",
     "openAtLogin": "登录时打开",
     "openAtLoginDesc": "在后台启动，以便及时提醒并同步更改",
     "openAtLoginUnsupported": "当前桌面环境不会自行在登录时启动应用。请将其添加到自启动项：",
@@ -221,7 +219,10 @@
     "iphoneStateLive": "使用中",
     "iphoneStatePaused": "已暂停",
     "iphoneStateOff": "关闭",
-    "beta": "测试版"
+    "beta": "测试版",
+    "sortChecked": "勾选项目排序",
+    "manually": "手动",
+    "automatically": "自动"
   },
   "signin": {
     "title": "连接您的 iCloud",
@@ -1471,7 +1472,8 @@
       "zoomOut": "缩小",
       "resetZoom": "重置缩放",
       "playAVideoOrLivePhoto": "播放视频或实况照片",
-      "closeTheViewer": "关闭查看器"
+      "closeTheViewer": "关闭查看器",
+      "floatOnTop": "窗口置顶"
     }
   },
   "downloads": {
@@ -1708,6 +1710,7 @@
     "zoomInCtrl": "放大（Ctrl +）",
     "zoomOut": "缩小",
     "zoomOutCtrl": "缩小（Ctrl −）",
+    "floatOnTop": "窗口置顶",
     "hideSidebar": "隐藏边栏",
     "showSidebar": "显示边栏",
     "alreadyInCalendar": "已在你的日历中",

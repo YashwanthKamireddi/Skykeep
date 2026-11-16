@@ -350,7 +350,7 @@ jobs:
           # check.sh refuses a name here that is not a suite it runs.
           suites="csp a11y boundary signout notes-compose notes-instant reminders-add-done
                   reminders-instant calendar-edits contacts-select drive-nav photos settings
-                  app-window updates device-approval"
+                  app-window side-pane updates device-approval"
           failed=()
           for t in $suites; do
             if node ".uiverify/$t.mjs" >"$shots/$t.log" 2>&1; then

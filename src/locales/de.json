@@ -131,8 +131,6 @@
     "dark": "Dunkel",
     "language": "Sprache",
     "firstDayOfWeek": "Erster Wochentag",
-    "moveChecked": "Abgehakte Objekte automatisch sortieren",
-    "moveCheckedHint": "Abgehakte Einträge in Checklisten rutschen unter die übrigen",
     "openAtLogin": "Beim Anmelden öffnen",
     "openAtLoginDesc": "Startet im Hintergrund, damit Hinweise erscheinen und Änderungen synchronisiert werden",
     "openAtLoginUnsupported": "Diese Arbeitsumgebung öffnet Apps beim Anmelden nicht von selbst. Füge das hier zu ihrem Autostart hinzu:",
@@ -221,7 +219,10 @@
     "iphoneStateLive": "Live",
     "iphoneStatePaused": "Pausiert",
     "iphoneStateOff": "Aus",
-    "beta": "Beta"
+    "beta": "Beta",
+    "sortChecked": "Abgehakte Objekte sortieren",
+    "manually": "Manuell",
+    "automatically": "Automatisch"
   },
   "signin": {
     "title": "iCloud verbinden",
@@ -1471,7 +1472,8 @@
       "zoomOut": "Verkleinern",
       "resetZoom": "Zoom zurücksetzen",
       "playAVideoOrLivePhoto": "Video oder Live Photo abspielen",
-      "closeTheViewer": "Ansicht schließen"
+      "closeTheViewer": "Ansicht schließen",
+      "floatOnTop": "Fenster immer im Vordergrund"
     }
   },
   "downloads": {
@@ -1708,6 +1710,7 @@
     "zoomInCtrl": "Vergrößern (Strg +)",
     "zoomOut": "Verkleinern",
     "zoomOutCtrl": "Verkleinern (Strg −)",
+    "floatOnTop": "Immer im Vordergrund",
     "hideSidebar": "Seitenleiste ausblenden",
     "showSidebar": "Seitenleiste einblenden",
     "alreadyInCalendar": "Bereits in deinem Kalender",
