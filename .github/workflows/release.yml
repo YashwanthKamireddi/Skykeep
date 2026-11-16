@@ -271,7 +271,10 @@ jobs:
 
   verify:
     # Only a real release: a tag, every platform built (a re-run that adds one comes back here).
-    if: startsWith(github.ref, 'refs/tags/v') && needs.publish.result == 'success'
+    # `!cancelled()` as publish has it: without it the condition carries an implicit success(),
+    # which is false whenever a job earlier in the chain was skipped, and `linux` and `windows`
+    # are skipped whenever their proven files are promoted, so verify never ran (0.1.26).
+    if: ${{ !cancelled() && startsWith(github.ref, 'refs/tags/v') && needs.publish.result == 'success' }}
     needs: publish
     runs-on: ubuntu-24.04
     timeout-minutes: 20
