@@ -36,7 +36,12 @@ jobs:
         with:
           bundle: skykeep.flatpak
           manifest-path: packaging/flatpak/io.github.yashwanthkamireddi.Skykeep.yml
-          cache-key: flatpak-builder-${{ github.sha }}
+          # No cache: keyed by the commit, none was ever found again ("No cache was found" every
+          # run), yet each push saved 361 MB that pushed the Windows build's caches out of the
+          # repository's 10 GB (a cold Windows build every time). A key that outlives a commit is
+          # not safe either: the app comes in as a `dir` source, and a reused cache could carry
+          # an older build of it.
+          cache: false
 
   starts:
     # The bundle installs and Skykeep starts and stays up, offline, under a virtual display.
