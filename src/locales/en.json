@@ -130,8 +130,6 @@
     "dark": "Dark",
     "language": "Language",
     "firstDayOfWeek": "First Day of Week",
-    "moveChecked": "Sort Checked Items Automatically",
-    "moveCheckedHint": "Ticked checklist items move below the rest",
     "openAtLogin": "Open at Login",
     "openAtLoginDesc": "Starts in the background, so alerts ring and changes sync",
     "openAtLoginUnsupported": "This desktop doesn't open apps at login by itself. Add this to its startup:",
@@ -196,7 +194,10 @@
     "includeDrive": "Include iCloud Drive",
     "home": "Home",
     "privacy": "Privacy",
-    "sections": "Settings sections"
+    "sections": "Settings sections",
+    "sortChecked": "Sort Checked Items",
+    "manually": "Manually",
+    "automatically": "Automatically"
   },
   "signin": {
     "title": "Connect your iCloud",

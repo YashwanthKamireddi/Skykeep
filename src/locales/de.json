@@ -130,8 +130,6 @@
     "dark": "Dunkel",
     "language": "Sprache",
     "firstDayOfWeek": "Erster Wochentag",
-    "moveChecked": "Abgehakte Objekte automatisch sortieren",
-    "moveCheckedHint": "Abgehakte Einträge in Checklisten rutschen unter die übrigen",
     "openAtLogin": "Beim Anmelden öffnen",
     "openAtLoginDesc": "Startet im Hintergrund, damit Hinweise erscheinen und Änderungen synchronisiert werden",
     "openAtLoginUnsupported": "Diese Arbeitsumgebung öffnet Apps beim Anmelden nicht von selbst. Füge das hier zu ihrem Autostart hinzu:",
@@ -196,7 +194,10 @@
     "includeDrive": "iCloud Drive einbeziehen",
     "home": "Übersicht",
     "privacy": "Datenschutz",
-    "sections": "Einstellungsbereiche"
+    "sections": "Einstellungsbereiche",
+    "sortChecked": "Abgehakte Objekte sortieren",
+    "manually": "Manuell",
+    "automatically": "Automatisch"
   },
   "signin": {
     "title": "iCloud verbinden",
