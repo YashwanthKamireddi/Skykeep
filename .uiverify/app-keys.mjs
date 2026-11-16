@@ -83,10 +83,11 @@ for (const scheme of ["light", "dark"]) {
   const page = await ctx.newPage();
   await page.goto(BASE, { waitUntil: "networkidle" });
   await openScreen(page, "Calendar");
+  // The first frame Month draws, not a later one: the week used to start on Sunday and flip
+  // to Monday once LC_TIME was read (now given to the window before its page runs).
   await page.getByRole("button", { name: "Month", exact: true }).click();
-  await page.waitForTimeout(400);
-  const first = await page.evaluate(() => document.querySelector(".cx-day-hit")?.getAttribute("aria-label") ?? "");
-  ok(/^Monday/.test(first), `LC_TIME en_GB under an American LANG starts the week on Monday  ${JSON.stringify(first)}`);
+  const first = await page.waitForFunction(() => document.querySelector(".cx-day-hit")?.getAttribute("aria-label"), null, { polling: "raf" }).then((h) => h.jsonValue());
+  ok(/^Monday/.test(first), `LC_TIME en_GB under an American LANG starts the week on Monday, from the first frame  ${JSON.stringify(first)}`);
   await ctx.close();
 }
 await b.close();

@@ -1286,7 +1286,6 @@ export function installStub({ screen, services, twoFactor, calendarFixture, note
         // The desktop's Increase Contrast, from the Settings portal (appearance.rs).
         case "system_contrast":  return window.__contrast ?? false;
         // LC_TIME, LANG (appearance.rs): null leaves the engine's own language.
-        case "system_time_locale": return window.__timeLocale ?? null;
         case "network_reach": return { accounts: window.__reachAccounts ?? [], apple: ["apple.com", "icloud.com", "icloud-content.com"], subscribed: window.__reachSubscribed ?? [],
           updates: (window.__update?.install ?? "here") === "here" ? ["github.com", "release-assets.githubusercontent.com", "objects.githubusercontent.com"] : [] };
         // Skykeep's own updates (updates.rs). A test sets `window.__update` (an offer, an install

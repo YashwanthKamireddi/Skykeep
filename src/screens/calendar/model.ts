@@ -64,9 +64,24 @@ export function weekStartChoice(): WeekStartChoice {
   }
 }
 
-/** The locale dates are written in: the engine's language until the system's LC_TIME is read. */
-let timeLocale =
-  (typeof navigator !== "undefined" && navigator.language) || Intl.DateTimeFormat().resolvedOptions().locale;
+/**
+ * The locale dates are written in: the system's (LC_TIME before LANG, src-tauri/src/appearance.rs),
+ * which the backend puts in every window before its first line runs (main.rs, "time-locale"),
+ * so the first frame already has the right week; else the engine's language.
+ */
+function systemTimeLocale(): string | null {
+  const tag = typeof window === "undefined" ? null : (window as { __timeLocale?: unknown }).__timeLocale;
+  if (typeof tag !== "string" || !tag) return null;
+  try {
+    new Intl.Locale(tag);
+    return tag;
+  } catch {
+    return null;
+  }
+}
+const timeLocale =
+  systemTimeLocale() ??
+  ((typeof navigator !== "undefined" && navigator.language) || Intl.DateTimeFormat().resolvedOptions().locale);
 
 /** The locale's own first day, whatever Settings chose. */
 export const localeFirstDay = () => weekInfoOf(timeLocale).firstDay;
@@ -109,20 +124,6 @@ if (typeof window !== "undefined") {
 export function onWeekChange(run: () => void): () => void {
   window.addEventListener(WEEK_CHANGED, run);
   return () => window.removeEventListener(WEEK_CHANGED, run);
-}
-if (typeof window !== "undefined" && "__TAURI_INTERNALS__" in window) {
-  void import("@tauri-apps/api/core")
-    .then(({ invoke }) => invoke<string | null>("system_time_locale"))
-    .then((tag) => {
-      if (!tag) return;
-      try {
-        new Intl.Locale(tag);
-      } catch {
-        return;
-      }
-      timeLocale = tag;
-      refreshWeek();
-    }, () => {});
 }
 export const isWeekend = (d: Date) => WEEK.weekend.includes(d.getDay());
 

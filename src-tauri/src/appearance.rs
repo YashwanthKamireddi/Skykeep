@@ -93,9 +93,9 @@ pub fn watch(app: tauri::AppHandle) {
 
 /// The locale dates are written in here, as a BCP 47 tag (`en-GB`): `LC_ALL`, then `LC_TIME`,
 /// then `LANG`, as the C library reads them. WebKitGTK's `navigator.language` follows `LANG`
-/// alone, so a British `LC_TIME` under an American `LANG` would start the week on Sunday;
-/// Calendar asks here first. None for C, POSIX or nothing set.
-#[tauri::command]
+/// alone, so a British `LC_TIME` under an American `LANG` would start the week on Sunday; every
+/// window is given this before its page runs (main.rs, "time-locale"). None for C, POSIX or
+/// nothing set.
 pub fn system_time_locale() -> Option<String> {
     let var = |k: &str| std::env::var(k).ok().filter(|v| !v.is_empty());
     tag(&var("LC_ALL")

@@ -7061,6 +7061,18 @@ fn main() {
         // with "URL can't be shown", and there was no way back. Only the kinds a person means
         // by "a link" go out (links.rs): a `file:` or `search-ms:` link in a shared note is
         // someone else's choice, and the opener would run it.
+        // The system's date locale (LC_TIME before LANG), known to every window before its first
+        // line runs: read later, a Calendar opened with the language's week (Sunday for en_US)
+        // and redrew a moment after with LC_TIME's (Monday for en_GB), a visible flip.
+        .plugin(
+            tauri::plugin::Builder::<tauri::Wry, ()>::new("time-locale")
+                .js_init_script(format!(
+                    "window.__timeLocale = {};",
+                    serde_json::to_string(&appearance::system_time_locale())
+                        .unwrap_or_else(|_| "null".into())
+                ))
+                .build(),
+        )
         .plugin(
             tauri::plugin::Builder::<tauri::Wry, ()>::new("links")
                 .on_navigation(|webview, url| {
@@ -7508,7 +7520,6 @@ fn main() {
             outbox::outbox_discard,
             outbox::outbox_wake,
             appearance::system_contrast,
-            appearance::system_time_locale,
             network_reach,
             updates::update_status,
             updates::update_check,
