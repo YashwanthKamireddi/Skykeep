@@ -27,7 +27,7 @@ const ARRIVED: &str = "quince://intake";
 /// Told to the quick-capture window when it is asked for again, perhaps for the other kind.
 const CAPTURE: &str = "quince://capture";
 /// The quick-capture window's label.
-const CAPTURE_WINDOW: &str = "capture";
+pub(crate) const CAPTURE_WINDOW: &str = "capture";
 /// Larger than any calendar or address book a person would open by hand; a file past it is
 /// refused rather than read into memory.
 const MOST_BYTES: u64 = 16 * 1024 * 1024;
@@ -266,6 +266,8 @@ pub fn capture(app: &AppHandle, kind: &'static str) {
     .build();
     match made {
         Ok(window) => {
+            // Where it was left, now that it is made (#62: never inside the window-ready hook).
+            crate::restore_window_state(&window);
             // Shown anyway if the page never says it is drawn.
             tauri::async_runtime::spawn(async move {
                 tokio::time::sleep(std::time::Duration::from_secs(3)).await;

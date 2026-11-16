@@ -229,7 +229,7 @@ fn percent_decoded(s: &str) -> String {
     String::from_utf8_lossy(&out).into_owned()
 }
 
-fn label(key: &str) -> String {
+pub(crate) fn label(key: &str) -> String {
     format!("app-{key}")
 }
 
@@ -305,7 +305,11 @@ fn make(app: &AppHandle, key: &str, asking: &str) {
     .build();
     crate::timing::mark(format_args!("app {key} window made"));
     let window = match made {
-        Ok(w) => w,
+        Ok(w) => {
+            // The size and place it was left at, now that it is made (#62).
+            crate::restore_window_state(&w);
+            w
+        }
         Err(e) => {
             quiet!("the {name} window could not be made: {e}");
             crate::timing::mark(format_args!("app {key} window NOT made: {e}"));

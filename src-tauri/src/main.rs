@@ -6503,6 +6503,16 @@ fn wind_down(app: &tauri::AppHandle) {
     }
 }
 
+/// A window put back at the size and place it was left, once made: outside Tauri's window-ready
+/// hook, where the window-state plugin would do it and freeze the app (#62, see the plugin's
+/// set-up in `main`). The plugin's own resize handler stands aside while it restores.
+pub(crate) fn restore_window_state(window: &tauri::WebviewWindow) {
+    use tauri_plugin_window_state::WindowExt;
+    if let Err(e) = window.restore_state(window_state_kept()) {
+        quiet!("a window's size and place could not be put back: {e}");
+    }
+}
+
 /// What is kept of a window between runs: its size, place and maximised state — never whether
 /// it shows.
 fn window_state_kept() -> tauri_plugin_window_state::StateFlags {
@@ -6556,6 +6566,7 @@ fn make_main(app: &tauri::AppHandle) -> Option<tauri::WebviewWindow> {
         }
     };
     timing::mark("main made");
+    restore_window_state(&window);
     // A tiling compositor places, sizes and closes windows itself; a title bar with minimise
     // and maximise there only takes room and does nothing it does not. On a desktop that
     // floats windows — GNOME, KDE — it is how a window is moved, so it stays.
@@ -7045,11 +7056,23 @@ fn main() {
         // Each window — the library, and every app's own — reopens at the size and place it was
         // left, as Apple's apps do. Not whether it shows: that stays Skykeep's (hidden at
         // login, shown once drawn).
-        .plugin(
-            tauri_plugin_window_state::Builder::default()
+        .plugin({
+            // Never restored by the plugin while a window is being made: it does that inside
+            // Tauri's window-ready hook, with Tauri's plugin lock held, and a size or place that
+            // differs from the one made sends Windows' WM_WINDOWPOSCHANGED back through that
+            // same lock: the app froze for good. Reopened after it was let go (apps::KEPT) at
+            // the smallest size, Reminders never came back, or drew nothing (#62; upstream
+            // tauri-apps/plugins-workspace#2088, open). Each window is restored by
+            // `restore_window_state` right after it is made, outside that lock.
+            let mut kept = tauri_plugin_window_state::Builder::default()
                 .with_state_flags(window_state_kept())
-                .build(),
-        )
+                .skip_initial_state("main")
+                .skip_initial_state(intake::CAPTURE_WINDOW);
+            for (key, _) in apps::APPS {
+                kept = kept.skip_initial_state(&apps::label(key));
+            }
+            kept.build()
+        })
         .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_opener::init())
         // Skykeep's own updates (updates.rs). Driven from Rust only: the window is granted none
