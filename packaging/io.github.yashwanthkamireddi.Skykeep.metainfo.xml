@@ -103,6 +103,11 @@
     <color type="primary" scheme_preference="dark">#0B2A4A</color>
   </branding>
   <releases>
+    <release version="0.1.26" date="2026-11-16">
+      <description>
+        <p>Settings has a new layout: a sidebar of sections beside one section at a time, with Home first: your account, its storage, Sync Now and Sign Out, then the six apps. Switches no longer flip when Settings opens. Calendar starts the week on the right day from the first moment when the system's date format and language differ, instead of redrawing it a moment later.</p>
+      </description>
+    </release>
     <release version="0.1.25" date="2026-11-16">
       <description>
         <p>On Windows, the Drive folder in File Explorer comes back on by itself after a restart, and folders open instead of failing with "The cloud operation is invalid"; if the folder can't start, Settings says why. Photos sorted Oldest First opens at the newest photos. Every app now comes in Simplified Chinese and German, with dates in the chosen language, and Reminders lists show the icon chosen on the iPhone, emoji included. The Keyboard Shortcuts sheet is easier to read. On Linux, each app's icon shows in every launcher and dock. On Android, three home-screen widgets: Reminders, Quick Reminder and Agenda.</p>
