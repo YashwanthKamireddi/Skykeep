@@ -1385,7 +1385,8 @@
       "zoomOut": "缩小",
       "resetZoom": "重置缩放",
       "playAVideoOrLivePhoto": "播放视频或实况照片",
-      "closeTheViewer": "关闭查看器"
+      "closeTheViewer": "关闭查看器",
+      "floatOnTop": "窗口置顶"
     }
   },
   "downloads": {
@@ -1621,6 +1622,7 @@
     "zoomIn": "放大",
     "zoomInCtrl": "放大（Ctrl +）",
     "zoomOut": "缩小",
-    "zoomOutCtrl": "缩小（Ctrl −）"
+    "zoomOutCtrl": "缩小（Ctrl −）",
+    "floatOnTop": "窗口置顶"
   }
 }

@@ -1849,6 +1849,27 @@
 .side-toggle:active:not(:disabled) { background: var(--fill-press); }
 .library.is-solo:is([data-app="calendar"], [data-app="photos"]) > .side-toggle { top: 18px; }
 .side-toggle:focus-visible { outline: var(--focus-ring); }
+/* Float on Top (components/FloatOnTop): beside the sidebar button, in the row its sidebar keeps
+   for it; with the sidebar hidden or folded there is no room beside it, and Ctrl+Shift+P stays. */
+.float-toggle {
+  position: absolute;
+  z-index: 35;
+  top: 14px;
+  left: calc(16px + var(--h-tool) + 8px);
+  width: var(--h-tool);
+  height: var(--h-tool);
+  border-radius: 50%;
+  background: var(--tool-bg);
+  box-shadow: var(--tool-lift);
+  color: var(--text-2);
+}
+.float-toggle:hover:not(:disabled) { background: var(--tool-bg); color: var(--text); }
+.float-toggle:active:not(:disabled) { background: var(--fill-press); }
+.float-toggle[aria-pressed="true"] { color: var(--accent); }
+.float-toggle:focus-visible { outline: var(--focus-ring); }
+.library.is-solo:is([data-app="calendar"], [data-app="photos"]) > .float-toggle { top: 18px; }
+.library.is-solo:is(.side-hidden, .side-folded):not(.side-peek) > .float-toggle { display: none; }
+@media (max-width: 1000px) { .library.is-solo:is([data-app="notes"], [data-app="contacts"]) > .float-toggle { display: none; } }
 .library.is-solo :is(.cx-side, .dx-side) { padding-top: 52px; }
 @media (min-width: 1001px) { .library.is-solo :is(.notes-folders, .contacts-lists) { padding-top: 52px; } }
 @media (min-width: 721px) { .library.is-solo :is(.rx-side, .px-side) { padding-top: 52px; } }

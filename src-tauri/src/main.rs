@@ -6338,6 +6338,34 @@ fn window_fullscreen(window: tauri::WebviewWindow, on: bool) -> UiResult<bool> {
     window.is_fullscreen().map_err(|e| e.to_string())
 }
 
+/// Float on Top (Apple's name for it, as in Notes' Window menu): this window kept above the
+/// others, or not (#40). Answers whether it now is.
+#[tauri::command]
+fn window_float(window: tauri::WebviewWindow, on: bool) -> UiResult<bool> {
+    window.set_always_on_top(on).map_err(|e| e.to_string())?;
+    Ok(on)
+}
+
+/// Whether this desktop lets an app keep its window on top. Wayland has no protocol for it:
+/// GTK's keep-above is ignored there (GNOME, KDE, Hyprland and the rest decide alone, through
+/// their own window rules), so the control isn't offered rather than offered and doing nothing.
+/// Windows and X11 honour it.
+#[tauri::command]
+fn window_float_possible() -> bool {
+    !wayland_session()
+}
+
+/// A Linux session drawn through Wayland, as GTK chooses its backend: Wayland when the session
+/// offers it, unless GDK_BACKEND puts X11 first.
+fn wayland_session() -> bool {
+    if !cfg!(target_os = "linux") {
+        return false;
+    }
+    let wayland = std::env::var_os("WAYLAND_DISPLAY").is_some_and(|v| !v.is_empty());
+    let x11_first = std::env::var("GDK_BACKEND").is_ok_and(|b| b.trim_start().starts_with("x11"));
+    wayland && !x11_first
+}
+
 /// Whether this session runs under a tiling Wayland compositor, which manages windows itself.
 pub(crate) fn tiling_compositor() -> bool {
     let set = |k: &str| std::env::var_os(k).is_some_and(|v| !v.is_empty());
@@ -7679,6 +7707,8 @@ fn main() {
             video::video_support,
             window_tint,
             window_fullscreen,
+            window_float,
+            window_float_possible,
             photos::photos_upload,
             photos::photos_upload_cancel,
             photos::photos_album_create,

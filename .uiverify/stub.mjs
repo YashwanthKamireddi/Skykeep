@@ -170,6 +170,9 @@ export function installStub({ screen, services, twoFactor, calendarFixture, note
         case "auth_sign_in":     return screen === "code" ? "needs_two_factor" : "complete";
         case "auth_submit_code": window.__codeVia = "devices"; return null;
         case "account_services": return services;
+        // Float on Top (#40): possible unless a suite says this is Wayland; each ask recorded.
+        case "window_float_possible": return window.__floatPossible ?? true;
+        case "window_float": (window.__floatAsks ??= []).push(args.on); return args.on;
         case "calendar_events": {
           window.__eventReads = (window.__eventReads ?? 0) + 1;
           // A heavy account, for measuring: `window.__manyEvents = n` adds n events spread over

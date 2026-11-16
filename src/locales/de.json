@@ -1385,7 +1385,8 @@
       "zoomOut": "Verkleinern",
       "resetZoom": "Zoom zurücksetzen",
       "playAVideoOrLivePhoto": "Video oder Live Photo abspielen",
-      "closeTheViewer": "Ansicht schließen"
+      "closeTheViewer": "Ansicht schließen",
+      "floatOnTop": "Fenster immer im Vordergrund"
     }
   },
   "downloads": {
@@ -1621,6 +1622,7 @@
     "zoomIn": "Vergrößern",
     "zoomInCtrl": "Vergrößern (Strg +)",
     "zoomOut": "Verkleinern",
-    "zoomOutCtrl": "Verkleinern (Strg −)"
+    "zoomOutCtrl": "Verkleinern (Strg −)",
+    "floatOnTop": "Immer im Vordergrund"
   }
 }

@@ -1385,7 +1385,8 @@
       "zoomOut": "Zoom out",
       "resetZoom": "Reset zoom",
       "playAVideoOrLivePhoto": "Play a video or Live Photo",
-      "closeTheViewer": "Close the viewer"
+      "closeTheViewer": "Close the viewer",
+      "floatOnTop": "Float the window on top"
     }
   },
   "downloads": {
@@ -1621,6 +1622,7 @@
     "zoomIn": "Zoom In",
     "zoomInCtrl": "Zoom In (Ctrl +)",
     "zoomOut": "Zoom Out",
-    "zoomOutCtrl": "Zoom Out (Ctrl −)"
+    "zoomOutCtrl": "Zoom Out (Ctrl −)",
+    "floatOnTop": "Float on Top"
   }
 }
