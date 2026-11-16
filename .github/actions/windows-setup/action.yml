@@ -31,6 +31,9 @@ runs:
     - uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2.9.3
       with:
         shared-key: windows-release
+        # Saved from main only: a tag's or a branch's copy is never read again, and only fills
+        # the repository's 10 GB of caches until main's own are evicted.
+        save-if: ${{ github.ref == 'refs/heads/main' }}
     # HEIC decoding: libheif with its default codecs (libde265 decodes), linked in statically,
     # with the C and C++ runtimes too (the x64-windows-static triplet, /MT, matching Rust's
     # crt-static): skykeep.exe then needs no Visual C++ Redistributable, which a fresh Windows
