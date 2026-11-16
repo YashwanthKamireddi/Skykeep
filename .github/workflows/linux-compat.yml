@@ -8,10 +8,11 @@
 # The .deb and .rpm are also built on 64-bit ARM and installed in ARM containers of Ubuntu,
 # Debian and Fedora, for Linux on Apple Silicon Macs.
 #
-# On every push to main, beside CI, Windows checks and Linux checks, so a commit is proven on
-# every distribution BEFORE it can be tagged (tag.yml requires this run's success on the exact
-# SHA; until 16 Nov it ran only after the tag, while the release was already going out). Also
-# by hand (Actions → Linux compatibility → Run workflow) and weekly. The packages are built the way release.yml builds them: the .deb and .rpm on Ubuntu 24.04
+# On every release commit (a push to main that changes the version), beside CI, Windows checks
+# and Linux checks, so a release is proven on every distribution BEFORE it can be tagged
+# (tag.yml requires this run's success on the exact SHA; until 16 Nov it ran only after the tag,
+# while the release was already going out). Also by hand (Actions → Linux compatibility → Run
+# workflow) and weekly on main. The packages are built the way release.yml builds them: the .deb and .rpm on Ubuntu 24.04
 # — the oldest base whose libheif (1.17) the app accepts; Debian 12 (libheif 1.15, glibc 2.36)
 # cannot run them — and the AppImage in an Ubuntu 22.04 container (appimage.yml), carrying a
 # libheif of its own, so it runs on 22.04 and newer; there it is also started with no network.
@@ -22,10 +23,12 @@ name: Linux compatibility
 
 on:
   workflow_dispatch:
+  # On a release commit, which always changes the version in tauri.conf.json: tag.yml requires
+  # this run's success on that exact commit, and every other push to main is already proven by
+  # Linux checks. Ten distributions on every merge was the heaviest run for the least news.
   push:
     branches: [main]
-    # Text and README pictures only: nothing a package carries changes.
-    paths-ignore: ["**.md", "docs/media/**"]
+    paths: ["src-tauri/tauri.conf.json"]
   # Every Monday, the same dry run on main: a tool that changed its output or a distribution
   # past its end of life shows up mid-week, never on release day (11 Nov: both did).
   schedule:
