@@ -104,7 +104,17 @@ jobs:
           SHA: ${{ steps.ready.outputs.sha }}
           TAG: ${{ steps.ready.outputs.tag }}
         run: |
-          gh api "repos/$REPO/git/refs" -f ref="refs/tags/$TAG" -f sha="$SHA" >/dev/null
+          # The notes are the release commit's ("Skykeep x.y.z" and its paragraph), wherever it is
+          # in the history of the commit tagged: a fix merged after it (0.1.27's licence list) is
+          # what gets tagged, and its own message isn't the release's. Carried in an annotated
+          # tag, whose message is what release.yml reads as the notes. No such commit, no tag.
+          version="${TAG#v}"
+          release=$(git log --format=%H -1 --grep="^Skykeep ${version//./\\.}\$" "$SHA")
+          if [ -z "$release" ]; then echo "::error::no commit \"Skykeep $version\" in the history of $SHA: bump the version with .github/scripts/bump-version.py first"; exit 1; fi
+          git log -1 --format=%B "$release" > "$RUNNER_TEMP/notes"
+          echo "notes from $release:"; cat "$RUNNER_TEMP/notes"
+          object=$(gh api "repos/$REPO/git/tags" -f tag="$TAG" -F message=@"$RUNNER_TEMP/notes" -f object="$SHA" -f type=commit -q .sha)
+          gh api "repos/$REPO/git/refs" -f ref="refs/tags/$TAG" -f sha="$object" >/dev/null
           echo "tagged $TAG on $SHA"
           gh workflow run release.yml --repo "$REPO" --ref "$TAG"
           echo "release started on $TAG"
