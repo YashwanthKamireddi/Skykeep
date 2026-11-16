@@ -106,19 +106,17 @@ jobs:
         run: |
           # The notes are the release commit's ("Skykeep x.y.z" and its paragraph), wherever it is
           # in the history of the commit tagged: a fix merged after it (0.1.27's licence list) is
-          # what gets tagged, and its own message isn't the release's. Carried in an annotated
-          # tag, whose message is what release.yml reads as the notes. No such commit, no tag.
+          # what gets tagged, and its own message isn't the release's. Its commit is
+          # tag, passed to release.yml, which reads it as the notes. No such commit, no tag.
           version="${TAG#v}"
           release=$(git log --format=%H -1 --grep="^Skykeep ${version//./\\.}\$" "$SHA")
           if [ -z "$release" ]; then echo "::error::no commit \"Skykeep $version\" in the history of $SHA: bump the version with .github/scripts/bump-version.py first"; exit 1; fi
           git log -1 --format=%B "$release" > "$RUNNER_TEMP/notes"
           echo "notes from $release:"; cat "$RUNNER_TEMP/notes"
-          # Made with git and pushed with the job's token: the token may push a tag, but the API's
-          # tag-object endpoint answered it 403 ("Resource not accessible by integration", 0.1.27).
-          git config user.name "github-actions[bot]"
-          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git tag --annotate --file="$RUNNER_TEMP/notes" "$TAG" "$SHA"
-          git push origin "refs/tags/$TAG"
+          # A plain tag, as every release has had: the job's token can't make an annotated tag
+          # (the API's tag object answered 403; a git push of one was refused for lacking the
+          # workflows permission). The release is told which commit holds the notes instead.
+          gh api "repos/$REPO/git/refs" -f ref="refs/tags/$TAG" -f sha="$SHA" >/dev/null
           echo "tagged $TAG on $SHA"
-          gh workflow run release.yml --repo "$REPO" --ref "$TAG"
+          gh workflow run release.yml --repo "$REPO" --ref "$TAG" -f notes_commit="$release"
           echo "release started on $TAG"

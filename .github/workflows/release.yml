@@ -31,6 +31,11 @@ on:
   # A dry run from a branch: everything built and started, nothing published. A tag can never
   # be moved or deleted, so the whole path is proven here before the next one is pushed.
   workflow_dispatch:
+    inputs:
+      notes_commit:
+        description: "The release commit (\"Skykeep x.y.z\") whose message is the notes, when the tag is a later commit (tag.yml gives it)"
+        type: string
+        default: ""
   # Every Monday, the same dry run on main: a tool that changed its output or a distribution
   # past its end of life shows up mid-week, never on release day (11 Nov: both did).
   schedule:
@@ -174,10 +179,23 @@ jobs:
       # can never be handed the AppImage.
       - name: The updater's latest.json
         env:
+          NOTES_COMMIT: ${{ inputs.notes_commit }}
           REPO: ${{ github.repository }}
         run: |
-          git -C source fetch --depth=1 origin "+refs/tags/$GITHUB_REF_NAME:refs/tags/$GITHUB_REF_NAME"
-          notes=$(git -C source tag -l --format='%(contents:subject)%0a%0a%(contents:body)' "$GITHUB_REF_NAME" | sed -e '/-----BEGIN PGP SIGNATURE-----/,$d')
+          # The notes: the release commit's message ("Skykeep x.y.z", then its paragraph). tag.yml
+          # names it when the commit tagged is a later one (a fix after the release commit); a
+          # tag pushed by hand on the release commit itself carries them already.
+          if [ -n "$NOTES_COMMIT" ]; then
+            git -C source fetch --depth=1 origin "$NOTES_COMMIT"
+            git -C source log -1 --format=%B "$NOTES_COMMIT" > "$RUNNER_TEMP/notes-full"
+          else
+            git -C source fetch --depth=1 origin "+refs/tags/$GITHUB_REF_NAME:refs/tags/$GITHUB_REF_NAME"
+            git -C source log -1 --format=%B "refs/tags/$GITHUB_REF_NAME" > "$RUNNER_TEMP/notes-full"
+          fi
+          if [ "$(head -n1 "$RUNNER_TEMP/notes-full")" != "Skykeep ${GITHUB_REF_NAME#v}" ]; then
+            echo "::error::the notes' commit isn't \"Skykeep ${GITHUB_REF_NAME#v}\": $(head -n1 "$RUNNER_TEMP/notes-full")"; exit 1
+          fi
+          notes=$(cat "$RUNNER_TEMP/notes-full")
           # Only an installer that is here, with its signature, is offered: an updater is never
           # pointed at a file this release doesn't have.
           base="https://github.com/$REPO/releases/download/$GITHUB_REF_NAME"
@@ -253,7 +271,7 @@ jobs:
             # says it), then where the APK is and its signing key's fingerprint, read from the
             # APK itself, then what changed since the last published release.
             notes="$RUNNER_TEMP/notes.md"
-            git -C source tag -l --format='%(contents:body)' "$GITHUB_REF_NAME" \
+            tail -n +2 "$RUNNER_TEMP/notes-full" \
               | sed -e '/-----BEGIN PGP SIGNATURE-----/,$d' | sed -e '/./,$!d' > "$notes"
             apk=$(find dist -type f -name '*-android.apk' | head -n1)
             if [ -n "$apk" ]; then
