@@ -103,6 +103,11 @@
     <color type="primary" scheme_preference="dark">#0B2A4A</color>
   </branding>
   <releases>
+    <release version="0.1.27" date="2026-11-16">
+      <description>
+        <p>On Windows, an app's window opened again at the size it was left, Reminders at its smallest for example, no longer freezes Skykeep or stays white. Each app's window can float on top of others: the pin beside the sidebar button, or Ctrl+Shift+P (Windows and X11). Reminders shows pinned lists in the order they were pinned, as the iPhone does. Notes' Sort Checked Items is in Settings as Apple has it, Manually or Automatically. The words still in English in the German and Chinese apps are translated. New on Linux, as a beta: an iPhone over the cable as this computer's camera and microphone, in any app, from Settings, iPhone.</p>
+      </description>
+    </release>
     <release version="0.1.26" date="2026-11-16">
       <description>
         <p>Settings has a new layout: a sidebar of sections beside one section at a time, with Home first: your account, its storage, Sync Now and Sign Out, then the six apps. Switches no longer flip when Settings opens. Calendar starts the week on the right day from the first moment when the system's date format and language differ, instead of redrawing it a moment later.</p>
