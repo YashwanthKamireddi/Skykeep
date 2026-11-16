@@ -27,7 +27,8 @@
     "waitingToSync": "Waiting to sync",
     "refusedLink": "This kind of link can't be opened from Skykeep.",
     "notice": "Notice",
-    "show": "Show"
+    "show": "Show",
+    "ok": "OK"
   },
   "sidebar": {
     "reminders": "Reminders",
@@ -682,7 +683,19 @@
     "someNotUploaded": "{count} of {items} Not Uploaded",
     "uploadStopped": "Upload Stopped",
     "uploadedItems": "{items} Uploaded",
-    "stopUpload": "Stop Upload"
+    "stopUpload": "Stop Upload",
+    "createdByYou": "Created by You",
+    "sharedWithYou": "Shared with You",
+    "hideAlbums": "Hide Albums",
+    "showAlbums": "Show Albums",
+    "livePhoto": "Live Photo",
+    "arriving": "Getting your photos from iCloud…",
+    "downloadItem": "Download {title}",
+    "addedToOne": "Added to {album}",
+    "addedToMany": "{count} added to {album}",
+    "addToLibrary": "Add to Library",
+    "viewBurst": "View all {count} photos in this burst",
+    "addToNamedAlbum": "Add to {album}"
   },
   "reminders": {
     "title": "Reminders",
@@ -849,7 +862,40 @@
     "renameItem": "Rename {title}",
     "deleteItem": "Delete {title}",
     "flagItem": "Flag {title}",
-    "unflagItem": "Unflag {title}"
+    "unflagItem": "Unflag {title}",
+    "arriving": "Getting your reminders from iCloud…",
+    "addTo": "Add a reminder to {name}",
+    "addToAList": "Add a reminder to a list",
+    "renameSection": "Rename section {name}",
+    "arrivingColon": "Arriving:",
+    "leavingColon": "Leaving:",
+    "proximityArriving": "Arriving",
+    "proximityLeaving": "Leaving",
+    "aPlace": "A place",
+    "infoFor": "Info for {title}",
+    "flagFor": "Flag for {title}",
+    "priorityFor": "Priority for {title}",
+    "listFor": "List for {title}",
+    "sectionFor": "Section for {title}",
+    "showSubtasksOne": "Show subtask of {title}",
+    "showSubtasksMany": "Show {count} subtasks of {title}",
+    "hideSubtasksOne": "Hide subtask of {title}",
+    "hideSubtasksMany": "Hide {count} subtasks of {title}",
+    "closeDetailsFor": "Close details for {title}",
+    "detailsFor": "Details for {title}",
+    "dateFor": "Date for {title}",
+    "timeFor": "Time for {title}",
+    "timeOfDayFor": "Time of day for {title}",
+    "earlyFor": "Early reminder for {title}",
+    "showTagged": "Show reminders tagged {tag}",
+    "removeTag": "Remove tag {tag}",
+    "addTagTo": "Add a tag to {title}",
+    "repeatFor": "Repeat for {title}",
+    "customRepeatFor": "Custom repeat for {title}",
+    "frequencyFor": "Frequency for {title}",
+    "repeatInterval": "Repeat interval",
+    "endRepeatFor": "End repeat for {title}",
+    "endRepeatDateFor": "End repeat date for {title}"
   },
   "calendar": {
     "newEvent": "New Event",
@@ -1020,7 +1066,8 @@
     "today": "Today",
     "moreCount": "{count} more",
     "showInReminders": "Show in Reminders",
-    "approveInBrowser": "Approve Skykeep in the page that opened in your browser. It finishes here by itself."
+    "approveInBrowser": "Approve Skykeep in the page that opened in your browser. It finishes here by itself.",
+    "weekNumber": "Week {n}"
   },
   "contacts": {
     "title": "Contacts",
@@ -1198,7 +1245,21 @@
     "myCard": "My Card",
     "showInMaps": "Show in Maps",
     "me": "me",
-    "mergeUndone": "Merge undone."
+    "mergeUndone": "Merge undone.",
+    "arriving": "Getting your contacts from iCloud…",
+    "under": "Contacts under {letter}",
+    "noMatches": "No matches.",
+    "noneInList": "No one in this list yet.",
+    "noneYet": "No contacts yet.",
+    "detailKind": "Kind of detail {n}",
+    "detailService": "Service for detail {n}",
+    "detailLabel": "Label for detail {n}",
+    "detailCustomLabel": "Custom label for detail {n}",
+    "detailValue": "Value for detail {n}",
+    "detailRemove": "Remove detail {n}",
+    "addressLabel": "Label for address {n}",
+    "addressCustomLabel": "Custom label for address {n}",
+    "addressRemove": "Remove address {n}"
   },
   "drive": {
     "kinds": {
@@ -1333,7 +1394,8 @@
     "nowRemoved": "{items} removed",
     "nowHolds": "This folder now has {items}",
     "nowChangedSince": "{holds}, with {said} since it was shown here, on another device. It goes to Recently Deleted with everything in it.",
-    "nowChangedPlain": "{holds}. It changed since it was shown here, on another device. It goes to Recently Deleted with everything in it."
+    "nowChangedPlain": "{holds}. It changed since it was shown here, on another device. It goes to Recently Deleted with everything in it.",
+    "fromPath": "From {path}"
   },
   "shortcuts": {
     "title": "Keyboard Shortcuts",
@@ -1645,6 +1707,18 @@
     "zoomIn": "Zoom In",
     "zoomInCtrl": "Zoom In (Ctrl +)",
     "zoomOut": "Zoom Out",
-    "zoomOutCtrl": "Zoom Out (Ctrl −)"
+    "zoomOutCtrl": "Zoom Out (Ctrl −)",
+    "hideSidebar": "Hide Sidebar",
+    "showSidebar": "Show Sidebar",
+    "alreadyInCalendar": "Already in your calendar",
+    "alreadyInContacts": "Already in Contacts",
+    "savedToOne": "Saved to {folder}",
+    "savedToMany": "{count} saved to {folder}",
+    "later": "Later",
+    "hideFailedUploads": "Hide what didn’t upload",
+    "showFailedUploads": "Show what didn’t upload",
+    "pause": "Pause",
+    "play": "Play",
+    "actionsFor": "Actions for {name}"
   }
 }

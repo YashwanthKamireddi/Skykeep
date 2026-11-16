@@ -117,12 +117,12 @@ const AlbumGlyph = () => (
 const pickedWords = (kinds: Photo["kind"][]) => {
   const videos = kinds.filter((k) => k === "video").length;
   const n = kinds.length;
-  const noun = videos === 0 ? "Photo" : videos === n ? "Video" : "Item";
+  const noun = videos === 0 ? "Photo" : videos === n ? "Video" : "Item"; // i18n: key part (photos.*Photo / *Video / *Item)
   return t(`photos.selected${noun}${n === 1 ? "One" : "Many"}`, { count: n.toLocaleString() });
 };
 /** "340 photos", "12 videos", "352 items" — what a batch being received holds. */
 const receivingWords = (n: number, videos: number) => {
-  const noun = videos === 0 ? "Photo" : videos === n ? "Video" : "Item";
+  const noun = videos === 0 ? "Photo" : videos === n ? "Video" : "Item"; // i18n: key part (photos.*Photo / *Video / *Item)
   return t(`photos.receiving${noun}${n === 1 ? "One" : "Many"}`, { count: n.toLocaleString() });
 };
 
@@ -2031,7 +2031,7 @@ export function PhotosView() {
     try {
       ownTouch(ids);
       await api.photosAlbumAdd(a.id, ids);
-      toast({ message: ids.length === 1 ? `Added to ${a.name}` : `${ids.length} added to ${a.name}`, tone: "done" });
+      toast({ message: ids.length === 1 ? t("photos.addedToOne", { album: a.name }) : t("photos.addedToMany", { count: ids.length, album: a.name }), tone: "done" });
       read().catch(() => {});
     } catch (e) {
       setAlbums(before);
@@ -3419,7 +3419,7 @@ export function PhotosView() {
   ];
 
   return (
-    <div className={`px${dropping ? " is-dropping" : ""}`} data-drop-label={album ? `Add to ${album.name}` : "Add to Library"}>
+    <div className={`px${dropping ? " is-dropping" : ""}`} data-drop-label={album ? t("photos.addToNamedAlbum", { album: album.name }) : t("photos.addToLibrary")}>
       <div className="px-compact">
         <Picker label={t("photos.show")} value={placeNow} options={places} onChange={goTo} />
       </div>
@@ -3448,7 +3448,7 @@ export function PhotosView() {
         <p className="side-heading px-side-heading px-side-gap">{t("ui.collections")}</p>
         <div className="px-parent-row">
           {/* The chevron opens the list here; the row itself opens the Albums page. */}
-          <button className="px-twisty" aria-label={branches.albums ? "Hide Albums" : "Show Albums"} aria-expanded={branches.albums} onClick={() => branch("albums")}>
+          <button className="px-twisty" aria-label={branches.albums ? t("photos.hideAlbums") : t("photos.showAlbums")} aria-expanded={branches.albums} onClick={() => branch("albums")}>
             <ChevronRight className="px-chevron" size={12} strokeWidth={2.4} aria-hidden="true" />
           </button>
           <button
@@ -3507,7 +3507,7 @@ export function PhotosView() {
         <AppFoot />
       </aside>
 
-      <section className="px-main" aria-label={sharedPage ? "Shared Albums" : albumsPage ? "Albums" : title} data-page={albumsPage || sharedPage ? "albums" : undefined}>
+      <section className="px-main" aria-label={sharedPage ? t("photos.sharedAlbums") : albumsPage ? t("photos.albums") : title} data-page={albumsPage || sharedPage ? "albums" : undefined}>
         <Unsent refused={outbox.refused} what="a change to photos" onResend={(r) => void outbox.resend(r)} onDiscard={(r) => void outbox.discard(r)} />
         {sharedPage && (
           <SharedAlbums
@@ -3790,7 +3790,7 @@ export function PhotosView() {
           />
         )}
         {!hiddenLocked && photos && photos.length === 0 && !drawn.query && (
-          <Arriving service="photos" what="photos" className="px-empty" />
+          <Arriving service="photos" text={t("photos.arriving")} className="px-empty" />
         )}
         {!hiddenLocked && photos && photos.length === 0 && preparing && !drawn.query && (
           <EmptyState className="px-empty px-preparing" icon={<Images size={28} strokeWidth={1.6} />}>
@@ -3989,7 +3989,7 @@ export function PhotosView() {
                         <CopyMinus size={17} />
                       </button>
                     ) : (
-                      <button className="px-full-btn" aria-label="Delete" title={t("ui.deleteDelete")} onClick={() => void change(shown, "deleted", true)}>
+                      <button className="px-full-btn" aria-label={t("common.delete")} title={t("ui.deleteDelete")} onClick={() => void change(shown, "deleted", true)}>
                         <Trash2 size={17} />
                       </button>
                     )}
@@ -4064,7 +4064,7 @@ export function PhotosView() {
                       <CopyMinus size={17} />
                     </button>
                   ) : (
-                    <button className="tool px-cap" aria-label="Delete" title={t("ui.deleteDelete")} onClick={() => void change(shown, "deleted", true)}>
+                    <button className="tool px-cap" aria-label={t("common.delete")} title={t("ui.deleteDelete")} onClick={() => void change(shown, "deleted", true)}>
                       <Trash2 size={17} />
                     </button>
                   )}
@@ -4267,7 +4267,7 @@ export function PhotosView() {
                 </button>
               )}
               {shown.burst && (shown.burstCount ?? 0) > 1 && !inBurst && !zoomed && (
-                <button className="px-mark" aria-label={`View all ${shown.burstCount} photos in this burst`} onClick={() => void viewBurst(shown)}>
+                <button className="px-mark" aria-label={t("photos.viewBurst", { count: shown.burstCount ?? 0 })} onClick={() => void viewBurst(shown)}>
                   <Layers size={13} aria-hidden="true" />
                   {t("photos.burst")}
                   <span className="px-mark-count">{shown.burstCount}</span>
@@ -4343,7 +4343,7 @@ export function PhotosView() {
                 <div className="px-info-file">
                   <strong>{shown.filename ?? t("photos.photo")}</strong>
                   <span>
-                    {shown.kind === "video" ? `Video${shown.duration ? `, ${clock(shown.duration)}` : ""}` : shown.kind === "live" ? "Live Photo" : "Photo"}
+                    {shown.kind === "video" ? `${t("photos.video")}${shown.duration ? `, ${clock(shown.duration)}` : ""}` : shown.kind === "live" ? t("photos.livePhoto") : t("photos.photo")}
                     {shown.width && shown.height && shown.kind !== "video" ? `, ${Math.round((shown.width * shown.height) / 1e6)} MP` : ""}
                   </span>
                   <span>

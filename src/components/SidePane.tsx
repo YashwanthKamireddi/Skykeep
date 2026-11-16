@@ -15,6 +15,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { PanelLeft } from "lucide-react";
 import { modalOpen } from "../lib/screen";
+import { useI18n } from "../lib/i18n";
 
 /** Every app's sidebar, of which an app's window holds one. */
 export const SIDEBARS = ".notes-folders, .contacts-lists, .rx-side, .px-side, .cx-side, .dx-side";
@@ -28,6 +29,7 @@ export const askForSidebar = (returnTo: HTMLElement | null) =>
   window.dispatchEvent(new CustomEvent(SIDEBAR_ASKED, { detail: { returnTo } }));
 
 export function useSidePane(app: string | null) {
+  const { t } = useI18n();
   const [hidden, setHidden] = useState(() => {
     try {
       return app !== null && localStorage.getItem(remembered(app)) === "hidden";
@@ -163,7 +165,7 @@ export function useSidePane(app: string | null) {
   }, [peek]);
 
   const visible = peek || (!folded && !hidden);
-  const label = visible ? "Hide Sidebar" : "Show Sidebar";
+  const label = visible ? t("ui.hideSidebar") : t("ui.showSidebar");
   return {
     className: `${hidden ? " side-hidden" : ""}${peek ? " side-peek" : ""}${folded ? " side-folded" : ""}`,
     button: app ? (

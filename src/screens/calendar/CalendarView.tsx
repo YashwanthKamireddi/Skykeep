@@ -153,7 +153,7 @@ const ALL_DAY_WAS: Record<number, number> = { 0: -540, 1440: 900, 2880: 2340, 10
 /** An alert Apple holds that no preset names — set on a phone, say. */
 function alertLabel(m: number): string {
   if (m === 0) return t("calendar.alerts.atTime");
-  const side = m < 0 ? "After" : "Before";
+  const side = m < 0 ? "After" : "Before"; // i18n: key part (calendar.alerts.*After / *Before)
   const a = Math.abs(m);
   if (a % 1440 === 0) return a === 1440 ? t(`calendar.alerts.day${side}`) : t(`calendar.alerts.days${side}`, { count: a / 1440 });
   if (a % 60 === 0) return a === 60 ? t(`calendar.alerts.hour${side}`) : t(`calendar.alerts.hours${side}`, { count: a / 60 });
@@ -2137,7 +2137,7 @@ const MiniMonth = memo(function MiniMonth({
         {days.map((d, i) => (
           <Fragment key={i}>
           {weekNumbers && i % 7 === 0 && (
-            <span className="cx-minimonth-wk" aria-label={`Week ${weekNumber(d)}`}>{weekNumber(d)}</span>
+            <span className="cx-minimonth-wk" aria-label={t("calendar.weekNumber", { n: weekNumber(d) })}>{weekNumber(d)}</span>
           )}
           <button
             key={i}
@@ -2375,7 +2375,7 @@ const MonthView = memo(function MonthView({
                     key={i}
                   >
                     {weekNumbers && i === 0 && (
-                      <span className="cx-weeknum" aria-label={`Week ${weekNumber(day)}`}>{weekNumber(day)}</span>
+                      <span className="cx-weeknum" aria-label={t("calendar.weekNumber", { n: weekNumber(day) })}>{weekNumber(day)}</span>
                     )}
                     <button
                       ref={isSelected ? cell : undefined}
@@ -4217,7 +4217,7 @@ function NextcloudForm({ initial, leaving, onDone, onCancel }: {
         </>
       )}
       <div className={waiting ? "cx-subscribe-actions is-full" : "cx-subscribe-actions"}>
-        <button type="button" className="quiet" onClick={cancel}>{waiting ? "Cancel" : leaving}</button>
+        <button type="button" className="quiet" onClick={cancel}>{waiting ? t("common.cancel") : leaving}</button>
         {waiting ? (
           <button type="button" className="quiet" onClick={() => { void davApi.nextcloudReopen().catch((err) => setProblem(messageOf(err))); }}>{t("ui.openPageAgain")}</button>
         ) : (

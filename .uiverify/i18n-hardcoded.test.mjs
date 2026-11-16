@@ -17,9 +17,16 @@ const PATTERNS = [
   />\s*([A-Z][A-Za-z’'][A-Za-z ,.’'!?…:-]{1,})\s*</g,
   /\b(?:aria-label|title|placeholder|alt|label)="([A-Z][^"]{1,})"/g,
   /\b(?:label|message|title|body|action|heading):\s*"([A-Z][a-z][^"]*)"/g,
+  // Words chosen by a condition (\`on ? "Hide Sidebar" : "Show Sidebar"\`), either side.
+  /\?\s*"([A-Z][a-z][A-Za-z ,.’'!?…:-]*)"\s*:/g,
+  /\?\s*"[^"]*"\s*:\s*"([A-Z][a-z][A-Za-z ,.’'!?…:-]*)"/g,
+  // Words at the start of a template (\`Video${…}\`).
+  /`([A-Z][a-z][A-Za-z ]*)\$\{/g,
+  // A window or page title set in code.
+  /document\.title\s*=\s*[^;]*"([A-Z][a-z][^"]*)"/g,
 ];
 const BARE = /^\s+([A-Z][a-z][A-Za-z ,.’'!?…:-]{2,})\s*$/;
-const ALLOWED = /^(Promise|Record|Set|Map|Partial|Array|HTMLElement|HTMLDivElement|Element|Skykeep|iCloud|iPhone|iPad|Mac|Apple|GitHub|URL|LIVE|OK|Ctrl|Shift|Alt|Enter|Tab|Esc|Return|Space|Delete|F\d+|Notes|AR|HEIC|JPEG|PDF|CalDAV|Nextcloud|Lunch with Asha tomorrow at 1pm)$/;
+const ALLOWED = /^(Promise|Record|Set|Map|Partial|Array|HTMLElement|HTMLDivElement|Element|Skykeep|iCloud|iPhone|iPad|Mac|Apple|GitHub|URL|LIVE|OK|Ctrl|Shift|Alt|Enter|Tab|Esc|Return|Space|Delete|F\d+|Notes|AR|HEIC|JPEG|PDF|CalDAV|Nextcloud|One|Many|Lunch with Asha tomorrow at 1pm)$/;
 
 test("no screen has words written into it instead of the locale files", () => {
   const found = [];
@@ -29,7 +36,8 @@ test("no screen has words written into it instead of the locale files", () => {
       const s = line.trim();
       if (s.startsWith("/*") || s.startsWith("{/*")) comment = !s.includes("*/");
       else if (comment) { if (s.includes("*/")) comment = false; return; }
-      if (comment || s.startsWith("//") || s.startsWith("*") || line.includes("import ")) return;
+      // "i18n: key part": the words build a key's name (photos.selectedPhotoMany), not text.
+      if (comment || s.startsWith("//") || s.startsWith("*") || line.includes("import ") || line.includes("i18n: key part")) return;
       const hits = PATTERNS.flatMap((p) => [...line.matchAll(p)].map((m) => m[1].trim()));
       const bare = BARE.exec(line);
       if (bare && !/[,({;=]$/.test(s) && !line.includes("=>")) hits.push(bare[1].trim());

@@ -27,7 +27,8 @@
     "waitingToSync": "等待同步",
     "refusedLink": "Skykeep 无法打开此类链接。",
     "notice": "通知",
-    "show": "显示"
+    "show": "显示",
+    "ok": "好"
   },
   "sidebar": {
     "reminders": "提醒事项",
@@ -682,7 +683,19 @@
     "someNotUploaded": "{items}中有 {count} 个未上传",
     "uploadStopped": "上传已停止",
     "uploadedItems": "已上传 {items}",
-    "stopUpload": "停止上传"
+    "stopUpload": "停止上传",
+    "createdByYou": "由你创建",
+    "sharedWithYou": "与你共享",
+    "hideAlbums": "隐藏相簿",
+    "showAlbums": "显示相簿",
+    "livePhoto": "实况照片",
+    "arriving": "正在从 iCloud 获取你的照片…",
+    "downloadItem": "下载 {title}",
+    "addedToOne": "已添加到“{album}”",
+    "addedToMany": "已将 {count} 项添加到“{album}”",
+    "addToLibrary": "添加到图库",
+    "viewBurst": "查看此连拍中的全部 {count} 张照片",
+    "addToNamedAlbum": "添加到“{album}”"
   },
   "reminders": {
     "title": "提醒事项",
@@ -849,7 +862,40 @@
     "renameItem": "重新命名“{title}”",
     "deleteItem": "删除“{title}”",
     "flagItem": "为“{title}”添加旗标",
-    "unflagItem": "移除“{title}”的旗标"
+    "unflagItem": "移除“{title}”的旗标",
+    "arriving": "正在从 iCloud 获取你的提醒事项…",
+    "addTo": "向“{name}”添加提醒事项",
+    "addToAList": "向列表添加提醒事项",
+    "renameSection": "重命名部分“{name}”",
+    "arrivingColon": "到达时：",
+    "leavingColon": "离开时：",
+    "proximityArriving": "到达时",
+    "proximityLeaving": "离开时",
+    "aPlace": "某个地点",
+    "infoFor": "“{title}”的信息",
+    "flagFor": "为“{title}”加旗标",
+    "priorityFor": "“{title}”的优先级",
+    "listFor": "“{title}”所在的列表",
+    "sectionFor": "“{title}”所在的部分",
+    "showSubtasksOne": "显示“{title}”的子任务",
+    "showSubtasksMany": "显示“{title}”的 {count} 个子任务",
+    "hideSubtasksOne": "隐藏“{title}”的子任务",
+    "hideSubtasksMany": "隐藏“{title}”的 {count} 个子任务",
+    "closeDetailsFor": "关闭“{title}”的详细信息",
+    "detailsFor": "“{title}”的详细信息",
+    "dateFor": "“{title}”的日期",
+    "timeFor": "“{title}”的时间",
+    "timeOfDayFor": "“{title}”的时段",
+    "earlyFor": "“{title}”的提前提醒",
+    "showTagged": "显示带有标签 {tag} 的提醒事项",
+    "removeTag": "移除标签 {tag}",
+    "addTagTo": "为“{title}”添加标签",
+    "repeatFor": "“{title}”的重复",
+    "customRepeatFor": "“{title}”的自定重复",
+    "frequencyFor": "“{title}”的频率",
+    "repeatInterval": "重复间隔",
+    "endRepeatFor": "“{title}”的结束重复",
+    "endRepeatDateFor": "“{title}”的结束重复日期"
   },
   "calendar": {
     "newEvent": "新日程",
@@ -1020,7 +1066,8 @@
     "today": "今天",
     "moreCount": "另外 {count} 个",
     "showInReminders": "在提醒事项中显示",
-    "approveInBrowser": "请在浏览器中打开的页面上批准 Skykeep。之后会在这里自动完成。"
+    "approveInBrowser": "请在浏览器中打开的页面上批准 Skykeep。之后会在这里自动完成。",
+    "weekNumber": "第 {n} 周"
   },
   "contacts": {
     "title": "通讯录",
@@ -1198,7 +1245,21 @@
     "myCard": "我的名片",
     "showInMaps": "在地图中显示",
     "me": "我",
-    "mergeUndone": "已撤销合并。"
+    "mergeUndone": "已撤销合并。",
+    "arriving": "正在从 iCloud 获取你的联系人…",
+    "under": "{letter} 开头的联系人",
+    "noMatches": "无匹配结果。",
+    "noneInList": "此列表中还没有联系人。",
+    "noneYet": "还没有联系人。",
+    "detailKind": "第 {n} 项的类型",
+    "detailService": "第 {n} 项的服务",
+    "detailLabel": "第 {n} 项的标签",
+    "detailCustomLabel": "第 {n} 项的自定标签",
+    "detailValue": "第 {n} 项的内容",
+    "detailRemove": "移除第 {n} 项",
+    "addressLabel": "第 {n} 个地址的标签",
+    "addressCustomLabel": "第 {n} 个地址的自定标签",
+    "addressRemove": "移除第 {n} 个地址"
   },
   "drive": {
     "kinds": {
@@ -1333,7 +1394,8 @@
     "nowRemoved": "移除了 {items}",
     "nowHolds": "此文件夹现在包含 {items}",
     "nowChangedSince": "{holds}，自此处显示后已在另一台设备上{said}。它将连同其中的所有内容一起移到“最近删除”。",
-    "nowChangedPlain": "{holds}。自此处显示后，它已在另一台设备上被更改。它将连同其中的所有内容一起移到“最近删除”。"
+    "nowChangedPlain": "{holds}。自此处显示后，它已在另一台设备上被更改。它将连同其中的所有内容一起移到“最近删除”。",
+    "fromPath": "来自 {path}"
   },
   "shortcuts": {
     "title": "键盘快捷键",
@@ -1645,6 +1707,18 @@
     "zoomIn": "放大",
     "zoomInCtrl": "放大（Ctrl +）",
     "zoomOut": "缩小",
-    "zoomOutCtrl": "缩小（Ctrl −）"
+    "zoomOutCtrl": "缩小（Ctrl −）",
+    "hideSidebar": "隐藏边栏",
+    "showSidebar": "显示边栏",
+    "alreadyInCalendar": "已在你的日历中",
+    "alreadyInContacts": "已在通讯录中",
+    "savedToOne": "已存储到 {folder}",
+    "savedToMany": "{count} 项已存储到 {folder}",
+    "later": "稍后",
+    "hideFailedUploads": "隐藏未上传的项目",
+    "showFailedUploads": "显示未上传的项目",
+    "pause": "暂停",
+    "play": "播放",
+    "actionsFor": "“{name}”的操作"
   }
 }

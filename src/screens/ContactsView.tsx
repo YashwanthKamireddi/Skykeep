@@ -1253,7 +1253,7 @@ export function ContactsView() {
             }}
           >
             {letters.map((l) => (
-              <button key={l} type="button" tabIndex={-1} data-letter={l} aria-label={`Contacts under ${l}`} onClick={() => jumpTo(l)}>
+              <button key={l} type="button" tabIndex={-1} data-letter={l} aria-label={t("contacts.under", { letter: l })} onClick={() => jumpTo(l)}>
                 {l}
               </button>
             ))}
@@ -1261,9 +1261,9 @@ export function ContactsView() {
         )}
         </div>
 
-        {shown.length === 0 && !query && <Arriving service="contacts" what="contacts" />}
+        {shown.length === 0 && !query && <Arriving service="contacts" text={t("contacts.arriving")} />}
         {loaded && shown.length === 0 && !error && !(arriving && !query) && (
-          <EmptyState className="contact-empty">{query ? "No matches." : openList ? "No one in this list yet." : "No contacts yet."}</EmptyState>
+          <EmptyState className="contact-empty">{query ? t("contacts.noMatches") : openList ? t("contacts.noneInList") : t("contacts.noneYet")}</EmptyState>
         )}
         {deleting && openList && (
           <ConfirmSheet<"list" | "card">
@@ -1388,7 +1388,7 @@ export function ContactsView() {
                 <li key={index}>
                   {SWITCHABLE.has(m.kind) ? (
                     <Picker
-                      label={`Kind of detail ${index + 1}`}
+                      label={t("contacts.detailKind", { n: index + 1 })}
                       className="contact-kind"
                       value={m.kind}
                       onChange={(kind) => editMethod(index, { kind })}
@@ -1407,7 +1407,7 @@ export function ContactsView() {
                     return (
                       <span className="contact-label-cell">
                         <Picker
-                          label={`${m.kind === "im" ? "Service" : "Label"} for detail ${index + 1}`}
+                          label={m.kind === "im" ? t("contacts.detailService", { n: index + 1 }) : t("contacts.detailLabel", { n: index + 1 })}
                           className="contact-label-pick"
                           value={custom ? CUSTOM : (match ?? "")}
                           onChange={(v) => {
@@ -1431,7 +1431,7 @@ export function ContactsView() {
                             className="contact-method-label"
                             value={m.label ?? ""}
                             placeholder="label"
-                            aria-label={`Custom label for detail ${index + 1}`}
+                            aria-label={t("contacts.detailCustomLabel", { n: index + 1 })}
                             onChange={(e) => editMethod(index, { label: e.target.value || null })}
                           />
                         )}
@@ -1451,7 +1451,7 @@ export function ContactsView() {
                       className="contact-method-value"
                       value={m.value}
                       placeholder={PLACEHOLDER[m.kind]?.startsWith("contacts.") ? t(PLACEHOLDER[m.kind] as Key) : (PLACEHOLDER[m.kind] ?? "")}
-                      aria-label={`Value for detail ${index + 1}`}
+                      aria-label={t("contacts.detailValue", { n: index + 1 })}
                       autoFocus={focusAt === index}
                       onChange={(e) => editMethod(index, { value: e.target.value })}
                     />
@@ -1459,7 +1459,7 @@ export function ContactsView() {
                   <button
                     type="button"
                     className="quiet danger"
-                    aria-label={`Remove detail ${index + 1}`}
+                    aria-label={t("contacts.detailRemove", { n: index + 1 })}
                     onClick={() => {
                       setDraft({
                         ...draft,
@@ -1957,7 +1957,7 @@ function ListRow({
       {onMenu && (
         <button
           className="icon-button small round row-more notes-folder-more"
-          aria-label={`Actions for ${name}`}
+          aria-label={t("ui.actionsFor", { name })}
           aria-haspopup="menu"
           onClick={(e) => {
             const r = e.currentTarget.getBoundingClientRect();
@@ -2145,7 +2145,7 @@ function AddressEditor({ n, address, custom, autoFocus, onChange, onCustom, onRe
     <li className="contact-address-edit">
       <span className="contact-address-kind">address</span>
       <Picker
-        label={`Label for address ${n}`}
+        label={t("contacts.addressLabel", { n })}
         className="contact-label-pick"
         value={typing ? CUSTOM : (match ?? "")}
         onChange={(v) => {
@@ -2163,13 +2163,13 @@ function AddressEditor({ n, address, custom, autoFocus, onChange, onCustom, onRe
           className="contact-method-label contact-address-custom"
           value={address.label ?? ""}
           placeholder="label"
-          aria-label={`Custom label for address ${n}`}
+          aria-label={t("contacts.addressCustomLabel", { n })}
           onChange={(e) => onChange({ label: e.target.value || null })}
         />
       ) : (
         <span aria-hidden="true" />
       )}
-      <button type="button" className="quiet danger" aria-label={`Remove address ${n}`} onClick={onRemove}>
+      <button type="button" className="quiet danger" aria-label={t("contacts.addressRemove", { n })} onClick={onRemove}>
         ✕
       </button>
       <div className="contact-address-fields">

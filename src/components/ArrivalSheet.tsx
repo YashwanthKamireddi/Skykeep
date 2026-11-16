@@ -174,7 +174,7 @@ function EventsSheet({ arrival, onDone }: { arrival: Extract<Arrival, { kind: "e
             <span className="ix-title">{e.title}</span>
             <span className="ix-sub">{when(e)}</span>
             {(repeatPhrase(e) || e.duplicate) && (
-              <span className="ix-sub">{e.duplicate ? "Already in your calendar" : repeatPhrase(e)}</span>
+              <span className="ix-sub">{e.duplicate ? t("ui.alreadyInCalendar") : repeatPhrase(e)}</span>
             )}
           </li>
         ))}
@@ -192,7 +192,7 @@ function EventsSheet({ arrival, onDone }: { arrival: Extract<Arrival, { kind: "e
       <div className="sheet-actions">
         {finished || fresh.length === 0 ? (
           <button className="primary" autoFocus onClick={onDone}>
-            {finished ? "Done" : "OK"}
+            {finished ? t("common.done") : t("common.ok")}
           </button>
         ) : (
           <>
@@ -248,7 +248,7 @@ function ContactsSheet({ arrival, onDone }: { arrival: Extract<Arrival, { kind: 
         {arrival.contacts.map((c, i) => (
           <li key={i} className={c.known ? "is-skipped" : undefined}>
             <span className="ix-title">{c.name}</span>
-            {(c.detail || c.known) && <span className="ix-sub">{c.known ? "Already in Contacts" : c.detail}</span>}
+            {(c.detail || c.known) && <span className="ix-sub">{c.known ? t("ui.alreadyInContacts") : c.detail}</span>}
           </li>
         ))}
       </ul>

@@ -211,7 +211,7 @@ export function Periods({
       <div
         className="px-periods-grid"
         role="group"
-        aria-label={level === "years" ? "Years" : "Months"}
+        aria-label={level === "years" ? t("photos.levels.years") : t("photos.levels.months")}
         data-count={tiles.length}
         style={{ "--across": across, "--gap": `${shape.gap}px`, height: Math.max(0, rows * rowH - shape.gap), paddingTop: first * rowH } as React.CSSProperties}
       >

@@ -44,11 +44,11 @@ export function EmptyState({
  * place of an empty state until the service has landed once, and then never again. `text` says
  * it in the interface's language; an app that gives none says it in English, naming `what`.
  */
-export function Arriving({ service, what, text, className }: { service: string; what: string; text?: string; className?: string }) {
+export function Arriving({ service, text, className }: { service: string; text: string; className?: string }) {
   if (!useArriving(service)) return null;
   return (
     <EmptyState busy className={`arriving${className ? ` ${className}` : ""}`}>
-      {text ?? `Getting your ${what} from iCloud…`}
+      {text}
     </EmptyState>
   );
 }

@@ -205,7 +205,7 @@ export function VideoPlayer({
       />
       {stalled && <span className="px-player-wait" role="status" aria-label={t("ui.loadingVideo")} />}
       <div className="px-player-bar toolbar-group" role="toolbar" aria-label={t("ui.videoControls")} onClick={(e) => e.stopPropagation()}>
-        <button className="tool px-cap" aria-label={playing ? "Pause" : "Play"} onClick={toggle}>
+        <button className="tool px-cap" aria-label={playing ? t("ui.pause") : t("ui.play")} onClick={toggle}>
           {playing ? <Pause size={17} strokeWidth={0} fill="currentColor" /> : <Play size={17} strokeWidth={0} fill="currentColor" />}
         </button>
         <span className="px-player-time" ref={said}>

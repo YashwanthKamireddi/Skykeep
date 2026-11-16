@@ -196,7 +196,7 @@ function DriveTrash({ onClose, onRecovered }: { onClose: () => void; onRecovered
                   <span className="drive-badge" aria-hidden="true">
                     <FileGlyph kind={item.kind} extension={item.extension} />
                   </span>
-                  <span className="drive-name" title={item.restorePath ? `From ${item.restorePath}` : undefined}>
+                  <span className="drive-name" title={item.restorePath ? t("drive.fromPath", { path: item.restorePath }) : undefined}>
                     {driveName(item)}
                   </span>
                   <span className="drive-meta drive-kind">

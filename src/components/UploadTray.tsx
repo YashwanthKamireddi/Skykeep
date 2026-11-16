@@ -274,7 +274,7 @@ export function UploadTray({
                   <button
                     className="icon-button small round upload-stop"
                     aria-expanded={open === item.key}
-                    aria-label={open === item.key ? "Hide what didn’t upload" : "Show what didn’t upload"}
+                    aria-label={open === item.key ? t("ui.hideFailedUploads") : t("ui.showFailedUploads")}
                     onClick={() => setOpen(open === item.key ? null : item.key)}
                   >
                     {open === item.key ? "▾" : "▸"}

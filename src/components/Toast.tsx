@@ -222,7 +222,7 @@ export function folderOf(path: string): string {
  */
 export function toastSaved(path: string, count = 1) {
   return toast({
-    message: count === 1 ? `Saved to ${folderOf(path)}` : `${count} saved to ${folderOf(path)}`,
+    message: count === 1 ? translate("ui.savedToOne", { folder: folderOf(path) }) : translate("ui.savedToMany", { count, folder: folderOf(path) }),
     tone: "done",
     action: {
       label: translate("common.showInFolder"),

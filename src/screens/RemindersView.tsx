@@ -174,8 +174,6 @@ const PRIORITIES = [
 const priorityMark = (priority: number) =>
   PRIORITIES.find((p) => p.value === priority)?.mark ?? "";
 
-/** Apple's frequencies by number: 0 daily, 1 weekly, 2 monthly, 3 yearly, 4 hourly. */
-const REPEAT_UNITS = ["day", "week", "month", "year", "hour"] as const;
 /** Each frequency's word in the locale files, by Apple's frequency number. */
 const UNIT_KEYS = ["Day", "Week", "Month", "Year", "Hour"] as const;
 const ADVERB_KEYS: Key[] = ["reminders.repeat.daily", "reminders.repeat.weekly", "reminders.repeat.monthly", "reminders.repeat.yearly", "reminders.repeat.hourly"];
@@ -1826,7 +1824,7 @@ export function RemindersView() {
               buttons there covered the list's own name. Right-click opens the same menu. */}
           <button
             className="icon-button small round row-more rx-list-more"
-            aria-label={`Actions for ${list.title}`}
+            aria-label={t("ui.actionsFor", { name: list.title })}
             aria-haspopup="menu"
             onClick={(e) => {
               const r = e.currentTarget.getBoundingClientRect();
@@ -1878,7 +1876,7 @@ export function RemindersView() {
   const addRow = targetListGuid && !searching && canAdd && (
     <AddReminder
       onAdd={onAdd}
-      label={inList ? `Add a reminder to ${heading}` : `Add a reminder to ${targetList?.title ?? "a list"}`}
+      label={inList ? t("reminders.addTo", { name: heading }) : targetList ? t("reminders.addTo", { name: targetList.title }) : t("reminders.addToAList")}
       // From a built-in view, where it lands is a real choice, so it is shown.
       lists={!inList && targetList && lists.length > 1 ? lists : null}
       target={targetListGuid}
@@ -2079,7 +2077,7 @@ export function RemindersView() {
 
         {/* An account with no lists: a reminder cannot exist outside one, so the one thing
             that helps is offered instead of an add field with nowhere to go. */}
-        <Arriving service="reminders" what="reminders" />
+        <Arriving service="reminders" text={t("reminders.arriving")} />
         {lists.length === 0 && loaded && !arriving && (
           <EmptyState
             className="rem-nolists"
@@ -2110,7 +2108,7 @@ export function RemindersView() {
                   className="field rx-section-name"
                   defaultValue={section.heading}
                   autoFocus
-                  aria-label={`Rename section ${section.heading}`}
+                  aria-label={t("reminders.renameSection", { name: section.heading })}
                   onBlur={(e) => {
                     setNamingSection(null);
                     const found = listSections.find((x) => x.guid === section.key);
@@ -2753,7 +2751,7 @@ const ReminderRow = memo(function ReminderRow({
                     type="button"
                     className="rx-tag"
                     tabIndex={-1}
-                    aria-label={`Show reminders tagged ${name}`}
+                    aria-label={t("reminders.showTagged", { tag: name })}
                     onClick={() => act.current.openTag(name)}
                   >
                     #{name}
@@ -2768,7 +2766,7 @@ const ReminderRow = memo(function ReminderRow({
             {chips.location && (
               <span className="rx-chip">
                 <MapPin aria-hidden="true" size={12} strokeWidth={2.2} className="rx-chip-place" />
-                {chips.location.proximity && <b>{chips.location.proximity === "arriving" ? "Arriving:" : "Leaving:"}</b>}
+                {chips.location.proximity && <b>{chips.location.proximity === "arriving" ? t("reminders.arrivingColon") : t("reminders.leavingColon")}</b>}
                 {chips.location.title ?? "A place"}
               </span>
             )}
@@ -2789,7 +2787,7 @@ const ReminderRow = memo(function ReminderRow({
         )}
 
         {isOpen && (
-          <div className="rx-detail" role="group" aria-label={`Info for ${reminder.title}`}>
+          <div className="rx-detail" role="group" aria-label={t("reminders.infoFor", { title: reminder.title })}>
             <label className="rx-field rx-field-notes">
               <span>{t("reminders.notes")}</span>
               <textarea
@@ -2837,7 +2835,7 @@ const ReminderRow = memo(function ReminderRow({
                 <input
                   type="checkbox"
                   role="switch"
-                  aria-label={`Flag for ${reminder.title}`}
+                  aria-label={t("reminders.flagFor", { title: reminder.title })}
                   checked={reminder.flagged}
                   onChange={() => void act.current.flag(reminder)}
                 />
@@ -2847,7 +2845,7 @@ const ReminderRow = memo(function ReminderRow({
             <div className="rx-field">
               <span>{t("reminders.priorityLabel")}</span>
               <Picker
-                label={`Priority for ${reminder.title}`}
+                label={t("reminders.priorityFor", { title: reminder.title })}
                 value={String(reminder.priority)}
                 onChange={(v) => void act.current.setPriority(reminder, Number(v))}
                 options={PRIORITIES.map((p) => ({
@@ -2887,7 +2885,7 @@ const ReminderRow = memo(function ReminderRow({
             <div className="rx-field">
               <span>{t("reminders.list")}</span>
               <Picker
-                label={`List for ${reminder.title}`}
+                label={t("reminders.listFor", { title: reminder.title })}
                 value={reminder.listGuid}
                 onChange={(guid) => void act.current.moveToList(reminder, guid)}
                 options={lists.map((l) => ({ value: l.guid, label: l.title }))}
@@ -2898,7 +2896,7 @@ const ReminderRow = memo(function ReminderRow({
                 <span>{t("reminders.section")}</span>
                 {REMINDER_DETAIL_WRITES ? (
                   <Picker
-                    label={`Section for ${reminder.title}`}
+                    label={t("reminders.sectionFor", { title: reminder.title })}
                     value={section ?? ""}
                     onChange={(guid) => void act.current.moveToSection(reminder, guid || null)}
                     options={[
@@ -2948,7 +2946,7 @@ const ReminderRow = memo(function ReminderRow({
           <button
             className={`icon-button small rx-kids${kidsHidden ? "" : " is-open"}`}
             aria-expanded={!kidsHidden}
-            aria-label={`${kidsHidden ? "Show" : "Hide"} ${kids === 1 ? "subtask" : `${kids} subtasks`} of ${reminder.title}`}
+            aria-label={t(`reminders.${kidsHidden ? "show" : "hide"}Subtasks${kids === 1 ? "One" : "Many"}`, { count: kids, title: reminder.title })}
             title={kidsHidden ? `${kids === 1 ? "1 subtask" : `${kids} subtasks`}` : undefined}
             onClick={() => act.current.foldSubtasks(reminder.guid)}
           >
@@ -2959,7 +2957,7 @@ const ReminderRow = memo(function ReminderRow({
         <button
           className="icon-button small rx-icon-button"
           aria-label={
-            isOpen ? `Close details for ${reminder.title}` : `Details for ${reminder.title}`
+            isOpen ? t("reminders.closeDetailsFor", { title: reminder.title }) : t("reminders.detailsFor", { title: reminder.title })
           }
           aria-expanded={isOpen}
           onClick={() => act.current.setOpenGuid(isOpen ? null : reminder.guid)}
@@ -3115,7 +3113,7 @@ function DueField({ reminder, onChange }: { reminder: Reminder; onChange: (day: 
         <input
           type="date"
           className="field rx-due-day"
-          aria-label={`Date for ${reminder.title}`}
+          aria-label={t("reminders.dateFor", { title: reminder.title })}
           defaultValue={day}
           key={`d${reminder.dueAt}`}
           // A new date keeps the time already set; a first date is a day, as on the phone.
@@ -3125,7 +3123,7 @@ function DueField({ reminder, onChange }: { reminder: Reminder; onChange: (day: 
           <input
             type="checkbox"
             role="switch"
-            aria-label={`Time for ${reminder.title}`}
+            aria-label={t("reminders.timeFor", { title: reminder.title })}
             checked={time !== null}
             disabled={!day}
             onChange={(e) => onChange(day, e.target.checked ? "09:00" : null)}
@@ -3136,7 +3134,7 @@ function DueField({ reminder, onChange }: { reminder: Reminder; onChange: (day: 
         {time !== null && w && (
           <TimeField
             className="field"
-            label={`Time of day for ${reminder.title}`}
+            label={t("reminders.timeOfDayFor", { title: reminder.title })}
             hours={w.h}
             minutes={w.min}
             onChange={(h, m) => onChange(day, `${pad(h)}:${pad(m)}`)}
@@ -3224,7 +3222,7 @@ function EarlyField({ reminder, alerts, onChange }: {
     <div className="rx-field">
       <span>{t("reminders.earlyReminder")}</span>
       <Picker
-        label={`Early reminder for ${reminder.title}`}
+        label={t("reminders.earlyFor", { title: reminder.title })}
         value={now}
         onChange={(v) => {
           if (v === now) return;
@@ -3257,11 +3255,11 @@ function TagsField({ reminder, tags, onOpen, onAdd, onRemove }: {
       <div className="rx-tag-field">
         {tags.map((name) => (
           <span className="rx-tag is-chip" key={name}>
-            <button type="button" className="rx-tag-name" onClick={() => onOpen(name)} aria-label={`Show reminders tagged ${name}`}>
+            <button type="button" className="rx-tag-name" onClick={() => onOpen(name)} aria-label={t("reminders.showTagged", { tag: name })}>
               #{name}
             </button>
             {REMINDER_DETAIL_WRITES && (
-              <button type="button" className="rx-tag-remove" aria-label={`Remove tag ${name}`} onClick={() => onRemove(name)}>
+              <button type="button" className="rx-tag-remove" aria-label={t("reminders.removeTag", { tag: name })} onClick={() => onRemove(name)}>
                 <X aria-hidden="true" size={11} strokeWidth={2.5} />
               </button>
             )}
@@ -3272,7 +3270,7 @@ function TagsField({ reminder, tags, onOpen, onAdd, onRemove }: {
             className="rx-tag-input"
             value={typed}
             placeholder={tags.length ? t("reminders.add") : t("reminders.addTag")}
-            aria-label={`Add a tag to ${reminder.title}`}
+            aria-label={t("reminders.addTagTo", { title: reminder.title })}
             onChange={(e) => setTyped(e.target.value.replace(/\s/g, ""))}
             onKeyDown={(e) => {
               if (composing(e)) return;
@@ -3360,7 +3358,7 @@ function RepeatField({ reminder, rule, onChange }: {
       <div className="rx-field">
         <span>{t("reminders.repeatLabel")}</span>
         <Picker
-          label={`Repeat for ${reminder.title}`}
+          label={t("reminders.repeatFor", { title: reminder.title })}
           value={custom ? "custom" : key}
           disabled={!dated && !repeating}
           onChange={(k) => {
@@ -3380,11 +3378,11 @@ function RepeatField({ reminder, rule, onChange }: {
       </div>
       {!dated && !repeating && <p className="rx-hint">{t("ui.addADateToRepeatIt")}</p>}
       {custom && (
-        <div className="rx-custom" role="group" aria-label={`Custom repeat for ${reminder.title}`}>
+        <div className="rx-custom" role="group" aria-label={t("reminders.customRepeatFor", { title: reminder.title })}>
           <div className="rx-field">
             <span>{t("reminders.frequency")}</span>
             <Picker
-              label={`Frequency for ${reminder.title}`}
+              label={t("reminders.frequencyFor", { title: reminder.title })}
               value={String(frequency)}
               options={FREQUENCIES.map((f) => ({ ...f, label: t(f.label) }))}
               onChange={(f) => Number(f) !== frequency && onChange({ frequency: Number(f), interval }, endAt, Number(f) === 1 ? days : [])}
@@ -3405,7 +3403,7 @@ function RepeatField({ reminder, rule, onChange }: {
               <input
                 className="field rx-every-count"
                 inputMode="numeric"
-                aria-label={`Every how many ${REPEAT_UNITS[frequency] ?? "day"}s`}
+                aria-label={t("reminders.repeatInterval")}
                 value={typed}
                 onChange={(e) => setTyped(e.target.value.replace(/\D/g, "").slice(0, 3))}
                 onBlur={(e) => commitEvery(e.target.value)}
@@ -3474,7 +3472,7 @@ function RepeatField({ reminder, rule, onChange }: {
           <span>{t("reminders.endRepeat")}</span>
           <div className="rx-due">
             <Picker
-              label={`End repeat for ${reminder.title}`}
+              label={t("reminders.endRepeatFor", { title: reminder.title })}
               value={endAt === null ? "never" : "date"}
               options={[
                 { value: "never", label: t("reminders.repeat.never") },
@@ -3493,7 +3491,7 @@ function RepeatField({ reminder, rule, onChange }: {
               <input
                 type="date"
                 className="field rx-due-day"
-                aria-label={`End repeat date for ${reminder.title}`}
+                aria-label={t("reminders.endRepeatDateFor", { title: reminder.title })}
                 defaultValue={endDay}
                 key={`e${endAt}`}
                 min={due ? `${due.y}-${pad(due.m)}-${pad(due.d)}` : undefined}
@@ -3541,7 +3539,7 @@ function ZoneAndUrgent({ reminder, more }: { reminder: Reminder; more: ReminderM
 function PlacesAndPeople({ more }: { more: ReminderMore }) {
   const { location, messaging } = more;
   if (!location && !messaging) return null;
-  const side = location?.proximity === "arriving" ? "Arriving" : location?.proximity === "leaving" ? "Leaving" : null;
+  const side = location?.proximity === "arriving" ? t("reminders.proximityArriving") : location?.proximity === "leaving" ? t("reminders.proximityLeaving") : null;
   return (
     <>
       <div className="rx-detail-rule" aria-hidden="true" />
@@ -3549,7 +3547,7 @@ function PlacesAndPeople({ more }: { more: ReminderMore }) {
         <div className="rx-field">
           <span>{t("reminders.location")}</span>
           <span className="rx-value">
-            {location.title ?? "A place"}
+            {location.title ?? t("reminders.aPlace")}
             {side && <span className="rx-quiet">{side}</span>}
           </span>
         </div>

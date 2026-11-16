@@ -93,7 +93,7 @@ export function UpdateNotice() {
         {actions !== "none" && (
           <div className="update-actions">
             <button className="quiet" onClick={later}>
-              {actions === "offer" ? "Later" : actions === "retry" ? "Not Now" : s.phase === "failed" ? "OK" : "Later"}
+              {actions === "offer" ? t("ui.later") : actions === "retry" ? t("common.notNow") : s.phase === "failed" ? t("common.ok") : t("ui.later")}
             </button>
             {actions === "offer" && (
               <button className="toast-action" onClick={apply}>

@@ -375,7 +375,7 @@ export function Slideshow({
         <button className="tool px-cap" aria-label={t("ui.previous")} onClick={() => void go(-1)}>
           <ChevronLeft size={18} />
         </button>
-        <button className="tool px-cap" aria-label={playing ? "Pause" : "Play"} onClick={toggle}>
+        <button className="tool px-cap" aria-label={playing ? t("ui.pause") : t("ui.play")} onClick={toggle}>
           {playing ? <Pause size={17} fill="currentColor" strokeWidth={0} /> : <Play size={17} fill="currentColor" strokeWidth={0} />}
         </button>
         <button className="tool px-cap" aria-label={t("ui.next")} onClick={() => void go(1)}>

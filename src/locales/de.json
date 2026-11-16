@@ -27,7 +27,8 @@
     "waitingToSync": "Wartet auf Synchronisierung",
     "refusedLink": "Diese Art von Link kann Skykeep nicht öffnen.",
     "notice": "Hinweis",
-    "show": "Anzeigen"
+    "show": "Anzeigen",
+    "ok": "OK"
   },
   "sidebar": {
     "reminders": "Erinnerungen",
@@ -682,7 +683,19 @@
     "someNotUploaded": "{count} von {items} nicht hochgeladen",
     "uploadStopped": "Upload angehalten",
     "uploadedItems": "{items} hochgeladen",
-    "stopUpload": "Upload anhalten"
+    "stopUpload": "Upload anhalten",
+    "createdByYou": "Von dir erstellt",
+    "sharedWithYou": "Mit dir geteilt",
+    "hideAlbums": "Alben ausblenden",
+    "showAlbums": "Alben einblenden",
+    "livePhoto": "Live Photo",
+    "arriving": "Deine Fotos werden aus iCloud geladen …",
+    "downloadItem": "{title} laden",
+    "addedToOne": "Zu „{album}“ hinzugefügt",
+    "addedToMany": "{count} zu „{album}“ hinzugefügt",
+    "addToLibrary": "Zur Mediathek hinzufügen",
+    "viewBurst": "Alle {count} Fotos dieser Serie anzeigen",
+    "addToNamedAlbum": "Zu „{album}“ hinzufügen"
   },
   "reminders": {
     "title": "Erinnerungen",
@@ -849,7 +862,40 @@
     "renameItem": "{title} umbenennen",
     "deleteItem": "{title} löschen",
     "flagItem": "{title} markieren",
-    "unflagItem": "Markierung von {title} entfernen"
+    "unflagItem": "Markierung von {title} entfernen",
+    "arriving": "Deine Erinnerungen werden aus iCloud geladen …",
+    "addTo": "Erinnerung zu „{name}“ hinzufügen",
+    "addToAList": "Erinnerung zu einer Liste hinzufügen",
+    "renameSection": "Abschnitt „{name}“ umbenennen",
+    "arrivingColon": "Bei Ankunft:",
+    "leavingColon": "Beim Verlassen:",
+    "proximityArriving": "Bei Ankunft",
+    "proximityLeaving": "Beim Verlassen",
+    "aPlace": "Ein Ort",
+    "infoFor": "Informationen zu „{title}“",
+    "flagFor": "Markierung für „{title}“",
+    "priorityFor": "Priorität für „{title}“",
+    "listFor": "Liste für „{title}“",
+    "sectionFor": "Abschnitt für „{title}“",
+    "showSubtasksOne": "Unteraufgabe von „{title}“ anzeigen",
+    "showSubtasksMany": "{count} Unteraufgaben von „{title}“ anzeigen",
+    "hideSubtasksOne": "Unteraufgabe von „{title}“ ausblenden",
+    "hideSubtasksMany": "{count} Unteraufgaben von „{title}“ ausblenden",
+    "closeDetailsFor": "Details zu „{title}“ schließen",
+    "detailsFor": "Details zu „{title}“",
+    "dateFor": "Datum für „{title}“",
+    "timeFor": "Uhrzeit für „{title}“",
+    "timeOfDayFor": "Tageszeit für „{title}“",
+    "earlyFor": "Vorab-Erinnerung für „{title}“",
+    "showTagged": "Erinnerungen mit Tag {tag} anzeigen",
+    "removeTag": "Tag {tag} entfernen",
+    "addTagTo": "Tag zu „{title}“ hinzufügen",
+    "repeatFor": "Wiederholen für „{title}“",
+    "customRepeatFor": "Eigene Wiederholung für „{title}“",
+    "frequencyFor": "Häufigkeit für „{title}“",
+    "repeatInterval": "Wiederholungsintervall",
+    "endRepeatFor": "Wiederholung beenden für „{title}“",
+    "endRepeatDateFor": "Enddatum der Wiederholung für „{title}“"
   },
   "calendar": {
     "newEvent": "Neues Ereignis",
@@ -1020,7 +1066,8 @@
     "today": "Heute",
     "moreCount": "{count} weitere",
     "showInReminders": "In Erinnerungen zeigen",
-    "approveInBrowser": "Bestätige Skykeep auf der Seite, die sich in deinem Browser geöffnet hat. Der Rest geschieht hier von selbst."
+    "approveInBrowser": "Bestätige Skykeep auf der Seite, die sich in deinem Browser geöffnet hat. Der Rest geschieht hier von selbst.",
+    "weekNumber": "Woche {n}"
   },
   "contacts": {
     "title": "Kontakte",
@@ -1198,7 +1245,21 @@
     "myCard": "Meine Karte",
     "showInMaps": "In Karten zeigen",
     "me": "ich",
-    "mergeUndone": "Zusammenführen widerrufen."
+    "mergeUndone": "Zusammenführen widerrufen.",
+    "arriving": "Deine Kontakte werden aus iCloud geladen …",
+    "under": "Kontakte unter {letter}",
+    "noMatches": "Keine Treffer.",
+    "noneInList": "Noch niemand in dieser Liste.",
+    "noneYet": "Noch keine Kontakte.",
+    "detailKind": "Art von Angabe {n}",
+    "detailService": "Dienst für Angabe {n}",
+    "detailLabel": "Etikett für Angabe {n}",
+    "detailCustomLabel": "Eigenes Etikett für Angabe {n}",
+    "detailValue": "Wert für Angabe {n}",
+    "detailRemove": "Angabe {n} entfernen",
+    "addressLabel": "Etikett für Adresse {n}",
+    "addressCustomLabel": "Eigenes Etikett für Adresse {n}",
+    "addressRemove": "Adresse {n} entfernen"
   },
   "drive": {
     "kinds": {
@@ -1333,7 +1394,8 @@
     "nowRemoved": "{items} entfernt",
     "nowHolds": "Dieser Ordner enthält jetzt {items}",
     "nowChangedSince": "{holds}, {said}, seit er hier angezeigt wurde, auf einem anderen Gerät. Er wird mit seinem gesamten Inhalt unter „Zuletzt gelöscht“ abgelegt.",
-    "nowChangedPlain": "{holds}. Er hat sich geändert, seit er hier angezeigt wurde, auf einem anderen Gerät. Er wird mit seinem gesamten Inhalt unter „Zuletzt gelöscht“ abgelegt."
+    "nowChangedPlain": "{holds}. Er hat sich geändert, seit er hier angezeigt wurde, auf einem anderen Gerät. Er wird mit seinem gesamten Inhalt unter „Zuletzt gelöscht“ abgelegt.",
+    "fromPath": "Aus {path}"
   },
   "shortcuts": {
     "title": "Tastaturkurzbefehle",
@@ -1645,6 +1707,18 @@
     "zoomIn": "Vergrößern",
     "zoomInCtrl": "Vergrößern (Strg +)",
     "zoomOut": "Verkleinern",
-    "zoomOutCtrl": "Verkleinern (Strg −)"
+    "zoomOutCtrl": "Verkleinern (Strg −)",
+    "hideSidebar": "Seitenleiste ausblenden",
+    "showSidebar": "Seitenleiste einblenden",
+    "alreadyInCalendar": "Bereits in deinem Kalender",
+    "alreadyInContacts": "Bereits in Kontakte",
+    "savedToOne": "In {folder} gesichert",
+    "savedToMany": "{count} in {folder} gesichert",
+    "later": "Später",
+    "hideFailedUploads": "Nicht Hochgeladenes ausblenden",
+    "showFailedUploads": "Nicht Hochgeladenes anzeigen",
+    "pause": "Pause",
+    "play": "Wiedergabe",
+    "actionsFor": "Aktionen für „{name}“"
   }
 }

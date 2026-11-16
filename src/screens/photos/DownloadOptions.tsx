@@ -34,7 +34,7 @@ export function DownloadOptions({ photos, onPick, onClose }: { photos: Photo[]; 
         <strong>{title}</strong>
         <small>{words}</small>
       </span>
-      <button className="icon-button px-dl-go" aria-label={`Download ${title}`} title={t("ui.download")} onClick={() => onPick(want)}>
+      <button className="icon-button px-dl-go" aria-label={t("photos.downloadItem", { title })} title={t("ui.download")} onClick={() => onPick(want)}>
         <Download size={16} strokeWidth={2} aria-hidden="true" />
       </button>
     </div>

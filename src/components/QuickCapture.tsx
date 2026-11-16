@@ -39,7 +39,16 @@ export function QuickCapture({ initial }: { initial: Kind }) {
 
   useEffect(() => {
     document.documentElement.dataset.app = kind === "note" ? "notes" : "reminders";
-    document.title = kind === "note" ? "New Note" : "New Reminder";
+    // The window's own title too (the taskbar's, Alt-Tab's), in the chosen language: made by the
+    // backend before the page could say it (intake.rs), it was always English.
+    const title = kind === "note" ? t("quick.newNote") : t("quick.newReminder");
+    document.title = title;
+    try {
+      const label = (window as { __TAURI_INTERNALS__?: { metadata?: { currentWindow?: { label?: string } } } }).__TAURI_INTERNALS__?.metadata?.currentWindow?.label;
+      if (label) void invoke("plugin:window|set_title", { label, value: title }).catch(() => {});
+    } catch {
+      // Not in a Tauri window.
+    }
   }, [kind]);
 
   // Asked for again from the launcher, perhaps for the other kind.
@@ -163,7 +172,7 @@ export function QuickCapture({ initial }: { initial: Kind }) {
             value={target}
             options={where}
             onChange={setTarget}
-            label={kind === "note" ? "Folder" : "List"}
+            label={kind === "note" ? t("notes.folder") : t("reminders.list")}
             disabled={state === "saving"}
           />
         ) : where ? (

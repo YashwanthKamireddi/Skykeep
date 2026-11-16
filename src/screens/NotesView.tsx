@@ -1742,7 +1742,7 @@ export function NotesView() {
           )
         )}
         {notes.length === 0 && !searching && (
-          <Arriving service="notes" what="notes" text={t("notes.arriving")} className="notes-empty" />
+          <Arriving service="notes" text={t("notes.arriving")} className="notes-empty" />
         )}
       </section>
 

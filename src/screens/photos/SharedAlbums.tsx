@@ -64,7 +64,7 @@ export function SharedAlbums({ onError, onOpen }: { onError: (message: string) =
                   <Cover key={a.cover ?? ""} id={a.cover} />
                 </span>
                 <span className="px-card-name">{name}</span>
-                <span className="px-card-count">{a.database === "private" ? "Created by You" : "Shared with You"}</span>
+                <span className="px-card-count">{a.database === "private" ? t("photos.createdByYou") : t("photos.sharedWithYou")}</span>
                 {ends && <span className="px-card-count">{ends}</span>}
               </button>
             );
