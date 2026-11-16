@@ -21,3 +21,5 @@ LICENSE
 scripts/.*\.mjs
 \.config/nextest\.toml
 android/.*
+# The iPhone app (built unsigned by .github/workflows/ios.yml).
+ios/.*

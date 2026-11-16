@@ -1,0 +1,44 @@
+# The iPhone app, generated into an Xcode project by XcodeGen on the build machine (macOS
+# runners: .github/workflows/ios.yml). No .xcodeproj is kept in the repository.
+name: Skykeep
+options:
+  bundleIdPrefix: io.github.yashwanthkamireddi
+  deploymentTarget:
+    iOS: "26.0"
+  createIntermediateGroups: true
+settings:
+  base:
+    SWIFT_VERSION: "6.0"
+    MARKETING_VERSION: "0.1.0"
+    CURRENT_PROJECT_VERSION: "1"
+    # Sideloaded: SideStore or AltStore signs it with the person's own Apple Account.
+    CODE_SIGNING_ALLOWED: "NO"
+    CODE_SIGNING_REQUIRED: "NO"
+    TARGETED_DEVICE_FAMILY: "1"
+    ENABLE_USER_SCRIPT_SANDBOXING: "YES"
+    SWIFT_STRICT_CONCURRENCY: complete
+targets:
+  Skykeep:
+    type: application
+    platform: iOS
+    sources:
+      - Skykeep/Sources
+      - Skykeep/Resources
+    info:
+      path: Skykeep/Info.plist
+      properties:
+        CFBundleDisplayName: Skykeep
+        UILaunchScreen: {}
+        UIApplicationSupportsIndirectInputEvents: true
+        UIRequiresFullScreen: true
+        UISupportedInterfaceOrientations: [UIInterfaceOrientationPortrait]
+        NSCameraUsageDescription: Skykeep sends what your camera sees to your computer, to use as its webcam.
+        NSMicrophoneUsageDescription: Skykeep sends what your microphone hears to your computer, to use as its microphone.
+        # voip: iOS keeps the camera running behind other apps only for calling apps (iOS 18+,
+        # isMultitaskingCameraAccessSupported). audio: the microphone keeps running too.
+        UIBackgroundModes: [voip, audio]
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: io.github.yashwanthkamireddi.Skykeep.iphone
+        ASSETCATALOG_COMPILER_APPICON_NAME: AppIcon
+        INFOPLIST_KEY_UIStatusBarStyle: UIStatusBarStyleLightContent
