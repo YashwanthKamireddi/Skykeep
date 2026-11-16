@@ -41,6 +41,10 @@ pub struct ReminderList {
     /// Shown as a tile beside Today and Scheduled.
     #[serde(default)]
     pub pinned: bool,
+    /// When it was pinned (ms since 1970), where Apple said: the tiles stand in the order they
+    /// were pinned, as on the phone, not in the lists' own order.
+    #[serde(default)]
+    pub pinned_at: Option<i64>,
     /// How the list orders its reminders: `manual`, `displayDate_asc`, and so on.
     #[serde(default)]
     pub sorting: Option<String>,
@@ -114,6 +118,21 @@ fn sort_as_the_list_does(
         };
         done.then(chosen).then_with(|| by_hand(a).cmp(&by_hand(b)))
     });
+}
+
+/// What the `pinned` column holds: when the list was pinned (ms since 1970), or 1 for pinned with
+/// no date (as written before the date was kept), or 0 for not pinned. One column, no migration.
+fn pinned_column(l: &ReminderList) -> i64 {
+    match (l.pinned, l.pinned_at) {
+        (false, _) => 0,
+        (true, Some(at)) if at > 1 => at,
+        (true, _) => 1,
+    }
+}
+
+/// The pin's date from the `pinned` column, where one was kept.
+fn pinned_at_of(column: i64) -> Option<i64> {
+    (column > 1).then_some(column)
 }
 
 fn order_json(order: &[String]) -> Option<String> {
@@ -495,7 +514,7 @@ impl Library {
                     i64::from(l.enabled),
                     l.emblem,
                     l.group_guid,
-                    i64::from(l.pinned),
+                    pinned_column(l),
                     l.sorting,
                     order_json(&l.reminder_order),
                     stamp
@@ -825,7 +844,7 @@ impl Library {
                     i64::from(l.enabled),
                     l.emblem,
                     l.group_guid,
-                    i64::from(l.pinned),
+                    pinned_column(l),
                     l.sorting,
                     order_json(&l.reminder_order),
                     stamp
@@ -1040,6 +1059,7 @@ impl Library {
                 emblem: row.get(6)?,
                 group_guid: row.get(7)?,
                 pinned: row.get::<_, i64>(8)? != 0,
+                pinned_at: pinned_at_of(row.get(8)?),
                 sorting: row.get(9)?,
                 reminder_order: order_from_json(row.get(10)?),
             })
@@ -1303,6 +1323,35 @@ mod tests {
             "done",
             "completed items sink to the bottom"
         );
+    }
+
+    /// A pin keeps its date through the library (the tiles' order), in the one `pinned` column:
+    /// a pin with no date still reads as pinned, and no pin as none.
+    #[test]
+    fn a_pin_keeps_its_date() {
+        let mut lib = seeded();
+        let dated = ReminderList {
+            pinned: true,
+            pinned_at: Some(1_790_609_001_389),
+            ..list("d")
+        };
+        let undated = ReminderList {
+            pinned: true,
+            pinned_at: None,
+            ..list("u")
+        };
+        let plain = list("p");
+        lib.merge_reminder_lists(&[dated, undated, plain]).unwrap();
+        let got = |g: &str| {
+            lib.reminder_lists()
+                .unwrap()
+                .into_iter()
+                .find(|l| l.guid == g)
+                .unwrap()
+        };
+        assert!(got("d").pinned && got("d").pinned_at == Some(1_790_609_001_389));
+        assert!(got("u").pinned && got("u").pinned_at.is_none());
+        assert!(!got("p").pinned && got("p").pinned_at.is_none());
     }
 
     /// The bug this guards: an incremental sync returns only what changed, so treating

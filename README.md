@@ -54,6 +54,8 @@ Six apps, each with its own icon in your launcher and Start menu and a window of
 
 **Send to iPhone.** Right-click any file and choose Send to iPhone: photos land in Photos, documents in Files, wherever the phone is. Nothing to install on the iPhone.
 
+**Your iPhone as a webcam (Beta, Linux).** Over the cable, your iPhone becomes this computer's camera and microphone in every app, through Apple's own camera and microphone processing. The iPhone app is sideloaded for now: see [iPhone as a webcam](#iphone-as-a-webcam-beta).
+
 **Back up iCloud.** Every original photo and video, and all of iCloud Drive, copied to a folder or drive you choose and kept current. Changed files keep their earlier version, and a backup never deletes.
 
 **iCloud in your file manager.** iCloud Drive and Photos are real folders in File Explorer and on Linux, with thumbnails before anything downloads.
@@ -113,6 +115,48 @@ sudo snap install skykeep && sudo snap connect skykeep:password-manager-service
 
 The Snap's second command lets it keep you signed in through your keyring. On Ubuntu the AppImage needs `libfuse2t64` once (`libfuse2` on 22.04). Fedora and openSUSE leave out the decoder for iPhone photos (HEIC) for patent reasons: on Fedora, enable RPM Fusion and `sudo dnf install libheif-freeworld`; on openSUSE, add Packman and install `libheif1`. For Drive and Photos as folders on Arch, also `sudo pacman -S fuse3`.
 </details>
+
+## iPhone as a webcam (Beta)
+
+On Linux, your iPhone can be this computer's camera and microphone over the cable, in every program, as **iPhone Camera** and **iPhone Microphone**. Nothing goes over the network. It is off until you turn it on.
+
+**What you need**
+
+- Skykeep on Linux, from a package (the Flatpak and AppImage leave this out).
+- `usbmuxd` (the service that talks to an iPhone over USB) and GStreamer's H.264 decoder
+  (`gst-plugins-bad` or `gst-libav`). Skykeep's packages recommend both.
+- For programs that read cameras directly (Chromium, Google Meet, Zoom): `v4l2loopback`.
+  Skykeep sets it up for you with one password prompt.
+- Skykeep's iPhone app, installed by sideloading, since it isn't on the App Store.
+
+**Install the iPhone app**
+
+1. Install [SideStore](https://sidestore.io) (or AltStore) on your iPhone.
+2. Download **skykeep-iphone** from the latest successful
+   [iPhone app run](https://github.com/YashwanthKamireddi/Skykeep/actions/workflows/ios.yml)
+   (you need to be signed in to GitHub; each build is kept for 14 days). It holds
+   `Skykeep-iphone-unsigned.ipa`.
+3. Open the `.ipa` with SideStore to install it. With a free Apple Account, SideStore signs it
+   for 7 days at a time and renews it when it can.
+
+**Turn it on**
+
+1. In Skykeep, open Settings → **iPhone** and turn on **Camera and microphone**.
+2. If Settings offers **Show it to every app**, choose **Set Up** (one password prompt).
+3. Plug your iPhone in with a cable and open Skykeep on it.
+
+Settings then shows the iPhone, the camera and the microphone as live, with how quick the
+picture and sound are. Turning the camera off on the iPhone keeps the microphone on; programs
+show black until you turn it back on.
+
+**If a program shows no picture**
+
+- Restart the program after first setting it up. Chromium keeps a camera it couldn't open
+  until the whole browser restarts (`chrome://restart`); reloading the page isn't enough.
+- The iPhone Camera webcam device can be read by one program at a time: close the camera in
+  one program before choosing it in another. In Chromium, turning on
+  `chrome://flags/#enable-webrtc-pipewire-camera` reads it through PipeWire instead, which
+  programs can share.
 
 ## Official downloads
 

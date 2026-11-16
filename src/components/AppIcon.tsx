@@ -1,4 +1,4 @@
-import { CalendarDays, ContactRound, FolderClosed, Image as ImageGlyph, ListChecks, NotebookPen } from "lucide-react";
+import { CalendarDays, ContactRound, FolderClosed, Image as ImageGlyph, ListChecks, NotebookPen, Smartphone } from "lucide-react";
 
 /**
  * Each app's mark in the sidebar and Settings, as a Mac sidebar marks its places (Finder, Mail):
@@ -13,6 +13,7 @@ const MARK: Record<string, { glyph: typeof NotebookPen; tint: string }> = {
   drivews: { glyph: FolderClosed, tint: "var(--app-drive)" },
   drive: { glyph: FolderClosed, tint: "var(--app-drive)" },
   photos: { glyph: ImageGlyph, tint: "var(--app-photos)" },
+  iphone: { glyph: Smartphone, tint: "var(--accent)" },
 };
 
 export function AppIcon({ app, size = 22 }: { app: string; size?: number }) {
