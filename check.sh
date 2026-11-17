@@ -228,6 +228,8 @@ pooled "row hover"         node .uiverify/row-hover.mjs
 pooled "reminders switch"  node .uiverify/reminders-switch.mjs
 pooled "upload cancel"     node .uiverify/drive-upload-cancel.mjs
 pooled "folder download"   node .uiverify/drive-download.mjs
+pooled "update this app"   node .uiverify/footer-refresh.mjs
+pooled "webkit: update this app" env ENGINE=webkit node .uiverify/footer-refresh.mjs
 pooled "notes tables"      node .uiverify/notes-table.mjs
 pooled "reminder menu"     node .uiverify/reminders-context.mjs
 pooled "notes media"       node .uiverify/notes-media.mjs
