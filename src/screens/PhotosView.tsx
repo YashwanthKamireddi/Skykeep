@@ -196,7 +196,12 @@ function Filmstrip({ photos, at, onPick }: { photos: PhotoList; at: number; onPi
   // window moves along never jump; the strip is placed to put the shown one's centre in the middle.
   const shift = -(at * (SLIP + GAP) + SHOWN / 2);
   // The slips' photos on their way; one not here yet holds its place as an empty slip.
-  useEffect(() => void photos.need(from, to), [photos, from, to]);
+  useEffect(() => {
+    // Held while the strip shows them (photos/list `hold`).
+    const release = photos.store.hold(photos.ids.slice(from, to + 1));
+    void photos.need(from, to);
+    return release;
+  }, [photos, from, to]);
   const slips = [];
   for (let i = from; i <= to; i++) {
     const p = photos.at(i);
@@ -784,6 +789,17 @@ const Month = memo(function Month({
   listNow.current = list;
   const close = useRef(false);
   const build = useRef<() => void>(() => {});
+  /**
+   * Its photos held in the store while it is near the screen, so none of them is let go while
+   * it may show them (photos/list `hold`, #84); let go to the store's limit once it is far.
+   */
+  const holding = useRef<(() => void) | null>(null);
+  const holdNow = useRef(() => {});
+  holdNow.current = () => {
+    const was = holding.current;
+    holding.current = close.current && items.length ? list.store.hold(items.map((i) => i.id)) : null;
+    was?.();
+  };
   useEffect(() => {
     const el = ref.current;
     let gone = false;
@@ -816,6 +832,7 @@ const Month = memo(function Month({
     }
     const stop = watchNear(el, el.closest(".px-scroll"), "4000px 0px", (on) => {
       close.current = on;
+      holdNow.current();
       if (!on) return;
       setNear(true);
       const now = itemsNow.current;
@@ -825,12 +842,15 @@ const Month = memo(function Month({
     return () => {
       gone = true;
       stop();
+      holding.current?.();
+      holding.current = null;
     };
   }, []);
   // Its photos read again (a sync moved, added or took some away) while it is near: the new
   // ones asked for, and built on from where it was.
   useEffect(() => {
     if (!close.current || !items.length) return;
+    holdNow.current();
     void list.need(items[0].index, items[items.length - 1].index);
     build.current();
   }, [list, items]);
@@ -1165,11 +1185,10 @@ export function PhotosView() {
     // Read again (a sync landed, a change was made): what is held is fetched again where the
     // grid is, and only a list that changed is drawn again.
     if (again) store.refresh();
-    store.use(next);
     readList.current = before && next.same(before) ? before : next;
     setPhotos((was) => (next.same(was) ? was : next));
-    const near = again ? store.near : 0;
-    void next.need(near - PAGE, near + PAGE);
+    // What the screen shows fetched again (it is held, see photos/list); another place, its first screen.
+    void (again ? store.renew() : next.need(0, PAGE));
     // The same view read again is the same view drawn: a new object here built every month
     // afresh and faded the grid in again at each landing.
     setDrawn((was) => (was.view === view && was.album === album && was.query === searching ? was : { view, album, query: searching }));
@@ -1558,7 +1577,6 @@ export function PhotosView() {
       const list = new PhotoList(await api.photosIndex({ burst: p.burst }, null), store);
       await list.need(0, list.length - 1);
       reads.current++; // a sync's read landing now must not put the library back over it
-      store.use(list);
       setPhotos(list);
       setInBurst({ from: p.id, count: list.length });
       // Opened by the photo, not a place: the list is drawn as it is shown.

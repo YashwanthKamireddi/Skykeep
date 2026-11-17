@@ -9,7 +9,7 @@ import { api, type Photo, type PhotoIndex } from "../../lib/ipc";
 
 /** Photos asked for at once. */
 export const PAGE = 240;
-/** The most photos held at once; past it the farthest from where the grid is go. */
+/** The most photos held at once; past it, the longest unused of those nothing shows go. */
 export const KEEP = 2400;
 
 const KINDS = ["image", "video", "live"] as const;
@@ -38,8 +38,17 @@ export class PhotoStore {
   /** How many times each photo held has changed: what a month watches to draw a tile again. */
   private revs = new Map<string, number>();
   private listeners = new Set<() => void>();
-  private center = 0;
-  private list: PhotoList | null = null;
+  /**
+   * Photos something on or near the screen shows (a month near the view, the viewer's strip),
+   * by how many hold each: never let go while held. Let go by distance from where the grid
+   * last asked, a month of more photos than KEEP (a large Screenshots library) let its own
+   * on-screen photos go as its pages came in, and nothing asked for them again: grey boxes
+   * that could not be clicked until the month was scrolled away and back (#84).
+   */
+  private holds = new Map<string, number>();
+  /** When each photo was last asked for: of those nothing holds, the longest unused go first. */
+  private used = new Map<string, number>();
+  private tick = 0;
   private told = 0;
   /** Bumped by every change; what a view subscribes to. */
   version = 0;
@@ -56,9 +65,22 @@ export class PhotoStore {
   get size(): number {
     return this.photos.size;
   }
-  /** Where the grid (or the viewer) last asked from. */
-  get near(): number {
-    return this.center;
+  /**
+   * `ids` held while what shows them is near the screen: never let go meanwhile. Answers the
+   * release, which is safe to call more than once.
+   */
+  hold(ids: readonly string[]): () => void {
+    for (const id of ids) this.holds.set(id, (this.holds.get(id) ?? 0) + 1);
+    let released = false;
+    return () => {
+      if (released) return;
+      released = true;
+      for (const id of ids) {
+        const n = (this.holds.get(id) ?? 1) - 1;
+        if (n > 0) this.holds.set(id, n);
+        else this.holds.delete(id);
+      }
+    };
   }
   subscribe = (listener: () => void) => {
     this.listeners.add(listener);
@@ -84,6 +106,7 @@ export class PhotoStore {
       if (had && samePhoto(had, p)) continue;
       this.photos.set(p.id, p);
       if (had) this.turned(p.id);
+      if (!this.used.has(p.id)) this.used.set(p.id, ++this.tick);
       any = true;
     }
     this.trim();
@@ -103,11 +126,6 @@ export class PhotoStore {
     if (any) this.changed();
   }
 
-  /** The list now drawn: where the farthest are measured from. */
-  use(list: PhotoList) {
-    this.list = list;
-  }
-
   /**
    * Everything held is from before this moment (a sync landed): still shown, and fetched again
    * as it is wanted; anything far off is let go now rather than fetched again.
@@ -117,18 +135,28 @@ export class PhotoStore {
     this.asked.clear();
   }
 
+  /** The held photos read before the latest refresh, fetched again: what the screen shows. */
+  renew(): Promise<void> {
+    const wanted = [...this.holds.keys()].filter((id) => this.stale.has(id) && !this.asked.has(id));
+    return this.fetch(wanted);
+  }
+
   /** The photos `from`–`to` of `list` on their way, a page at a time, unless here (and fresh). */
   need(list: PhotoList, from: number, to: number): Promise<void> {
     from = Math.max(0, from);
     to = Math.min(list.length - 1, to);
     if (to < from) return Promise.resolve();
-    this.center = Math.round((from + to) / 2);
-    this.list = list;
     const wanted: string[] = [];
     for (let i = from; i <= to; i++) {
       const id = list.ids[i];
+      this.used.set(id, ++this.tick);
       if ((!this.photos.has(id) || this.stale.has(id)) && !this.asked.has(id)) wanted.push(id);
     }
+    return this.fetch(wanted);
+  }
+
+  /** `wanted` fetched a page at a time. */
+  private fetch(wanted: string[]): Promise<void> {
     if (wanted.length === 0) return Promise.resolve();
     wanted.forEach((id) => this.asked.add(id));
     const pages: Promise<void>[] = [];
@@ -175,22 +203,22 @@ export class PhotoStore {
     return ids.map((id) => this.photos.get(id)!);
   }
 
-  /** Held to KEEP: the farthest from where the grid is go first. */
+  /**
+   * Held to KEEP where it can be: of the photos nothing holds, the longest unused go first.
+   * What is held stays however many that is — it is what the screen shows.
+   */
   private trim() {
     if (this.photos.size <= KEEP) return;
-    const list = this.list;
-    const far = [...this.photos.keys()]
-      .map((id) => {
-        const at = list ? list.indexOf(id) : -1;
-        return [id, at < 0 ? Infinity : Math.abs(at - this.center)] as const;
-      })
-      .sort((a, b) => b[1] - a[1]);
+    const loose = [...this.photos.keys()]
+      .filter((id) => !this.holds.has(id))
+      .sort((a, b) => (this.used.get(a) ?? 0) - (this.used.get(b) ?? 0));
     const goal = Math.floor(KEEP * 0.8);
-    for (const [id] of far) {
+    for (const id of loose) {
       if (this.photos.size <= goal) break;
       this.photos.delete(id);
       this.stale.delete(id);
       this.revs.delete(id);
+      this.used.delete(id);
     }
   }
 }
