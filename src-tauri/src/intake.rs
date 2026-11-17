@@ -236,6 +236,10 @@ fn load(path: &Path) -> Result<String, String> {
 pub fn capture(app: &AppHandle, kind: &'static str) {
     if let Some(w) = app.get_webview_window(CAPTURE_WINDOW) {
         app.emit_to(CAPTURE_WINDOW, CAPTURE, kind).ok();
+        // Still drawing: it shows itself once drawn.
+        if crate::first_show::owing(CAPTURE_WINDOW) {
+            return;
+        }
         w.unminimize().ok();
         w.show().ok();
         w.set_focus().ok();
@@ -266,16 +270,11 @@ pub fn capture(app: &AppHandle, kind: &'static str) {
     .build();
     match made {
         Ok(window) => {
+            crate::first_show::owe(&window);
             // Where it was left, now that it is made (#62: never inside the window-ready hook).
             crate::restore_window_state(&window);
-            // Shown anyway if the page never says it is drawn.
-            tauri::async_runtime::spawn(async move {
-                tokio::time::sleep(std::time::Duration::from_secs(3)).await;
-                if !window.is_visible().unwrap_or(true) {
-                    window.show().ok();
-                    window.set_focus().ok();
-                }
-            });
+            // Shown anyway if the page never says it is drawn — unless closed meanwhile.
+            crate::first_show::fallback(&window);
         }
         Err(e) => quiet!("the quick capture window could not be made: {e}"),
     }

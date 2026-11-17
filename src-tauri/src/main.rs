@@ -26,6 +26,7 @@ mod diagnostics;
 mod drive_watch;
 mod export;
 mod fetching;
+mod first_show;
 mod folder_download;
 mod grants;
 mod hello;
@@ -6390,6 +6391,11 @@ pub(crate) fn tiling_compositor() -> bool {
 fn window_ready(app: tauri::AppHandle, window: tauri::WebviewWindow, needs_you: Option<bool>) {
     timing::mark(format_args!("window_ready {}", window.label()));
     // An app's own window (Notes, Reminders…): shown once it has drawn.
+    // Only while its first show is still owed: a window closed since, or a page loaded again,
+    // is never brought back by it (first_show).
+    if !first_show::take(window.label()) {
+        return;
+    }
     if window.label() != "main" {
         apps::show(&window);
         return;
@@ -6524,6 +6530,7 @@ fn wind_down(app: &tauri::AppHandle) {
             use tauri_plugin_window_state::AppHandleExt;
             app.save_window_state(window_state_kept()).ok();
         }
+        first_show::settle_all();
         for w in app.webview_windows().values() {
             w.hide().ok();
         }
@@ -6555,15 +6562,9 @@ fn show_when_ready(app: &tauri::AppHandle) {
     if login::background() || login::search_only() || LAUNCHED_AS_APP.load(Ordering::SeqCst) {
         return;
     }
-    let app = app.clone();
-    tauri::async_runtime::spawn(async move {
-        tokio::time::sleep(Duration::from_secs(3)).await;
-        if let Some(w) = app.get_webview_window("main") {
-            if !w.is_visible().unwrap_or(true) {
-                show_window(&app);
-            }
-        }
-    });
+    if let Some(w) = app.get_webview_window("main") {
+        first_show::fallback(&w);
+    }
 }
 
 /// The whole-library window was asked for after a launch as one app, which does not make it.
@@ -6595,6 +6596,7 @@ fn make_main(app: &tauri::AppHandle) -> Option<tauri::WebviewWindow> {
         }
     };
     timing::mark("main made");
+    first_show::owe(&window);
     restore_window_state(&window);
     // A tiling compositor places, sizes and closes windows itself; a title bar with minimise
     // and maximise there only takes room and does nothing it does not. On a desktop that
@@ -6611,6 +6613,8 @@ fn show_window(app: &tauri::AppHandle) -> bool {
     login::shown();
     if let Some(window) = app.get_webview_window("main") {
         timing::mark("main shown");
+        // Asked for: shown now, and what its page decides once drawn no longer applies.
+        first_show::settle("main");
         window.show().ok();
         window.unminimize().ok();
         window.set_focus().ok();
@@ -6620,14 +6624,8 @@ fn show_window(app: &tauri::AppHandle) -> bool {
     let Some(window) = make_main(app) else {
         return false;
     };
-    // Shown by its window_ready once drawn; shown anyway if that never comes.
-    tauri::async_runtime::spawn(async move {
-        tokio::time::sleep(Duration::from_secs(3)).await;
-        if !window.is_visible().unwrap_or(true) {
-            window.show().ok();
-            window.set_focus().ok();
-        }
-    });
+    // Shown by its window_ready once drawn; shown anyway if that never comes, unless closed.
+    first_show::fallback(&window);
     true
 }
 
@@ -7170,6 +7168,7 @@ fn main() {
             }
             // A window gone for good: the update notice, if it showed it, moves to another.
             if let tauri::WindowEvent::Destroyed = event {
+                first_show::settle(window.label());
                 updates::put_away(window.app_handle(), window.label());
             }
             // Coming back to a window is when a change made elsewhere is looked for at once.

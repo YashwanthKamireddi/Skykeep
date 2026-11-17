@@ -263,6 +263,11 @@ pub fn app_id(app: &AppHandle, key: &str) -> String {
 pub fn open(app: &AppHandle, key: &str) {
     if let Some(w) = app.get_webview_window(&label(key)) {
         crate::timing::mark(format_args!("app {key} asked"));
+        // Still drawing its first frame: it shows itself once drawn (or by its fallback), so
+        // asking again — a second click on its tile — never shows it blank.
+        if crate::first_show::owing(w.label()) {
+            return;
+        }
         w.unminimize().ok();
         show(&w);
         return;
@@ -306,6 +311,7 @@ fn make(app: &AppHandle, key: &str, asking: &str) {
     crate::timing::mark(format_args!("app {key} window made"));
     let window = match made {
         Ok(w) => {
+            crate::first_show::owe(&w);
             // The size and place it was left at, now that it is made (#62).
             crate::restore_window_state(&w);
             w
@@ -335,14 +341,9 @@ fn make(app: &AppHandle, key: &str, asking: &str) {
     #[cfg(windows)]
     crate::taskbar::name_window(&window, key);
     // Shown by its window_ready once drawn; if that never comes (a page slow to load, a
-    // keyring that does not answer), shown anyway — never a launch that opens nothing.
-    let w = window.clone();
-    tauri::async_runtime::spawn(async move {
-        tokio::time::sleep(std::time::Duration::from_secs(3)).await;
-        if !w.is_visible().unwrap_or(true) {
-            show(&w);
-        }
-    });
+    // keyring that does not answer), shown anyway — but only while that first show is still
+    // owed: closed meanwhile, it stays closed (first_show).
+    crate::first_show::fallback(&window);
 }
 
 /// How long a closed window — an app's, or the whole-library one — is kept, put away, before
@@ -361,6 +362,8 @@ static PUT_AWAY: std::sync::Mutex<Vec<(String, std::time::Instant)>> =
 /// for, and the app goes on behind the tray with no window at all (main.rs, `ExitRequested`).
 pub fn put_away(window: &tauri::Window) {
     let label = window.label().to_string();
+    // Closed: nothing that comes later (its page drawing, a fallback) shows it again.
+    crate::first_show::settle(&label);
     let at = std::time::Instant::now();
     {
         let mut list = PUT_AWAY
@@ -399,6 +402,7 @@ pub fn show(window: &tauri::WebviewWindow) {
         .lock()
         .unwrap_or_else(std::sync::PoisonError::into_inner)
         .retain(|(l, _)| l != window.label());
+    crate::first_show::settle(window.label());
     crate::timing::mark(format_args!("{} shown", window.label()));
     crate::login::shown();
     window.show().ok();
