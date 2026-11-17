@@ -330,6 +330,8 @@ done
 # it is waited for first).
 wait "$rust_pid"; rust_rc=$?
 cat "$out/rust.log"; [ "$rust_rc" -eq 0 ] || fail=1
+# Each engine warmed first: the first launch after the build measured a cold disk, not the app.
+step "warm the browsers" bash -c 'node .uiverify/warm.mjs && ENGINE=webkit node .uiverify/warm.mjs'
 for t in "${later[@]}"; do eval "step \"\${t%%$'\x1f'*}\" ${t#*$'\x1f'}"; done
 rm -rf "$out"
 
