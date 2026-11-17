@@ -963,3 +963,85 @@ fn a_clash_or_a_failed_listing_never_breaks_a_folder() {
     let _ = std::fs::remove_dir_all(&place);
     let _ = std::fs::remove_dir_all(&out);
 }
+
+/// A folder opened in an earlier run is still brought up to date after a restart: Windows never
+/// asks for a folder it already has whole, so one known only from this run's opens was left
+/// stale for good — a note changed on the Mac never reached it.
+#[test]
+fn a_folder_opened_before_a_restart_stays_up_to_date() {
+    struct Known(Arc<std::sync::Mutex<HashMap<String, Vec<DriveItem>>>>);
+    impl Store for Known {
+        fn children(&self, folder: &str) -> Option<Vec<DriveItem>> {
+            self.0.lock().unwrap().get(folder).cloned()
+        }
+    }
+    let mut sub = DriveItem {
+        drivewsid: "FOLDER::com.apple.CloudDocs::vault".into(),
+        kind: "FOLDER".into(),
+        name: "Vault".into(),
+        extension: None,
+        size: None,
+        ..file("x", "x", "x", 0)
+    };
+    sub.parent_id = Some(ROOT.into());
+    let note = |n: &str| {
+        let mut f = file(n, n, "md", 10);
+        f.parent_id = Some(sub.drivewsid.clone());
+        f
+    };
+    let root = vec![sub.clone()];
+    let library = Arc::new(std::sync::Mutex::new(HashMap::from([
+        (ROOT.to_string(), root.clone()),
+        (sub.drivewsid.clone(), vec![note("one")]),
+    ])));
+    let tree: HashMap<String, Vec<DriveItem>> = library.lock().unwrap().clone();
+    let rt = tokio::runtime::Runtime::new().unwrap();
+    let base = PathBuf::from(std::env::var("USERPROFILE").unwrap());
+    let place = base.join(format!("Skykeep fresh {}", std::process::id()));
+    let out = std::env::temp_dir().join(format!("skykeep-fresh-out-{}", std::process::id()));
+    std::fs::create_dir_all(&out).unwrap();
+    let id = cloud::sync_root_id(&format!("fresh{}", std::process::id())).unwrap();
+    let shown = Shown {
+        id: &id,
+        name: "Skykeep fresh test",
+        icon: "%SystemRoot%\\system32\\imageres.dll,-1043",
+    };
+    let provider = || {
+        Provider::new(
+            Arc::new(Apple(
+                tree.clone(),
+                Arc::new(std::sync::Mutex::new(Vec::new())),
+            )),
+            Arc::new(Known(Arc::clone(&library))),
+            rt.handle().clone(),
+            out.join("sending"),
+        )
+    };
+    let first = cloud::start(&place, &shown, provider()).expect("up");
+    assert_eq!(dir(&place.join("Vault")), vec!["one.md".to_string()]);
+    drop(first);
+    let second = cloud::start(&place, &shown, provider()).expect("up again");
+    // Changed at Apple after the restart: a second note in the folder opened before it.
+    library
+        .lock()
+        .unwrap()
+        .insert(sub.drivewsid.clone(), vec![note("one"), note("two")]);
+    let end = std::time::Instant::now() + std::time::Duration::from_secs(10);
+    let mut seen = Vec::new();
+    while std::time::Instant::now() < end {
+        second.refresh(&sub.drivewsid);
+        seen = dir(&place.join("Vault"));
+        if seen.contains(&"two.md".to_string()) {
+            break;
+        }
+        std::thread::sleep(std::time::Duration::from_millis(200));
+    }
+    assert!(
+        seen.contains(&"two.md".to_string()),
+        "a folder opened before the restart shows Apple's change: {seen:?}"
+    );
+    drop(second);
+    cloud::unregister(&place, &id);
+    let _ = std::fs::remove_dir_all(&place);
+    let _ = std::fs::remove_dir_all(&out);
+}

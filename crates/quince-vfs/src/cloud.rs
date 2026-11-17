@@ -426,7 +426,22 @@ pub fn start(root: &Path, shown: &Shown, provider: Provider) -> Result<CloudFold
         .lock()
         .unwrap_or_else(std::sync::PoisonError::into_inner)
         .insert(ROOT.to_string(), root.to_path_buf());
+    let listed = Arc::clone(&provider.listed);
     let mut folder = connect(root, provider)?;
+    // The folders Explorer listed in an earlier run, known again: Windows never asks for a
+    // folder it has whole, so without this every folder opened before a restart was never
+    // brought up to date again — a note changed on the Mac never reached it here. Found behind
+    // the start, so the folder is up at once (#45).
+    let walked = root.to_path_buf();
+    let _ = std::thread::Builder::new()
+        .name("quince:cloud-known".into())
+        .spawn(move || {
+            let found = listed_before(&walked);
+            listed
+                .lock()
+                .unwrap_or_else(std::sync::PoisonError::into_inner)
+                .extend(found);
+        });
     folder.shell = shell;
     // What changed here while Skykeep was closed, then what changes from now on.
     // SAFETY: the provider lives as long as the folder.
@@ -1222,6 +1237,30 @@ pub(crate) fn folder_item(dir: &Path) -> Option<DriveItem> {
         }),
         None => None,
     }
+}
+
+/// Every folder under `root` Windows holds whole (listed in an earlier run), by Apple's id: its
+/// placeholder's identity, read without fetching anything. A folder still to be listed (recall
+/// on open) is left alone: it is listed, and known, when it is first opened.
+fn listed_before(root: &Path) -> Vec<(String, PathBuf)> {
+    use std::os::windows::fs::MetadataExt;
+    const RECALL_ON_OPEN: u32 = 0x0004_0000;
+    let mut out = Vec::new();
+    let mut dirs = vec![root.to_path_buf()];
+    while let Some(dir) = dirs.pop() {
+        for entry in std::fs::read_dir(&dir).into_iter().flatten().flatten() {
+            let Ok(meta) = entry.metadata() else { continue };
+            if !meta.is_dir() || meta.file_attributes() & RECALL_ON_OPEN != 0 {
+                continue;
+            }
+            let path = entry.path();
+            if let Some(item) = identity_of(&path).filter(DriveItem::is_container) {
+                out.push((item.drivewsid, path.clone()));
+            }
+            dirs.push(path);
+        }
+    }
+    out
 }
 
 /// A placeholder's identity (the Apple item it was made from), read without fetching anything.
