@@ -679,9 +679,7 @@ unsafe extern "system" fn on_fetch_data(
         rt.spawn(async move { fetch_data(remote.as_ref(), req, offset, len).await });
     });
     if caught.is_err() {
-        crate::note(&format!(
-            "a file request failed inside Skykeep; it is answered as failed"
-        ));
+        crate::note("a file request failed inside Skykeep; it is answered as failed");
     }
 }
 
@@ -864,9 +862,7 @@ unsafe extern "system" fn on_fetch_placeholders(
         rt.spawn(async move { fetch_placeholders(remote.as_ref(), store.as_ref(), req).await });
     });
     if caught.is_err() {
-        crate::note(&format!(
-            "a folder request failed inside Skykeep; it is answered as failed"
-        ));
+        crate::note("a folder request failed inside Skykeep; it is answered as failed");
     }
 }
 
@@ -883,23 +879,36 @@ async fn fetch_placeholders(remote: &dyn Remote, store: &dyn Store, req: Request
             Ok(items) => items,
             Err(e) => {
                 crate::note_about(&format!("listing a folder: {e}"), &folder);
-                let _ = transfer_placeholders(
+                // Failed, and never marked whole: the next open asks again. Marked whole with
+                // nothing in it, Windows would take the folder as empty for good.
+                if let Err((e, _)) = transfer_placeholders(
                     &req,
                     &mut [],
                     0,
-                    true,
+                    false,
                     STATUS_CLOUD_FILE_NETWORK_UNAVAILABLE,
-                );
+                ) {
+                    crate::note_about(
+                        &format!("a folder's failed listing could not be told: {e}"),
+                        &folder,
+                    );
+                }
                 return;
             }
         },
     };
     let named = named_on(&items, Names::Windows);
-    let total = named.len() as i64;
     if named.is_empty() {
-        let _ = transfer_placeholders(&req, &mut [], 0, true, STATUS_SUCCESS);
+        if let Err((e, _)) = transfer_placeholders(&req, &mut [], 0, true, STATUS_SUCCESS) {
+            crate::note_about(
+                &format!("an empty folder could not be marked whole: {e}"),
+                &folder,
+            );
+        }
         return;
     }
+    // What Windows has taken so far for this request: the count a folder is marked whole at.
+    let mut done: i64 = 0;
     // What needs no word from Apple first, in batches, so a folder of thousands opens at once;
     // then the few whose size Apple serves differently (Pages, Numbers, Keynote), one at a
     // time, each answer keeping Windows' request alive while the next is asked.
@@ -916,7 +925,7 @@ async fn fetch_placeholders(remote: &dyn Remote, store: &dyn Store, req: Request
         send(
             &req,
             &made,
-            total,
+            &mut done,
             packages.is_empty() && b + 1 == batches,
             &folder,
         );
@@ -927,7 +936,7 @@ async fn fetch_placeholders(remote: &dyn Remote, store: &dyn Store, req: Request
         send(
             &req,
             &[Placeholder::of(&name, &item, size)],
-            total,
+            &mut done,
             i == last,
             &folder,
         );
@@ -935,18 +944,41 @@ async fn fetch_placeholders(remote: &dyn Remote, store: &dyn Store, req: Request
 }
 
 /// Some of a folder's placeholders handed to Windows, `last` saying the folder is whole. One
-/// that Windows refuses (a name already there, made while Skykeep was closed) never stops the
-/// rest: the batch is tried again one by one, the refused one noted and left out, and the
-/// folder is still marked whole at the end. Stopping at the first refusal left the request
-/// open, and File Explorer said "The cloud operation is invalid" for the whole folder, every
-/// time it was opened (#44).
-fn send(req: &Request, made: &[Placeholder], total: i64, last: bool, folder: &str) {
+/// that Windows refuses (a name already there: a folder of the same name made here, a run that
+/// ended part way through filling it) never stops the rest: the batch is tried again one by
+/// one, the refused one noted and left out, and the folder is still marked whole at the end.
+///
+/// Marked whole at the count Windows took (`done`), never at the count asked for. Windows
+/// honours "whole" only when the total said is at most what it has processed for the request
+/// (CF_OPERATION_TRANSFER_PLACEHOLDERS_FLAGS); said at the full count after a refusal, the call
+/// was refused as an invalid request, the request was left open, and File Explorer said "The
+/// cloud operation is invalid" for that folder every time it was opened (#44).
+fn send(req: &Request, made: &[Placeholder], done: &mut i64, last: bool, folder: &str) {
+    // Counted as Windows counts them (each call's EntriesProcessed, taken or refused): the
+    // total its rule is checked against.
     let mut infos: Vec<CF_PLACEHOLDER_CREATE_INFO> = made.iter().map(Placeholder::info).collect();
-    if transfer_placeholders(req, &mut infos, total, last, STATUS_SUCCESS).is_ok() {
-        return;
+    let all = *done + infos.len() as i64;
+    match transfer_placeholders(req, &mut infos, all, last, STATUS_SUCCESS) {
+        Ok(processed) => {
+            *done += i64::from(processed);
+            return;
+        }
+        Err((e, processed)) => {
+            *done += i64::from(processed);
+            crate::note_about(
+                &format!("a batch was refused, sent one by one: {e}"),
+                folder,
+            );
+        }
     }
     for (one, p) in infos.iter().zip(made) {
-        if let Err(e) = transfer_placeholders(req, &mut [*one], total, false, STATUS_SUCCESS) {
+        let (said, processed) =
+            match transfer_placeholders(req, &mut [*one], *done + 1, false, STATUS_SUCCESS) {
+                Ok(processed) => (None, processed),
+                Err((e, processed)) => (Some(e), processed),
+            };
+        *done += i64::from(processed);
+        if let Some(e) = said {
             crate::note_about(
                 &format!("an item Windows refused was left out: {e}"),
                 &format!("{} in {folder}", p.name()),
@@ -954,8 +986,8 @@ fn send(req: &Request, made: &[Placeholder], total: i64, last: bool, folder: &st
         }
     }
     if last {
-        if let Err(e) = transfer_placeholders(req, &mut [], total, true, STATUS_SUCCESS) {
-            crate::note_about(&format!("a folder could not be marked whole: {e}"), &folder);
+        if let Err((e, _)) = transfer_placeholders(req, &mut [], *done, true, STATUS_SUCCESS) {
+            crate::note_about(&format!("a folder could not be marked whole: {e}"), folder);
         }
     }
 }
@@ -979,13 +1011,14 @@ async fn placeholder_size(remote: &dyn Remote, item: &DriveItem) -> u64 {
     }
 }
 
+/// Answers how many entries Windows processed, with the error when it refused the call.
 fn transfer_placeholders(
     req: &Request,
     array: &mut [CF_PLACEHOLDER_CREATE_INFO],
     total: i64,
     last: bool,
     status: NTSTATUS,
-) -> windows::core::Result<()> {
+) -> Result<u32, (windows::core::Error, u32)> {
     let info = CF_OPERATION_INFO {
         StructSize: size_of::<CF_OPERATION_INFO>() as u32,
         Type: CF_OPERATION_TYPE_TRANSFER_PLACEHOLDERS,
@@ -1014,7 +1047,10 @@ fn transfer_placeholders(
         },
     };
     // SAFETY: the array and the names and identities it points at are alive for the call.
-    unsafe { CfExecute(&info, &mut params) }
+    let result = unsafe { CfExecute(&info, &mut params) };
+    // SAFETY: the union member written above, which Windows fills in.
+    let processed = unsafe { params.Anonymous.TransferPlaceholders.EntriesProcessed };
+    result.map(|()| processed).map_err(|e| (e, processed))
 }
 
 /// A path Windows gives as a volume ("C:") and a path on it ("\\Users\\…"), joined.
