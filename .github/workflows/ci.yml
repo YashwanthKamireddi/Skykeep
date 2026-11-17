@@ -126,7 +126,14 @@ jobs:
             # Words or README pictures alone: nothing to build or test.
             if [ -n "$files" ] && ! grep -qvE '(\.md$|^docs/media/)' <<< "$files"; then full=false; docs=true
             # Translations alone: the type check and the language test (job `languages`).
-            elif [ -n "$files" ] && ! grep -qvE '^src/locales/[^/]+\.json$' <<< "$files"; then full=false; fi
+            elif [ -n "$files" ] && ! grep -qvE '^src/locales/[^/]+\.json$' <<< "$files"; then full=false
+            # The repository's own wiring alone (other workflows, the release script, templates):
+            # nothing of the app changed, and `published` still lints every workflow. Not when
+            # this file, the test-scope script or a shared action changed: those run these jobs,
+            # so the jobs run to prove them.
+            elif [ -n "$files" ] && ! grep -qvE '^\.github/' <<< "$files" \
+                && ! grep -qE '^\.github/(workflows/ci\.yml|scripts/test-scope\.py|actions/)' <<< "$files"; then
+              full=false; docs=true; fi
           fi
           echo "full=$full" | tee -a "$GITHUB_OUTPUT"
           echo "docs=$docs" | tee -a "$GITHUB_OUTPUT"
