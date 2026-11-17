@@ -77,7 +77,11 @@ impl Library {
                  ON CONFLICT(guid) DO UPDATE SET
                    title = excluded.title, sort_order = excluded.sort_order,
                    parent_guid = excluded.parent_guid,
-                   updated_at = excluded.updated_at",
+                   updated_at = excluded.updated_at
+                 -- Stored as it was: nothing written, no index or trigger touched (a pass
+                 -- storing everything again rewrote every row, each a synced write).
+                 WHERE (note_folders.title, note_folders.sort_order, note_folders.parent_guid)
+                   IS NOT (excluded.title, excluded.sort_order, excluded.parent_guid)",
             )?;
             let stamp = now();
             for f in folders {
@@ -696,6 +700,19 @@ mod tests {
 
     /// Apple Notes nests folders, and the link has to survive a round trip through the
     /// library or somebody's filing comes back as one flat list.
+    /// Folders stored again exactly as they are write nothing; a renamed one is written.
+    #[test]
+    fn storing_folders_again_as_they_are_writes_nothing() {
+        let mut lib = Library::in_memory().unwrap();
+        let folders = [folder("F1", "Notes"), folder("F2", "Work")];
+        lib.put_note_folders(&folders).unwrap();
+        let before = lib.conn.total_changes();
+        lib.put_note_folders(&folders).unwrap();
+        assert_eq!(lib.conn.total_changes(), before, "nothing written again");
+        lib.put_note_folders(&[folder("F1", "Notes"), folder("F2", "Work 2026")])
+            .unwrap();
+        assert!(lib.conn.total_changes() > before, "a rename is written");
+    }
     #[test]
     fn a_folder_remembers_the_one_it_sits_inside() {
         let mut lib = Library::in_memory().unwrap();

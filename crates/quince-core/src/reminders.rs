@@ -501,7 +501,11 @@ impl Library {
                    emblem = excluded.emblem, group_guid = excluded.group_guid,
                    pinned = excluded.pinned, sorting = excluded.sorting,
                    reminder_order = excluded.reminder_order,
-                   updated_at = excluded.updated_at",
+                   updated_at = excluded.updated_at
+                 -- Stored as it was: nothing written, no index or trigger touched (a pass
+                 -- storing everything again rewrote every row, each a synced write).
+                 WHERE (reminder_lists.title, reminder_lists.colour, reminder_lists.ctag, reminder_lists.sort_order, reminder_lists.enabled, reminder_lists.emblem, reminder_lists.group_guid, reminder_lists.pinned, reminder_lists.sorting, reminder_lists.reminder_order)
+                   IS NOT (excluded.title, excluded.colour, excluded.ctag, excluded.sort_order, excluded.enabled, excluded.emblem, excluded.group_guid, excluded.pinned, excluded.sorting, excluded.reminder_order)",
             )?;
             let stamp = now();
             for l in lists {
@@ -575,7 +579,11 @@ impl Library {
                  VALUES (?1, ?2, ?3, ?4, ?5)
                  ON CONFLICT(guid) DO UPDATE SET
                    list_guid = excluded.list_guid, title = excluded.title,
-                   created_at = excluded.created_at, updated_at = excluded.updated_at",
+                   created_at = excluded.created_at, updated_at = excluded.updated_at
+                 -- Stored as it was: nothing written, no index or trigger touched (a pass
+                 -- storing everything again rewrote every row, each a synced write).
+                 WHERE (reminder_sections.list_guid, reminder_sections.title, reminder_sections.created_at)
+                   IS NOT (excluded.list_guid, excluded.title, excluded.created_at)",
             )?;
             let stamp = now();
             for section in sections {
@@ -831,7 +839,11 @@ impl Library {
                    emblem = excluded.emblem, group_guid = excluded.group_guid,
                    pinned = excluded.pinned, sorting = excluded.sorting,
                    reminder_order = excluded.reminder_order,
-                   updated_at = excluded.updated_at",
+                   updated_at = excluded.updated_at
+                 -- Stored as it was: nothing written, no index or trigger touched (a pass
+                 -- storing everything again rewrote every row, each a synced write).
+                 WHERE (reminder_lists.title, reminder_lists.colour, reminder_lists.ctag, reminder_lists.sort_order, reminder_lists.enabled, reminder_lists.emblem, reminder_lists.group_guid, reminder_lists.pinned, reminder_lists.sorting, reminder_lists.reminder_order)
+                   IS NOT (excluded.title, excluded.colour, excluded.ctag, excluded.sort_order, excluded.enabled, excluded.emblem, excluded.group_guid, excluded.pinned, excluded.sorting, excluded.reminder_order)",
             )?;
             let stamp = now();
             for l in lists {
@@ -1014,7 +1026,11 @@ impl Library {
                    etag = excluded.etag, raw = excluded.raw,
                    timezone = excluded.timezone,
                    all_day = excluded.all_day,
-                   updated_at = excluded.updated_at",
+                   updated_at = excluded.updated_at
+                 -- Stored as it was: nothing written, no index or trigger touched (a pass
+                 -- storing everything again rewrote every row, each a synced write).
+                 WHERE (reminders.list_guid, reminders.title, reminders.notes, reminders.due_at, reminders.completed_at, reminders.priority, reminders.flagged, reminders.parent_guid, reminders.recur_frequency, reminders.recur_interval, reminders.etag, reminders.raw, reminders.timezone, reminders.all_day)
+                   IS NOT (excluded.list_guid, excluded.title, excluded.notes, excluded.due_at, excluded.completed_at, excluded.priority, excluded.flagged, excluded.parent_guid, excluded.recur_frequency, excluded.recur_interval, excluded.etag, excluded.raw, excluded.timezone, excluded.all_day)",
             )?;
             let stamp = now();
             for r in reminders {
@@ -1279,6 +1295,30 @@ mod tests {
         let mut lib = Library::in_memory().unwrap();
         lib.put_reminder_lists(&[list("l1")]).unwrap();
         lib
+    }
+
+    /// Stored again exactly as they are, lists and reminders write nothing (no row, no trigger,
+    /// no index entry), and a real change still lands.
+    #[test]
+    fn storing_reminders_again_as_they_are_writes_nothing() {
+        let mut lib = seeded();
+        let all: Vec<Reminder> = (0..40)
+            .map(|i| reminder(&format!("r{i}"), Some(i), None))
+            .collect();
+        lib.put_reminders(&all).unwrap();
+        let before = lib.conn.total_changes();
+        lib.put_reminder_lists(&[list("l1")]).unwrap();
+        lib.merge_reminder_lists(&[list("l1")]).unwrap();
+        lib.put_reminders(&all).unwrap();
+        assert_eq!(lib.conn.total_changes(), before, "nothing written again");
+        let mut done = all[7].clone();
+        done.completed_at = Some(99);
+        lib.put_reminders(&[done]).unwrap();
+        assert!(
+            lib.conn.total_changes() > before,
+            "a real change is written"
+        );
+        assert_eq!(lib.reminder("r7").unwrap().unwrap().completed_at, Some(99));
     }
 
     /// A deleted list leaves nothing behind: its reminders, done or not, go with it, and

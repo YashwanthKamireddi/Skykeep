@@ -67,7 +67,11 @@ impl Library {
                    extension = excluded.extension, kind = excluded.kind,
                    size = excluded.size, child_count = excluded.child_count,
                    created_at = excluded.created_at, modified_at = excluded.modified_at,
-                   etag = excluded.etag, updated_at = excluded.updated_at",
+                   etag = excluded.etag, updated_at = excluded.updated_at
+                 -- Stored as it was: nothing written, no index or trigger touched (a pass
+                 -- storing everything again rewrote every row, each a synced write).
+                 WHERE (drive_items.parent_id, drive_items.name, drive_items.extension, drive_items.kind, drive_items.size, drive_items.child_count, drive_items.created_at, drive_items.modified_at, drive_items.etag)
+                   IS NOT (excluded.parent_id, excluded.name, excluded.extension, excluded.kind, excluded.size, excluded.child_count, excluded.created_at, excluded.modified_at, excluded.etag)",
             )?;
             let stamp = now();
             for item in items {
@@ -258,6 +262,30 @@ mod tests {
             modified_at: None,
             etag: None,
         }
+    }
+
+    /// A folder listed again exactly as it was writes nothing (no row, no search index entry);
+    /// any one field Apple changed is still written.
+    #[test]
+    fn listing_a_folder_again_as_it_is_writes_nothing() {
+        let mut lib = Library::in_memory().unwrap();
+        let mut a = item("D::a", "a", "FILE");
+        a.size = Some(10);
+        a.etag = Some("e1".into());
+        let b = item("F::b", "b", "FOLDER");
+        lib.put_drive_children(ROOT, &[a.clone(), b.clone()])
+            .unwrap();
+        let before = lib.conn.total_changes();
+        lib.put_drive_children(ROOT, &[a.clone(), b.clone()])
+            .unwrap();
+        assert_eq!(lib.conn.total_changes(), before, "nothing written again");
+        let mut changed = a.clone();
+        changed.etag = Some("e2".into());
+        lib.put_drive_children(ROOT, &[changed, b]).unwrap();
+        assert!(
+            lib.conn.total_changes() > before,
+            "a new version is written"
+        );
     }
 
     #[test]

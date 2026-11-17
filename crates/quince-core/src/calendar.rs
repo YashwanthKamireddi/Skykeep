@@ -154,7 +154,11 @@ impl Library {
                    enabled = excluded.enabled,
                    writable = excluded.writable,
                    is_default = excluded.is_default,
-                   updated_at = excluded.updated_at",
+                   updated_at = excluded.updated_at
+                 -- Stored as it was: nothing written, no index or trigger touched (a pass
+                 -- storing everything again rewrote every row, each a synced write).
+                 WHERE (calendars.title, calendars.colour, calendars.ctag, calendars.sort_order, calendars.enabled, calendars.writable, calendars.is_default)
+                   IS NOT (excluded.title, excluded.colour, excluded.ctag, excluded.sort_order, excluded.enabled, excluded.writable, excluded.is_default)",
             )?;
             let stamp = now();
             for c in calendars {
@@ -212,7 +216,11 @@ impl Library {
                    notes = excluded.notes,
                    etag = excluded.etag,
                    updated_at = excluded.updated_at,
-                   floating = excluded.floating",
+                   floating = excluded.floating
+                 -- Stored as it was: nothing written, no index or trigger touched (a pass
+                 -- storing everything again rewrote every row, each a synced write).
+                 WHERE (events.calendar_guid, events.title, events.location, events.starts_at, events.ends_at, events.all_day, events.timezone, events.url, events.notes, events.etag, events.floating)
+                   IS NOT (excluded.calendar_guid, excluded.title, excluded.location, excluded.starts_at, excluded.ends_at, excluded.all_day, excluded.timezone, excluded.url, excluded.notes, excluded.etag, excluded.floating)",
             )?;
             let stamp = now();
             for e in events {
@@ -456,6 +464,28 @@ mod tests {
         lib.put_calendars(&[calendar("cal-1", "Work"), calendar("cal-2", "Home")])
             .unwrap();
         lib
+    }
+
+    /// Stored again exactly as they are, calendars and events write nothing; a moved event does.
+    #[test]
+    fn storing_calendars_again_as_they_are_writes_nothing() {
+        let mut lib = seeded();
+        let events: Vec<Event> = (0..30)
+            .map(|i| event(&format!("e{i}"), "cal-1", i * 3600, i * 3600 + 1800))
+            .collect();
+        lib.put_events(&events).unwrap();
+        let before = lib.conn.total_changes();
+        lib.put_calendars(&[calendar("cal-1", "Work"), calendar("cal-2", "Home")])
+            .unwrap();
+        lib.put_events(&events).unwrap();
+        assert_eq!(lib.conn.total_changes(), before, "nothing written again");
+        let mut moved = events[4].clone();
+        moved.starts_at += 60;
+        lib.put_events(&[moved]).unwrap();
+        assert!(
+            lib.conn.total_changes() > before,
+            "a real change is written"
+        );
     }
 
     fn zone(name: &str) -> jiff::tz::TimeZone {
