@@ -893,7 +893,15 @@ impl Client {
     /// would not answer at the start is not asked to replace it either.
     fn keep(&mut self) {
         self.keyring_error = None;
-        // Never an empty jar written over cookies the keyring could not open at the start.
+        self.save();
+    }
+
+    /// The session written as it stands — on every path, not only once Apple has accepted it
+    /// (a pass refused for the network, a cool-down, a move to regional servers): never an
+    /// empty jar over cookies the keyring could not open at the start, and a write that fails
+    /// is said ([`Self::unsaved`]) rather than dropped. Those paths ignored it: a failed write
+    /// left no trace, and the session silently did not outlive Skykeep.
+    fn save(&mut self) {
         self.read_cookies_again();
         match self.persist() {
             Ok(()) => self.unsaved = None,
@@ -1120,7 +1128,7 @@ impl Client {
                     | Error::CoolingDown { .. }),
                 ) => {
                     self.session = before;
-                    let _ = self.persist();
+                    self.save();
                     return Err(e);
                 }
                 Ok(SignInOutcome::NeedsTwoFactor) => {
@@ -1257,7 +1265,7 @@ impl Client {
             consecutive_failures: self.session.consecutive_failures,
             retry_after: self.session.retry_after,
         });
-        let _ = self.persist();
+        self.save();
         outcome
     }
 
@@ -1934,7 +1942,7 @@ impl Client {
         }
         open_regional(regional);
         self.session.domain = regional.then(|| REGIONAL_DOMAIN.to_string());
-        let _ = self.persist();
+        self.save();
         Ok(())
     }
 
@@ -2851,6 +2859,19 @@ mod sealed_jar_tests {
             "no plaintext left behind"
         );
         nothing_but(dir.path(), &["cookie-key"]);
+    }
+
+    /// Every write of the session, not only `keep`'s, says when the keyring would not take it.
+    #[test]
+    fn a_session_that_could_not_be_written_is_said_on_every_path() {
+        let dir = tempfile::tempdir().unwrap();
+        no_keyring(dir.path());
+        let mut c = holding_a_cookie(dir.path());
+        assert!(c.unsaved().is_none());
+        c.save();
+        assert!(c.unsaved().is_some(), "said: kept in memory only");
+        assert!(!cookies_file(dir.path()).exists(), "and never written in the clear");
+        assert!(has_the_cookie(&c));
     }
 
     /// No keyring: the cookies are not written at all — never in the clear — and saying so is
