@@ -423,13 +423,7 @@ async fn run(client: &Arc<Mutex<Client>>, data: &LibraryLock, services: &[&str])
                                 }
                                 Pass::Unchanged(tokens) => {
                                     library.mark_synced("contacts", Some(&tokens.stored()))?;
-                                    let n: i64 = library
-                                        .conn()
-                                        .query_row("SELECT count(*) FROM contacts", [], |r| {
-                                            r.get(0)
-                                        })
-                                        .map_err(quince_core::Error::from)?;
-                                    usize::try_from(n).unwrap_or(0)
+                                    usize::try_from(library.contact_count()?).unwrap_or(0)
                                 }
                             };
                             // Cards saved here and still on their way to Apple stay as saved.
