@@ -9,10 +9,9 @@
 # community).
 name: Channels
 
+# Started by Stores' last job once it is done (a workflow_run trigger never fired: Stores is
+# itself started by the release's token), every morning, and by hand.
 on:
-  workflow_run:
-    workflows: [Stores]
-    types: [completed]
   schedule:
     - cron: "0 9 * * *"
   workflow_dispatch:
