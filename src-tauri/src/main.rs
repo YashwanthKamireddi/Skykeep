@@ -6535,9 +6535,21 @@ fn wind_down(app: &tauri::AppHandle) {
 /// A window put back at the size and place it was left, once made: outside Tauri's window-ready
 /// hook, where the window-state plugin would do it and freeze the app (#62, see the plugin's
 /// set-up in `main`). The plugin's own resize handler stands aside while it restores.
+///
+/// Always on the main thread (#83). `restore_state` holds the plugin's cache lock while it asks
+/// for the monitors and sets the size; from another thread each of those waits for the main
+/// thread, and the main thread can be in the plugin's own window-ready hook waiting for that
+/// same lock: an app opened from its tile (app_open, a worker thread) froze Skykeep for good on
+/// Windows in 0.1.27. On the main thread those calls are made directly, with nothing to wait on.
 pub(crate) fn restore_window_state(window: &tauri::WebviewWindow) {
-    use tauri_plugin_window_state::WindowExt;
-    if let Err(e) = window.restore_state(window_state_kept()) {
+    let w = window.clone();
+    let queued = window.run_on_main_thread(move || {
+        use tauri_plugin_window_state::WindowExt;
+        if let Err(e) = w.restore_state(window_state_kept()) {
+            quiet!("a window's size and place could not be put back: {e}");
+        }
+    });
+    if let Err(e) = queued {
         quiet!("a window's size and place could not be put back: {e}");
     }
 }
