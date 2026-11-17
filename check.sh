@@ -176,6 +176,8 @@ pooled "photos paging"     node .uiverify/photos-paging.mjs
 pooled "photos dense months" node .uiverify/photos-dense-months.mjs
 pooled "webkit: dense months" env ENGINE=webkit node .uiverify/photos-dense-months.mjs
 pooled "photos levels"     env ENGINE=webkit node .uiverify/photos-levels-scale.mjs
+pooled "photos years, months" node .uiverify/photos-levels.mjs
+pooled "webkit: years, months" env ENGINE=webkit node .uiverify/photos-levels.mjs
 pooled "photos drag"       node .uiverify/photos-drag.mjs
 pooled "drag pictures"     node .uiverify/drag-picture.mjs
 pooled "photos keys"       node .uiverify/photos-keys.mjs
