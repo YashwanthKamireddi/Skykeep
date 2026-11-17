@@ -393,6 +393,9 @@ pub struct Shown<'a> {
 /// registration, or the bare filter where that is refused) and connect to it.
 pub fn start(root: &Path, shown: &Shown, provider: Provider) -> Result<CloudFolder, String> {
     std::fs::create_dir_all(root).map_err(|e| e.to_string())?;
+    if let Some(why) = volume_refusal(root) {
+        return Err(why);
+    }
     // Tried twice: the shell's registry of cloud folders can refuse one made the moment after
     // another (Element not found, seen registering iCloud Photos right after iCloud Drive).
     let shell = match register_with_shell(root, shown).or_else(|_| {
@@ -450,6 +453,39 @@ pub fn start(root: &Path, shown: &Shown, provider: Provider) -> Result<CloudFold
         add_only,
     );
     Ok(folder)
+}
+
+/// Why `root` cannot be a cloud folder, or None when it can: Windows keeps cloud folders on a
+/// local NTFS drive only, as OneDrive's must be. Elsewhere (a USB stick in exFAT, a network
+/// share) the registration failed with an error that named nothing a person could act on.
+/// None too when the volume cannot be asked: the registration says what is wrong then.
+pub fn volume_refusal(root: &Path) -> Option<String> {
+    use windows::Win32::Storage::FileSystem::{
+        GetDriveTypeW, GetVolumeInformationW, GetVolumePathNameW,
+    };
+    // WinBase.h; its windows-crate home (System_WindowsProgramming) is not otherwise needed.
+    const DRIVE_REMOTE: u32 = 4;
+    let shown = root.display();
+    let mut volume = [0u16; 1024];
+    // SAFETY: the path is a valid wide string; the buffer's length is passed with it.
+    unsafe { GetVolumePathNameW(&HSTRING::from(root.as_os_str()), &mut volume) }.ok()?;
+    let at = PCWSTR(volume.as_ptr());
+    // SAFETY: `volume` was just filled with a nul-terminated root path.
+    if unsafe { GetDriveTypeW(at) } == DRIVE_REMOTE {
+        return Some(format!(
+            "{shown} is on a network drive. Windows keeps iCloud Drive in File Explorer on a drive of this PC: choose a folder on one (like C:)."
+        ));
+    }
+    let mut kind = [0u16; 64];
+    // SAFETY: as above; only the file system's name is asked for.
+    unsafe { GetVolumeInformationW(at, None, None, None, None, Some(&mut kind)) }.ok()?;
+    let kind =
+        String::from_utf16_lossy(&kind[..kind.iter().position(|&c| c == 0).unwrap_or(kind.len())]);
+    (!kind.eq_ignore_ascii_case("NTFS")).then(|| {
+        format!(
+            "{shown} is on a {kind} drive. Windows keeps iCloud Drive in File Explorer on an NTFS drive only: choose a folder on one (like C:)."
+        )
+    })
 }
 
 /// The shell's registration: the folder in Explorer's navigation pane, with its name and icon,

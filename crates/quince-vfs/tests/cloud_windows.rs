@@ -1195,3 +1195,21 @@ fn a_file_deeper_than_260_characters_is_kept_in_sync() {
     let _ = std::fs::remove_dir_all(&place);
     let _ = std::fs::remove_dir_all(&out);
 }
+
+/// A Drive folder put where Windows keeps no cloud folder is refused by name, not with the
+/// registration's error: on this PC's NTFS drive it is taken, on a network share it is not.
+#[test]
+fn a_folder_off_a_local_ntfs_drive_is_refused_plainly() {
+    assert_eq!(
+        cloud::volume_refusal(&std::env::temp_dir()),
+        None,
+        "this PC's own drive"
+    );
+    // The runner's own C: reached as a share: what a mapped network drive is.
+    let share = Path::new(r"\\localhost\C$\Windows");
+    let why = cloud::volume_refusal(share).expect("a network share is refused");
+    assert!(
+        why.contains("network drive") && why.contains(r"\\localhost\C$\Windows"),
+        "{why}"
+    );
+}
