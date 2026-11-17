@@ -5834,6 +5834,9 @@ const SYNCED: &str = "quince://synced";
 /// press refresh; the control exists for impatience, not for correctness.
 const AUTO_SYNC: Duration = Duration::from_secs(5 * 60);
 
+/// How often the timer reads the whole calendar as well; its watch catches changes in between.
+const CALENDAR_SAFETY_NET: Duration = Duration::from_secs(60 * 60);
+
 /// Refresh every service at once.
 ///
 /// Never fails as a whole: the result says what each service did, so one endpoint being
@@ -5905,6 +5908,9 @@ async fn sync_status(data: State<'_, Data>) -> UiResult<refresh::Refresh> {
 /// A pass that fails changes nothing about the schedule — the next one simply tries again.
 fn spawn_auto_sync(app: tauri::AppHandle, client: Arc<Mutex<Client>>) {
     tauri::async_runtime::spawn(async move {
+        // When the timer last read the calendar whole: once an hour is the safety net under its
+        // watch (and the window moving on with the date), not every five minutes.
+        let mut calendar_read: Option<std::time::Instant> = None;
         loop {
             tokio::time::sleep(AUTO_SYNC).await;
             let signed_in = { client.lock().await.session().webservices.is_some() };
@@ -5913,7 +5919,11 @@ fn spawn_auto_sync(app: tauri::AppHandle, client: Arc<Mutex<Client>>) {
             }
             keep_signed_in(&app, &client).await;
             let data = app.state::<Data>();
-            let result = refresh::all(&client, &data.0).await;
+            let calendar = calendar_read.is_none_or(|at| at.elapsed() >= CALENDAR_SAFETY_NET);
+            if calendar {
+                calendar_read = Some(std::time::Instant::now());
+            }
+            let result = refresh::routine(&client, &data.0, calendar).await;
             data_access::after_pass(&app, &client).await;
             alerts::changed();
             warm_contact_photos(app.clone());

@@ -272,6 +272,23 @@ pub async fn all(client: &Arc<Mutex<Client>>, data: &LibraryLock) -> Refresh {
     run(client, data, &COVERED.map(|(service, _)| service)).await
 }
 
+/// The timer's pass: every service but Calendar, and Calendar too when `calendar` says so. The
+/// calendar has its own cheap watch (`/ca/idle`, push.rs) that refreshes it within seconds of a
+/// change; read whole on every timer as well, five months of it was a dozen requests every five
+/// minutes for nothing new.
+pub async fn routine(client: &Arc<Mutex<Client>>, data: &LibraryLock, calendar: bool) -> Refresh {
+    run(client, data, &routine_services(calendar)).await
+}
+
+/// What the timer's pass reads: every service, Calendar only when `calendar` says so.
+fn routine_services(calendar: bool) -> Vec<&'static str> {
+    COVERED
+        .map(|(service, _)| service)
+        .into_iter()
+        .filter(|service| calendar || *service != CALENDAR)
+        .collect()
+}
+
 /// Refresh only the services `wanted` names — what a push from Apple says changed — and
 /// report on those alone.
 pub async fn some(client: &Arc<Mutex<Client>>, data: &LibraryLock, wanted: &[&str]) -> Refresh {
@@ -963,5 +980,16 @@ mod paused_tests {
     fn waiting_reads_as_waiting_not_failure() {
         assert_eq!(serde_json::to_value(Outcome::Paused).unwrap(), "paused");
         assert!(!PAUSED_WORDS.to_lowercase().contains("error"));
+    }
+
+    /// The timer leaves Calendar to its watch except on the hourly safety net, and never drops
+    /// another service.
+    #[test]
+    fn the_timer_reads_calendar_only_when_asked() {
+        let every: Vec<&str> = COVERED.map(|(service, _)| service).into_iter().collect();
+        assert_eq!(routine_services(true), every);
+        let without = routine_services(false);
+        assert!(!without.contains(&CALENDAR));
+        assert_eq!(without.len(), every.len() - 1);
     }
 }
