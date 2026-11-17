@@ -7,7 +7,7 @@ import { SERVICES, installStub, openScreen } from "./stub.mjs";
 import { servePictures, status } from "./arrival.mjs";
 const b = await engine.launch();
 const ctx = await b.newContext({ viewport: { width: 1280, height: 800 } });
-await ctx.addInitScript(installStub, { screen: "library", services: SERVICES, twoFactor: null });
+await ctx.addInitScript(installStub, { photosNewestFirst: true, screen: "library", services: SERVICES, twoFactor: null });
 await servePictures(ctx);
 // Three years, nine photos a month from November 2023 to October 2026 (noon, this machine's
 // time, so every one is in the month it says); one favourite, in March 2025, and in April 2025
@@ -72,7 +72,7 @@ ok(await page.getByRole("button", { name: "Add Photos" }).count() === 1, "…Add
 
 // A year opens Months at that year: its newest month at the top, focused.
 await page.locator('.px-period[data-period="2025"]').click();
-await page.locator('.px-periods[data-level="months"]').waitFor();
+await page.locator('.px-periods[data-level="months"] .px-period').first().waitFor();
 ok(await pressed() === "Months", "a year opens Months");
 ok((await periodTop()).includes("December 2025"), `…its row at the top, with that year's newest month (${(await periodTop()).join(", ")})`);
 ok(await page.evaluate(() => document.activeElement?.dataset.period) === "2025-12", "…which takes the keys");
@@ -108,7 +108,7 @@ const there = await page.locator(".px-heading .px-span").textContent();
 const scrolled = await page.locator(".px-scroll").evaluate((e) => e.scrollTop);
 await page.evaluate(() => document.activeElement?.blur());
 await page.keyboard.press("Escape");
-await page.locator('.px-periods[data-level="months"]').waitFor();
+await page.locator('.px-periods[data-level="months"] .px-period').first().waitFor();
 ok((await periodTop()).includes(there) && await page.evaluate(() => document.activeElement?.querySelector("strong")?.textContent) === there,
   `Escape steps out to Months, at the month the grid was at (${there}; top row ${(await periodTop()).join(", ")})`);
 // And back, to exactly where the grid was.
@@ -117,7 +117,7 @@ await page.waitForTimeout(100);
 const back = await page.locator(".px-scroll").evaluate((e) => e.scrollTop);
 ok(Math.abs(back - scrolled) < 2, `…All Photos again comes back exactly where it was (${back} for ${scrolled})`);
 await page.keyboard.press("Control+BracketLeft");
-await page.locator('.px-periods[data-level="months"]').waitFor();
+await page.locator('.px-periods[data-level="months"] .px-period').first().waitFor();
 await page.keyboard.press("Control+BracketLeft");
 await page.locator('.px-periods[data-level="years"]').waitFor();
 ok(await pressed() === "Years", "Ctrl+[ steps out to Months, then to Years");
@@ -137,7 +137,7 @@ ok(await pressed() === "All Photos" && await page.locator('.px-tile[aria-selecte
 // The switch from the keys: Tab to it, Enter on Months.
 await seg("Months").focus();
 await page.keyboard.press("Enter");
-await page.locator('.px-periods[data-level="months"]').waitFor();
+await page.locator('.px-periods[data-level="months"] .px-period').first().waitFor();
 ok(await pressed() === "Months", "the switch answers the keys");
 // Ctrl+A in Months chooses nothing behind it.
 await page.keyboard.press("Control+a");
@@ -157,7 +157,7 @@ await page.locator(".px-side").getByRole("button", { name: /Favorites/ }).first(
 await page.waitForFunction(() => document.querySelector(".px-heading h1")?.textContent?.includes("Favorites"));
 ok(await page.locator(".px-levels").count() === 0 && await page.locator(".px-periods").count() === 0, "Favorites has no levels: its own grid");
 await page.locator(".px-side").getByRole("button", { name: /Library/ }).first().click();
-await page.locator('.px-periods[data-level="months"]').waitFor();
+await page.locator('.px-periods[data-level="months"] .px-period').first().waitFor();
 ok(await pressed() === "Months", "back in the Library, Months as it was left");
 
 // Kept on this machine.
