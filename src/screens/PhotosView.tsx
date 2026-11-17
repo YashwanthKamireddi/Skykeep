@@ -50,7 +50,7 @@ import { DownloadOptions, type Want } from "./photos/DownloadOptions";
 import { AdjustDate } from "./photos/AdjustDate";
 import { useReveal } from "../lib/reveal";
 import { Picker } from "../components/Picker";
-import { PAGE, PhotoList, PhotoStore } from "./photos/list";
+import { KEEP, PAGE, PhotoList, PhotoStore } from "./photos/list";
 import { Periods, monthName, type Level, type Place } from "./photos/Periods";
 import { same } from "../lib/same";
 import { composing } from "../lib/keys";
@@ -868,7 +868,11 @@ const Month = memo(function Month({
   // and every tile was made again when it came — the grey flash of a photo arriving. Only a month
   // whose photos have all been let go (far off, see photos/list) goes back to its block.
   const showing = useRef(false);
-  const upTo = showing.current && here > 0 ? built : Math.min(built, ready);
+  // A month longer than the store keeps shows once its photos begin to arrive, not once every
+  // one from its start is here: opened at its foot (where Photos opens, on the newest), a month
+  // of 4,000 screenshots waited for all of them in order, a blank block, for longer than the
+  // store could hold them (photos-dense-months). Those not here yet are plain boxes, as below.
+  const upTo = (showing.current || items.length > KEEP) && here > 0 ? built : Math.min(built, ready);
   const shownCount = upTo >= items.length ? items.length : Math.floor(upTo / across) * across;
   const live = shownCount > 0;
   showing.current = live;
