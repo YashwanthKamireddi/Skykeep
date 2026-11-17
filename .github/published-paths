@@ -9,6 +9,8 @@ probe/(Cargo\.toml|src/.*|examples/.*\.rs)
 src/.*
 src-tauri/.*
 crates/.*
+# A dependency kept with a fix of ours, as published by its authors (third_party/README.md).
+third_party/.*
 packaging/.*
 snap/.*
 docs/media/.*
