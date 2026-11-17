@@ -3,7 +3,7 @@
 // click, selectable; Escape and Done close it.
 import AxeBuilder from "@axe-core/playwright";
 import { engine } from "./engine.mjs";
-import { SERVICES, installStub, openSettings } from "./stub.mjs";
+import { SERVICES, installStub, openPane, openSettings } from "./stub.mjs";
 const b = await engine.launch();
 let failures = 0;
 const ok = (p, m) => { console.log(`${p ? "PASS" : "FAIL"} ${m}`); if (!p) failures++; };
@@ -14,7 +14,9 @@ for (const scheme of ["light", "dark"]) {
   page.on("pageerror", (e) => { console.log(`FAIL page error: ${e.message}`); process.exitCode = 1; });
   await page.goto("http://localhost:4173", { waitUntil: "networkidle" });
   await openSettings(page);
-  await page.getByRole("button", { name: "Open-Source Licences" }).click();
+  // Settings is a sidebar of sections: the licences are a row of Software Update's, "Show".
+  await openPane(page, "Software Update");
+  await page.locator(".settings-row", { hasText: "Open-Source Licences" }).getByRole("button", { name: "Show" }).click();
   const sheet = page.getByRole("dialog", { name: "Open-Source Licences" });
   await sheet.waitFor();
   const headings = await sheet.locator("h3").allInnerTexts();
@@ -54,7 +56,8 @@ for (const scheme of ["light", "dark"]) {
   ok((await text.count()) === 1 && (await lucide.getAttribute("aria-expanded")) === "false", `${scheme}: one text open at a time`);
   await page.keyboard.press("Escape");
   ok((await sheet.count()) === 0, `${scheme}: Escape closes`);
-  await page.getByRole("button", { name: "Open-Source Licences" }).click();
+  await openPane(page, "Software Update");
+  await page.locator(".settings-row", { hasText: "Open-Source Licences" }).getByRole("button", { name: "Show" }).click();
   await sheet.getByRole("button", { name: "Done" }).click();
   ok((await sheet.count()) === 0, `${scheme}: Done closes`);
   await ctx.close();

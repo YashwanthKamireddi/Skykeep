@@ -5,7 +5,7 @@
 //
 //   ENGINE=webkit node .uiverify/german.mjs
 import { engine, engineName } from "./engine.mjs";
-import { SERVICES, installStub, openSettings } from "./stub.mjs";
+import { SERVICES, installStub, openPane, openSettings } from "./stub.mjs";
 
 const BASE = process.env.URL ?? process.env.BASE ?? "http://localhost:4173";
 const b = await engine.launch();
@@ -22,6 +22,8 @@ const clipped = (page, skip = "") =>
       .filter((el) => {
         if (!el.getClientRects().length || !el.textContent.trim()) return false;
         if (skip && el.closest(skip)) return false;
+        // Text for screen readers alone is clipped to a pixel on purpose: never a cut-off line.
+        if (el.closest(".visually-hidden")) return false;
         const cs = getComputedStyle(el);
         const hides = cs.overflowX === "hidden" || cs.overflowX === "clip" || cs.textOverflow === "ellipsis";
         return hides && el.scrollWidth > el.clientWidth + 1;
@@ -45,16 +47,21 @@ async function open(locale, screen, options = {}) {
 for (const [w, h] of [[1180, 820], [820, 640]]) {
   const { ctx, page } = await open("de-DE", "library", { viewport: { width: w, height: h }, busy: "iCloud is busy right now. Nothing was changed — try again in a minute." });
   await openSettings(page);
-  await page.getByText("Dieser Computer", { exact: true }).waitFor();
+  await page.getByRole("tab", { name: "Dieser Computer", exact: true }).waitFor();
   await page.waitForTimeout(400);
   ok((await page.evaluate(() => document.documentElement.lang)) === "de", `${w}: the document says it is German, for screen readers and hyphenation`);
   ok(await page.getByRole("button", { name: "Jetzt synchronisieren" }).isVisible(), `${w}: the launcher is German`);
+  await openPane(page, "Allgemein");
   ok((await page.getByRole("button", { name: "Sprache" }).innerText()).includes("Automatisch (Deutsch)"), `${w}: Language follows the system, and says it is German`);
   const tile = page.locator(".launch-tile", { hasText: "Kalender" });
   ok((await tile.locator(".launch-fresh-text").innerText()) === "iCloud ausgelastet, neuer Versuch", `${w}: a busy sync says so in German, in a few words`);
-  const text = await page.locator(".settings").innerText();
-  ok(/4,2 GB/.test(text) && /4,9 GB auf diesem Computer gespeichert/.test(text) && !/\d\.\d GB/.test(text), `${w}: sizes on this computer take the decimal comma, as Apple's storage does`);
-  ok(/Freie Software unter der GPL-3\.0/.test(text), `${w}: the licence line is German`);
+  // Settings is a sidebar of sections; each is read where it shows.
+  await openPane(page, "Dieser Computer");
+  const text = await page.locator(".prefs-pane:not([hidden])").first().innerText();
+  ok(/4,2 GB/.test(text) && /\d,\d GB zuletzt angesehener Fotos/.test(text) && !/\d\.\d\s?[KMGT]?B/.test(text), `${w}: sizes on this computer take the decimal comma, as Apple's storage does`);
+  await openPane(page, "Softwareupdate");
+  ok(/Freie Software unter der GPL-3\.0/.test(await page.locator(".prefs-pane:not([hidden])").first().innerText()), `${w}: the licence line is German`);
+  await openPane(page, "Allgemein");
   const cut = await clipped(page);
   ok(cut.length === 0, `${w}: no German line is cut off${cut.length ? `  [${cut.join(" | ")}]` : ""}`);
   const spills = await page.evaluate(() =>
@@ -67,18 +74,22 @@ for (const [w, h] of [[1180, 820], [820, 640]]) {
 
   if (w === 1180) {
     // English chosen applies at once, and Automatic brings the system's German back.
+    await openPane(page, "Allgemein");
     await page.getByRole("button", { name: "Sprache" }).click();
     await page.getByRole("option", { name: "English" }).click();
-    await page.getByText("This Computer", { exact: true }).waitFor({ timeout: 3000 }).catch(() => {});
-    ok(await page.getByText("This Computer", { exact: true }).isVisible(), "English chosen turns the window English at once");
-    ok(/4,2 GB/.test(await page.locator(".settings").innerText()), "while sizes keep the German system's decimal comma: formats follow the system");
+    await page.getByRole("tab", { name: "This Computer", exact: true }).waitFor({ timeout: 3000 }).catch(() => {});
+    ok(await page.getByRole("tab", { name: "This Computer", exact: true }).isVisible(), "English chosen turns the window English at once");
+    await openPane(page, "This Computer");
+    ok(/4,2 GB/.test(await page.locator(".prefs-pane:not([hidden])").first().innerText()), "while sizes keep the German system's decimal comma: formats follow the system");
+    await openPane(page, "General");
     await page.reload({ waitUntil: "networkidle" });
     await openSettings(page);
-    ok(await page.getByText("This Computer", { exact: true }).isVisible(), "and stays English after a restart");
+    ok(await page.getByRole("tab", { name: "This Computer", exact: true }).isVisible(), "and stays English after a restart");
+    await openPane(page, "General");
     await page.getByRole("button", { name: "Language" }).click();
     await page.getByRole("option", { name: "Automatic (Deutsch)" }).click();
-    await page.getByText("Dieser Computer", { exact: true }).waitFor({ timeout: 3000 }).catch(() => {});
-    ok(await page.getByText("Dieser Computer", { exact: true }).isVisible(), "Automatic follows the system's German again");
+    await page.getByRole("tab", { name: "Dieser Computer", exact: true }).waitFor({ timeout: 3000 }).catch(() => {});
+    ok(await page.getByRole("tab", { name: "Dieser Computer", exact: true }).isVisible(), "Automatic follows the system's German again");
   }
   await ctx.close();
 }
@@ -87,7 +98,7 @@ for (const [w, h] of [[1180, 820], [820, 640]]) {
 for (const locale of ["de-AT", "de-CH"]) {
   const { ctx, page } = await open(locale, "library");
   await openSettings(page);
-  ok(await page.getByText("Allgemein", { exact: true }).isVisible(), `${locale} gets the German interface`);
+  ok(await page.getByRole("tab", { name: "Allgemein", exact: true }).isVisible(), `${locale} gets the German interface`);
   await ctx.close();
 }
 
@@ -207,9 +218,11 @@ for (const [w, h] of [[1180, 820], [820, 640]]) {
 {
   const { ctx, page } = await open("en-US", "library");
   await openSettings(page);
-  await page.getByText("This Computer", { exact: true }).waitFor();
+  await page.getByRole("tab", { name: "This Computer", exact: true }).waitFor();
   await page.waitForTimeout(300);
-  ok(/4\.2 GB/.test(await page.locator(".settings").innerText()), "an American system keeps its decimal point");
+  await openPane(page, "This Computer");
+  ok(/4\.2 GB/.test(await page.locator(".prefs-pane:not([hidden])").first().innerText()), "an American system keeps its decimal point");
+  await openPane(page, "General");
   ok((await page.getByRole("button", { name: "Language" }).innerText()).includes("Automatic (English)"), "and its interface in English");
   await ctx.close();
 }
