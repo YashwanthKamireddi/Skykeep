@@ -658,7 +658,8 @@ mod tests {
     /// the copy dropped, if upstream has it — third_party/README.md).
     #[test]
     fn wry_is_the_patched_release() {
-        let lock = include_str!("../../Cargo.lock");
+        // Read as lines: a Windows checkout ends them with \r\n.
+        let lock = include_str!("../../Cargo.lock").replace("\r\n", "\n");
         let entry = lock
             .split("[[package]]")
             .find(|p| p.contains("\nname = \"wry\"\n"))
