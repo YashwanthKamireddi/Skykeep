@@ -4,13 +4,23 @@
 name: Windows setup
 description: Node, the interface build, Rust and libheif for a Windows build of Skykeep
 
+inputs:
+  # Whether this run's compiled crates, npm packages and libheif are kept for the next ones:
+  # only when it is main's own commit being built on main. A run on main building other code (a
+  # `ref` given, msix.yml's tag) would have kept what that code compiled in main's caches, which
+  # the release's signed installers are built from (CodeQL: actions/cache-poisoning).
+  save:
+    description: Keep this run's caches ("true" only for main's own commit, on main)
+    default: "false"
+
 runs:
   using: composite
   steps:
     - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
       with:
         node-version: 22
-        cache: npm
+        # setup-node keeps what it fetched whenever it misses: on main's own commit only.
+        cache: ${{ inputs.save == 'true' && 'npm' || '' }}
     - shell: bash
       run: npm ci --no-audit --no-fund
     # `tauri build` refuses a Tauri npm package and Rust crate on different minor versions —
@@ -31,16 +41,17 @@ runs:
     - uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2.9.3
       with:
         shared-key: windows-release
-        # Saved from main only: a tag's or a branch's copy is never read again, and only fills
-        # the repository's 10 GB of caches until main's own are evicted.
-        save-if: ${{ github.ref == 'refs/heads/main' }}
+        # Saved from main's own commit only: a tag's or a branch's copy is never read again, and
+        # only fills the repository's 10 GB of caches until main's own are evicted.
+        save-if: ${{ inputs.save == 'true' }}
     # HEIC decoding: libheif with its default codecs (libde265 decodes), linked in statically,
     # with the C and C++ runtimes too (the x64-windows-static triplet, /MT, matching Rust's
     # crt-static): skykeep.exe then needs no Visual C++ Redistributable, which a fresh Windows
     # doesn't have — without it the program can't start at all (STATUS_DLL_NOT_FOUND). What
     # vcpkg links in (libheif, libde265, x265) is listed with its licences in
     # packaging/licences/extra.json; a new cache key can bring new versions, so check it there.
-    - uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+    - id: vcpkg
+      uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
       with:
         path: C:\vcpkg\installed
         key: vcpkg-libheif-default-x64-windows-static-v1
@@ -50,6 +61,11 @@ runs:
         & "$env:VCPKG_INSTALLATION_ROOT\vcpkg.exe" install "libheif:x64-windows-static"
         "VCPKG_ROOT=$env:VCPKG_INSTALLATION_ROOT" >> $env:GITHUB_ENV
         "VCPKGRS_TRIPLET=x64-windows-static" >> $env:GITHUB_ENV
+    - if: inputs.save == 'true' && steps.vcpkg.outputs.cache-hit != 'true'
+      uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+      with:
+        path: C:\vcpkg\installed
+        key: vcpkg-libheif-default-x64-windows-static-v1
     # The window's files must exist for the app crate to compile.
     - shell: bash
       run: npm run build
