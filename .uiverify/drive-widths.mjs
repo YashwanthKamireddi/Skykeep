@@ -14,7 +14,7 @@ for (const [w, h] of [[1920, 1040], [960, 1040], [700, 900], [480, 800]]) {
   await ctx.addInitScript(() => { window.__slowDrive = 900; });
   const page = await ctx.newPage();
   page.on("pageerror", (e) => { console.log(`FAIL page error: ${e.message}`); process.exitCode = 1; });
-  await page.goto("http://localhost:4173", { waitUntil: "networkidle" });
+  await page.goto(process.env.URL ?? process.env.BASE ?? "http://localhost:4173", { waitUntil: "networkidle" });
   await openScreen(page, "Drive").catch(() => openScreen(page, "Drive"));
   await page.waitForTimeout(150);
   const box = () => page.evaluate(() => {
@@ -32,8 +32,8 @@ for (const [w, h] of [[1920, 1040], [960, 1040], [700, 900], [480, 800]]) {
     `${w}px: the bar does not move when the count arrives  (${before.h}→${after.h}px high, Upload at ${before.upTop}→${after.upTop}; "${after.count}")`);
   ok(after.upRight <= after.right + 1 && after.scroll <= 0, `${w}px: nothing runs off the edge`);
   if (w === 960) {
-    const recents = page.locator(".drive > .drive-bar button[title='Recents']");
-    ok((await recents.evaluate((e) => getComputedStyle(e).fontSize)) === "0px" && (await recents.getAttribute("title")) === "Recents",
+    const newFolder = page.locator(".drive > .drive-bar button[title='New Folder']");
+    ok((await newFolder.evaluate((e) => getComputedStyle(e).fontSize)) === "0px" && (await newFolder.getAttribute("title")) === "New Folder",
       "960px: the controls are icons, each still named");
   }
   await ctx.close();
