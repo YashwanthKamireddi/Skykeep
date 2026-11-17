@@ -923,12 +923,7 @@ async fn fetch_placeholders(remote: &dyn Remote, store: &dyn Store, req: Request
     };
     let named = named_on(&items, Names::Windows);
     if named.is_empty() {
-        if let Err((e, _)) = transfer_placeholders(&req, &mut [], 0, true, STATUS_SUCCESS) {
-            crate::note_about(
-                &format!("an empty folder could not be marked whole: {e}"),
-                &folder,
-            );
-        }
+        mark_whole(&req, 0, &folder);
         return;
     }
     // What Windows has taken so far for this request: the count a folder is marked whole at.
@@ -1010,9 +1005,61 @@ fn send(req: &Request, made: &[Placeholder], done: &mut i64, last: bool, folder:
         }
     }
     if last {
-        if let Err((e, _)) = transfer_placeholders(req, &mut [], *done, true, STATUS_SUCCESS) {
-            crate::note_about(&format!("a folder could not be marked whole: {e}"), folder);
-        }
+        mark_whole(req, *done, folder);
+    }
+}
+
+/// The request answered with the folder marked whole at `total` (what Windows took for it).
+/// Refused (Microsoft Q&A: an empty answer with the flag can be refused as invalid), the folder
+/// is marked whole on the folder itself instead, and the request answered without the flag:
+/// never left open, which File Explorer reports as "The cloud operation is invalid" (#44).
+fn mark_whole(req: &Request, total: i64, folder: &str) {
+    let Err((e, _)) = transfer_placeholders(req, &mut [], total, true, STATUS_SUCCESS) else {
+        return;
+    };
+    crate::note_about(&format!("a folder could not be marked whole: {e}"), folder);
+    if let Err(e) = disable_population(&req.path) {
+        crate::note_about(
+            &format!("a folder could not be marked whole on disk: {e}"),
+            folder,
+        );
+    }
+    if let Err((e, _)) = transfer_placeholders(req, &mut [], total, false, STATUS_SUCCESS) {
+        crate::note_about(
+            &format!("a folder's request could not be answered: {e}"),
+            folder,
+        );
+    }
+}
+
+/// The folder at `path` held whole by Windows: no more requests for its items.
+fn disable_population(path: &Path) -> windows::core::Result<()> {
+    use windows::Win32::Foundation::GENERIC_ACCESS_RIGHTS;
+    use windows::Win32::Storage::FileSystem::*;
+    // SAFETY: a path string alive for the call.
+    let handle = Handle(unsafe {
+        CreateFileW(
+            &HSTRING::from(path.as_os_str()),
+            (FILE_READ_ATTRIBUTES | FILE_WRITE_ATTRIBUTES).0 | GENERIC_ACCESS_RIGHTS(0x4000_0000).0,
+            FILE_SHARE_READ | FILE_SHARE_WRITE | FILE_SHARE_DELETE,
+            None,
+            OPEN_EXISTING,
+            FILE_FLAG_BACKUP_SEMANTICS,
+            None,
+        )
+    }?);
+    // SAFETY: our handle; nothing else is changed.
+    unsafe {
+        CfUpdatePlaceholder(
+            handle.0,
+            None,
+            None,
+            0,
+            None,
+            CF_UPDATE_FLAG_DISABLE_ON_DEMAND_POPULATION,
+            None,
+            None,
+        )
     }
 }
 
@@ -1064,7 +1111,13 @@ fn transfer_placeholders(
                 },
                 CompletionStatus: status,
                 PlaceholderTotalCount: total,
-                PlaceholderArray: array.as_mut_ptr(),
+                // None at all for an empty answer: an empty slice's pointer is a made-up
+                // address, never one Windows should be handed.
+                PlaceholderArray: if array.is_empty() {
+                    std::ptr::null_mut()
+                } else {
+                    array.as_mut_ptr()
+                },
                 PlaceholderCount: array.len() as u32,
                 EntriesProcessed: 0,
             },

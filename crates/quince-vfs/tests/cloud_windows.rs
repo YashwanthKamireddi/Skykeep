@@ -1045,3 +1045,85 @@ fn a_folder_opened_before_a_restart_stays_up_to_date() {
     let _ = std::fs::remove_dir_all(&place);
     let _ = std::fs::remove_dir_all(&out);
 }
+
+/// An empty folder opens in File Explorer, empty (QQueng, #44: every empty folder, in iCloud
+/// Drive and in iCloud Photos, failed with "The cloud operation is invalid").
+#[test]
+fn an_empty_folder_opens() {
+    struct Known(HashMap<String, Vec<DriveItem>>);
+    impl Store for Known {
+        fn children(&self, folder: &str) -> Option<Vec<DriveItem>> {
+            self.0.get(folder).cloned()
+        }
+    }
+    let mut empty = DriveItem {
+        drivewsid: "FOLDER::com.apple.CloudDocs::empty".into(),
+        kind: "FOLDER".into(),
+        name: "Empty".into(),
+        extension: None,
+        size: None,
+        child_count: Some(0),
+        ..file("x", "x", "x", 0)
+    };
+    empty.parent_id = Some(ROOT.into());
+    let tree: HashMap<String, Vec<DriveItem>> = [
+        (
+            ROOT.to_string(),
+            vec![file("a", "first", "bin", 10), empty.clone()],
+        ),
+        (empty.drivewsid.clone(), Vec::new()),
+    ]
+    .into();
+    let rt = tokio::runtime::Runtime::new().unwrap();
+    let base = PathBuf::from(std::env::var("USERPROFILE").unwrap());
+    let place = base.join(format!("Skykeep empty {}", std::process::id()));
+    let out = std::env::temp_dir().join(format!("skykeep-empty-out-{}", std::process::id()));
+    std::fs::create_dir_all(&out).unwrap();
+    let id = cloud::sync_root_id(&format!("empty{}", std::process::id())).unwrap();
+    let shown = Shown {
+        id: &id,
+        name: "Skykeep empty test",
+        icon: "%SystemRoot%\\system32\\imageres.dll,-1043",
+    };
+    let up = cloud::start(
+        &place,
+        &shown,
+        Provider::new(
+            Arc::new(Apple(
+                tree.clone(),
+                Arc::new(std::sync::Mutex::new(Vec::new())),
+            )),
+            Arc::new(Known(tree)),
+            rt.handle().clone(),
+            out.join("sending"),
+        ),
+    )
+    .expect("up");
+    let out_cmd = Command::new("cmd")
+        .args(["/c", "dir", "/b"])
+        .arg(place.join("Empty"))
+        .output()
+        .unwrap();
+    let said = String::from_utf8_lossy(&out_cmd.stderr).trim().to_string();
+    let listed = String::from_utf8_lossy(&out_cmd.stdout).trim().to_string();
+    println!("REPORT empty folder: listed [{listed}] said [{said}]");
+    // An empty folder: `dir /b` says "File Not Found" for no entries, never a cloud error.
+    assert!(
+        !said.to_lowercase().contains("cloud"),
+        "an empty folder opens without a cloud error: {said}"
+    );
+    // And Windows holds it whole: opened again, it is not asked for again (no hang).
+    let again = Command::new("cmd")
+        .args(["/c", "dir", "/b"])
+        .arg(place.join("Empty"))
+        .output()
+        .unwrap();
+    println!(
+        "REPORT opened again: said [{}]",
+        String::from_utf8_lossy(&again.stderr).trim()
+    );
+    drop(up);
+    cloud::unregister(&place, &id);
+    let _ = std::fs::remove_dir_all(&place);
+    let _ = std::fs::remove_dir_all(&out);
+}
