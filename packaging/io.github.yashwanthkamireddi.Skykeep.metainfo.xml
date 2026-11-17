@@ -103,6 +103,12 @@
     <color type="primary" scheme_preference="dark">#0B2A4A</color>
   </branding>
   <releases>
+    <release version="0.1.29" date="2026-11-17">
+      <description>
+        <p>Photos opens as it does on a Mac and an iPhone: oldest at the top, newest at the bottom, and on your newest photos. Newest First is still in the sort menu, and a sort you chose before is kept. A month of thousands of photos, such as a large Screenshots library, shows at once instead of a blank block. Clicking a year now opens Months on that year, where on some Linux setups it landed a few rows away, and switching to Months no longer downloads pictures it doesn't show. Drive's window updates when you open it or come back to it, instead of waiting up to five minutes.</p>
+        <p>On Windows, files deeper than 260 characters in the Drive folder now sync, where they stayed "Sync pending", and a Drive folder placed on an exFAT or FAT drive or a network share says why it can't work there. On Linux, a fault in one request can no longer disconnect the Drive folder, and the Fedora package (COPR) builds again. Changes waiting to upload are kept safely through a power cut, a sign-in the system keyring wouldn't save is always said, and each sync writes less: records that didn't change aren't saved again, and Calendar isn't read whole every five minutes.</p>
+      </description>
+    </release>
     <release version="0.1.28" date="2026-11-17">
       <description>
         <p>Opening an app no longer freezes Skykeep on Windows, a problem that came with 0.1.27; on Linux the same freeze could catch an app opened while Skykeep was already running, and it is gone too. A window closed the moment it opens now stays closed. On Linux, closed app windows give their memory back: before, each one kept its web process, about 100 MB, until Skykeep quit. Photos keeps every picture on screen in a large library, where tiles could turn into grey boxes a few seconds after opening or after dragging the scrollbar. A download kept from an earlier update no longer installs over a newer version. On Windows, the Drive folder shows as on while it comes back after a restart rather than off, a folder File Explorer refuses one item in still opens with the rest, and folders opened before a restart are kept up to date again.</p>
