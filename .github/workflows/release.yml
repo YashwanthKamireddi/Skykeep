@@ -195,7 +195,12 @@ jobs:
           if [ "$(head -n1 "$RUNNER_TEMP/notes-full")" != "Skykeep ${GITHUB_REF_NAME#v}" ]; then
             echo "::error::the notes' commit isn't \"Skykeep ${GITHUB_REF_NAME#v}\": $(head -n1 "$RUNNER_TEMP/notes-full")"; exit 1
           fi
-          notes=$(cat "$RUNNER_TEMP/notes-full")
+          # Without its "Skykeep x.y.z" line, as on the release page: the update card already
+          # names the version above its "What's new", which repeated it as its first line. Each
+          # paragraph on one line: the card keeps line breaks (pre-wrap), and the commit's own,
+          # at about 95 characters, broke every line again inside its narrower width.
+          notes=$(tail -n +2 "$RUNNER_TEMP/notes-full" | sed -e '/./,$!d' \
+            | awk 'NF { p = p ? p " " $0 : $0; next } p { print p; p = "" ; print "" } END { if (p) print p }')
           # Only an installer that is here, with its signature, is offered: an updater is never
           # pointed at a file this release doesn't have.
           base="https://github.com/$REPO/releases/download/$GITHUB_REF_NAME"
