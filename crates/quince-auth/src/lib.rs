@@ -2870,7 +2870,10 @@ mod sealed_jar_tests {
         assert!(c.unsaved().is_none());
         c.save();
         assert!(c.unsaved().is_some(), "said: kept in memory only");
-        assert!(!cookies_file(dir.path()).exists(), "and never written in the clear");
+        assert!(
+            !cookies_file(dir.path()).exists(),
+            "and never written in the clear"
+        );
         assert!(has_the_cookie(&c));
     }
 
