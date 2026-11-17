@@ -5,7 +5,7 @@ import { engine } from "./engine.mjs";
 import { SERVICES, installStub, openScreen } from "./stub.mjs";
 const b = await engine.launch();
 const ctx = await b.newContext({ viewport: { width: 1280, height: 800 } });
-await ctx.addInitScript(installStub, { screen: "library", services: SERVICES, twoFactor: null });
+await ctx.addInitScript(installStub, { photosNewestFirst: true, screen: "library", services: SERVICES, twoFactor: null });
 await ctx.addInitScript(() => {
   const P = (id, t) => ({ id, master: `m${id}`, takenAt: t, addedAt: t, kind: "image", width: 4032, height: 3024, duration: null,
     filename: `IMG_${id}.JPG`, size: 2400000, uti: "public.jpeg", favorite: false, hidden: false, deleted: false, deletedAt: null, subtype: 0, changeTag: null });

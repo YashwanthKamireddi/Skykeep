@@ -6,7 +6,7 @@ import { engine } from "./engine.mjs";
 import { SERVICES, installStub, openScreen } from "./stub.mjs";
 const b = await engine.launch();
 const ctx = await b.newContext({ viewport: { width: 1280, height: 800 } });
-await ctx.addInitScript(installStub, { screen: "library", services: SERVICES, twoFactor: null });
+await ctx.addInitScript(installStub, { photosNewestFirst: true, screen: "library", services: SERVICES, twoFactor: null });
 // Pictures here cannot be fetched; decoding is made to succeed, as it does in the app.
 await ctx.addInitScript(() => { HTMLImageElement.prototype.decode = function () { return Promise.resolve(); }; });
 const page = await ctx.newPage();

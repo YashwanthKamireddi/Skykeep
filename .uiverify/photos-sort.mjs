@@ -16,24 +16,26 @@ const ok = (p, m) => { console.log(`${p ? "PASS" : "FAIL"} ${m}`); if (!p) failu
 const order = () => page.locator(".px-tile").evaluateAll((t) => t.map((x) => x.dataset.id).join(","));
 const months = () => page.locator(".px-month-title").allInnerTexts();
 
-ok((await order()) === "p1,p2,p3,p4,p5", `Library starts newest taken first  ${await order()}`);
+// Apple's order to begin with, as Photos on a Mac and an iPhone: oldest first, newest at the foot.
+ok((await order()) === "p5,p4,p3,p2,p1", `Library starts oldest taken first  ${await order()}`);
+const firstMonth = (await months())[0];
 await page.getByRole("button", { name: "Sort" }).click();
 const checked = await page.locator('.row-menu [aria-checked="true"]').allInnerTexts();
-ok(checked.map((t) => t.replace("✓", "").trim()).join() === "Date Captured,Newest First", `the menu checks what is chosen  ${JSON.stringify(checked)}`);
-await page.locator(".row-menu").getByText("Oldest First").click();
+ok(checked.map((t) => t.replace("✓", "").trim()).join() === "Date Captured,Oldest First", `the menu checks what is chosen  ${JSON.stringify(checked)}`);
+await page.locator(".row-menu").getByText("Newest First").click();
 await page.waitForTimeout(200);
-ok((await order()) === "p5,p4,p3,p2,p1", `Oldest First turns it round  ${await order()}`);
-ok(/September/.test((await months())[0]), `and the months with it  ${JSON.stringify(await months())}`);
+ok((await order()) === "p1,p2,p3,p4,p5", `Newest First turns it round  ${await order()}`);
+ok((await months())[0] !== firstMonth && /October/.test((await months())[0]), `and the months with it  ${JSON.stringify(await months())}`);
 
 await page.locator(".px-source", { hasText: "Recents" }).click();
 await page.waitForTimeout(250);
-ok((await order()).startsWith("p4"), `Recents is by date added, newest first  ${await order()}`);
-ok(/October/.test((await months())[0]), "with each photo under the month it was added");
+ok((await order()).endsWith("p4"), `Recents is by date added, the newest added at the foot  ${await order()}`);
+ok(/October/.test((await months()).at(-1)), "with each photo under the month it was added");
 
 await page.reload({ waitUntil: "networkidle" });
 await openScreen(page, "Photos");
 await page.waitForTimeout(400);
-ok((await order()) === "p5,p4,p3,p2,p1", "Library keeps its sort after a reload");
+ok((await order()) === "p1,p2,p3,p4,p5", "Library keeps the sort chosen after a reload");
 await page.locator(".px-source", { hasText: "Trips" }).click();
 await page.waitForTimeout(250);
 ok((await page.getByRole("button", { name: "Sort" }).count()) === 0, "an album keeps its own order, with no sort to choose");
