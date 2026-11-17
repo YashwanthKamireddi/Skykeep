@@ -15,7 +15,7 @@ let failures = 0;
 const ok = (p, m) => { console.log(`${p ? "PASS" : "FAIL"} ${m}`); if (!p) failures++; };
 
 const ctx = await b.newContext({ viewport: { width: 1280, height: 800 } });
-await ctx.addInitScript(installStub, { screen: "library", services: SERVICES, twoFactor: null });
+await ctx.addInitScript(installStub, { photosNewestFirst: true, screen: "library", services: SERVICES, twoFactor: null });
 const page = await ctx.newPage();
 page.on("pageerror", (e) => ok(false, `page error: ${e.message}`));
 await page.goto(URL, { waitUntil: "networkidle" });
@@ -93,7 +93,7 @@ await ctx.close();
 // Windows and macOS: the PNG comes back and the window puts it on the clipboard.
 if (engineName === "chromium") {
   const c2 = await b.newContext({ viewport: { width: 1280, height: 800 }, permissions: ["clipboard-read", "clipboard-write"] });
-  await c2.addInitScript(installStub, { screen: "library", services: SERVICES, twoFactor: null });
+  await c2.addInitScript(installStub, { photosNewestFirst: true, screen: "library", services: SERVICES, twoFactor: null });
   // A 1×1 PNG.
   await c2.addInitScript(() => { window.__copyPng = "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8DwHwAFBQIAX8jx0gAAAABJRU5ErkJggg=="; });
   const p2 = await c2.newPage();

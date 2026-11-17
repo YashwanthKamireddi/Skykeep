@@ -29,7 +29,7 @@ const newest = 1792500000;
 
 async function open({ reduced = false } = {}) {
   const ctx = await b.newContext({ viewport: { width: 1280, height: 800 }, reducedMotion: reduced ? "reduce" : "no-preference" });
-  await ctx.addInitScript(installStub, { screen: "library", services: SERVICES, twoFactor: null });
+  await ctx.addInitScript(installStub, { photosNewestFirst: true, screen: "library", services: SERVICES, twoFactor: null });
   await ctx.addInitScript(instrument);
   await ctx.addInitScript(library);
   await servePictures(ctx);
@@ -126,7 +126,7 @@ const say = (r) => `remade ${r.remade}, blank ${r.blank}, lost ${r.lost}, moved 
 // pictures come in, then the line goes; one photo, or the person's own upload, says nothing.
 {
   const ctx = await b.newContext({ viewport: { width: 1280, height: 800 } });
-  await ctx.addInitScript(installStub, { screen: "library", services: SERVICES, twoFactor: null });
+  await ctx.addInitScript(installStub, { photosNewestFirst: true, screen: "library", services: SERVICES, twoFactor: null });
   await ctx.addInitScript(instrument);
   await ctx.addInitScript(library);
   await ctx.addInitScript(() => {
@@ -186,7 +186,7 @@ const say = (r) => `remade ${r.remade}, blank ${r.blank}, lost ${r.lost}, moved 
 // Opening Photos and switching views never fades a tile.
 {
   const ctx = await b.newContext({ viewport: { width: 1280, height: 800 } });
-  await ctx.addInitScript(installStub, { screen: "library", services: SERVICES, twoFactor: null });
+  await ctx.addInitScript(installStub, { photosNewestFirst: true, screen: "library", services: SERVICES, twoFactor: null });
   await ctx.addInitScript(library);
   await ctx.addInitScript(() => {
     window.__fades = 0;

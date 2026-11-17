@@ -11,8 +11,14 @@ export const SERVICES = ["account","archivews","calendar","ckdatabasews","ckdevi
    value it needs must arrive through the single argument. */
 /* Fixture events, so the agenda's rendering is verified without inventing rows in anyone's
    real library. Times are unix seconds relative to now. */
-export function installStub({ screen, services, twoFactor, calendarFixture, notesFixture, contactsFixture, driveFixture, remindersFixture, demoFixture, extraEvents = [] }) {
+export function installStub({ screen, services, twoFactor, calendarFixture, notesFixture, contactsFixture, driveFixture, remindersFixture, demoFixture, extraEvents = [], photosNewestFirst = false }) {
   const HOUR = 3600, DAY = 86400;
+  // Photos opens in Apple's order (oldest at the top, newest at the foot). A suite about
+  // something else, written counting from the newest at the top, keeps that order chosen.
+  if (photosNewestFirst) {
+    const views = ["library", "favorites", "videos", "screenshots", "panoramas", "portrait", "recents", "hidden", "rated", "recentlyDeleted"];
+    window.localStorage.setItem("quince.photos.sort", JSON.stringify(Object.fromEntries(views.map((v) => [v, { by: v === "recents" ? "added" : "taken", oldest: false }]))));
+  }
   // Today at 9 in the morning, on this machine's clock. Counted from UTC's midnight it was
   // yesterday for the first hours after local midnight in a zone east of UTC — and the
   // week's events fell into last week.

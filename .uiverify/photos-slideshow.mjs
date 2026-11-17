@@ -36,7 +36,7 @@ const ok = (p, m) => { console.log(`${p ? "PASS" : "FAIL"} ${m}`); if (!p) failu
 
 async function open(reduced) {
   const ctx = await b.newContext({ viewport: { width: 1280, height: 800 }, reducedMotion: reduced ? "reduce" : "no-preference" });
-  await ctx.addInitScript(installStub, { screen: "library", services: SERVICES, twoFactor: null });
+  await ctx.addInitScript(installStub, { photosNewestFirst: true, screen: "library", services: SERVICES, twoFactor: null });
   await ctx.addInitScript(([v, pics]) => { window.__videoBase = v; window.__picBase = pics; }, [base, PICS]);
   await ctx.route(`${PICS}/**`, async (route) => {
     const path = decodeURIComponent(route.request().url().slice(PICS.length + 1));

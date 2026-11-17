@@ -134,7 +134,14 @@ const degrees = (v: number, plus: string, minus: string) => `${Math.abs(v).toFix
 /** How a view is sorted, as Photos offers it: by the date taken or the date added, either way. */
 type Sort = { by: "taken" | "added"; oldest: boolean };
 const SORTS_KEY = "quince.photos.sort";
-const defaultSort = (view: PhotoView): Sort => ({ by: view === "recents" ? "added" : "taken", oldest: false });
+/**
+ * Until someone chooses otherwise, Apple's order: oldest at the top and the newest at the
+ * bottom, where the view opens — as the library is on a Mac and an iPhone, which offer no other
+ * way round for it (only which date: Captured or Added). Newest First stays a choice, as for an
+ * album on a Mac. It was the default here, and someone coming from Apple opened Skykeep at their
+ * oldest photos and scrolled to the end every time (17 Nov).
+ */
+const defaultSort = (view: PhotoView): Sort => ({ by: view === "recents" ? "added" : "taken", oldest: true });
 const sortKey = (p: Photo, by: Sort["by"]) => (by === "added" ? (p.addedAt ?? p.takenAt) : p.takenAt);
 const readSorts = (): Partial<Record<PhotoView, Sort>> => {
   try {

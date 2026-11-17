@@ -1,6 +1,6 @@
-// A view opens on its newest photos: at its top when Newest First, at its foot when Oldest
-// First, as Photos on a Mac and an iPhone open on the latest at the bottom (discussion #39:
-// with Oldest First, All Photos opened on 2013 and the newest were a long scroll away).
+// Photos opens as on a Mac and an iPhone: oldest at the top, and the view at its foot, on the
+// newest (discussions #39 and #102: All Photos opened on 2013 and the newest were a long scroll
+// away). Newest First, chosen, opens at the top — on the newest either way.
 import { engine } from "./engine.mjs";
 import { SERVICES, installStub, openScreen } from "./stub.mjs";
 const b = await engine.launch();
@@ -25,15 +25,22 @@ const where = () => page.evaluate(() => {
   while (s && !(s.scrollHeight > s.clientHeight + 4 && getComputedStyle(s).overflowY !== "visible")) s = s.parentElement;
   return s ? { top: s.scrollTop, max: s.scrollHeight - s.clientHeight } : null;
 });
+// Nothing chosen: Apple's order, at the foot, the newest in sight.
+const foot = await where();
+ok(foot && foot.max > 1000 && foot.max - foot.top < 4, `it opens at the foot, on the newest  ${JSON.stringify(foot)}`);
+const onScreen = (id) => page.evaluate((id) => {
+  const r = document.querySelector(`.px-tile[data-id="${id}"]`)?.getBoundingClientRect();
+  return Boolean(r && r.bottom > 0 && r.top < innerHeight);
+}, id);
+ok((await onScreen("q0")) && !(await onScreen("q399")), "the newest photo is on screen, the oldest far above");
+await page.getByRole("button", { name: "Sort" }).click();
+await page.locator(".row-menu").getByText("Newest First").click();
+await page.waitForTimeout(500);
 const atTop = await where();
-ok(atTop && atTop.max > 1000 && atTop.top === 0, `Newest First opens at the top, on the newest  ${JSON.stringify(atTop)}`);
+ok(atTop && atTop.top === 0, `Newest First opens at the top, on the newest  ${JSON.stringify(atTop)}`);
 await page.getByRole("button", { name: "Sort" }).click();
 await page.locator(".row-menu").getByText("Oldest First").click();
 await page.waitForTimeout(500);
-const foot = await where();
-ok(foot && foot.max - foot.top < 4, `Oldest First opens at the foot, on the newest  ${JSON.stringify(foot)}`);
-const shown = await page.locator(".px-tile").evaluateAll((t) => t.map((x) => x.dataset.id));
-ok(shown.includes("q0"), `and the newest photo is in sight  ${shown.slice(-3)}`);
 // Another view and back: still opens on the newest.
 await page.locator(".px-source", { hasText: "Favorites" }).click();
 await page.waitForTimeout(300);

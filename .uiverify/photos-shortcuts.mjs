@@ -10,7 +10,7 @@ import { SERVICES, installStub, openScreen } from "./stub.mjs";
 const BASE = process.env.URL ?? process.env.BASE ?? "http://localhost:4173";
 const b = await engine.launch();
 const ctx = await b.newContext({ viewport: { width: 1280, height: 800 } });
-await ctx.addInitScript(installStub, { screen: "library", services: SERVICES, twoFactor: null });
+await ctx.addInitScript(installStub, { photosNewestFirst: true, screen: "library", services: SERVICES, twoFactor: null });
 await ctx.addInitScript(() => {
   // A moving part that never arrives: the Live Photo stays playing for as long as it is looked at.
   window.__videoBase = "http://video.test/hang";

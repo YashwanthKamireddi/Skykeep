@@ -18,18 +18,16 @@ await openScreen(page, "Photos");
 await page.waitForTimeout(500);
 const order = () => page.locator(".px-tile").evaluateAll((t) => t.map((x) => x.dataset.id).join(","));
 const chosen = () => page.locator('.px-tile[aria-selected="true"]').evaluateAll((t) => t.map((x) => x.dataset.id).sort().join(","));
-ok((await order()) === "p1,p2,p3,p4,p5", `newest first  ${await order()}`);
+// Apple's order to begin with: oldest first, the newest at the foot.
+ok((await order()) === "p5,p4,p3,p2,p1", `oldest first, as Photos on a Mac  ${await order()}`);
 await page.locator('.px-tile[data-id="p2"]').click();
 await page.getByRole("button", { name: "Sort" }).click();
-await page.locator(".row-menu").getByText("Oldest First").click();
+await page.locator(".row-menu").getByText("Newest First").click();
 await page.waitForTimeout(300);
-ok((await order()) === "p5,p4,p3,p2,p1", `turned round  ${await order()}`);
+ok((await order()) === "p1,p2,p3,p4,p5", `turned round  ${await order()}`);
 await page.locator('.px-tile[data-id="p1"]').click({ modifiers: ["Shift"] });
 await page.waitForTimeout(150);
 ok((await chosen()) === "p1,p2", `Shift-click selects from the photo clicked first to this one  [${await chosen()}]`);
-// Put back as it was for the next run.
-await page.getByRole("button", { name: "Sort" }).click();
-await page.locator(".row-menu").getByText("Newest First").click();
 await b.close();
 console.log(failures ? `\n${failures} FAILED` : "\nall passed");
 process.exit(failures ? 1 : 0);

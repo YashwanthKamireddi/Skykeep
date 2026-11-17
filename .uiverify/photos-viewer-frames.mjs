@@ -29,7 +29,7 @@ const COLOURS = { p1: [220, 40, 40], p2: [40, 180, 60], p3: [40, 80, 220], p4: [
 const PICS = "http://pics.test";
 const b = await engine.launch();
 const ctx = await b.newContext({ viewport: { width: 1280, height: 800 } });
-await ctx.addInitScript(installStub, { screen: "library", services: SERVICES, twoFactor: null });
+await ctx.addInitScript(installStub, { photosNewestFirst: true, screen: "library", services: SERVICES, twoFactor: null });
 await ctx.addInitScript(([v, pics]) => {
   window.__videoBase = v;
   window.__picBase = pics;
