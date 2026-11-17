@@ -13,7 +13,9 @@ and empty data folders: never the desktop's, never the person's data.
 
     uv run --with python-xlib .uiverify/window-close-race.py <skykeep binary> [app ...]
 
-Exits non-zero if any window came back.
+Then every window is closed, and their web processes must end once the windows are let go
+(about a minute; QUICK=1 skips this). Exits non-zero if any window came back or any web
+process outlived its window.
 """
 import os
 import select
@@ -197,6 +199,27 @@ def main():
                 time.sleep(0.02)
             for name in waiting:
                 print(f"FAIL {name}: asked for with others, never shown")
+                failures += 1
+        # Every window closed: once they are let go (apps::KEPT, a minute), their web processes
+        # end too. Until wry was patched (third_party/README.md) each closed window's stayed,
+        # about 100 MB apiece, until Skykeep quit.
+        if app is not None and os.environ.get("QUICK") != "1":
+            for w in [find(d, NAMES[k]) for k in NAMES]:
+                if w is not None and mapped(w):
+                    close(d, w)
+            d.flush()
+            def web():
+                return len(subprocess.run(["pgrep", "-P", str(app.pid), "-f", "WebKitWebProcess"],
+                                          capture_output=True, text=True).stdout.split())
+            before = web()
+            end = time.time() + 75
+            while time.time() < end and web() > 0:
+                time.sleep(1)
+            after = web()
+            if before and after == 0:
+                print(f"PASS every closed window's web process ended once let go ({before} → 0)")
+            else:
+                print(f"FAIL closed windows' web processes still running a minute on ({before} → {after})")
                 failures += 1
     finally:
         for p in (app, tray, bus, weston):

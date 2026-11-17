@@ -652,6 +652,29 @@ mod tests {
         );
     }
 
+    /// A closed window's web view, and its web process, are freed on Linux only with the wry kept
+    /// in third_party (tauri-apps/wry#1871). The lock names wry from there, at the version the
+    /// fix was made on: an upgrade fails here until the fix is checked in the new release (and
+    /// the copy dropped, if upstream has it — third_party/README.md).
+    #[test]
+    fn wry_is_the_patched_release() {
+        let lock = include_str!("../../Cargo.lock");
+        let entry = lock
+            .split("[[package]]")
+            .find(|p| p.contains("\nname = \"wry\"\n"))
+            .expect("wry in Cargo.lock");
+        assert!(
+            entry.contains("version = \"0.57.0\""),
+            "wry moved on: check tauri-apps/wry#1871 in it (third_party/README.md)"
+        );
+        assert!(
+            !entry.contains("source = "),
+            "wry comes from crates.io, without the fix in third_party/wry"
+        );
+        let patched = include_str!("../../third_party/wry/src/webkitgtk/mod.rs");
+        assert!(patched.contains("let webview = webview.downgrade();"));
+    }
+
     #[test]
     fn every_app_has_its_own_icon() {
         for (key, _) in super::APPS {
