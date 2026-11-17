@@ -51,12 +51,12 @@ const frames = (page, click, look, n = 14) => page.evaluate(async ([click, look,
   const filters = await page.evaluate(() => {
     const f = (el) => { if (!el) return null; const cs = getComputedStyle(el); return cs.backdropFilter || cs.webkitBackdropFilter || "none"; };
     return { tool: f(document.querySelector(".toolbar-group")), list: f(document.querySelector(".drive-rows")),
-      sidebar: f(document.querySelector(".sidebar")), row: f(document.querySelector(".drive-row")) };
+      sidebar: f(document.querySelector(".dx-side")), row: f(document.querySelector(".drive-row")) };
   });
   // Toolbars stay up while lists scroll under them: frosted in every engine, never blurred.
   ok(filters.tool === "none", `a toolbar's capsule is frosted, not blurred (${filters.tool})`);
   ok(filters.list === "none" && filters.row === "none", "the list it sits over is content: no glass");
-  ok(filters.sidebar === "none", "the sidebar, which nothing moves under, takes no blur");
+  ok(filters.sidebar === "none", `the sidebar, which nothing moves under, takes no blur (${filters.sidebar})`);
 
   // A menu: there on its first frame, whole; regular glass.
   const r = await page.locator(".drive-row").nth(1).boundingBox();

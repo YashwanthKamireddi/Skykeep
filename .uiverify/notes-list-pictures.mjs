@@ -30,31 +30,46 @@ const ctx = await b.newContext({ viewport: { width: 1280, height: 800 } });
 await ctx.addInitScript(() => { window.__drawNote = true; window.__mediaNote = true; window.__picBase = "http://pics.test"; });
 await ctx.addInitScript(installStub, { screen: "library", services: SERVICES, twoFactor: null, notesFixture: true });
 const asked = [];
-await ctx.route("http://pics.test/**", (r) => {
+// The first note opens by itself, and its drawing with it. Fetching a drawing is what keeps it
+// on this computer, so the backend holds it from the moment it is served.
+let thumbsAskedBefore = null;
+const page = await ctx.newPage();
+await ctx.route("http://pics.test/**", async (r) => {
   const url = decodeURIComponent(r.request().url());
   asked.push(url);
   // A picture this computer no longer holds: the route has nothing for it.
   if (url.includes("note/GONE/")) return r.fulfill({ status: 404, body: "" });
+  if (url.includes("note/D1/drawing") && thumbsAskedBefore === null) {
+    thumbsAskedBefore = asked.filter((u) => u.includes("/thumb")).length;
+    await page.evaluate(() => { window.__notePictures = { nD: "D1" }; });
+  }
   return r.fulfill({ status: 200, contentType: "image/png", body: png });
 });
-const page = await ctx.newPage();
+// What the list shows at the moment the note has drawn its picture, before it asks again.
+await ctx.addInitScript(() => {
+  addEventListener("quince:note-picture-kept", () => {
+    if (window.__thumbsAtKept !== undefined) return;
+    window.__thumbsAtKept = document.querySelectorAll(".note-row-thumb").length;
+    const r = document.querySelector('.note-row[data-guid="nD"]')?.getBoundingClientRect();
+    window.__rowAtKept = r && { top: r.top, height: r.height, right: r.right };
+  });
+});
 page.on("pageerror", (e) => { console.log(`FAIL page error: ${e.message}`); process.exitCode = 1; });
 await page.goto(process.env.URL ?? process.env.BASE ?? "http://localhost:4173", { waitUntil: "networkidle" });
 await openScreen(page, "Notes");
 await page.locator(".note-row", { hasText: "Sketch" }).first().waitFor();
-await page.waitForFunction(() => (window.__pictureAsks ?? 0) > 0);
 
 const sketch = page.locator(".note-row", { hasText: "Sketch" }).first();
 const trip = page.locator(".note-row", { hasText: "Trip" }).first();
 const box = (l) => l.evaluate((el) => { const r = el.getBoundingClientRect(); return { top: r.top, height: r.height, right: r.right }; });
-ok((await page.locator(".note-row-thumb").count()) === 0, "with no picture kept, no row shows one");
-ok(!asked.some((u) => u.includes("/thumb")), "and none is asked for");
-const before = await box(sketch);
-
-// The note is opened and draws its drawing — which the backend then holds, and says so.
-await page.evaluate(() => { window.__notePictures = { nD: "D1" }; });
 await sketch.click();
 await page.locator(".ProseMirror img.nf-drawing").first().waitFor();
+await page.waitForFunction(() => window.__thumbsAtKept !== undefined);
+ok((await page.evaluate(() => window.__thumbsAtKept)) === 0, "with no picture kept, no row shows one");
+ok(thumbsAskedBefore === 0, "and none is asked for");
+const before = await page.evaluate(() => window.__rowAtKept);
+
+// The note has drawn its drawing — which the backend now holds, and says so.
 const thumb = sketch.locator(".note-row-thumb");
 await thumb.waitFor({ state: "visible", timeout: 3000 }).catch(() => {});
 ok(await thumb.isVisible(), "once the note has drawn its picture, the row shows it, unasked");

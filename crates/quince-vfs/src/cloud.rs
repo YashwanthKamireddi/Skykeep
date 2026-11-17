@@ -187,12 +187,7 @@ impl CloudFolder {
                     let mut one = [made.info()];
                     // SAFETY: the name and identity are alive for the call.
                     let created = unsafe {
-                        CfCreatePlaceholders(
-                            &HSTRING::from(dir.as_os_str()),
-                            &mut one,
-                            CF_CREATE_FLAG_NONE,
-                            None,
-                        )
+                        CfCreatePlaceholders(&long_path(&dir), &mut one, CF_CREATE_FLAG_NONE, None)
                     };
                     if let Err(e) = created {
                         crate::note_about(
@@ -264,7 +259,7 @@ pub(crate) fn renew_unless_changed(
     // SAFETY: a path string alive for the call.
     let handle = Handle(unsafe {
         CreateFileW(
-            &HSTRING::from(path.as_os_str()),
+            &long_path(path),
             (FILE_READ_ATTRIBUTES | FILE_WRITE_ATTRIBUTES).0 | GENERIC_ACCESS_RIGHTS(0x4000_0000).0,
             FILE_SHARE_NONE,
             None,
@@ -1039,7 +1034,7 @@ fn disable_population(path: &Path) -> windows::core::Result<()> {
     // SAFETY: a path string alive for the call.
     let handle = Handle(unsafe {
         CreateFileW(
-            &HSTRING::from(path.as_os_str()),
+            &long_path(path),
             (FILE_READ_ATTRIBUTES | FILE_WRITE_ATTRIBUTES).0 | GENERIC_ACCESS_RIGHTS(0x4000_0000).0,
             FILE_SHARE_READ | FILE_SHARE_WRITE | FILE_SHARE_DELETE,
             None,
@@ -1332,6 +1327,32 @@ pub fn identity_of(path: &Path) -> Option<DriveItem> {
     serde_json::from_slice(&identity?).ok()
 }
 
+/// `path` as Windows' own calls take it at any length: an absolute path gets the `\\?\` prefix
+/// (`\\?\UNC\` for a share). Rust's own file functions add it themselves; the calls made
+/// here directly (CreateFileW, CfCreatePlaceholders…) do not, and without it they refuse any
+/// path past 260 characters — a deep folder (an Obsidian vault's plugins, say) then had its
+/// files sent to iCloud but never marked in sync, "Sync pending" for good.
+pub(crate) fn long_path(path: &Path) -> HSTRING {
+    use std::os::windows::ffi::OsStrExt;
+    let wide: Vec<u16> = path.as_os_str().encode_wide().collect();
+    let starts = |prefix: &str| {
+        let p: Vec<u16> = prefix.encode_utf16().collect();
+        wide.starts_with(&p)
+    };
+    let mut out: Vec<u16> = Vec::with_capacity(wide.len() + 8);
+    if !path.is_absolute() || starts(r"\\?\") {
+        out.extend_from_slice(&wide);
+    } else if starts(r"\\") {
+        // \\server\share\x → \\?\UNC\server\share\x
+        out.extend(r"\\?\UNC".encode_utf16());
+        out.extend_from_slice(&wide[1..]);
+    } else {
+        out.extend(r"\\?\".encode_utf16());
+        out.extend_from_slice(&wide);
+    }
+    HSTRING::from_wide(&out)
+}
+
 /// Whether `path` is the cloud folder itself.
 fn is_sync_root(path: &Path) -> bool {
     use windows::Storage::Provider::StorageProviderSyncRootManager;
@@ -1388,7 +1409,7 @@ pub(crate) fn open_attributes(path: &Path) -> windows::core::Result<Handle> {
     // SAFETY: a path string alive for the call.
     unsafe {
         CreateFileW(
-            &HSTRING::from(path.as_os_str()),
+            &long_path(path),
             FILE_READ_ATTRIBUTES.0,
             FILE_SHARE_READ | FILE_SHARE_WRITE | FILE_SHARE_DELETE,
             None,

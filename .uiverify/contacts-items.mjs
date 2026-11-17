@@ -1,7 +1,6 @@
 // A pass that names the cards it changed has Contacts read those alone: the card renamed on
 // the phone is redrawn, the new one appears, the deleted one goes — and the whole book is not
-// read again, nor any other row redrawn. One that cannot name them is read whole, as before;
-// and out of sight, the named cards wait for the screen to come back.
+// read again, nor any other row redrawn. One that cannot name them is read whole, as before.
 import { engine, engineName } from "./engine.mjs";
 import { SERVICES, installStub, openScreen } from "./stub.mjs";
 const b = await engine.launch();
@@ -68,24 +67,8 @@ await pass({ added: [], changed: [], removed: [] });
 await page.waitForTimeout(250);
 ok((await reads()) === before && (await gets()).length === g, "one that names no card reads nothing");
 
-// Out of sight: named cards wait, and are read once on coming back.
-await openScreen(page, "Notes");
-await page.evaluate(() => {
-  const book = window.__contactList;
-  const at = book.findIndex((c) => c.guid === "c2");
-  book[at] = { ...book[at], firstName: "Amma Jamie" };
-});
-const g2 = (await gets()).length;
-before = await reads();
-await pass({ added: [], changed: ["c2"], removed: [] });
-await pass({ added: [], changed: ["c3"], removed: [] });
-await page.waitForTimeout(250);
-ok((await gets()).length === g2, "out of sight, named cards are not read at once");
-await openScreen(page, "Contacts");
-await page.locator(".contact-row", { hasText: "Amma Jamie" }).waitFor({ timeout: 3000 });
-const after = await gets();
-ok(after.length === g2 + 1 && after.at(-1).slice().sort().join() === "c2,c3", `coming back reads them, together, once  ${JSON.stringify(after.slice(g2))}`);
-ok((await reads()) === before, "still without the whole book");
+// (Named cards waiting out of sight, read once on coming back, is not checked here any more:
+// Contacts is a window of its own, and nothing takes its place within it once it holds cards.)
 
 // With a search typed, the named card is still read alone: the search filters the book in the
 // window, so it decides who shows without the library being asked for the whole book.
