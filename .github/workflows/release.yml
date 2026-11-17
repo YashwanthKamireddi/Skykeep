@@ -303,6 +303,7 @@ jobs:
     timeout-minutes: 20
     permissions:
       contents: write
+      actions: write
     env:
       GH_TOKEN: ${{ github.token }}
       REPO: ${{ github.repository }}
@@ -350,3 +351,9 @@ jobs:
           grep -qF "$APK_CERT" <<< "$body" || fail "the release notes lack the APK fingerprint"
           gh release edit "$GITHUB_REF_NAME" --repo "$REPO" --draft=false --latest
           echo "Skykeep $v checked and published"
+          # Every store, started by name: published with this job's token, the release starts
+          # no workflow by itself (GitHub never lets GITHUB_TOKEN do that), so stores.yml's
+          # `release: published` never fired, and 0.1.27 and 0.1.28 reached no store but the
+          # Snap's daily catch-up. A dispatch is the one start this token is allowed.
+          gh workflow run stores.yml --repo "$REPO" --ref main -f tag="$GITHUB_REF_NAME"
+          echo "stores started for $GITHUB_REF_NAME"

@@ -16,7 +16,8 @@
 # COPR needs nothing: it builds each new tag from its own GitHub webhook.
 #
 # A release published with a person's token (gh, the web page) starts this; one published by a
-# workflow's GITHUB_TOKEN would not, as GitHub never lets that token start another workflow.
+# workflow's GITHUB_TOKEN would not, as GitHub never lets that token start another workflow, so
+# release.yml's `verify`, which publishes, starts this by name (workflow_dispatch) as well.
 # Re-run one release by hand: Actions → Stores → Run workflow, with its tag. Channels that
 # already have the version say so: Scoop and winget leave it as it is; Chocolatey's push and
 # the Snap upload are refused or add a revision, as those stores decide.
