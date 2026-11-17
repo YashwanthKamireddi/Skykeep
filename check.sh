@@ -23,7 +23,7 @@ names=() pids=() later=()
 # Also alone: photos-strip opens a 2,000-photo library (under six browsers its window took past
 # 30 s to appear), and contacts-lists times "at once" in both modes (9 and 10 Nov, each failed
 # only in the pool and passed 3 of 3 alone).
-timed() { case "$*" in *notes-long.mjs*|*photos-scale.mjs*|*photos-scroll.mjs*|*photos-paging.mjs*|*photos-dense-months.mjs*|*photos-levels-scale.mjs*|*photos-strip.mjs*|*contacts-lists.mjs*) return 0 ;; esac; return 1; }
+timed() { case "$*" in *notes-long.mjs*|*photos-scale.mjs*|*photos-scroll.mjs*|*photos-paging.mjs*|*photos-dense-months.mjs*|*photos-levels-scale.mjs*|*photos-strip.mjs*|*contacts-lists.mjs*|*glass-frames.mjs*) return 0 ;; esac; return 1; }
 pooled() {
   local name=$1; shift
   if timed "$@"; then later+=("$name"$'\x1f'"$(printf '%q ' "$@")"); return; fi
@@ -228,6 +228,15 @@ pooled "row hover"         node .uiverify/row-hover.mjs
 pooled "reminders switch"  node .uiverify/reminders-switch.mjs
 pooled "upload cancel"     node .uiverify/drive-upload-cancel.mjs
 pooled "folder download"   node .uiverify/drive-download.mjs
+pooled "note row pictures" node .uiverify/notes-list-pictures.mjs
+pooled "webkit: note row pictures" env ENGINE=webkit node .uiverify/notes-list-pictures.mjs
+pooled "contacts by card"  node .uiverify/contacts-items.mjs
+pooled "drive widths"      node .uiverify/drive-widths.mjs
+pooled "glass rules"       node .uiverify/glass-motion.mjs
+pooled "webkit: glass rules" env ENGINE=webkit node .uiverify/glass-motion.mjs
+pooled "glass frames"      node .uiverify/glass-frames.mjs
+pooled "webkit: glass frames" env ENGINE=webkit node .uiverify/glass-frames.mjs
+pooled "open at login"     node .uiverify/login-item.mjs
 pooled "notes tables"      node .uiverify/notes-table.mjs
 pooled "reminder menu"     node .uiverify/reminders-context.mjs
 pooled "notes media"       node .uiverify/notes-media.mjs

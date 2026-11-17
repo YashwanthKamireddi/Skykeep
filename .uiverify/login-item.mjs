@@ -1,9 +1,9 @@
-// Settings → Open at Login: off until turned on; on a desktop that runs login entries it says
+// Settings → General → Open at Login: off until turned on; on a desktop that runs login entries it says
 // what it does; on one that does not (Hyprland without uwsm, Sway), it says so and gives the
 // exact line, selectable whole; a refusal puts the switch back with the reason. Start in Tray
 // shows under it only while it is on, on until turned off.
 import { engine } from "./engine.mjs";
-import { SERVICES, installStub, openSettings } from "./stub.mjs";
+import { SERVICES, installStub, openSettings, openPane } from "./stub.mjs";
 const b = await engine.launch();
 let failures = 0;
 const ok = (p, m) => { console.log(`${p ? "PASS" : "FAIL"} ${m}`); if (!p) failures++; };
@@ -12,8 +12,9 @@ for (const scheme of ["light", "dark"]) {
   await ctx.addInitScript(installStub, { screen: "library", services: SERVICES, twoFactor: null });
   const page = await ctx.newPage();
   page.on("pageerror", (e) => { console.log(`FAIL page error: ${e.message}`); process.exitCode = 1; });
-  await page.goto("http://localhost:4173", { waitUntil: "networkidle" });
+  await page.goto(process.env.URL ?? process.env.BASE ?? "http://localhost:4173", { waitUntil: "networkidle" });
   await openSettings(page);
+  await openPane(page, "General");
   await page.waitForTimeout(400);
   const sw = page.getByRole("switch", { name: "Open at Login" });
   const row = page.locator(".settings-row", { has: sw });

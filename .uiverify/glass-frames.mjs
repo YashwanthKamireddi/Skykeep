@@ -69,9 +69,8 @@ if (process.env.GLASS === "live") await ctx.addInitScript(() => {
 const page = await ctx.newPage();
 page.on("pageerror", (e) => { console.log(`FAIL page error: ${e.message}`); failures++; });
 await page.goto(BASE, { waitUntil: "networkidle" });
-await page.locator("main.content[data-screen]").first().waitFor();
-await page.waitForFunction(() => ["NotesView", "DriveView", "PhotosView"]
-  .every((n) => performance.getEntriesByType("resource").some((r) => r.name.includes(`/${n}-`))), null, { timeout: 20000 });
+// Skykeep's own window first; each app below opens in a window of its own (openScreen).
+await page.locator(".settings").first().waitFor();
 
 const stats = (gaps) => {
   const s = [...gaps].sort((x, y) => x - y);
