@@ -104,7 +104,10 @@ jobs:
       # The installers' own tools (WiX for the .msi, NSIS for the .exe), which tauri downloads
       # from GitHub on first use: kept between runs, so a release never fails on a download
       # GitHub answered with a 504 (8 Nov).
-      - uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+      # Restored on every run, kept only from main's own commit on main (as windows-setup's
+      # caches): these tools make the signed installers, and a cached copy is used as it is.
+      - id: bundler-tools
+        uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         with:
           path: ~/AppData/Local/tauri
           key: tauri-bundler-tools-wix314-nsis-v1
@@ -140,6 +143,11 @@ jobs:
           npx tauri build --config packaging/windows/bundle-windows.json
           # The provider is in the installers: a missing DLL is a broken feature, not a quiet one.
           ls target/release/quince_thumbs.dll
+      - if: github.ref == 'refs/heads/main' && inputs.ref == '' && steps.bundler-tools.outputs.cache-hit != 'true'
+        uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: ~/AppData/Local/tauri
+          key: tauri-bundler-tools-wix314-nsis-v1
       - name: The program needs no Visual C++ Redistributable
         shell: pwsh
         run: |
