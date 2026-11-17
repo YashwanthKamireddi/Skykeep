@@ -8,7 +8,7 @@ const ctx = await b.newContext({ viewport: { width: 1280, height: 820 } });
 await ctx.addInitScript(installStub, { screen: "library", services: SERVICES, twoFactor: null,
   calendarFixture: false, notesFixture: false, contactsFixture: true, driveFixture: false, remindersFixture: false });
 const page = await ctx.newPage();
-await page.goto(process.env.URL ?? "http://localhost:4173", { waitUntil: "networkidle" });
+await page.goto(process.env.URL ?? process.env.BASE ?? "http://localhost:4173", { waitUntil: "networkidle" });
 await openScreen(page, "Contacts");
 await page.waitForTimeout(400);
 await page.locator(".contact-row", { hasText: "Zoya" }).click();

@@ -8,7 +8,7 @@ const ok = (p, m) => { console.log(`${p ? "PASS" : "FAIL"} ${m}`); if (!p) failu
 const ctx = await b.newContext({ viewport: { width: 1000, height: 420 } });
 await ctx.addInitScript(installStub, { screen: "library", services: SERVICES, twoFactor: null, calendarFixture: true });
 const page = await ctx.newPage();
-await page.goto(process.env.BASE ?? "http://localhost:4173", { waitUntil: "networkidle" });
+await page.goto(process.env.URL ?? process.env.BASE ?? "http://localhost:4173", { waitUntil: "networkidle" });
 await openScreen(page, "Calendar");
 await page.keyboard.press("Control+2");
 await page.waitForTimeout(500);

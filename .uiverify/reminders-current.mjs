@@ -26,7 +26,7 @@ await page.addInitScript((at) => {
     { guid: "x3", listGuid: "l2", title: "Stretch", notes: null, dueAt: null, completedAt: null, priority: 0, flagged: false, parentGuid: null, etag: null },
   ];
 }, start.getTime());
-await page.goto(process.env.BASE ?? "http://localhost:4173", { waitUntil: "networkidle" });
+await page.goto(process.env.URL ?? process.env.BASE ?? "http://localhost:4173", { waitUntil: "networkidle" });
 await openScreen(page, "Reminders");
 let failures = 0;
 const ok = (p, m) => { console.log(`${p ? "PASS" : "FAIL"} ${m}`); if (!p) failures++; };

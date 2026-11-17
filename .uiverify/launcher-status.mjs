@@ -16,7 +16,7 @@ for (const [w, h] of [[820, 640], [1280, 820]]) {
   }, BUSY);
   const page = await ctx.newPage();
   page.on("pageerror", (e) => ok(false, `page error: ${e.message}`));
-  await page.goto(process.env.URL ?? "http://localhost:4173", { waitUntil: "networkidle" });
+  await page.goto(process.env.URL ?? process.env.BASE ?? "http://localhost:4173", { waitUntil: "networkidle" });
   await openSettings(page);
   const tile = page.locator(".launch-tile", { hasText: "Calendar" });
   await tile.waitFor();

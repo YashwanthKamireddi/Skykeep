@@ -9,7 +9,7 @@ const ctx = await b.newContext({ viewport: { width: 1400, height: 850 }, colorSc
 await ctx.addInitScript(installStub, { screen: "library", services: SERVICES, twoFactor: null,
   calendarFixture: true, notesFixture: true, contactsFixture: true, driveFixture: true, remindersFixture: true });
 const p = await ctx.newPage();
-await p.goto(process.env.BASE ?? "http://localhost:4173", { waitUntil: "networkidle" });
+await p.goto(process.env.URL ?? process.env.BASE ?? "http://localhost:4173", { waitUntil: "networkidle" });
 const out = {};
 for (const s of ["Reminders", "Notes", "Drive", "Calendar", "Contacts", "Photos", "Settings"]) {
   if (s === "Settings") await openSettings(p);

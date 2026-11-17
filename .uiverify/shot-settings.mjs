@@ -8,7 +8,7 @@ await ctx.addInitScript((st) => { window.__iphone = { state: st, cameraMs: 61.4,
 await ctx.addInitScript(installStub, { screen: "library", services: SERVICES, twoFactor: null });
 const page = await ctx.newPage();
 page.on("pageerror", (e) => console.log("page error:", e.message));
-await page.goto(process.env.URL ?? "http://localhost:5273", { waitUntil: "networkidle" });
+await page.goto(process.env.URL ?? process.env.BASE ?? "http://localhost:4173", { waitUntil: "networkidle" });
 await openSettings(page);
 if (pane) await page.getByRole("tab", { name: pane, exact: true }).click();
 await page.waitForTimeout(500);

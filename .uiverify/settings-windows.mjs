@@ -6,7 +6,7 @@
 //   URL=http://localhost:4203 ENGINE=webkit node .uiverify/settings-windows.mjs
 import { engine, engineName } from "./engine.mjs";
 import { SERVICES, installStub, openScreen, openPane } from "./stub.mjs";
-const URL = process.env.URL ?? "http://localhost:4173";
+const URL = process.env.URL ?? process.env.BASE ?? "http://localhost:4173";
 const b = await engine.launch();
 let failures = 0;
 const ok = (p, m) => { console.log(`${p ? "PASS" : "FAIL"} ${engineName} ${m}`); if (!p) failures++; };

@@ -3,7 +3,7 @@
 // this one is left, and what was typed is saved. The redraw had thrown the typing away.
 import { engine } from "./engine.mjs";
 import { SERVICES, installStub, openScreen } from "./stub.mjs";
-const BASE = process.env.BASE ?? "http://localhost:4202";
+const BASE = process.env.URL ?? process.env.BASE ?? "http://localhost:4173";
 const b = await engine.launch();
 let failures = 0;
 const ok = (p, m) => { console.log(`${p ? "PASS" : "FAIL"} ${m}`); if (!p) failures++; };

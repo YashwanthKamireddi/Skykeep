@@ -1,7 +1,7 @@
 // Each app's own window at every size from the 480px minimum up: screenshots for review.
 import { engine } from "./engine.mjs";
 import { SERVICES, installStub } from "./stub.mjs";
-const BASE = process.env.BASE ?? "http://localhost:4173";
+const BASE = process.env.URL ?? process.env.BASE ?? "http://localhost:4173";
 const b = await engine.launch();
 for (const app of ["notes", "reminders", "calendar", "contacts", "drivews", "photos"]) {
   for (const [w, h] of [[480, 600], [700, 600], [900, 640]]) {

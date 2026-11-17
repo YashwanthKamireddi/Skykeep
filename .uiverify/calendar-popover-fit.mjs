@@ -11,7 +11,7 @@ await ctx.addInitScript(installStub, { screen: "library", services: SERVICES, tw
   extraEvents: [{ guid: "late", calendarGuid: "work", title: "Late review", day: 0, hour: 11, length: 1 }] });
 const page = await ctx.newPage();
 page.on("pageerror", (e) => ok(false, `page error: ${e.message}`));
-await page.goto(process.env.URL ?? "http://localhost:4173", { waitUntil: "networkidle" });
+await page.goto(process.env.URL ?? process.env.BASE ?? "http://localhost:4173", { waitUntil: "networkidle" });
 await openScreen(page, "Calendar");
 await page.keyboard.press("Control+2");
 await page.waitForTimeout(300);

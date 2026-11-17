@@ -11,7 +11,7 @@
 import { engine, engineName } from "./engine.mjs";
 import { SERVICES, installStub, openScreen, openSettings } from "./stub.mjs";
 
-const BASE = process.env.BASE ?? "http://localhost:4173";
+const BASE = process.env.URL ?? process.env.BASE ?? "http://localhost:4173";
 const ONLY = process.env.ONLY ? new RegExp(process.env.ONLY, "i") : null;
 const FIXTURES = { calendarFixture: true, notesFixture: true, contactsFixture: true, driveFixture: true, remindersFixture: true };
 const b = await engine.launch();

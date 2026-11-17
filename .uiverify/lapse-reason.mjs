@@ -3,7 +3,7 @@
 // account, say), the notice says that reason instead, and the copy on the computer stays.
 import { engine } from "./engine.mjs";
 import { SERVICES, installStub } from "./stub.mjs";
-const BASE = process.env.BASE ?? process.env.URL ?? "http://localhost:4173";
+const BASE = process.env.URL ?? process.env.BASE ?? "http://localhost:4173";
 const LOCKED =
   "Apple has locked this Apple Account for security. Unlock it at iforgot.apple.com, then sign in here again.";
 const b = await engine.launch();

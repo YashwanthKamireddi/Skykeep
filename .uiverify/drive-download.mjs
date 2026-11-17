@@ -11,7 +11,7 @@ await ctx.addInitScript(installStub, { screen: "library", services: SERVICES, tw
 const page = await ctx.newPage();
 const errors = [];
 page.on("pageerror", (e) => errors.push(String(e)));
-await page.goto(process.env.BASE ?? process.env.URL ?? "http://localhost:4173", { waitUntil: "networkidle" });
+await page.goto(process.env.URL ?? process.env.BASE ?? "http://localhost:4173", { waitUntil: "networkidle" });
 await openScreen(page, "Drive");
 await page.waitForSelector(".drive-row-hit");
 await page.waitForTimeout(300);
@@ -207,7 +207,7 @@ await later.addInitScript(() => {
 });
 const next = await later.newPage();
 next.on("pageerror", (e) => errors.push(String(e)));
-await next.goto(process.env.BASE ?? process.env.URL ?? "http://localhost:4173", { waitUntil: "networkidle" });
+await next.goto(process.env.URL ?? process.env.BASE ?? "http://localhost:4173", { waitUntil: "networkidle" });
 await openScreen(next, "Drive");
 await next.waitForTimeout(500);
 const offered = next.locator(".download-tray");

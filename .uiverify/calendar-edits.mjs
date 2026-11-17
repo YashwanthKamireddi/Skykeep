@@ -4,7 +4,7 @@
 // Maps. A calendar's default alert goes on each new event made in it.
 import { engine } from "./engine.mjs";
 import { SERVICES, installStub, openScreen } from "./stub.mjs";
-const BASE = process.env.BASE ?? "http://localhost:4173";
+const BASE = process.env.URL ?? process.env.BASE ?? "http://localhost:4173";
 const b = await engine.launch();
 const ctx = await b.newContext({ viewport: { width: 1300, height: 850 } });
 await ctx.addInitScript(installStub, { screen: "library", services: SERVICES, twoFactor: null, calendarFixture: true });

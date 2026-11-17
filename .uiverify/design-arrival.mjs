@@ -13,7 +13,7 @@ import { transform } from "esbuild";
 import { engine } from "./engine.mjs";
 import { SERVICES, installStub } from "./stub.mjs";
 
-const BASE = process.env.BASE ?? "http://localhost:4173";
+const BASE = process.env.URL ?? process.env.BASE ?? "http://localhost:4173";
 const fade = (await transform(await readFile(new URL("../src/lib/fade.ts", import.meta.url), "utf8"), { loader: "ts", format: "esm" })).code;
 let failures = 0;
 const ok = (p, m) => { console.log(`${p ? "PASS" : "FAIL"} ${m}`); if (!p) failures++; };

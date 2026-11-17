@@ -48,7 +48,7 @@ await ctx.addInitScript(([n]) => {
 }, [N]);
 const page = await ctx.newPage();
 page.on("pageerror", (e) => ok(false, `page error: ${e.message}`));
-await page.goto(process.env.URL ?? "http://localhost:4173", { waitUntil: "networkidle" });
+await page.goto(process.env.URL ?? process.env.BASE ?? "http://localhost:4173", { waitUntil: "networkidle" });
 const cdp = engineName === "chromium" ? await ctx.newCDPSession(page) : null;
 const heap = async () => {
   if (!cdp) return null;

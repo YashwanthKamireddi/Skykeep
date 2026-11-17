@@ -7,7 +7,7 @@ import { SERVICES, installStub, openScreen, openSettings } from "./stub.mjs";
 const b = await engine.launch();
 let failures = 0;
 const ok = (p, m) => { console.log(`${p ? "PASS" : "FAIL"} ${m}`); if (!p) failures++; };
-const URL_ = process.env.URL ?? "http://localhost:4173";
+const URL_ = process.env.URL ?? process.env.BASE ?? "http://localhost:4173";
 
 for (const [where, size] of [["Notes", [800, 680]], ["Skykeep", [800, 680]], ["Skykeep", [1280, 820]], ["Photos", [520, 480]]]) {
   const ctx = await b.newContext({ viewport: { width: size[0], height: size[1] } });

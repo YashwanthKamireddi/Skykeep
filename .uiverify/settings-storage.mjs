@@ -12,7 +12,7 @@ const open = async (init) => {
   await ctx.addInitScript(installStub, { screen: "library", services: SERVICES, twoFactor: null });
   const page = await ctx.newPage();
   page.on("pageerror", (e) => ok(false, `page error: ${e.message}`));
-  await page.goto(process.env.URL ?? "http://localhost:4173", { waitUntil: "networkidle" });
+  await page.goto(process.env.URL ?? process.env.BASE ?? "http://localhost:4173", { waitUntil: "networkidle" });
   await openSettings(page);
   await page.waitForSelector(".settings");
   await page.waitForTimeout(300);

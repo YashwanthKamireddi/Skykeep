@@ -3,7 +3,7 @@
 // A session Apple simply ended says nothing extra.
 import { engine } from "./engine.mjs";
 import { SERVICES, installStub } from "./stub.mjs";
-const BASE = process.env.BASE ?? process.env.URL ?? "http://localhost:4173";
+const BASE = process.env.URL ?? process.env.BASE ?? "http://localhost:4173";
 const KEYRING =
   "Your system keyring is locked or not running. Unlock or start GNOME Keyring or KWallet, then try again.";
 const b = await engine.launch();

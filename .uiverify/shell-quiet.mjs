@@ -12,7 +12,7 @@ import { SERVICES, installStub, openScreen } from "./stub.mjs";
 const b = await engine.launch();
 let failures = 0;
 const ok = (p, m) => { console.log(`${p ? "PASS" : "FAIL"} ${m}`); if (!p) failures++; };
-const BASE = process.env.BASE ?? "http://localhost:4173";
+const BASE = process.env.URL ?? process.env.BASE ?? "http://localhost:4173";
 const logCalls = () => {
   // Leaving the library lets its listeners go, which the stub has no plugin for.
   window.__TAURI_EVENT_PLUGIN_INTERNALS__ ??= { unregisterListener() {} };

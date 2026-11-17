@@ -6,7 +6,7 @@
 import { engine, engineName } from "./engine.mjs";
 import { SERVICES, installStub, openScreen } from "./stub.mjs";
 
-const URL = process.env.URL ?? process.env.URL ?? "http://localhost:4173";
+const URL = process.env.URL ?? process.env.BASE ?? "http://localhost:4173";
 const SHOTS = process.env.SHOTS ?? null;
 const b = await engine.launch();
 let failures = 0;

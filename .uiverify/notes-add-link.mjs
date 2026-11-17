@@ -12,7 +12,7 @@ const ctx = await b.newContext({ viewport: { width: 1200, height: 800 } });
 await ctx.addInitScript(installStub, { screen: "library", services: SERVICES, twoFactor: null, notesFixture: true });
 const page = await ctx.newPage();
 page.on("pageerror", (e) => ok(false, `page error: ${e.message}`));
-await page.goto(process.env.URL ?? "http://localhost:4173", { waitUntil: "networkidle" });
+await page.goto(process.env.URL ?? process.env.BASE ?? "http://localhost:4173", { waitUntil: "networkidle" });
 await openScreen(page, "Notes");
 await page.locator(".note-row", { hasText: "Curtains" }).first().click();
 await page.waitForTimeout(500);

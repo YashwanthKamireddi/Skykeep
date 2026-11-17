@@ -35,7 +35,7 @@ await ctx.addInitScript(() => {
 });
 const page = await ctx.newPage();
 page.on("pageerror", (e) => { console.log(`FAIL page error: ${e.message}`); failures++; });
-await page.goto(process.env.BASE ?? "http://localhost:4173", { waitUntil: "networkidle" });
+await page.goto(process.env.URL ?? process.env.BASE ?? "http://localhost:4173", { waitUntil: "networkidle" });
 // Calendar first, so it stays mounted behind Reminders as it does once visited.
 await openScreen(page, "Calendar");
 await page.waitForTimeout(500);

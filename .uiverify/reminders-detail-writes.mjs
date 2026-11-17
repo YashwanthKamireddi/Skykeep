@@ -3,7 +3,7 @@
 // reminders-tags and reminders-sections check that none of these controls show.
 import { engine } from "./engine.mjs";
 import { SERVICES, installStub, openScreen } from "./stub.mjs";
-const BASE = process.env.BASE ?? "http://localhost:4173";
+const BASE = process.env.URL ?? process.env.BASE ?? "http://localhost:4173";
 const b = await engine.launch();
 const ctx = await b.newContext({ viewport: { width: 1200, height: 900 } });
 await ctx.addInitScript(installStub, { screen: "library", services: SERVICES, twoFactor: null, remindersFixture: true });

@@ -6,7 +6,7 @@ import { SERVICES, installStub } from "./stub.mjs";
 const b = await engine.launch();
 let failures = 0;
 const ok = (p, m) => { console.log(`${p ? "PASS" : "FAIL"} ${engineName} ${m}`); if (!p) failures++; };
-const URL = process.env.URL ?? "http://localhost:4173";
+const URL = process.env.URL ?? process.env.BASE ?? "http://localhost:4173";
 async function open(possible = true) {
   const ctx = await b.newContext({ viewport: { width: 1180, height: 800 } });
   await ctx.addInitScript((p) => { window.__floatPossible = p; }, possible);

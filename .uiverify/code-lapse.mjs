@@ -4,7 +4,7 @@
 // or a sync behind their back. The same when it lapses while the window is open.
 import { engine } from "./engine.mjs";
 import { SERVICES, installStub } from "./stub.mjs";
-const BASE = process.env.BASE ?? process.env.URL ?? "http://localhost:4173";
+const BASE = process.env.URL ?? process.env.BASE ?? "http://localhost:4173";
 const b = await engine.launch();
 let failures = 0;
 const ok = (p, m) => { console.log(`${p ? "PASS" : "FAIL"} ${m}`); if (!p) failures++; };

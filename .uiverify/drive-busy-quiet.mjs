@@ -11,7 +11,7 @@ await ctx.addInitScript(installStub, { screen: "library", services: SERVICES, tw
 await ctx.addInitScript(() => { window.__driveBusy = 1; });
 const page = await ctx.newPage();
 page.on("pageerror", (e) => { console.log(`FAIL page error: ${e.message}`); process.exitCode = 1; });
-await page.goto(process.env.URL ?? "http://localhost:4173", { waitUntil: "networkidle" });
+await page.goto(process.env.URL ?? process.env.BASE ?? "http://localhost:4173", { waitUntil: "networkidle" });
 await openScreen(page, "Drive");
 await page.waitForTimeout(800);
 ok((await page.evaluate(() => (window.__busyAsks ?? []).length)) === 1, "Apple was busy for the first ask");

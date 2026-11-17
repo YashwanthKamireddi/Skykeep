@@ -16,7 +16,7 @@ await ctx.addInitScript(() => {
 await ctx.addInitScript(installStub, { screen: "library", services: SERVICES, twoFactor: null, remindersFixture: true });
 const page = await ctx.newPage();
 page.on("pageerror", (e) => ok(false, `page error: ${e.message}`));
-await page.goto(`${process.env.URL ?? "http://localhost:4173"}/?app=reminders`, { waitUntil: "networkidle" });
+await page.goto(`${process.env.URL ?? process.env.BASE ?? "http://localhost:4173"}/?app=reminders`, { waitUntil: "networkidle" });
 await page.locator(".rx-tile").first().waitFor();
 const names = await page.locator(".rx-tile .rx-tile-name").allInnerTexts();
 const pinned = names.filter((n) => n === "Daily" || n === "Life Goals");

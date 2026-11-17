@@ -16,7 +16,7 @@ await ctx.addInitScript(() => {
 });
 const page = await ctx.newPage();
 page.on("pageerror", (e) => ok(false, `page error: ${e.message}`));
-await page.goto(process.env.URL ?? "http://localhost:4173", { waitUntil: "networkidle" });
+await page.goto(process.env.URL ?? process.env.BASE ?? "http://localhost:4173", { waitUntil: "networkidle" });
 await openScreen(page, "Photos");
 await page.waitForTimeout(600);
 const where = () => page.evaluate(() => {

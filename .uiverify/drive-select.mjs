@@ -21,7 +21,7 @@ await ctx.addInitScript(() => {
   wrap(); document.addEventListener("DOMContentLoaded", wrap);
 });
 const page = await ctx.newPage();
-await page.goto(process.env.BASE ?? "http://localhost:4173", { waitUntil: "networkidle" });
+await page.goto(process.env.URL ?? process.env.BASE ?? "http://localhost:4173", { waitUntil: "networkidle" });
 await openScreen(page, "Drive");
 await page.waitForTimeout(400);
 let failures = 0;
@@ -122,7 +122,7 @@ await big.addInitScript(() => {
   wrap(); document.addEventListener("DOMContentLoaded", wrap);
 });
 const p2 = await big.newPage();
-await p2.goto(process.env.BASE ?? "http://localhost:4173", { waitUntil: "networkidle" });
+await p2.goto(process.env.URL ?? process.env.BASE ?? "http://localhost:4173", { waitUntil: "networkidle" });
 await openScreen(p2, "Drive");
 await p2.waitForTimeout(800);
 await p2.locator("button.drive-row-hit").first().click();

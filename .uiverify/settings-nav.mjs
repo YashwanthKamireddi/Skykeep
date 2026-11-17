@@ -3,7 +3,7 @@
 // nothing runs out of its box sideways.
 import { engine, engineName } from "./engine.mjs";
 import { SERVICES, installStub, openSettings, openPane } from "./stub.mjs";
-const BASE = process.env.URL ?? "http://localhost:4173";
+const BASE = process.env.URL ?? process.env.BASE ?? "http://localhost:4173";
 const b = await engine.launch();
 let failures = 0;
 const ok = (p, m) => { console.log(`${p ? "PASS" : "FAIL"} ${engineName} ${m}`); if (!p) failures++; };

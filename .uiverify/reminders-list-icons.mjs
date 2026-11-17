@@ -10,7 +10,7 @@ await ctx.addInitScript(() => { window.__listEmblems = { l1: '{"Emoji":"🛒"}',
 await ctx.addInitScript(installStub, { screen: "library", services: SERVICES, twoFactor: null, remindersFixture: true });
 const page = await ctx.newPage();
 page.on("pageerror", (e) => ok(false, `page error: ${e.message}`));
-await page.goto(`${process.env.URL ?? "http://localhost:4173"}/?app=reminders`, { waitUntil: "networkidle" });
+await page.goto(`${process.env.URL ?? process.env.BASE ?? "http://localhost:4173"}/?app=reminders`, { waitUntil: "networkidle" });
 await page.waitForTimeout(600);
 const badge = (name) => page.locator(".rx-list-row, .source-row", { hasText: name }).first().locator(".rx-badge");
 ok((await badge("Daily").locator(".list-emoji").innerText()) === "🛒", "an emoji icon shows as the emoji");

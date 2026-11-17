@@ -11,7 +11,7 @@ for (const theme of ["light", "dark"]) {
   await ctx.addInitScript(() => { window.__tagNote = true; });
   await ctx.addInitScript(installStub, { screen: "library", services: SERVICES, twoFactor: null, notesFixture: true });
   const page = await ctx.newPage();
-  await page.goto(process.env.BASE ?? "http://localhost:4173", { waitUntil: "networkidle" });
+  await page.goto(process.env.URL ?? process.env.BASE ?? "http://localhost:4173", { waitUntil: "networkidle" });
   await openScreen(page, "Notes");
   await page.waitForTimeout(400);
   await page.locator(".note-row", { hasText: "Pasta" }).first().click();

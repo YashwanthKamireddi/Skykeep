@@ -9,7 +9,7 @@ const ctx = await b.newContext({ viewport: { width: 1280, height: 800 } });
 await ctx.addInitScript(installStub, { screen: "library", services: SERVICES, twoFactor: null, contactsFixture: true });
 const page = await ctx.newPage();
 await ctx.addInitScript(autoConfirm);
-await page.goto(process.env.URL ?? "http://localhost:4173", { waitUntil: "networkidle" });
+await page.goto(process.env.URL ?? process.env.BASE ?? "http://localhost:4173", { waitUntil: "networkidle" });
 await openScreen(page, "Contacts");
 await page.waitForTimeout(400);
 let failures = 0;
@@ -101,7 +101,7 @@ await big.addInitScript(() => {
   wrap(); document.addEventListener("DOMContentLoaded", wrap);
 });
 const p2 = await big.newPage();
-await p2.goto(process.env.URL ?? "http://localhost:4173", { waitUntil: "networkidle" });
+await p2.goto(process.env.URL ?? process.env.BASE ?? "http://localhost:4173", { waitUntil: "networkidle" });
 await openScreen(p2, "Contacts");
 await p2.waitForTimeout(800);
 ok((await p2.locator(".contact-index button").count()) >= 26, "a long list has the letters down its edge");

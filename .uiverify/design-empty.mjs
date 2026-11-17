@@ -6,7 +6,7 @@ const b = await engine.launch();
 const ctx = await b.newContext({ viewport: { width: 1400, height: 850 }, colorScheme: scheme });
 await ctx.addInitScript(installStub, { screen: "library", services: SERVICES, twoFactor: null });
 const p = await ctx.newPage();
-await p.goto(process.env.BASE ?? "http://localhost:4173", { waitUntil: "networkidle" });
+await p.goto(process.env.URL ?? process.env.BASE ?? "http://localhost:4173", { waitUntil: "networkidle" });
 for (const s of ["Reminders", "Notes", "Drive", "Calendar", "Contacts", "Photos"]) {
   await openScreen(p, s);
   await p.waitForTimeout(500);

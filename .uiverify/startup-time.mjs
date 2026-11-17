@@ -27,7 +27,7 @@ for (let i = 0; i < N; i++) {
     }).observe(document, { childList: true, subtree: true });
   });
   const page = await ctx.newPage();
-  await page.goto(`${process.env.BASE ?? "http://localhost:4173"}/?app=contacts`);
+  await page.goto(`${process.env.URL ?? process.env.BASE ?? "http://localhost:4173"}/?app=contacts`);
   await page.waitForFunction(() => window.__ready && window.__rows, null, { timeout: 20000 });
   const r = await page.evaluate(() => ({
     ready: window.__ready,

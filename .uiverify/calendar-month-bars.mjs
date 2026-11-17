@@ -23,7 +23,7 @@ for (const [width, height] of [[1300, 1200], [1300, 850], [1300, 520], [760, 600
     ] });
   const page = await ctx.newPage();
   page.on("pageerror", (e) => { console.log(`FAIL page error: ${e.message}`); process.exitCode = 1; });
-  await page.goto(process.env.URL ?? "http://localhost:4173", { waitUntil: "networkidle" });
+  await page.goto(process.env.URL ?? process.env.BASE ?? "http://localhost:4173", { waitUntil: "networkidle" });
   await openScreen(page, "Calendar");
   await page.keyboard.press("Control+3");
   await page.locator(".cx-week").first().waitFor();

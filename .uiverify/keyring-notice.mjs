@@ -3,7 +3,7 @@
 // whole sentence with what fixes it in Settings. With a keyring, nothing is said.
 import { engine } from "./engine.mjs";
 import { SERVICES, installStub, openSettings } from "./stub.mjs";
-const BASE = process.env.BASE ?? process.env.URL ?? "http://localhost:4173";
+const BASE = process.env.URL ?? process.env.BASE ?? "http://localhost:4173";
 const b = await engine.launch();
 let failures = 0;
 const ok = (p, m) => { console.log(`${p ? "PASS" : "FAIL"} ${m}`); if (!p) failures++; };

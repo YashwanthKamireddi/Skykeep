@@ -7,7 +7,7 @@ const b = await engine.launch();
 const ctx = await b.newContext({ viewport: { width: 1180, height: 820 } });
 await ctx.addInitScript(installStub, { screen: "library", services: SERVICES, twoFactor: null, remindersFixture: true });
 const page = await ctx.newPage();
-const BASE = process.env.URL ?? "http://localhost:4173";
+const BASE = process.env.URL ?? process.env.BASE ?? "http://localhost:4173";
 await page.goto(`${BASE}/?app=reminders`, { waitUntil: "networkidle" });
 await page.waitForTimeout(400);
 let failures = 0;

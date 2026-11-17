@@ -9,7 +9,7 @@ import { SERVICES, installStub, openScreen } from "./stub.mjs";
 const b = await engine.launch();
 let failures = 0;
 const ok = (p, m) => { console.log(`${p ? "PASS" : "FAIL"} ${m}`); if (!p) failures++; };
-const URL_ = process.env.URL ?? "http://localhost:4173";
+const URL_ = process.env.URL ?? process.env.BASE ?? "http://localhost:4173";
 const SIDE = { Notes: ".notes-folders", Reminders: ".rx-side", Calendar: ".cx-side", Contacts: ".contacts-lists", Drive: ".dx-side", Photos: ".px-side" };
 const HEAD = { Notes: ".notes-list-head", Reminders: ".rx-head", Calendar: ".cx-bar", Contacts: ".contacts-head", Drive: ".drive-bar", Photos: ".px-bar" };
 const open = async (name, width, ctx) => {

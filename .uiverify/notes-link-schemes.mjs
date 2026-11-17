@@ -43,7 +43,7 @@ await ctx.addInitScript((links) => {
 await ctx.route("https://example.org/**", (r) => r.fulfill({ status: 200, body: "opened" }));
 const page = await ctx.newPage();
 page.on("pageerror", (e) => { console.log(`FAIL page error: ${e.message}`); process.exitCode = 1; });
-const base = process.env.BASE ?? "http://localhost:4173";
+const base = process.env.URL ?? process.env.BASE ?? "http://localhost:4173";
 await page.goto(base, { waitUntil: "networkidle" });
 await openScreen(page, "Notes");
 await page.waitForTimeout(400);

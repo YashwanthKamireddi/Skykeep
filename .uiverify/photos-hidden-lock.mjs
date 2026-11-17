@@ -13,7 +13,7 @@ await ctx.addInitScript(installStub, { screen: "library", services: SERVICES, tw
 await ctx.addInitScript(() => { window.__photoExtra = { p2: { hidden: true } }; });
 const page = await ctx.newPage();
 page.on("pageerror", (e) => { console.log(`FAIL page error: ${e.message}`); process.exitCode = 1; });
-await page.goto(process.env.URL ?? "http://localhost:4173", { waitUntil: "networkidle" });
+await page.goto(process.env.URL ?? process.env.BASE ?? "http://localhost:4173", { waitUntil: "networkidle" });
 let failures = 0;
 const ok = (p, m) => { console.log(`${p ? "PASS" : "FAIL"} ${m}`); if (!p) failures++; };
 await openScreen(page, "Photos");

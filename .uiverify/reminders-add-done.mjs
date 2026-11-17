@@ -11,7 +11,7 @@ await ctx.addInitScript(() => {
   wrap(); document.addEventListener("DOMContentLoaded", wrap);
 });
 const page = await ctx.newPage();
-await page.goto(process.env.BASE ?? "http://localhost:4173", { waitUntil: "networkidle" });
+await page.goto(process.env.URL ?? process.env.BASE ?? "http://localhost:4173", { waitUntil: "networkidle" });
 await openScreen(page, "Reminders");
 await page.locator(".rx-tile", { hasText: "Today" }).click();
 await page.waitForTimeout(300);

@@ -3,7 +3,7 @@
 // empty boxes waiting for a code that never comes (icloudpd#583, #1423).
 import { engine } from "./engine.mjs";
 import { SERVICES, installStub } from "./stub.mjs";
-const URL = process.env.BASE ?? process.env.URL ?? "http://localhost:4173";
+const URL = process.env.URL ?? process.env.BASE ?? "http://localhost:4173";
 const b = await engine.launch();
 let failures = 0;
 const ok = (p, m) => { console.log(`${p ? "PASS" : "FAIL"} ${m}`); if (!p) failures++; };
