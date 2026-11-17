@@ -195,6 +195,23 @@ impl Library {
         Ok(items)
     }
 
+    /// What is inside a folder as `drive_children` has it, or `None` when this library was never
+    /// told: nothing is stored under it and Apple's own count for it is not zero. Drive is
+    /// fetched a folder at a time, so a folder never opened here has no items stored, and that
+    /// is not the same as empty. Read as empty, File Explorer was told a folder never listed
+    /// held nothing, and opening it failed ("The cloud operation is invalid") until it had been
+    /// opened in Skykeep's own Drive first (#44).
+    pub fn drive_children_known(&self, parent_id: &str) -> Result<Option<Vec<DriveItem>>> {
+        let items = self.drive_children(parent_id)?;
+        if !items.is_empty() {
+            return Ok(Some(items));
+        }
+        let empty = self
+            .drive_item(parent_id)?
+            .is_some_and(|folder| folder.child_count == Some(0));
+        Ok(empty.then_some(items))
+    }
+
     /// One item by its identifier, for building a breadcrumb trail.
     pub fn drive_item(&self, drivewsid: &str) -> Result<Option<DriveItem>> {
         let mut stmt = self.conn.prepare(
@@ -241,6 +258,32 @@ mod tests {
             modified_at: None,
             etag: None,
         }
+    }
+
+    #[test]
+    fn a_folder_never_listed_is_unknown_not_empty() {
+        let mut lib = Library::in_memory().unwrap();
+        let mut vault = item("F::vault", "Vault", "FOLDER");
+        vault.child_count = Some(12);
+        let mut bare = item("F::bare", "Bare", "FOLDER");
+        bare.child_count = Some(0);
+        let unsaid = item("F::unsaid", "Unsaid", "FOLDER");
+        lib.put_drive_children(ROOT, &[vault, bare, unsaid])
+            .unwrap();
+        // Apple says twelve, none stored: never listed here.
+        assert_eq!(lib.drive_children_known("F::vault").unwrap(), None);
+        // Apple says none: empty, known.
+        assert_eq!(lib.drive_children_known("F::bare").unwrap(), Some(vec![]));
+        // No count given: not known either.
+        assert_eq!(lib.drive_children_known("F::unsaid").unwrap(), None);
+        // Listed: what it holds.
+        lib.put_drive_children("F::vault", &[item("D::n", "note", "FILE")])
+            .unwrap();
+        let known = lib.drive_children_known("F::vault").unwrap().unwrap();
+        assert_eq!(known.len(), 1);
+        // The root, never listed: unknown.
+        let fresh = Library::in_memory().unwrap();
+        assert_eq!(fresh.drive_children_known(ROOT).unwrap(), None);
     }
 
     #[test]

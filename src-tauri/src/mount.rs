@@ -290,13 +290,18 @@ impl Store for AppStore {
         // Called on the folder's own threads, never the async runtime's: waiting is allowed —
         // but a file manager's every look at a name came here, and waited out whole sync passes
         // on the library's lock. On the folder's own reader it never waits on one.
-        if let Some(Ok(items)) = self.with_reader(|_, r| Some(r.library().drive_children(folder))) {
-            return Some(items);
+        // `None` for a folder this library was never told about (drive_children_known): it is
+        // listed from Apple then, never answered as empty (#44).
+        if let Some(Ok(items)) =
+            self.with_reader(|_, r| Some(r.library().drive_children_known(folder)))
+        {
+            return items;
         }
         let data = self.app.state::<Data>();
         data.0
-            .blocking_read(|library| library.drive_children(folder))
+            .blocking_read(|library| library.drive_children_known(folder))
             .ok()
+            .flatten()
     }
 
     fn version(&self) -> Option<u64> {

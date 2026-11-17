@@ -881,6 +881,10 @@ unsafe extern "system" fn on_fetch_placeholders(
     }
 }
 
+/// How long a folder's listing may take before the folder is answered as failed (and asked
+/// again on the next open): inside the minute Windows waits for a request.
+const LIST_WAIT: std::time::Duration = std::time::Duration::from_secs(30);
+
 /// A folder's items as placeholders, from the library (from Apple first when the folder was
 /// never listed), one per call, the last marking the folder whole.
 async fn fetch_placeholders(remote: &dyn Remote, store: &dyn Store, req: Request) {
@@ -890,7 +894,12 @@ async fn fetch_placeholders(remote: &dyn Remote, store: &dyn Store, req: Request
         .map_or(ROOT.to_string(), |i| i.drivewsid.clone());
     let items = match store.children(&folder) {
         Some(items) => items,
-        None => match remote.list(&folder).await {
+        // Bounded, as on Linux (fuse.rs): Windows gives up on a request after a minute, and an
+        // answer that never comes left the folder failing with nothing said.
+        None => match tokio::time::timeout(LIST_WAIT, remote.list(&folder))
+            .await
+            .unwrap_or_else(|_| Err("Apple did not answer in time".into()))
+        {
             Ok(items) => items,
             Err(e) => {
                 crate::note_about(&format!("listing a folder: {e}"), &folder);
