@@ -163,9 +163,23 @@ export function Periods({
     at.current = where(i);
     scrollTo(target < 0 ? 0 : rowTop(i));
     if (target >= 0) focusing.current = i;
+    holdAt.current = target < 0 ? null : i;
     setLanded({ level, land });
     // Only on arriving at a level (and once it has a width): a sync leaves it be.
   }, [level, land, width > 0]); // eslint-disable-line react-hooks/exhaustive-deps
+  /**
+   * The tile landed on, kept at the top until the person moves: the layout can still change
+   * under it — WebKit takes its scrollbar out of the width once the level is taller than the
+   * window, a row then holds fewer tiles, and the landed month was rows away from the top.
+   */
+  const holdAt = useRef<number | null>(null);
+  useLayoutEffect(() => {
+    const i = holdAt.current;
+    if (i !== null && rowH > shape.gap) scrollTo(rowTop(i));
+  }, [across, rowH]); // eslint-disable-line react-hooks/exhaustive-deps
+  const moved = () => {
+    holdAt.current = null;
+  };
   useLayoutEffect(() => {
     const i = focusing.current;
     if (i === null) return;
@@ -214,7 +228,7 @@ export function Periods({
   const dpr = window.devicePixelRatio || 1;
   const big = Math.min(level === "years" ? YEAR_PX : MONTH_PX, Math.round((level === "years" ? 560 : 320) * dpr));
   return (
-    <div ref={box} className="px-periods" data-level={level} onScroll={onScroll} onKeyDown={onKeyDown}>
+    <div ref={box} className="px-periods" data-level={level} onScroll={onScroll} onKeyDown={(e) => { moved(); onKeyDown(e); }} onWheel={moved} onPointerDown={moved} onTouchStart={moved}>
       <div
         className="px-periods-grid"
         role="group"
