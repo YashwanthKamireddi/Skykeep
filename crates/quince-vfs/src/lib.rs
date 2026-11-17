@@ -39,15 +39,14 @@ pub fn set_notes(sink: fn(&str)) {
 pub(crate) fn replace_durably(part: &Path, to: &Path) -> std::io::Result<()> {
     #[cfg(windows)]
     {
-        use windows::core::HSTRING;
         use windows::Win32::Storage::FileSystem::{
             MoveFileExW, MOVEFILE_REPLACE_EXISTING, MOVEFILE_WRITE_THROUGH,
         };
         // SAFETY: two path strings alive for the call.
         unsafe {
             MoveFileExW(
-                &HSTRING::from(part.as_os_str()),
-                &HSTRING::from(to.as_os_str()),
+                &crate::cloud::long_path(part),
+                &crate::cloud::long_path(to),
                 MOVEFILE_REPLACE_EXISTING | MOVEFILE_WRITE_THROUGH,
             )
         }
