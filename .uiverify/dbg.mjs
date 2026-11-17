@@ -38,7 +38,7 @@ await ctx.addInitScript(() => {
 const p = await ctx.newPage();
 p.on("console", m => console.log("[console]", m.type(), m.text()));
 p.on("pageerror", e => console.log("[pageerror]", String(e)));
-await p.goto("http://localhost:4173", { waitUntil:"networkidle" });
+await p.goto(process.env.URL ?? process.env.BASE ?? "http://localhost:4173", { waitUntil:"networkidle" });
 await p.waitForTimeout(400);
 console.log("stub reached?", await p.evaluate(() => window.__calls ?? "STUB NEVER CALLED"));
 console.log("visible root:", (await p.innerText("#root")).slice(0,120).replace(/\n/g," "));

@@ -34,7 +34,7 @@ for (const scheme of ["dark", "light"]) {
     };
   }, fx);
   const p = await ctx.newPage();
-  await p.goto("http://localhost:4173", { waitUntil: "networkidle" });
+  await p.goto(process.env.URL ?? process.env.BASE ?? "http://localhost:4173", { waitUntil: "networkidle" });
   await openScreen(p, "Reminders");
   await p.waitForTimeout(500);
   await p.screenshot({ path: `${out}/reminders-${scheme}.png` });

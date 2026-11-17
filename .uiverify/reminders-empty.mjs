@@ -7,7 +7,7 @@ const b = await engine.launch();
 const ctx = await b.newContext({ viewport: { width: 1200, height: 800 } });
 await ctx.addInitScript(installStub, { screen: "library", services: SERVICES, twoFactor: null, remindersFixture: "lists" });
 const page = await ctx.newPage();
-await page.goto("http://localhost:4173", { waitUntil: "networkidle" });
+await page.goto(process.env.URL ?? process.env.BASE ?? "http://localhost:4173", { waitUntil: "networkidle" });
 await openScreen(page, "Reminders");
 await page.locator(".rx-tile", { hasText: "Today" }).click();
 await page.waitForTimeout(400);
@@ -23,7 +23,7 @@ console.log(pass ? "PASS an empty Today says No Reminders, with no empty heading
 const full = await b.newContext({ viewport: { width: 1200, height: 800 } });
 await full.addInitScript(installStub, { screen: "library", services: SERVICES, twoFactor: null, remindersFixture: true });
 const p2 = await full.newPage();
-await p2.goto("http://localhost:4173", { waitUntil: "networkidle" });
+await p2.goto(process.env.URL ?? process.env.BASE ?? "http://localhost:4173", { waitUntil: "networkidle" });
 await openScreen(p2, "Reminders");
 await p2.locator(".rx-tile", { hasText: "Today" }).click();
 await p2.waitForTimeout(400);

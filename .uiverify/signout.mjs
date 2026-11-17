@@ -8,7 +8,7 @@ const ctx = await b.newContext({ viewport: { width: 1200, height: 900 } });
 await ctx.addInitScript(installStub, { screen: "library", services: SERVICES, twoFactor: null });
 const page = await ctx.newPage();
 page.on("pageerror", (e) => { console.log(`FAIL page error: ${e.message}`); process.exitCode = 1; });
-await page.goto("http://localhost:4173", { waitUntil: "networkidle" });
+await page.goto(process.env.URL ?? process.env.BASE ?? "http://localhost:4173", { waitUntil: "networkidle" });
 let failures = 0;
 const ok = (p, m) => { console.log(`${p ? "PASS" : "FAIL"} ${m}`); if (!p) failures++; };
 const settings = () => openSettings(page);

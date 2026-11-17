@@ -15,7 +15,7 @@ const stub = { screen: "library", services: SERVICES, twoFactor: null, calendarF
   await ctx.addInitScript(installStub, stub);
   const page = await ctx.newPage();
   page.on("pageerror", (e) => { console.log(`FAIL page error: ${e.message}`); failures++; });
-  await page.goto("http://localhost:4173/?app=calendar&new=event", { waitUntil: "networkidle" });
+  await page.goto((process.env.URL ?? process.env.BASE ?? "http://localhost:4173") + "/?app=calendar&new=event", { waitUntil: "networkidle" });
   await page.waitForTimeout(800);
   ok((await page.locator('main.content[data-screen="calendar"]').count()) === 1, "a window made for it is Calendar");
   ok((await started(page)) === 1, "with a new event started in it");
@@ -28,7 +28,7 @@ const stub = { screen: "library", services: SERVICES, twoFactor: null, calendarF
   await ctx.addInitScript(installStub, stub);
   const page = await ctx.newPage();
   page.on("pageerror", (e) => { console.log(`FAIL page error: ${e.message}`); failures++; });
-  await page.goto("http://localhost:4173/?app=calendar", { waitUntil: "networkidle" });
+  await page.goto((process.env.URL ?? process.env.BASE ?? "http://localhost:4173") + "/?app=calendar", { waitUntil: "networkidle" });
   await page.waitForTimeout(800);
   ok((await started(page)) === 0, "Calendar's window, opened plainly, has no event started");
   await page.evaluate(() => window.__emit("quince://new-event", null));
@@ -48,7 +48,7 @@ const stub = { screen: "library", services: SERVICES, twoFactor: null, calendarF
   await ctx.addInitScript(installStub, stub);
   const page = await ctx.newPage();
   page.on("pageerror", (e) => { console.log(`FAIL page error: ${e.message}`); failures++; });
-  await page.goto("http://localhost:4173/?app=notes", { waitUntil: "networkidle" });
+  await page.goto((process.env.URL ?? process.env.BASE ?? "http://localhost:4173") + "/?app=notes", { waitUntil: "networkidle" });
   await page.waitForTimeout(800);
   await page.evaluate(() => window.__emit("quince://new-event", null));
   await page.waitForTimeout(400);

@@ -22,13 +22,13 @@ await ctx.addInitScript(() => {
 });
 const page = await ctx.newPage();
 page.on("pageerror", () => {});
-await page.goto("http://localhost:4173", { waitUntil: "networkidle" });
+await page.goto(process.env.URL ?? process.env.BASE ?? "http://localhost:4173", { waitUntil: "networkidle" });
 
 let failures = 0;
 const ok = (pass, yes, no) => { console.log(pass ? `PASS ${yes}` : `FAIL ${no}`); if (!pass) failures++; };
 
 // Contacts' own window, opened without waiting for it to draw: it is made to fail.
-await page.goto("http://localhost:4173/?app=contacts", { waitUntil: "networkidle" });
+await page.goto((process.env.URL ?? process.env.BASE ?? "http://localhost:4173") + "/?app=contacts", { waitUntil: "networkidle" });
 await page.waitForTimeout(500);
 const after = await page.evaluate(() => ({
   window: Boolean(document.querySelector("main.content[data-screen]")),

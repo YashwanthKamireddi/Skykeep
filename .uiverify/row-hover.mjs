@@ -6,7 +6,7 @@ const b = await engine.launch();
 const ctx = await b.newContext({ viewport: { width: 1280, height: 800 } });
 await ctx.addInitScript(installStub, { screen: "library", services: SERVICES, twoFactor: null, remindersFixture: true, notesFixture: true, contactsFixture: true });
 const page = await ctx.newPage();
-await page.goto("http://localhost:4173", { waitUntil: "networkidle" });
+await page.goto(process.env.URL ?? process.env.BASE ?? "http://localhost:4173", { waitUntil: "networkidle" });
 let failures = 0;
 const ok = (p, m) => { console.log(`${p ? "PASS" : "FAIL"} ${m}`); if (!p) failures++; };
 for (const [screen, rowSel, hitSel, nameSel, moreSel] of [

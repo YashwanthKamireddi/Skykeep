@@ -106,7 +106,7 @@ async function open(screen) {
   const ctx = await browser.newContext({ viewport: { width: 1040, height: 800 } });
   await ctx.addInitScript(installStub, { screen, services: SERVICES, twoFactor: TWO_FACTOR });
   const page = await ctx.newPage();
-  await page.goto("http://localhost:4173", { waitUntil: "networkidle" });
+  await page.goto(process.env.URL ?? process.env.BASE ?? "http://localhost:4173", { waitUntil: "networkidle" });
   await page.waitForTimeout(300);
   return { ctx, page };
 }

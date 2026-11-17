@@ -19,7 +19,7 @@ const open = async (opts = {}) => {
   await ctx.addInitScript(installStub, { screen: "library", services: SERVICES, twoFactor: null, calendarFixture: true });
   const page = await ctx.newPage();
   if (opts.clock) await page.clock.install({ time: opts.clock });
-  await page.goto("http://localhost:4173", { waitUntil: "networkidle" });
+  await page.goto(process.env.URL ?? process.env.BASE ?? "http://localhost:4173", { waitUntil: "networkidle" });
   await openScreen(page, "Calendar");
   return { ctx, page };
 };

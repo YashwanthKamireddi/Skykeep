@@ -9,7 +9,7 @@ for (const [locale, first, initial, weekendCols, twelve] of [["en-GB", "Mon", "M
   const ctx = await b.newContext({ viewport: { width: 1300, height: 850 }, locale });
   await ctx.addInitScript(installStub, { screen: "library", services: SERVICES, twoFactor: null, calendarFixture: true });
   const page = await ctx.newPage();
-  await page.goto("http://localhost:4173", { waitUntil: "networkidle" });
+  await page.goto(process.env.URL ?? process.env.BASE ?? "http://localhost:4173", { waitUntil: "networkidle" });
   await openScreen(page, "Calendar");
   await page.getByRole("button", { name: "Month", exact: true }).click();
   await page.waitForTimeout(300);

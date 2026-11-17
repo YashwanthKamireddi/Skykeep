@@ -27,7 +27,7 @@ for (const refuse of [false, true]) {
   const page = await ctx.newPage();
   let asked = false;
   page.on("dialog", (d) => { asked = true; d.accept(); });
-  await page.goto("http://localhost:4173", { waitUntil: "networkidle" });
+  await page.goto(process.env.URL ?? process.env.BASE ?? "http://localhost:4173", { waitUntil: "networkidle" });
   await openScreen(page, "Drive");
   await page.waitForTimeout(300);
   await page.getByRole("button", { name: "Actions for Semester Plan.pdf" }).click();

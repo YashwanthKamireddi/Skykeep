@@ -87,7 +87,7 @@ await ctx.addInitScript(({ services }) => {
 const p = await ctx.newPage();
 const errs = [];
 p.on("pageerror", (e) => errs.push(String(e)));
-await p.goto("http://localhost:4173", { waitUntil: "networkidle" });
+await p.goto(process.env.URL ?? process.env.BASE ?? "http://localhost:4173", { waitUntil: "networkidle" });
 await p.waitForSelector("main.content[data-screen]");
 
 // Skykeep's own window is Skykeep: the account and settings, never one of the apps
@@ -103,7 +103,7 @@ console.log((await p.locator("nav.sidebar").count()) === 0 ? "PASS with no switc
 let failures = 0;
 {
   const page = await ctx.newPage();
-  await page.goto("http://localhost:4173", { waitUntil: "networkidle" });
+  await page.goto(process.env.URL ?? process.env.BASE ?? "http://localhost:4173", { waitUntil: "networkidle" });
   await openScreen(page, "Calendar");
   await page.waitForSelector(".cal-grid");
 
@@ -150,7 +150,7 @@ let failures = 0;
 {
   const page = await ctx.newPage();
   await page.setViewportSize({ width: 1920, height: 1080 });
-  await page.goto("http://localhost:4173", { waitUntil: "networkidle" });
+  await page.goto(process.env.URL ?? process.env.BASE ?? "http://localhost:4173", { waitUntil: "networkidle" });
 
   const clipped = (selector) =>
     page.$$eval(selector, (nodes) =>
@@ -304,7 +304,7 @@ let failures = 0;
       },
     };
   });
-  await page.goto("http://localhost:4173/?app=reminders", { waitUntil: "networkidle" });
+  await page.goto((process.env.URL ?? process.env.BASE ?? "http://localhost:4173") + "/?app=reminders", { waitUntil: "networkidle" });
   await page.waitForSelector(".rx-tile");
   const m = await page.evaluate(() => {
     const side = document.querySelector(".rx-side").getBoundingClientRect();
@@ -334,7 +334,7 @@ let failures = 0;
 // folder having been made and then lost. Finder refuses it up front and says why; so does this.
 {
   const page = await ctx.newPage();
-  await page.goto("http://localhost:4173", { waitUntil: "networkidle" });
+  await page.goto(process.env.URL ?? process.env.BASE ?? "http://localhost:4173", { waitUntil: "networkidle" });
   await openScreen(page, "Drive");
   await page.waitForSelector(".drive-rows");
   await page.getByRole("button", { name: "New Folder" }).click();
@@ -359,7 +359,7 @@ let failures = 0;
 // "Downloads › Downloads › Downloads …" fifteen deep, all pointing at the one real folder.
 {
   const page = await ctx.newPage();
-  await page.goto("http://localhost:4173", { waitUntil: "networkidle" });
+  await page.goto(process.env.URL ?? process.env.BASE ?? "http://localhost:4173", { waitUntil: "networkidle" });
   await openScreen(page, "Drive");
   await page.waitForSelector(".drive-row-hit");
 
@@ -393,7 +393,7 @@ let failures = 0;
 {
   const page = await ctx.newPage();
   await page.setViewportSize({ width: 1920, height: 1080 });
-  await page.goto("http://localhost:4173", { waitUntil: "networkidle" });
+  await page.goto(process.env.URL ?? process.env.BASE ?? "http://localhost:4173", { waitUntil: "networkidle" });
   await openScreen(page, "Reminders");
   await page.waitForTimeout(400);
 
@@ -437,7 +437,7 @@ let failures = 0;
 // can also be a subscribed feed that nothing may be written to.
 {
   const page = await ctx.newPage();
-  await page.goto("http://localhost:4173", { waitUntil: "networkidle" });
+  await page.goto(process.env.URL ?? process.env.BASE ?? "http://localhost:4173", { waitUntil: "networkidle" });
   await openScreen(page, "Calendar");
   await page.waitForTimeout(300);
   // The + button opens Quick Event, as Calendar's does; Ctrl+N opens the whole new event.
@@ -488,7 +488,7 @@ let failures = 0;
       },
     };
   });
-  await page.goto("http://localhost:4173", { waitUntil: "networkidle" });
+  await page.goto(process.env.URL ?? process.env.BASE ?? "http://localhost:4173", { waitUntil: "networkidle" });
   await openScreen(page, "Notes");
   await page.waitForTimeout(300);
   await page.fill('input[aria-label="Search notes"]', "curt");
@@ -532,7 +532,7 @@ let failures = 0;
       },
     };
   });
-  await page.goto("http://localhost:4173", { waitUntil: "networkidle" });
+  await page.goto(process.env.URL ?? process.env.BASE ?? "http://localhost:4173", { waitUntil: "networkidle" });
   await openScreen(page, "Reminders");
   await page.waitForTimeout(300);
   await page.fill('input[aria-label="Search reminders"]', "plant");
@@ -576,7 +576,7 @@ let failures = 0;
       },
     };
   });
-  await page.goto("http://localhost:4173", { waitUntil: "networkidle" });
+  await page.goto(process.env.URL ?? process.env.BASE ?? "http://localhost:4173", { waitUntil: "networkidle" });
   await openScreen(page, "Reminders");
   await page.waitForTimeout(300);
   await page.locator(".rx-list", { hasText: "Life Goals" }).click();
@@ -622,7 +622,7 @@ let failures = 0;
     };
   });
   await page.clock.install();
-  await page.goto("http://localhost:4173", { waitUntil: "networkidle" });
+  await page.goto(process.env.URL ?? process.env.BASE ?? "http://localhost:4173", { waitUntil: "networkidle" });
   await page.waitForTimeout(300);
   const onOpen = await page.evaluate(() => window.__passes);
 
@@ -675,7 +675,7 @@ let failures = 0;
         },
       };
     }, twoFactor);
-    await page.goto("http://localhost:4173", { waitUntil: "networkidle" });
+    await page.goto(process.env.URL ?? process.env.BASE ?? "http://localhost:4173", { waitUntil: "networkidle" });
     await page.fill('input[aria-label="Apple Account"]', "you@icloud.com");
     await page.fill('input[aria-label="Password"]', "hunter2hunter2");
     await page.click('button[type="submit"]');
@@ -720,7 +720,7 @@ let failures = 0;
       },
     };
   });
-  await page.goto("http://localhost:4173", { waitUntil: "networkidle" });
+  await page.goto(process.env.URL ?? process.env.BASE ?? "http://localhost:4173", { waitUntil: "networkidle" });
   await page.waitForTimeout(300);
 
   const shut = await page.locator(".disclosure").innerText();
@@ -790,7 +790,7 @@ let failures = 0;
   const page = await empty.newPage();
   const blew = [];
   page.on("pageerror", (e) => blew.push(String(e)));
-  await page.goto("http://localhost:4173", { waitUntil: "networkidle" });
+  await page.goto(process.env.URL ?? process.env.BASE ?? "http://localhost:4173", { waitUntil: "networkidle" });
 
   for (const [screen, expect] of [
     ["Reminders", ".rem-nolists"],

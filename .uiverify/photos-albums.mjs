@@ -12,7 +12,7 @@ page.on("pageerror", (e) => { console.log(`FAIL page error: ${e.message}`); proc
 // Every question agreed to, as soon as it is asked.
 await page.addInitScript(() => addEventListener("DOMContentLoaded", () =>
   new MutationObserver(() => document.querySelector(".confirm .confirm-answer")?.click()).observe(document.body, { childList: true, subtree: true })));
-await page.goto("http://localhost:4173", { waitUntil: "networkidle" });
+await page.goto(process.env.URL ?? process.env.BASE ?? "http://localhost:4173", { waitUntil: "networkidle" });
 await openScreen(page, "Photos");
 await page.waitForTimeout(400);
 let failures = 0;

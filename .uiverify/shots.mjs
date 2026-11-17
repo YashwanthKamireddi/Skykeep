@@ -10,7 +10,7 @@ const ctx = await b.newContext({ viewport: { width: 1300, height: 850 }, colorSc
 await ctx.addInitScript(installStub, { screen: "library", services: SERVICES, twoFactor: null, calendarFixture: true });
 const page = await ctx.newPage();
 page.on("pageerror", (e) => console.log("pageerror", e.message));
-await page.goto("http://localhost:4173", { waitUntil: "networkidle" });
+await page.goto(process.env.URL ?? process.env.BASE ?? "http://localhost:4173", { waitUntil: "networkidle" });
 await openScreen(page, "Calendar");
 for (const v of ["Month", "Week", "Day", "Year"]) {
   await page.getByRole("button", { name: v, exact: true }).click();

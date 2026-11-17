@@ -33,7 +33,7 @@ await ctx.route("http://pics.test/**", (r) => r.fulfill({ status: 200, contentTy
 await ctx.route("https://www.youtube.com/**", (r) => r.fulfill({ status: 200, body: "opened" }));
 const page = await ctx.newPage();
 page.on("pageerror", (e) => { console.log(`FAIL page error: ${e.message}`); process.exitCode = 1; });
-await page.goto("http://localhost:4173", { waitUntil: "networkidle" });
+await page.goto(process.env.URL ?? process.env.BASE ?? "http://localhost:4173", { waitUntil: "networkidle" });
 await openScreen(page, "Notes");
 await page.waitForTimeout(400);
 let failures = 0;
@@ -53,7 +53,7 @@ const [nav] = await Promise.all([
   page.locator(".ProseMirror a.nf-autolink", { hasText: "youtube" }).click(),
 ]);
 ok(nav && nav.url().startsWith("https://www.youtube.com/watch"), `a click opens the address  ${nav?.url()}`);
-await page.goto("http://localhost:4173", { waitUntil: "networkidle" });
+await page.goto(process.env.URL ?? process.env.BASE ?? "http://localhost:4173", { waitUntil: "networkidle" });
 await openScreen(page, "Notes");
 await page.waitForTimeout(400);
 

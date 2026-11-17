@@ -13,7 +13,7 @@ const ctx = await b.newContext({ viewport: { width: 480, height: 400 } });
 await ctx.addInitScript(installStub, { screen: "library", services: SERVICES, twoFactor: null,
   calendarFixture: true, notesFixture: true, contactsFixture: true, driveFixture: true, remindersFixture: true });
 const page = await ctx.newPage();
-await page.goto("http://localhost:4173", { waitUntil: "networkidle" });
+await page.goto(process.env.URL ?? process.env.BASE ?? "http://localhost:4173", { waitUntil: "networkidle" });
 await page.waitForTimeout(400);
 
 let failures = 0;
@@ -87,7 +87,7 @@ ok(month.dots > 0 && month.more === 0, `a narrow month shows its days' items as 
 {
   const mid = await ctx.newPage();
   await mid.setViewportSize({ width: 800, height: 600 });
-  await mid.goto("http://localhost:4173", { waitUntil: "networkidle" });
+  await mid.goto(process.env.URL ?? process.env.BASE ?? "http://localhost:4173", { waitUntil: "networkidle" });
   await openScreen(mid, "Contacts");
   await mid.waitForTimeout(400);
   const phone = await mid.evaluate(() => {

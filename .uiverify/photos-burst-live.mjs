@@ -29,7 +29,7 @@ await ctx.addInitScript((v) => {
 }, base);
 const page = await ctx.newPage();
 page.on("pageerror", (e) => { console.log(`FAIL page error: ${e.message}`); process.exitCode = 1; });
-await page.goto("http://localhost:4173", { waitUntil: "networkidle" });
+await page.goto(process.env.URL ?? process.env.BASE ?? "http://localhost:4173", { waitUntil: "networkidle" });
 await openScreen(page, "Photos");
 await page.waitForTimeout(400);
 let failures = 0;

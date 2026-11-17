@@ -6,7 +6,7 @@ const b = await engine.launch();
 const ctx = await b.newContext({ viewport: { width: 1400, height: 850 }, colorScheme: "dark" });
 await ctx.addInitScript(installStub, { screen: "library", services: SERVICES, twoFactor: null, calendarFixture: true });
 const p = await ctx.newPage();
-await p.goto("http://localhost:4173", { waitUntil: "networkidle" });
+await p.goto(process.env.URL ?? process.env.BASE ?? "http://localhost:4173", { waitUntil: "networkidle" });
 await openScreen(p, "Calendar");
 for (const [k, n] of [["2", "week"], ["1", "day"], ["4", "year"]]) {
   await p.keyboard.press(`Control+${k}`);

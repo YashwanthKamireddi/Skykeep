@@ -6,7 +6,7 @@ const b = await engine.launch();
 const ctx = await b.newContext({ viewport: { width: 1200, height: 800 } });
 await ctx.addInitScript(installStub, { screen: "library", services: SERVICES, twoFactor: null, remindersFixture: true });
 const page = await ctx.newPage();
-await page.goto("http://localhost:4173", { waitUntil: "networkidle" });
+await page.goto(process.env.URL ?? process.env.BASE ?? "http://localhost:4173", { waitUntil: "networkidle" });
 await openScreen(page, "Reminders");
 await page.locator(".rx-list", { hasText: "Daily" }).click();
 await page.waitForTimeout(300);

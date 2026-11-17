@@ -24,7 +24,7 @@ await ctx.addInitScript(() => {
   wrap(); document.addEventListener("DOMContentLoaded", wrap);
 });
 const page = await ctx.newPage();
-await page.goto("http://localhost:4173", { waitUntil: "networkidle" });
+await page.goto(process.env.URL ?? process.env.BASE ?? "http://localhost:4173", { waitUntil: "networkidle" });
 await openScreen(page, "Drive");
 await page.waitForTimeout(400);
 let failures = 0;

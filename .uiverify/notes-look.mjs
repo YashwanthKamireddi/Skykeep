@@ -10,7 +10,7 @@ for (const scheme of ["dark", "light"]) {
   await ctx.addInitScript(installStub, { screen: "library", services: SERVICES, twoFactor: null,
     calendarFixture: true, notesFixture: true, contactsFixture: true, driveFixture: true, remindersFixture: true });
   const p = await ctx.newPage();
-  await p.goto("http://localhost:4173", { waitUntil: "networkidle" });
+  await p.goto(process.env.URL ?? process.env.BASE ?? "http://localhost:4173", { waitUntil: "networkidle" });
   await openScreen(p, "Notes");
   await p.waitForTimeout(500);
   await p.screenshot({ path: `${out}/notes-${scheme}-${w}.png` });

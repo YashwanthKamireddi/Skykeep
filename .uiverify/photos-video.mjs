@@ -28,7 +28,7 @@ await ctx.addInitScript(installStub, { screen: "library", services: SERVICES, tw
 await ctx.addInitScript((v) => { window.__videoBase = v; }, base);
 const page = await ctx.newPage();
 page.on("pageerror", (e) => { console.log(`FAIL page error: ${e.message}`); process.exitCode = 1; });
-await page.goto("http://localhost:4173", { waitUntil: "networkidle" });
+await page.goto(process.env.URL ?? process.env.BASE ?? "http://localhost:4173", { waitUntil: "networkidle" });
 await openScreen(page, "Photos");
 await page.waitForTimeout(400);
 let failures = 0;
@@ -76,7 +76,7 @@ if (played.err) {
 // No streaming copy: the original plays in its place.
 noCopy = true;
 const pc = await ctx.newPage();
-await pc.goto("http://localhost:4173", { waitUntil: "networkidle" });
+await pc.goto(process.env.URL ?? process.env.BASE ?? "http://localhost:4173", { waitUntil: "networkidle" });
 await openScreen(pc, "Photos");
 await pc.waitForTimeout(400);
 await pc.locator('.px-tile[data-id="p3"]').dblclick();
@@ -93,7 +93,7 @@ ok((await page.locator(".px-stage video").count()) === 0, "a step to a photo lea
 // No server (it could not start): the system's player, as before.
 const p2 = await ctx.newPage();
 await p2.addInitScript(() => { window.__videoBase = null; });
-await p2.goto("http://localhost:4173", { waitUntil: "networkidle" });
+await p2.goto(process.env.URL ?? process.env.BASE ?? "http://localhost:4173", { waitUntil: "networkidle" });
 await openScreen(p2, "Photos");
 await p2.waitForTimeout(400);
 await p2.locator('.px-tile[data-id="p3"]').dblclick();
@@ -106,7 +106,7 @@ await p3.addInitScript(() => {
   window.__videoBase = "http://127.0.0.1:9/none";
   window.__videoSupport = { h264: false, hevc: false, missing: ["gst-libav"] };
 });
-await p3.goto("http://localhost:4173", { waitUntil: "networkidle" });
+await p3.goto(process.env.URL ?? process.env.BASE ?? "http://localhost:4173", { waitUntil: "networkidle" });
 await openScreen(p3, "Photos");
 await p3.waitForTimeout(400);
 await p3.locator('.px-tile[data-id="p3"]').dblclick();

@@ -8,7 +8,7 @@ const ctx = await b.newContext({ viewport: { width: 1280, height: 800 } });
 await ctx.addInitScript(() => { window.__slowItems = 150; window.__filterLists = true; });
 await ctx.addInitScript(installStub, { screen: "library", services: SERVICES, twoFactor: null, remindersFixture: true });
 const page = await ctx.newPage();
-await page.goto("http://localhost:4173", { waitUntil: "networkidle" });
+await page.goto(process.env.URL ?? process.env.BASE ?? "http://localhost:4173", { waitUntil: "networkidle" });
 await openScreen(page, "Reminders");
 await page.waitForTimeout(500);
 let failures = 0;

@@ -9,7 +9,7 @@ const ctx = await b.newContext({ viewport: { width: 1400, height: 900 } });
 await ctx.addInitScript(installStub, { screen: "library", services: SERVICES, twoFactor: null,
   calendarFixture: true, notesFixture: true, contactsFixture: true, driveFixture: true, remindersFixture: true });
 const page = await ctx.newPage();
-await page.goto("http://localhost:4173", { waitUntil: "networkidle" });
+await page.goto(process.env.URL ?? process.env.BASE ?? "http://localhost:4173", { waitUntil: "networkidle" });
 await openScreen(page, "Calendar");
 await page.getByRole("button", { name: "Month", exact: true }).click();
 await page.waitForTimeout(500);

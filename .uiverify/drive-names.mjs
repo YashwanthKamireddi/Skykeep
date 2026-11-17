@@ -7,7 +7,7 @@ const ctx = await b.newContext({ viewport: { width: 1280, height: 800 } });
 await ctx.addInitScript(installStub, { screen: "library", services: SERVICES, twoFactor: null,
   calendarFixture: false, notesFixture: false, contactsFixture: false, driveFixture: true, remindersFixture: false });
 const page = await ctx.newPage();
-await page.goto("http://localhost:4173", { waitUntil: "networkidle" });
+await page.goto(process.env.URL ?? process.env.BASE ?? "http://localhost:4173", { waitUntil: "networkidle" });
 await openScreen(page, "Drive");
 await page.waitForTimeout(500);
 let failures = 0;

@@ -79,7 +79,7 @@ for (const size of SIZES) {
     calendarFixture: true, notesFixture: true, contactsFixture: true, driveFixture: true, remindersFixture: true,
   });
   const page = await ctx.newPage();
-  await page.goto("http://localhost:4173", { waitUntil: "networkidle" });
+  await page.goto(process.env.URL ?? process.env.BASE ?? "http://localhost:4173", { waitUntil: "networkidle" });
   await page.waitForSelector("main.content[data-screen]", { state: "attached" });
   for (const screen of SCREENS) {
     await openScreen(page, screen);

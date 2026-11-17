@@ -12,7 +12,7 @@ for (const scheme of ["light", "dark"]) {
   await ctx.addInitScript(installStub, { screen: "library", services: SERVICES, twoFactor: null, notesFixture: true });
   const page = await ctx.newPage();
   page.on("pageerror", (e) => { console.log(`FAIL page error: ${e.message}`); process.exitCode = 1; });
-  await page.goto("http://localhost:4173", { waitUntil: "networkidle" });
+  await page.goto(process.env.URL ?? process.env.BASE ?? "http://localhost:4173", { waitUntil: "networkidle" });
   await openScreen(page, "Notes");
   await page.locator(".note-row", { hasText: "Curtains" }).first().click();
   await page.waitForTimeout(500);

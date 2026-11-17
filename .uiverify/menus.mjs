@@ -35,7 +35,7 @@ for (const size of [{ width: 1280, height: 800 }, { width: 760, height: 520 }]) 
   const ctx = await b.newContext({ viewport: size });
   await ctx.addInitScript(installStub, { screen: "library", services: SERVICES, twoFactor: null, ...all });
   const page = await ctx.newPage();
-  await page.goto("http://localhost:4173", { waitUntil: "networkidle" });
+  await page.goto(process.env.URL ?? process.env.BASE ?? "http://localhost:4173", { waitUntil: "networkidle" });
 
   // A right-click menu in the bottom-right corner, and its submenu with no room on the right.
   await openScreen(page, "Contacts");

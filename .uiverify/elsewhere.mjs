@@ -77,7 +77,7 @@ for (const place of PLACES) {
   const page = await ctx.newPage();
   const blew = [];
   page.on("pageerror", (e) => blew.push(String(e)));
-  await page.goto("http://localhost:4173", { waitUntil: "networkidle" });
+  await page.goto(process.env.URL ?? process.env.BASE ?? "http://localhost:4173", { waitUntil: "networkidle" });
 
   for (const screen of ["Reminders", "Calendar", "Notes", "Contacts", "Drive"]) {
     await openScreen(page, screen);
@@ -142,7 +142,7 @@ for (const place of PLACES) {
   const edge = Math.floor(Date.UTC(2026, 2, 9, 4, 30, 0) / 1000);
   await ctx.addInitScript(stub, { services: SERVICES, now, edge });
   const page = await ctx.newPage();
-  await page.goto("http://localhost:4173", { waitUntil: "networkidle" });
+  await page.goto(process.env.URL ?? process.env.BASE ?? "http://localhost:4173", { waitUntil: "networkidle" });
   await openScreen(page, "Reminders");
   await page.waitForTimeout(400);
 

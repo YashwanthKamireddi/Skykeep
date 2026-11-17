@@ -23,7 +23,7 @@ await page.route((url) => url.origin === "http://localhost:4173" && url.pathname
   const html = (await res.text()).replace("<head>", `<head><meta http-equiv="Content-Security-Policy" content="${csp}">`);
   await route.fulfill({ response: res, body: html, headers: { ...res.headers(), "content-type": "text/html" } });
 });
-await page.goto("http://localhost:4173/", { waitUntil: "networkidle" });
+await page.goto((process.env.URL ?? process.env.BASE ?? "http://localhost:4173") + "/", { waitUntil: "networkidle" });
 let failures = 0;
 const ok = (p, m) => { console.log(`${p ? "PASS" : "FAIL"} ${m}`); if (!p) failures++; };
 ok(await page.evaluate(() => !!document.querySelector('meta[http-equiv="Content-Security-Policy"]')), "the policy is in force");
