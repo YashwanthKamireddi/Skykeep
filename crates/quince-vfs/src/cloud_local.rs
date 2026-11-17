@@ -104,7 +104,7 @@ fn listen(
     // SAFETY: a path string alive for the call; the handle is closed when this returns.
     let Ok(dir) = (unsafe {
         CreateFileW(
-            &HSTRING::from(root.as_os_str()),
+            &crate::cloud::long_path(root),
             FILE_LIST_DIRECTORY.0,
             FILE_SHARE_READ | FILE_SHARE_WRITE | FILE_SHARE_DELETE,
             None,
@@ -396,7 +396,7 @@ fn open_for_update(path: &Path) -> windows::core::Result<crate::cloud::Handle> {
     // SAFETY: a path string alive for the call.
     unsafe {
         CreateFileW(
-            &HSTRING::from(path.as_os_str()),
+            &crate::cloud::long_path(path),
             (FILE_READ_ATTRIBUTES | FILE_WRITE_ATTRIBUTES).0 | GENERIC_ACCESS_RIGHTS(0x4000_0000).0,
             FILE_SHARE_READ | FILE_SHARE_WRITE | FILE_SHARE_DELETE,
             None,
@@ -526,7 +526,7 @@ fn dehydrate(path: &Path) -> windows::core::Result<()> {
     // SAFETY: a path string alive for the call; the handle is closed when dropped.
     let handle = crate::cloud::Handle(unsafe {
         CreateFileW(
-            &HSTRING::from(path.as_os_str()),
+            &crate::cloud::long_path(path),
             (FILE_READ_ATTRIBUTES | FILE_WRITE_ATTRIBUTES).0 | GENERIC_ACCESS_RIGHTS(0x4000_0000).0,
             FILE_SHARE_NONE,
             None,

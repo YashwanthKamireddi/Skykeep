@@ -1127,3 +1127,71 @@ fn an_empty_folder_opens() {
     let _ = std::fs::remove_dir_all(&place);
     let _ = std::fs::remove_dir_all(&out);
 }
+
+/// A file deeper than Windows' old 260-character limit is sent to iCloud and then marked in
+/// sync like any other. Our own calls into Windows (CreateFileW and the rest) refused such a
+/// path without the `\\?\` prefix: the file went to iCloud but stayed "Sync pending" for good
+/// (an Obsidian vault's plugin folders are that deep).
+#[test]
+fn a_file_deeper_than_260_characters_is_kept_in_sync() {
+    let root = vec![file("a", "first", "bin", 10)];
+    let tree: HashMap<String, Vec<DriveItem>> = [(ROOT.to_string(), root.clone())].into();
+    let library = Arc::new(std::sync::Mutex::new(HashMap::from([(
+        ROOT.to_string(),
+        root,
+    )])));
+    let log = Arc::new(std::sync::Mutex::new(Vec::new()));
+    let rt = tokio::runtime::Runtime::new().unwrap();
+    let base = PathBuf::from(std::env::var("USERPROFILE").unwrap());
+    let place = base.join(format!("Skykeep deep {}", std::process::id()));
+    let out = std::env::temp_dir().join(format!("skykeep-deep-out-{}", std::process::id()));
+    std::fs::create_dir_all(&out).unwrap();
+    let id = cloud::sync_root_id(&format!("deep{}", std::process::id())).unwrap();
+    let shown = Shown {
+        id: &id,
+        name: "Skykeep deep test",
+        icon: "%SystemRoot%\\system32\\imageres.dll,-1043",
+    };
+    let up = cloud::start(
+        &place,
+        &shown,
+        Provider::new(
+            Arc::new(Apple(tree, Arc::clone(&log))),
+            Arc::new(Library(Arc::clone(&library))),
+            rt.handle().clone(),
+            out.join("sending"),
+        ),
+    )
+    .expect("up");
+    // Five folders of 60 characters each: well past 260 with the file's own name.
+    let mut deep = place.clone();
+    for n in 0..5 {
+        deep = deep.join(format!("{n}-{}", "x".repeat(58)));
+    }
+    std::fs::create_dir_all(&deep).unwrap();
+    let file = deep.join("deep note.md");
+    std::fs::write(&file, b"far down").unwrap();
+    assert!(file.as_os_str().len() > 300, "{}", file.as_os_str().len());
+    let end = std::time::Instant::now() + std::time::Duration::from_secs(30);
+    let mut kept = None;
+    while std::time::Instant::now() < end {
+        kept = cloud::identity_of(&file);
+        if kept.is_some() {
+            break;
+        }
+        std::thread::sleep(std::time::Duration::from_millis(250));
+    }
+    let said = log.lock().unwrap().clone();
+    assert!(
+        said.iter().any(|s| s.starts_with("upload deep note.md")),
+        "sent to iCloud: {said:?}"
+    );
+    assert!(
+        kept.is_some(),
+        "and marked in sync, its identity kept on it: {said:?}"
+    );
+    drop(up);
+    cloud::unregister(&place, &id);
+    let _ = std::fs::remove_dir_all(&place);
+    let _ = std::fs::remove_dir_all(&out);
+}
