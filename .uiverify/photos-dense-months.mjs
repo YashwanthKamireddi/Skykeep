@@ -36,7 +36,7 @@ const screen = () => page.evaluate(() => {
   const r = document.querySelector(".px-scroll").getBoundingClientRect();
   const on = (sel) => [...document.querySelectorAll(sel)].filter((t) => { const b = t.getBoundingClientRect(); return b.bottom > r.top && b.top < r.bottom; });
   const tiles = on(".px-tile");
-  return { tiles: tiles.length, pics: tiles.filter((t) => t.querySelector("img[src]")).length, boxes: on(".px-ph").length };
+  return { tiles: tiles.length, pics: tiles.filter((t) => t.querySelector("img[src]")).length, boxes: on(".px-ph").length, blocks: on(".px-later").length };
 });
 /** Every tile on screen with its picture, and no plain box: waited for, up to `ms`. */
 const whole = async (ms) => {

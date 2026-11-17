@@ -23,7 +23,7 @@ names=() pids=() later=()
 # Also alone: photos-strip opens a 2,000-photo library (under six browsers its window took past
 # 30 s to appear), and contacts-lists times "at once" in both modes (9 and 10 Nov, each failed
 # only in the pool and passed 3 of 3 alone).
-timed() { case "$*" in *notes-long.mjs*|*photos-scale.mjs*|*photos-scroll.mjs*|*photos-paging.mjs*|*photos-levels-scale.mjs*|*photos-strip.mjs*|*contacts-lists.mjs*) return 0 ;; esac; return 1; }
+timed() { case "$*" in *notes-long.mjs*|*photos-scale.mjs*|*photos-scroll.mjs*|*photos-paging.mjs*|*photos-dense-months.mjs*|*photos-levels-scale.mjs*|*photos-strip.mjs*|*contacts-lists.mjs*) return 0 ;; esac; return 1; }
 pooled() {
   local name=$1; shift
   if timed "$@"; then later+=("$name"$'\x1f'"$(printf '%q ' "$@")"); return; fi
@@ -173,6 +173,8 @@ pooled "webkit: photos memory" env ENGINE=webkit node .uiverify/photos-memory.mj
 pooled "photos scrolling"  node .uiverify/photos-scroll.mjs
 pooled "webkit: photos scrolling" env ENGINE=webkit node .uiverify/photos-scroll.mjs
 pooled "photos paging"     node .uiverify/photos-paging.mjs
+pooled "photos dense months" node .uiverify/photos-dense-months.mjs
+pooled "webkit: dense months" env ENGINE=webkit node .uiverify/photos-dense-months.mjs
 pooled "photos levels"     env ENGINE=webkit node .uiverify/photos-levels-scale.mjs
 pooled "photos drag"       node .uiverify/photos-drag.mjs
 pooled "drag pictures"     node .uiverify/drag-picture.mjs
