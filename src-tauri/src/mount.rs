@@ -705,8 +705,24 @@ pub fn photos_changed() {
 
 /// At sign-out: each folder gone with the account — on Windows no longer in Explorer either.
 pub fn forget(app: &AppHandle) {
-    forget_folder(app, Which::Drive);
-    forget_folder(app, Which::Photos);
+    take_down(app, Which::Drive);
+    take_down(app, Which::Photos);
+}
+
+/// The folder turned off for good (switched off, signed out): after any start on its way has
+/// finished, so that start can never put it back up behind the switch (`STARTING`).
+fn take_down(app: &AppHandle, which: Which) {
+    let _one = STARTING[slot(which)]
+        .lock()
+        .unwrap_or_else(std::sync::PoisonError::into_inner);
+    forget_folder(app, which);
+}
+
+/// Whether the folder is still wanted: what the person last chose, as kept in the library.
+fn wanted(app: &AppHandle, which: Which) -> bool {
+    let data = app.state::<Data>();
+    let library = data.0.blocking_lock();
+    library.state(which.on_key()).ok().flatten().as_deref() == Some("1")
 }
 
 fn status(app: &AppHandle, which: Which, problem: Option<String>) -> FolderStatus {
@@ -791,19 +807,15 @@ fn slot(which: Which) -> usize {
 /// ready to take a folder yet); launch never waits on those.
 pub fn resume(app: &AppHandle) {
     for which in [Which::Drive, Which::Photos] {
-        let wanted = {
-            let data = app.state::<Data>();
-            let library = data.0.blocking_lock();
-            library.state(which.on_key()).ok().flatten().as_deref() == Some("1")
-        };
-        if !wanted || try_up(app, which) {
+        if !wanted(app, which) || try_up(app, which) {
             continue;
         }
         let app = app.clone();
         std::thread::spawn(move || {
             for wait in [2, 5] {
                 std::thread::sleep(std::time::Duration::from_secs(wait));
-                if try_up(&app, which) {
+                // Turned off meanwhile: never brought back up behind the switch.
+                if !wanted(&app, which) || try_up(&app, which) {
                     break;
                 }
             }
@@ -937,7 +949,7 @@ async fn set(app: AppHandle, which: Which, on: bool) -> Result<FolderStatus, Str
         let problem = if on {
             bring_up(&app, which, &place(&app, which)).err()
         } else {
-            forget_folder(&app, which);
+            take_down(&app, which);
             None
         };
         let data = app.state::<Data>();
