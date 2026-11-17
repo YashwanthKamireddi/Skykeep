@@ -46,6 +46,28 @@ concurrency:
   cancel-in-progress: ${{ github.event_name == 'push' && !startsWith(github.event.head_commit.message, 'Skykeep ') }}
 
 jobs:
+  # The Fedora COPR package, made from this commit as COPR makes it, built, installed and run
+  # (packages.yml): the spec is its own list of build needs, which no other check uses, and a
+  # new dependency missing from it failed COPR for 0.1.27 and 0.1.28 only after they were out
+  # (PipeWire, #66). Here, the tag (tag.yml) waits for it.
+  copr-version:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    outputs:
+      version: ${{ steps.v.outputs.version }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - id: v
+        run: echo "version=$(jq -r .version src-tauri/tauri.conf.json)" >> "$GITHUB_OUTPUT"
+  copr:
+    needs: copr-version
+    uses: ./.github/workflows/packages.yml
+    with:
+      version: ${{ needs.copr-version.outputs.version }}
+      copr: true
+      windows: false
+      publish: false
+
   # On x86_64 and on 64-bit ARM (Apple Silicon Macs run Linux on aarch64): each architecture's
   # packages, probe and test files as linux-compat-<arch>.
   build:

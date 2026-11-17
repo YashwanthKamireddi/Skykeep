@@ -29,6 +29,10 @@ on:
         description: "Also build and run the Fedora COPR package"
         type: boolean
         default: true
+      windows:
+        description: "Pack and check the Chocolatey and Scoop packages (needs the release published)"
+        type: boolean
+        default: true
   workflow_call:
     inputs:
       version:
@@ -38,6 +42,11 @@ on:
         type: boolean
         default: false
       copr:
+        type: boolean
+        default: true
+      # Off for a commit not released yet (linux-compat.yml): the Windows packages are made
+      # from the published release's installer, which does not exist before the tag.
+      windows:
         type: boolean
         default: true
     secrets:
@@ -52,6 +61,7 @@ env:
 
 jobs:
   windows:
+    if: inputs.windows
     runs-on: windows-latest
     timeout-minutes: 30
     steps:
