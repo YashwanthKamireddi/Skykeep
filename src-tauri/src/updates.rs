@@ -484,7 +484,14 @@ fn restore(app: &AppHandle) {
             let mut i = updates.lock();
             i.update = Some(update);
             i.staged = Some(package);
-            i.phase = Phase::Ready;
+            // Not offered yet where a check will run (#82): a download kept from days ago was
+            // offered at launch, before the first check found a newer release, and installed
+            // instead of it (0.1.25 to 0.1.26 while 0.1.27 was out). The check decides: a newer
+            // release replaces it, the same one is offered as ready, and with no answer from
+            // GitHub (or checks turned off) it is offered as it is.
+            if !i.auto {
+                i.phase = Phase::Ready;
+            }
             drop(i);
             changed(app);
         }
@@ -558,6 +565,9 @@ async fn check(app: &AppHandle, asked: bool) -> bool {
             if asked {
                 i.problem = Some(problem(Stage::Check, &e));
                 i.phase = Phase::Failed { notice: false };
+            } else if i.staged.is_some() {
+                // GitHub didn't answer: the download kept from before is still an update.
+                i.phase = Phase::Ready;
             } else {
                 i.phase = before;
             }
@@ -857,6 +867,16 @@ pub fn spawn(app: AppHandle) {
         let restoring = app.clone();
         let _ = tauri::async_runtime::spawn_blocking(move || restore(&restoring)).await;
         tokio::time::sleep(FIRST_CHECK).await;
+        // No check is allowed now (a metered connection): a kept download is offered as it is.
+        if !network_allows(&app).await {
+            let updates = app.state::<Updates>();
+            let mut i = updates.lock();
+            if i.staged.is_some() && !matches!(i.phase, Phase::Ready) && !i.phase.applying() {
+                i.phase = Phase::Ready;
+                drop(i);
+                changed(&app);
+            }
+        }
         let mut next = 0;
         loop {
             let auto = app.state::<Updates>().lock().auto;
