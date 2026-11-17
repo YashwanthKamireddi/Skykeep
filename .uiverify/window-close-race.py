@@ -179,6 +179,25 @@ def main():
             else:
                 print(f"FAIL {name}: closed as it appeared, and came back {back:.1f} s later")
                 failures += 1
+        # Several asked for at once, as when tiles are clicked in a row: every one opens, soon.
+        if app is not None:
+            many = [k for k in NAMES if k not in APPS][:3]
+            start = time.time()
+            for key in many:
+                subprocess.Popen([BIN, "--app", key], env=env, stdout=subprocess.DEVNULL,
+                                 stderr=subprocess.DEVNULL)
+            waiting = {NAMES[k] for k in many}
+            while waiting and time.time() - start < 15:
+                for name in list(waiting):
+                    w = find(d, name)
+                    if w is not None and mapped(w):
+                        waiting.discard(name)
+                        print(f"PASS {name}: asked for with {len(many) - 1} others, on screen in "
+                              f"{time.time() - start:.1f} s")
+                time.sleep(0.02)
+            for name in waiting:
+                print(f"FAIL {name}: asked for with others, never shown")
+                failures += 1
     finally:
         for p in (app, tray, bus, weston):
             if p:
