@@ -711,16 +711,18 @@ pub fn forget(app: &AppHandle) {
 
 fn status(app: &AppHandle, which: Which, problem: Option<String>) -> FolderStatus {
     let at = mounted(which).unwrap_or_else(|| place(app, which));
-    let on = mounted(which).is_some();
+    let coming = COMING_UP[slot(which)].load(std::sync::atomic::Ordering::SeqCst) > 0;
+    let up = mounted(which).is_some();
+    let on = up || coming;
     // Up now, or a new answer: whatever went wrong at start is no longer the news.
     let launch = &mut LAUNCH_PROBLEM
         .lock()
         .unwrap_or_else(std::sync::PoisonError::into_inner)[slot(which)];
-    if on || problem.is_some() {
+    if up || problem.is_some() {
         *launch = None;
     }
     let problem = problem.or_else(|| launch.clone());
-    let waiting = if which == Which::Drive && on {
+    let waiting = if which == Which::Drive && up {
         WRITES
             .lock()
             .unwrap_or_else(std::sync::PoisonError::into_inner)
@@ -809,9 +811,35 @@ pub fn resume(app: &AppHandle) {
     }
 }
 
+/// Each folder brought up by one start at a time. The start at launch takes a while on Windows
+/// (registering with the shell, connecting); a second begun beside it — the switch turned on
+/// in Settings meanwhile — connected to the same folder again (#45). One asked for while
+/// another is on its way waits for it, and finds the folder up.
+static STARTING: [Mutex<()>; 2] = [Mutex::new(()), Mutex::new(())];
+/// How many starts of each folder are on their way: the folder reads as on meanwhile, so
+/// Settings opened during the start at launch never shows its switch off (#45).
+static COMING_UP: [std::sync::atomic::AtomicUsize; 2] = [
+    std::sync::atomic::AtomicUsize::new(0),
+    std::sync::atomic::AtomicUsize::new(0),
+];
+
+/// `start`, one at a time per folder (`STARTING`), said as on while it runs (`COMING_UP`).
+fn bring_up(app: &AppHandle, which: Which, at: &std::path::Path) -> Result<(), String> {
+    use std::sync::atomic::Ordering::SeqCst;
+    COMING_UP[slot(which)].fetch_add(1, SeqCst);
+    let result = {
+        let _one = STARTING[slot(which)]
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner);
+        start(app, which, at)
+    };
+    COMING_UP[slot(which)].fetch_sub(1, SeqCst);
+    result
+}
+
 /// One try at bringing a folder up; what went wrong kept for its row, and the log.
 fn try_up(app: &AppHandle, which: Which) -> bool {
-    let result = start(app, which, &place(app, which));
+    let result = bring_up(app, which, &place(app, which));
     if let Err(e) = &result {
         crate::diagnostics::note(&format!("folder {which:?} could not come up: {e}"));
     }
@@ -907,7 +935,7 @@ pub fn release() {
 async fn set(app: AppHandle, which: Which, on: bool) -> Result<FolderStatus, String> {
     tauri::async_runtime::spawn_blocking(move || {
         let problem = if on {
-            start(&app, which, &place(&app, which)).err()
+            bring_up(&app, which, &place(&app, which)).err()
         } else {
             forget_folder(&app, which);
             None

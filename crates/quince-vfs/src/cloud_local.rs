@@ -46,10 +46,18 @@ pub fn watch(
     add_only: bool,
 ) -> Option<std::thread::JoinHandle<()>> {
     let (tx, rx) = tokio::sync::mpsc::unbounded_channel::<PathBuf>();
-    // Whatever changed while Skykeep was closed.
-    for path in scan(&root) {
-        let _ = tx.send(path);
-    }
+    // Whatever changed while Skykeep was closed, looked for behind the start: walked before it
+    // returned, a large Drive held the folder from being up — and Settings showed it off —
+    // for as long as the walk took (#45). Changes from now on are heard meanwhile (`listen`).
+    let found = tx.clone();
+    let scanned = root.clone();
+    let _ = std::thread::Builder::new()
+        .name("quince:cloud-scan".into())
+        .spawn(move || {
+            for path in scan(&scanned) {
+                let _ = found.send(path);
+            }
+        });
     rt.spawn(settle_and_send(rx, Arc::clone(&remote), staging, add_only));
     let watched = root.clone();
     std::thread::Builder::new()
