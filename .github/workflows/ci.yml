@@ -375,9 +375,36 @@ jobs:
   # The one check main's ruleset requires: every job above passed or was skipped on purpose by
   # `scope`. One stable name, whatever the matrix or the scope ran (a skipped matrix job reports
   # under another name, and a required check that never reports blocks a pull request forever).
+  # A release's pull request (release/x.y.z): the licence list the app shows must be the one its
+  # lockfiles give, as the tag gate (tag.yml) requires. Found there, a stale list refused the tag
+  # after every check had passed (0.1.27, #77); found here, it is fixed in the same pull request.
+  # Other pull requests are not held to it: a dependency update stays green until the list is
+  # rewritten for the release (tag.yml).
+  licences:
+    if: startsWith(github.head_ref, 'release/')
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: 22
+          cache: npm
+      - uses: taiki-e/install-action@cfdb7ed4ccc7c7dce37759eae89dc5674b469b39 # v2.90.3
+        with:
+          tool: cargo-about@0.9.3
+      - name: Licence list current
+        run: |
+          npm ci --no-audit --no-fund --ignore-scripts
+          npm run licences
+          if ! git diff --exit-code --stat src/licences.json; then
+            echo "::error::src/licences.json is out of date: run npm run licences and commit"
+            exit 1
+          fi
+
   ci-ok:
     if: always()
-    needs: [published, supply-chain, scope, languages, rust, android, web]
+    needs: [published, supply-chain, scope, languages, rust, android, web, licences]
     runs-on: ubuntu-24.04
     timeout-minutes: 5
     steps:
