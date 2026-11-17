@@ -221,8 +221,12 @@ impl Writes {
                 std::io::Write::write_all(&mut f, &json)?;
                 f.sync_all()
             });
-            if written.is_ok() {
-                let _ = std::fs::rename(&part, self.journal());
+            // Put in place durably: a journal that a power cut rolled back to the one before
+            // would forget the newest changes not yet sent.
+            if let Err(e) = written.and_then(|()| crate::replace_durably(&part, &self.journal())) {
+                crate::note(&format!(
+                    "the list of changes still to send could not be saved: {e}"
+                ));
             }
         }
     }
@@ -428,7 +432,14 @@ pub async fn send_held(
             if let Some(dir) = to.parent() {
                 let _ = std::fs::create_dir_all(dir);
             }
-            let _ = std::fs::rename(&staged, to);
+            // Sent: the copy kept here takes its place. Refused (the folder gone, a file in
+            // the way), it is said, never silently left behind — the file is safe in iCloud.
+            if let Err(e) = std::fs::rename(&staged, to) {
+                crate::note_about(
+                    &format!("a sent file's copy could not be put back in its folder: {e}"),
+                    &to.display().to_string(),
+                );
+            }
         }
         writes.release(key);
     } else {

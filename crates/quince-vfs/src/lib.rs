@@ -32,6 +32,37 @@ pub fn set_notes(sink: fn(&str)) {
     let _ = NOTES.set(sink);
 }
 
+/// `part` put in place of `to` so that it survives a power cut: the rename itself made durable
+/// (on Linux the folder holding it flushed after; on Windows a write-through move). A plain
+/// rename can be lost when the power goes moments later, leaving the OLD file, so a journal of
+/// changes not yet sent could forget the newest. `part` must already be flushed by the caller.
+pub(crate) fn replace_durably(part: &Path, to: &Path) -> std::io::Result<()> {
+    #[cfg(windows)]
+    {
+        use windows::core::HSTRING;
+        use windows::Win32::Storage::FileSystem::{
+            MoveFileExW, MOVEFILE_REPLACE_EXISTING, MOVEFILE_WRITE_THROUGH,
+        };
+        // SAFETY: two path strings alive for the call.
+        unsafe {
+            MoveFileExW(
+                &HSTRING::from(part.as_os_str()),
+                &HSTRING::from(to.as_os_str()),
+                MOVEFILE_REPLACE_EXISTING | MOVEFILE_WRITE_THROUGH,
+            )
+        }
+        .map_err(|e| std::io::Error::from_raw_os_error(e.code().0 & 0xFFFF))
+    }
+    #[cfg(not(windows))]
+    {
+        std::fs::rename(part, to)?;
+        match to.parent() {
+            Some(dir) => std::fs::File::open(dir)?.sync_all(),
+            None => Ok(()),
+        }
+    }
+}
+
 /// A note about the folders: printed, and kept in the diagnostics log when it is on. Only
 /// what happened and Windows' or Apple's answer: never a name, a path or an id (the log's
 /// promise; see `note_about` for those).
@@ -592,8 +623,17 @@ impl Cache {
         change(&mut k);
         if let Ok(json) = serde_json::to_vec(&*k) {
             let part = self.dir.join(".kept.json.part");
-            if std::fs::write(&part, json).is_ok() {
-                let _ = std::fs::rename(&part, self.dir.join(KEPT_FILE));
+            // Flushed, then put in place durably: "Always keep on this device" is the person's
+            // choice, never quietly back to what it was after a power cut.
+            let written = std::fs::File::create(&part).and_then(|mut f| {
+                std::io::Write::write_all(&mut f, &json)?;
+                f.sync_all()
+            });
+            if let Err(e) = written.and_then(|()| replace_durably(&part, &self.dir.join(KEPT_FILE)))
+            {
+                note(&format!(
+                    "what to keep on this device could not be saved: {e}"
+                ));
             }
         }
     }
@@ -1027,6 +1067,28 @@ pub fn write_thumbnails(
 
 #[cfg(test)]
 mod tests {
+
+    /// A file put in place durably replaces the one there, whole; a missing one is an error
+    /// said, never a silent nothing.
+    #[test]
+    fn a_file_is_replaced_durably_or_the_failure_is_said() {
+        let dir = tempfile::tempdir().unwrap();
+        let (part, to) = (dir.path().join("j.json.part"), dir.path().join("j.json"));
+        std::fs::write(&to, b"old").unwrap();
+        std::fs::write(&part, b"new").unwrap();
+        super::replace_durably(&part, &to).unwrap();
+        assert_eq!(std::fs::read(&to).unwrap(), b"new");
+        assert!(!part.exists());
+        assert!(
+            super::replace_durably(&part, &to).is_err(),
+            "nothing to put in place"
+        );
+        assert_eq!(
+            std::fs::read(&to).unwrap(),
+            b"new",
+            "and what was there stays"
+        );
+    }
     use super::*;
 
     fn item(
