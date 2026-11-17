@@ -41,6 +41,10 @@ BuildRequires:  pkgconfig(libheif) >= 1.17
 BuildRequires:  pkgconfig(fuse3)
 BuildRequires:  pkgconfig(gstreamer-1.0)
 BuildRequires:  pkgconfig(gstreamer-plugins-base-1.0)
+# The iPhone link (crates/quince-link): PipeWire, whose Rust bindings (libspa-sys) are made at
+# build time with bindgen, which needs libclang. Missing, 0.1.27 and 0.1.28 failed on every chroot.
+BuildRequires:  pkgconfig(libpipewire-0.3)
+BuildRequires:  clang-devel
 BuildRequires:  desktop-file-utils
 BuildRequires:  libappstream-glib
 
