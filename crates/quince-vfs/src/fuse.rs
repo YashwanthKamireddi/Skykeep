@@ -1244,30 +1244,47 @@ fn quiet_note(e: &str) {
     }
 }
 
+/// A request that panics is answered with an error (its reply, dropped unanswered, says EIO)
+/// rather than ending the mount: a panic in the session's thread left every app using the
+/// folder with "Transport endpoint is not connected" until Skykeep was restarted.
+fn guarded(f: impl FnOnce()) {
+    if let Err(e) = std::panic::catch_unwind(std::panic::AssertUnwindSafe(f)) {
+        let why = e
+            .downcast_ref::<&str>()
+            .map(|s| (*s).to_string())
+            .or_else(|| e.downcast_ref::<String>().cloned())
+            .unwrap_or_default();
+        // What the panic said may name a file: printed, never in the diagnostics log.
+        crate::note_about("a Drive folder request failed inside Skykeep", &why);
+    }
+}
+
 impl Filesystem for DriveFs {
     fn lookup(&self, _req: &Request, parent: INodeNo, name: &OsStr, reply: ReplyEntry) {
-        let inner = &self.0;
-        let found = inner.child(parent.0, name);
-        // A name not there in a listing gone stale — a file just saved on the phone, asked for
-        // by its path — has its folder asked of Apple behind the answer, never in front of it:
-        // file managers ask after names that are not there all the time (.hidden, desktop.ini),
-        // and Apple's first answer can take seconds.
-        if matches!(found, Err(Errno::ENOENT)) {
-            if let Some(folder) = inner.item(parent.0) {
-                Inner::revalidate(inner, &folder.drivewsid);
+        guarded(|| {
+            let inner = &self.0;
+            let found = inner.child(parent.0, name);
+            // A name not there in a listing gone stale — a file just saved on the phone, asked for
+            // by its path — has its folder asked of Apple behind the answer, never in front of it:
+            // file managers ask after names that are not there all the time (.hidden, desktop.ini),
+            // and Apple's first answer can take seconds.
+            if matches!(found, Err(Errno::ENOENT)) {
+                if let Some(folder) = inner.item(parent.0) {
+                    Inner::revalidate(inner, &folder.drivewsid);
+                }
             }
-        }
-        match found {
-            Ok((ino, item)) => reply.entry(&TTL, &inner.attr(ino, &item), Generation(0)),
-            Err(e) => reply.error(e),
-        }
+            match found {
+                Ok((ino, item)) => reply.entry(&TTL, &inner.attr(ino, &item), Generation(0)),
+                Err(e) => reply.error(e),
+            }
+        })
     }
 
     fn getattr(&self, _req: &Request, ino: INodeNo, _fh: Option<FileHandle>, reply: ReplyAttr) {
-        match self.0.item(ino.0) {
+        guarded(|| match self.0.item(ino.0) {
             Some(item) => reply.attr(&TTL, &self.0.attr(ino.0, &item)),
             None => reply.error(Errno::ENOENT),
-        }
+        })
     }
 
     fn setattr(
@@ -1288,39 +1305,41 @@ impl Filesystem for DriveFs {
         _flags: Option<BsdFileFlags>,
         reply: ReplyAttr,
     ) {
-        let inner = &self.0;
-        let Some(item) = inner.item(ino.0) else {
-            return reply.error(Errno::ENOENT);
-        };
-        // Only a file's length is Apple's to keep; modes and times are taken as they are.
-        if size.is_some() && inner.read_only {
-            return reply.error(Errno::EROFS);
-        }
-        if let (Some(size), false) = (size, item.is_container()) {
-            if let Err(e) = inner.begin_writing(ino.0, &item, size > 0) {
-                return reply.error(e);
-            }
-            let (Some(w), Some(p)) = (&inner.writes, inner.pending(ino.0)) else {
-                return reply.error(Errno::EROFS);
+        guarded(|| {
+            let inner = &self.0;
+            let Some(item) = inner.item(ino.0) else {
+                return reply.error(Errno::ENOENT);
             };
-            let ok = std::fs::OpenOptions::new()
-                .write(true)
-                .open(w.staging(ino.0, &p.name))
-                .and_then(|f| f.set_len(size))
-                .is_ok();
-            if !ok {
-                return reply.error(Errno::EIO);
+            // Only a file's length is Apple's to keep; modes and times are taken as they are.
+            if size.is_some() && inner.read_only {
+                return reply.error(Errno::EROFS);
             }
-            inner.with_pending(ino.0, |p| {
-                p.dirty = true;
-                p.generation += 1;
-                p.modified = SystemTime::now();
-            });
-            if inner.pending(ino.0).is_some_and(|p| p.open == 0) {
-                Inner::schedule(inner, ino.0, writes::SETTLE);
+            if let (Some(size), false) = (size, item.is_container()) {
+                if let Err(e) = inner.begin_writing(ino.0, &item, size > 0) {
+                    return reply.error(e);
+                }
+                let (Some(w), Some(p)) = (&inner.writes, inner.pending(ino.0)) else {
+                    return reply.error(Errno::EROFS);
+                };
+                let ok = std::fs::OpenOptions::new()
+                    .write(true)
+                    .open(w.staging(ino.0, &p.name))
+                    .and_then(|f| f.set_len(size))
+                    .is_ok();
+                if !ok {
+                    return reply.error(Errno::EIO);
+                }
+                inner.with_pending(ino.0, |p| {
+                    p.dirty = true;
+                    p.generation += 1;
+                    p.modified = SystemTime::now();
+                });
+                if inner.pending(ino.0).is_some_and(|p| p.open == 0) {
+                    Inner::schedule(inner, ino.0, writes::SETTLE);
+                }
             }
-        }
-        reply.attr(&TTL, &inner.attr(ino.0, &item));
+            reply.attr(&TTL, &inner.attr(ino.0, &item));
+        })
     }
 
     fn readdir(
@@ -1331,115 +1350,120 @@ impl Filesystem for DriveFs {
         offset: u64,
         mut reply: ReplyDirectory,
     ) {
-        let inner = &self.0;
-        let children = match inner.children(ino.0) {
-            Ok(c) => c,
-            Err(e) => return reply.error(e),
-        };
-        if offset == 0 {
-            if let Some(folder) = inner.item(ino.0) {
-                inner.fill_thumbnails(&folder, &children);
-                Inner::revalidate(inner, &folder.drivewsid);
+        guarded(|| {
+            let inner = &self.0;
+            let children = match inner.children(ino.0) {
+                Ok(c) => c,
+                Err(e) => return reply.error(e),
+            };
+            if offset == 0 {
+                if let Some(folder) = inner.item(ino.0) {
+                    inner.fill_thumbnails(&folder, &children);
+                    Inner::revalidate(inner, &folder.drivewsid);
+                }
             }
-        }
-        let parent = inner
-            .item(ino.0)
-            .and_then(|i| i.parent_id)
-            .and_then(|p| inner.inodes.lock().ok().and_then(|n| n.ino_of(&p)))
-            .unwrap_or(1);
-        let mut all: Vec<(u64, FileType, String)> = vec![
-            (ino.0, FileType::Directory, ".".into()),
-            (parent, FileType::Directory, "..".into()),
-        ];
-        all.extend(children.into_iter().map(|(name, i, item)| {
-            (
-                i,
-                if item.is_container() {
-                    FileType::Directory
-                } else {
-                    FileType::RegularFile
-                },
-                name,
-            )
-        }));
-        for (n, (i, kind, name)) in all
-            .into_iter()
-            .enumerate()
-            .skip(usize::try_from(offset).unwrap_or(0))
-        {
-            if reply.add(INodeNo(i), n as u64 + 1, kind, name) {
-                break;
+            let parent = inner
+                .item(ino.0)
+                .and_then(|i| i.parent_id)
+                .and_then(|p| inner.inodes.lock().ok().and_then(|n| n.ino_of(&p)))
+                .unwrap_or(1);
+            let mut all: Vec<(u64, FileType, String)> = vec![
+                (ino.0, FileType::Directory, ".".into()),
+                (parent, FileType::Directory, "..".into()),
+            ];
+            all.extend(children.into_iter().map(|(name, i, item)| {
+                (
+                    i,
+                    if item.is_container() {
+                        FileType::Directory
+                    } else {
+                        FileType::RegularFile
+                    },
+                    name,
+                )
+            }));
+            for (n, (i, kind, name)) in all
+                .into_iter()
+                .enumerate()
+                .skip(usize::try_from(offset).unwrap_or(0))
+            {
+                if reply.add(INodeNo(i), n as u64 + 1, kind, name) {
+                    break;
+                }
             }
-        }
-        reply.ok();
+            reply.ok();
+        })
     }
 
     fn open(&self, req: &Request, ino: INodeNo, flags: OpenFlags, reply: ReplyOpen) {
-        let inner = &self.0;
-        let Some(item) = inner.item(ino.0) else {
-            return reply.error(Errno::ENOENT);
-        };
-        if item.is_container() {
-            return reply.error(Errno::EISDIR);
-        }
-        let writing = flags.acc_mode() != OpenAccMode::O_RDONLY;
-        let truncate = flags.0 & libc::O_TRUNC != 0;
-        if writing && (inner.writes.is_none() || inner.read_only) {
-            return reply.error(Errno::EROFS);
-        }
-        if inner.pending(ino.0).is_none() {
-            if writing {
-                if let Err(e) = inner.begin_writing(ino.0, &item, !truncate) {
-                    return reply.error(e);
-                }
-            } else {
-                // A thumbnailer is not let download a file only to draw it small.
-                let pid = req.pid();
-                let comm = std::fs::read_to_string(format!("/proc/{pid}/comm")).unwrap_or_default();
-                let cmdline = std::fs::read(format!("/proc/{pid}/cmdline"))
-                    .map(|b| String::from_utf8_lossy(&b).into_owned())
-                    .unwrap_or_default();
-                if is_thumbnailer(&comm, &cmdline)
-                    && !inner.cache.whole(&item)
-                    && !inner.remote.is_local(&item)
-                {
-                    return reply.error(Errno::EACCES);
-                }
-                // A file served at another length than listed (iWork's packages): its length
-                // asked of Apple before it is read, and read past what the kernel last heard,
-                // so it is never cut short at the listing's length.
-                if crate::served_size_differs(&item) && !inner.remote.is_local(&item) {
-                    let (c, r, i) = (
-                        Arc::clone(&inner.cache),
-                        Arc::clone(&inner.remote),
-                        item.clone(),
-                    );
-                    let _ = inner
-                        .rt
-                        .block_on(async move { c.sized(r.as_ref(), &i).await });
-                    return reply.opened(FileHandle(0), FopenFlags::FOPEN_DIRECT_IO);
-                }
-                return reply.opened(FileHandle(0), FopenFlags::empty());
+        guarded(|| {
+            let inner = &self.0;
+            let Some(item) = inner.item(ino.0) else {
+                return reply.error(Errno::ENOENT);
+            };
+            if item.is_container() {
+                return reply.error(Errno::EISDIR);
             }
-        }
-        if truncate {
-            if let (Some(w), Some(p)) = (&inner.writes, inner.pending(ino.0)) {
-                let _ = std::fs::OpenOptions::new()
-                    .write(true)
-                    .open(w.staging(ino.0, &p.name))
-                    .and_then(|f| f.set_len(0));
+            let writing = flags.acc_mode() != OpenAccMode::O_RDONLY;
+            let truncate = flags.0 & libc::O_TRUNC != 0;
+            if writing && (inner.writes.is_none() || inner.read_only) {
+                return reply.error(Errno::EROFS);
             }
-        }
-        inner.with_pending(ino.0, |p| {
-            p.open += 1;
+            if inner.pending(ino.0).is_none() {
+                if writing {
+                    if let Err(e) = inner.begin_writing(ino.0, &item, !truncate) {
+                        return reply.error(e);
+                    }
+                } else {
+                    // A thumbnailer is not let download a file only to draw it small.
+                    let pid = req.pid();
+                    let comm =
+                        std::fs::read_to_string(format!("/proc/{pid}/comm")).unwrap_or_default();
+                    let cmdline = std::fs::read(format!("/proc/{pid}/cmdline"))
+                        .map(|b| String::from_utf8_lossy(&b).into_owned())
+                        .unwrap_or_default();
+                    if is_thumbnailer(&comm, &cmdline)
+                        && !inner.cache.whole(&item)
+                        && !inner.remote.is_local(&item)
+                    {
+                        return reply.error(Errno::EACCES);
+                    }
+                    // A file served at another length than listed (iWork's packages): its length
+                    // asked of Apple before it is read, and read past what the kernel last heard,
+                    // so it is never cut short at the listing's length.
+                    if crate::served_size_differs(&item) && !inner.remote.is_local(&item) {
+                        let (c, r, i) = (
+                            Arc::clone(&inner.cache),
+                            Arc::clone(&inner.remote),
+                            item.clone(),
+                        );
+                        let _ = inner
+                            .rt
+                            .block_on(async move { c.sized(r.as_ref(), &i).await });
+                        return reply.opened(FileHandle(0), FopenFlags::FOPEN_DIRECT_IO);
+                    }
+                    return reply.opened(FileHandle(0), FopenFlags::empty());
+                }
+            }
             if truncate {
-                p.dirty = true;
-                p.generation += 1;
-                p.modified = SystemTime::now();
+                if let (Some(w), Some(p)) = (&inner.writes, inner.pending(ino.0)) {
+                    let _ = std::fs::OpenOptions::new()
+                        .write(true)
+                        .open(w.staging(ino.0, &p.name))
+                        .and_then(|f| f.set_len(0));
+                }
             }
-        });
-        // The kernel's page cache is not kept for a file being written: every read is ours.
-        reply.opened(FileHandle(ino.0), FopenFlags::FOPEN_DIRECT_IO);
+            inner.with_pending(ino.0, |p| {
+                p.open += 1;
+                if truncate {
+                    p.dirty = true;
+                    p.generation += 1;
+                    p.modified = SystemTime::now();
+                }
+            });
+            // The kernel's page cache is not kept for a file being written: every read is ours.
+            reply.opened(FileHandle(ino.0), FopenFlags::FOPEN_DIRECT_IO);
+        })
     }
 
     fn create(
@@ -1452,108 +1476,110 @@ impl Filesystem for DriveFs {
         flags: i32,
         reply: ReplyCreate,
     ) {
-        if self.0.read_only {
-            return reply.error(Errno::EROFS);
-        }
-        let inner = &self.0;
-        let Some(writes) = inner.writes.clone() else {
-            return reply.error(Errno::EROFS);
-        };
-        let Some(folder) = inner.item(parent.0) else {
-            return reply.error(Errno::ENOENT);
-        };
-        let Some(name) = name.to_str() else {
-            return reply.error(Errno::EINVAL);
-        };
-        if inner.add_only && !inner.remote.accepts(&folder) {
-            return reply.error(Errno::EROFS);
-        }
-        if let Ok((ino, item)) = inner.child(parent.0, OsStr::new(name)) {
-            if flags & libc::O_EXCL != 0 {
-                return reply.error(Errno::EEXIST);
+        guarded(|| {
+            if self.0.read_only {
+                return reply.error(Errno::EROFS);
             }
-            if item.is_container() {
-                return reply.error(Errno::EISDIR);
+            let inner = &self.0;
+            let Some(writes) = inner.writes.clone() else {
+                return reply.error(Errno::EROFS);
+            };
+            let Some(folder) = inner.item(parent.0) else {
+                return reply.error(Errno::ENOENT);
+            };
+            let Some(name) = name.to_str() else {
+                return reply.error(Errno::EINVAL);
+            };
+            if inner.add_only && !inner.remote.accepts(&folder) {
+                return reply.error(Errno::EROFS);
             }
-            let truncate = flags & libc::O_TRUNC != 0;
-            if inner.pending(ino).is_none() {
-                if let Err(e) = inner.begin_writing(ino, &item, !truncate) {
-                    return reply.error(e);
+            if let Ok((ino, item)) = inner.child(parent.0, OsStr::new(name)) {
+                if flags & libc::O_EXCL != 0 {
+                    return reply.error(Errno::EEXIST);
                 }
-            }
-            if truncate {
-                if let Some(p) = inner.pending(ino) {
-                    let _ = std::fs::OpenOptions::new()
-                        .write(true)
-                        .open(writes.staging(ino, &p.name))
-                        .and_then(|f| f.set_len(0));
+                if item.is_container() {
+                    return reply.error(Errno::EISDIR);
                 }
-            }
-            inner.with_pending(ino, |p| {
-                p.open += 1;
+                let truncate = flags & libc::O_TRUNC != 0;
+                if inner.pending(ino).is_none() {
+                    if let Err(e) = inner.begin_writing(ino, &item, !truncate) {
+                        return reply.error(e);
+                    }
+                }
                 if truncate {
-                    p.dirty = true;
-                    p.generation += 1;
+                    if let Some(p) = inner.pending(ino) {
+                        let _ = std::fs::OpenOptions::new()
+                            .write(true)
+                            .open(writes.staging(ino, &p.name))
+                            .and_then(|f| f.set_len(0));
+                    }
                 }
-            });
-            let _ = req;
-            return reply.created(
+                inner.with_pending(ino, |p| {
+                    p.open += 1;
+                    if truncate {
+                        p.dirty = true;
+                        p.generation += 1;
+                    }
+                });
+                let _ = req;
+                return reply.created(
+                    &TTL,
+                    &inner.attr(ino, &item),
+                    Generation(0),
+                    FileHandle(ino),
+                    FopenFlags::FOPEN_DIRECT_IO,
+                );
+            }
+            let ino = inner
+                .inodes
+                .lock()
+                .unwrap_or_else(std::sync::PoisonError::into_inner)
+                .local(&folder.drivewsid, name);
+            let staged = writes.staging(ino, name);
+            let made = staged
+                .parent()
+                .map_or(Ok(()), std::fs::create_dir_all)
+                .and_then(|()| std::fs::File::create(&staged));
+            if let Err(e) = made {
+                return reply.error(disk(e));
+            }
+            writes
+                .items
+                .lock()
+                .unwrap_or_else(std::sync::PoisonError::into_inner)
+                .insert(
+                    ino,
+                    Pending {
+                        folder: folder.drivewsid.clone(),
+                        name: name.to_string(),
+                        replaces: None,
+                        open: 1,
+                        dirty: true,
+                        generation: 1,
+                        modified: SystemTime::now(),
+                        sender: false,
+                        quiet_since: None,
+                        sending: false,
+                        failure: None,
+                    },
+                );
+            inner
+                .inodes
+                .lock()
+                .unwrap_or_else(std::sync::PoisonError::into_inner)
+                .place(ino, parent.0, name);
+            writes.save();
+            let Some(item) = inner.item(ino) else {
+                return reply.error(Errno::EIO);
+            };
+            reply.created(
                 &TTL,
                 &inner.attr(ino, &item),
                 Generation(0),
                 FileHandle(ino),
                 FopenFlags::FOPEN_DIRECT_IO,
             );
-        }
-        let ino = inner
-            .inodes
-            .lock()
-            .unwrap_or_else(std::sync::PoisonError::into_inner)
-            .local(&folder.drivewsid, name);
-        let staged = writes.staging(ino, name);
-        let made = staged
-            .parent()
-            .map_or(Ok(()), std::fs::create_dir_all)
-            .and_then(|()| std::fs::File::create(&staged));
-        if let Err(e) = made {
-            return reply.error(disk(e));
-        }
-        writes
-            .items
-            .lock()
-            .unwrap_or_else(std::sync::PoisonError::into_inner)
-            .insert(
-                ino,
-                Pending {
-                    folder: folder.drivewsid.clone(),
-                    name: name.to_string(),
-                    replaces: None,
-                    open: 1,
-                    dirty: true,
-                    generation: 1,
-                    modified: SystemTime::now(),
-                    sender: false,
-                    quiet_since: None,
-                    sending: false,
-                    failure: None,
-                },
-            );
-        inner
-            .inodes
-            .lock()
-            .unwrap_or_else(std::sync::PoisonError::into_inner)
-            .place(ino, parent.0, name);
-        writes.save();
-        let Some(item) = inner.item(ino) else {
-            return reply.error(Errno::EIO);
-        };
-        reply.created(
-            &TTL,
-            &inner.attr(ino, &item),
-            Generation(0),
-            FileHandle(ino),
-            FopenFlags::FOPEN_DIRECT_IO,
-        );
+        })
     }
 
     fn read(
@@ -1567,49 +1593,51 @@ impl Filesystem for DriveFs {
         _lock: Option<LockOwner>,
         reply: ReplyData,
     ) {
-        let inner = &self.0;
-        // A file being written reads what has been written.
-        if let (Some(w), Some(p)) = (&inner.writes, inner.pending(ino.0)) {
-            let mut buf = vec![0u8; size as usize];
-            return match std::fs::File::open(w.staging(ino.0, &p.name))
-                .and_then(|f| f.read_at(&mut buf, offset))
-            {
-                Ok(n) => reply.data(&buf[..n]),
-                Err(_) => reply.error(Errno::EIO),
+        guarded(|| {
+            let inner = &self.0;
+            // A file being written reads what has been written.
+            if let (Some(w), Some(p)) = (&inner.writes, inner.pending(ino.0)) {
+                let mut buf = vec![0u8; size as usize];
+                return match std::fs::File::open(w.staging(ino.0, &p.name))
+                    .and_then(|f| f.read_at(&mut buf, offset))
+                {
+                    Ok(n) => reply.data(&buf[..n]),
+                    Err(_) => reply.error(Errno::EIO),
+                };
+            }
+            let Some(item) = inner.item(ino.0) else {
+                return reply.error(Errno::ENOENT);
             };
-        }
-        let Some(item) = inner.item(ino.0) else {
-            return reply.error(Errno::ENOENT);
-        };
-        // Kept whole by the app already (a photo's original): read from there, no second copy.
-        if let Some(path) = inner.remote.file(&item) {
-            inner.rt.spawn(async move {
-                let bytes = path.await.and_then(|p| {
-                    let mut buf = vec![0u8; size as usize];
-                    let n = std::fs::File::open(p)
-                        .and_then(|f| f.read_at(&mut buf, offset))
-                        .map_err(|e| e.to_string())?;
-                    buf.truncate(n);
-                    Ok(buf)
+            // Kept whole by the app already (a photo's original): read from there, no second copy.
+            if let Some(path) = inner.remote.file(&item) {
+                inner.rt.spawn(async move {
+                    let bytes = path.await.and_then(|p| {
+                        let mut buf = vec![0u8; size as usize];
+                        let n = std::fs::File::open(p)
+                            .and_then(|f| f.read_at(&mut buf, offset))
+                            .map_err(|e| e.to_string())?;
+                        buf.truncate(n);
+                        Ok(buf)
+                    });
+                    match bytes {
+                        Ok(b) => reply.data(&b),
+                        Err(_) => reply.error(Errno::EIO),
+                    }
                 });
-                match bytes {
-                    Ok(b) => reply.data(&b),
+                return;
+            }
+            let (cache, remote) = (Arc::clone(&inner.cache), Arc::clone(&inner.remote));
+            // Answered when the bytes are here, without holding up the folder's other requests.
+            inner.rt.spawn(async move {
+                match cache
+                    .read(remote.as_ref(), &item, offset, u64::from(size))
+                    .await
+                {
+                    Ok(bytes) => reply.data(&bytes),
                     Err(_) => reply.error(Errno::EIO),
                 }
             });
-            return;
-        }
-        let (cache, remote) = (Arc::clone(&inner.cache), Arc::clone(&inner.remote));
-        // Answered when the bytes are here, without holding up the folder's other requests.
-        inner.rt.spawn(async move {
-            match cache
-                .read(remote.as_ref(), &item, offset, u64::from(size))
-                .await
-            {
-                Ok(bytes) => reply.data(&bytes),
-                Err(_) => reply.error(Errno::EIO),
-            }
-        });
+        })
     }
 
     fn write(
@@ -1624,23 +1652,25 @@ impl Filesystem for DriveFs {
         _lock: Option<LockOwner>,
         reply: ReplyWrite,
     ) {
-        let inner = &self.0;
-        let (Some(w), Some(p)) = (&inner.writes, inner.pending(ino.0)) else {
-            return reply.error(Errno::EBADF);
-        };
-        let written = std::fs::OpenOptions::new()
-            .write(true)
-            .open(w.staging(ino.0, &p.name))
-            .and_then(|f| f.write_all_at(data, offset));
-        if let Err(e) = written {
-            return reply.error(disk(e));
-        }
-        inner.with_pending(ino.0, |p| {
-            p.dirty = true;
-            p.generation += 1;
-            p.modified = SystemTime::now();
-        });
-        reply.written(u32::try_from(data.len()).unwrap_or(u32::MAX));
+        guarded(|| {
+            let inner = &self.0;
+            let (Some(w), Some(p)) = (&inner.writes, inner.pending(ino.0)) else {
+                return reply.error(Errno::EBADF);
+            };
+            let written = std::fs::OpenOptions::new()
+                .write(true)
+                .open(w.staging(ino.0, &p.name))
+                .and_then(|f| f.write_all_at(data, offset));
+            if let Err(e) = written {
+                return reply.error(disk(e));
+            }
+            inner.with_pending(ino.0, |p| {
+                p.dirty = true;
+                p.generation += 1;
+                p.modified = SystemTime::now();
+            });
+            reply.written(u32::try_from(data.len()).unwrap_or(u32::MAX));
+        })
     }
 
     fn flush(
@@ -1651,7 +1681,9 @@ impl Filesystem for DriveFs {
         _lock: LockOwner,
         reply: ReplyEmpty,
     ) {
-        reply.ok();
+        guarded(|| {
+            reply.ok();
+        })
     }
 
     fn fsync(
@@ -1662,11 +1694,13 @@ impl Filesystem for DriveFs {
         _datasync: bool,
         reply: ReplyEmpty,
     ) {
-        // On this computer's disk is as far as a sync can promise; Apple's copy follows.
-        if let (Some(w), Some(p)) = (&self.0.writes, self.0.pending(ino.0)) {
-            let _ = std::fs::File::open(w.staging(ino.0, &p.name)).and_then(|f| f.sync_all());
-        }
-        reply.ok();
+        guarded(|| {
+            // On this computer's disk is as far as a sync can promise; Apple's copy follows.
+            if let (Some(w), Some(p)) = (&self.0.writes, self.0.pending(ino.0)) {
+                let _ = std::fs::File::open(w.staging(ino.0, &p.name)).and_then(|f| f.sync_all());
+            }
+            reply.ok();
+        })
     }
 
     fn release(
@@ -1679,34 +1713,36 @@ impl Filesystem for DriveFs {
         _flush: bool,
         reply: ReplyEmpty,
     ) {
-        let inner = &self.0;
-        // Some(true): last close of a changed file, to send. Some(false): last close of a file
-        // opened for writing and never written — its copy is let go of, or every read went on
-        // being served from that copy and changes made on the phone stayed unseen.
-        let last = inner.with_pending(ino.0, |p| {
-            p.open = p.open.saturating_sub(1);
-            (p.open == 0).then_some(p.dirty || p.sending || p.sender)
-        });
-        match last {
-            Some(Some(true)) => {
-                if let Some(w) = &inner.writes {
-                    w.save();
+        guarded(|| {
+            let inner = &self.0;
+            // Some(true): last close of a changed file, to send. Some(false): last close of a file
+            // opened for writing and never written — its copy is let go of, or every read went on
+            // being served from that copy and changes made on the phone stayed unseen.
+            let last = inner.with_pending(ino.0, |p| {
+                p.open = p.open.saturating_sub(1);
+                (p.open == 0).then_some(p.dirty || p.sending || p.sender)
+            });
+            match last {
+                Some(Some(true)) => {
+                    if let Some(w) = &inner.writes {
+                        w.save();
+                    }
+                    Inner::schedule(inner, ino.0, writes::SETTLE);
                 }
-                Inner::schedule(inner, ino.0, writes::SETTLE);
-            }
-            Some(Some(false)) => {
-                if let Some(w) = &inner.writes {
-                    w.items
-                        .lock()
-                        .unwrap_or_else(std::sync::PoisonError::into_inner)
-                        .remove(&ino.0);
-                    w.drop_staging(ino.0);
-                    w.save();
+                Some(Some(false)) => {
+                    if let Some(w) = &inner.writes {
+                        w.items
+                            .lock()
+                            .unwrap_or_else(std::sync::PoisonError::into_inner)
+                            .remove(&ino.0);
+                        w.drop_staging(ino.0);
+                        w.save();
+                    }
                 }
+                _ => {}
             }
-            _ => {}
-        }
-        reply.ok();
+            reply.ok();
+        })
     }
 
     fn mkdir(
@@ -1718,46 +1754,52 @@ impl Filesystem for DriveFs {
         _umask: u32,
         reply: ReplyEntry,
     ) {
-        if self.0.read_only || self.0.add_only {
-            return reply.error(Errno::EROFS);
-        }
-        let inner = &self.0;
-        let Some(folder) = inner.item(parent.0) else {
-            return reply.error(Errno::ENOENT);
-        };
-        let Some(name) = name.to_str() else {
-            return reply.error(Errno::EINVAL);
-        };
-        if inner.child(parent.0, OsStr::new(name)).is_ok() {
-            return reply.error(Errno::EEXIST);
-        }
-        match inner.change(inner.remote.mkdir(&folder, name), &[&folder]) {
-            Ok(_) => match inner.child(parent.0, OsStr::new(name)) {
-                Ok((ino, item)) => reply.entry(&TTL, &inner.attr(ino, &item), Generation(0)),
+        guarded(|| {
+            if self.0.read_only || self.0.add_only {
+                return reply.error(Errno::EROFS);
+            }
+            let inner = &self.0;
+            let Some(folder) = inner.item(parent.0) else {
+                return reply.error(Errno::ENOENT);
+            };
+            let Some(name) = name.to_str() else {
+                return reply.error(Errno::EINVAL);
+            };
+            if inner.child(parent.0, OsStr::new(name)).is_ok() {
+                return reply.error(Errno::EEXIST);
+            }
+            match inner.change(inner.remote.mkdir(&folder, name), &[&folder]) {
+                Ok(_) => match inner.child(parent.0, OsStr::new(name)) {
+                    Ok((ino, item)) => reply.entry(&TTL, &inner.attr(ino, &item), Generation(0)),
+                    Err(e) => reply.error(e),
+                },
                 Err(e) => reply.error(e),
-            },
-            Err(e) => reply.error(e),
-        }
+            }
+        })
     }
 
     fn unlink(&self, _req: &Request, parent: INodeNo, name: &OsStr, reply: ReplyEmpty) {
-        if self.0.read_only {
-            return reply.error(Errno::EROFS);
-        }
-        match self.0.remove(parent.0, name, false) {
-            Ok(()) => reply.ok(),
-            Err(e) => reply.error(e),
-        }
+        guarded(|| {
+            if self.0.read_only {
+                return reply.error(Errno::EROFS);
+            }
+            match self.0.remove(parent.0, name, false) {
+                Ok(()) => reply.ok(),
+                Err(e) => reply.error(e),
+            }
+        })
     }
 
     fn rmdir(&self, _req: &Request, parent: INodeNo, name: &OsStr, reply: ReplyEmpty) {
-        if self.0.read_only || self.0.add_only {
-            return reply.error(Errno::EROFS);
-        }
-        match self.0.remove(parent.0, name, true) {
-            Ok(()) => reply.ok(),
-            Err(e) => reply.error(e),
-        }
+        guarded(|| {
+            if self.0.read_only || self.0.add_only {
+                return reply.error(Errno::EROFS);
+            }
+            match self.0.remove(parent.0, name, true) {
+                Ok(()) => reply.ok(),
+                Err(e) => reply.error(e),
+            }
+        })
     }
 
     fn rename(
@@ -1770,50 +1812,56 @@ impl Filesystem for DriveFs {
         _flags: RenameFlags,
         reply: ReplyEmpty,
     ) {
-        if self.0.read_only {
-            return reply.error(Errno::EROFS);
-        }
-        match Inner::rename(&self.0, parent.0, name, newparent.0, newname) {
-            Ok(()) => reply.ok(),
-            Err(e) => reply.error(e),
-        }
+        guarded(|| {
+            if self.0.read_only {
+                return reply.error(Errno::EROFS);
+            }
+            match Inner::rename(&self.0, parent.0, name, newparent.0, newname) {
+                Ok(()) => reply.ok(),
+                Err(e) => reply.error(e),
+            }
+        })
     }
 
     /// `user.quince.keep`: "1" on a file or folder kept on this computer (chosen, or inside a
     /// chosen folder); no such attribute otherwise. The only attribute these folders keep.
     fn getxattr(&self, _req: &Request, ino: INodeNo, name: &OsStr, size: u32, reply: ReplyXattr) {
-        let inner = &self.0;
-        let Some(item) = inner.item(ino.0) else {
-            return reply.error(Errno::ENOENT);
-        };
-        if name != OsStr::new(KEEP_ATTR) || !inner.kept_under(&item) {
-            return reply.error(Errno::NO_XATTR);
-        }
-        match size {
-            0 => reply.size(1),
-            n if n < 1 => reply.error(Errno::ERANGE),
-            _ => reply.data(b"1"),
-        }
+        guarded(|| {
+            let inner = &self.0;
+            let Some(item) = inner.item(ino.0) else {
+                return reply.error(Errno::ENOENT);
+            };
+            if name != OsStr::new(KEEP_ATTR) || !inner.kept_under(&item) {
+                return reply.error(Errno::NO_XATTR);
+            }
+            match size {
+                0 => reply.size(1),
+                n if n < 1 => reply.error(Errno::ERANGE),
+                _ => reply.data(b"1"),
+            }
+        })
     }
 
     fn listxattr(&self, _req: &Request, ino: INodeNo, size: u32, reply: ReplyXattr) {
-        let inner = &self.0;
-        let Some(item) = inner.item(ino.0) else {
-            return reply.error(Errno::ENOENT);
-        };
-        let names: &[u8] = if inner.kept_under(&item) {
-            b"user.quince.keep\0"
-        } else {
-            b""
-        };
-        let len = u32::try_from(names.len()).unwrap_or(u32::MAX);
-        if size == 0 {
-            reply.size(len)
-        } else if size < len {
-            reply.error(Errno::ERANGE)
-        } else {
-            reply.data(names)
-        }
+        guarded(|| {
+            let inner = &self.0;
+            let Some(item) = inner.item(ino.0) else {
+                return reply.error(Errno::ENOENT);
+            };
+            let names: &[u8] = if inner.kept_under(&item) {
+                b"user.quince.keep\0"
+            } else {
+                b""
+            };
+            let len = u32::try_from(names.len()).unwrap_or(u32::MAX);
+            if size == 0 {
+                reply.size(len)
+            } else if size < len {
+                reply.error(Errno::ERANGE)
+            } else {
+                reply.data(names)
+            }
+        })
     }
 
     /// Kept on this computer (any value but "0"), or let go of ("0"), as the window's Keep on
@@ -1828,75 +1876,82 @@ impl Filesystem for DriveFs {
         _position: u32,
         reply: ReplyEmpty,
     ) {
-        let inner = &self.0;
-        if name != OsStr::new(KEEP_ATTR) {
-            return reply.error(Errno::ENOTSUP);
-        }
-        // Only what the folder can fetch is kept: a file still being written here is already
-        // on this computer, and the Photos folder reads from the app's own photo cache.
-        if inner.add_only || inner.read_only || inner.writes.is_none() {
-            return reply.error(Errno::ENOTSUP);
-        }
-        let Some(item) = inner.item(ino.0) else {
-            return reply.error(Errno::ENOENT);
-        };
-        if item.drivewsid.starts_with("LOCAL::") {
-            return reply.error(Errno::ENOTSUP);
-        }
-        Inner::keep(inner, &item.drivewsid, value != b"0");
-        reply.ok();
+        guarded(|| {
+            let inner = &self.0;
+            if name != OsStr::new(KEEP_ATTR) {
+                return reply.error(Errno::ENOTSUP);
+            }
+            // Only what the folder can fetch is kept: a file still being written here is already
+            // on this computer, and the Photos folder reads from the app's own photo cache.
+            if inner.add_only || inner.read_only || inner.writes.is_none() {
+                return reply.error(Errno::ENOTSUP);
+            }
+            let Some(item) = inner.item(ino.0) else {
+                return reply.error(Errno::ENOENT);
+            };
+            if item.drivewsid.starts_with("LOCAL::") {
+                return reply.error(Errno::ENOTSUP);
+            }
+            Inner::keep(inner, &item.drivewsid, value != b"0");
+            reply.ok();
+        })
     }
 
     fn removexattr(&self, _req: &Request, ino: INodeNo, name: &OsStr, reply: ReplyEmpty) {
-        let inner = &self.0;
-        let Some(item) = inner.item(ino.0) else {
-            return reply.error(Errno::ENOENT);
-        };
-        // Only what was chosen itself can be let go of; a file kept by its folder stays kept.
-        if name != OsStr::new(KEEP_ATTR) || !inner.cache.kept().chosen.contains(&item.drivewsid) {
-            return reply.error(Errno::NO_XATTR);
-        }
-        Inner::keep(inner, &item.drivewsid, false);
-        reply.ok();
+        guarded(|| {
+            let inner = &self.0;
+            let Some(item) = inner.item(ino.0) else {
+                return reply.error(Errno::ENOENT);
+            };
+            // Only what was chosen itself can be let go of; a file kept by its folder stays kept.
+            if name != OsStr::new(KEEP_ATTR) || !inner.cache.kept().chosen.contains(&item.drivewsid)
+            {
+                return reply.error(Errno::NO_XATTR);
+            }
+            Inner::keep(inner, &item.drivewsid, false);
+            reply.ok();
+        })
     }
 
     fn statfs(&self, _req: &Request, _ino: INodeNo, reply: ReplyStatfs) {
-        let inner = &self.0;
-        // The account's own storage, asked at most once a minute: a file manager checks there
-        // is room before copying in.
-        let known = *inner
-            .space
-            .lock()
-            .unwrap_or_else(std::sync::PoisonError::into_inner);
-        let space = match known {
-            Some((s, at)) if at.elapsed() < Duration::from_secs(60) => Some(s),
-            _ => {
-                let remote = Arc::clone(&inner.remote);
-                let got = inner
-                    .rt
-                    .block_on(async move {
-                        tokio::time::timeout(Duration::from_secs(5), remote.space()).await
-                    })
-                    .ok()
-                    .and_then(Result::ok);
-                if let Some(s) = got {
-                    *inner
-                        .space
-                        .lock()
-                        .unwrap_or_else(std::sync::PoisonError::into_inner) =
-                        Some((s, std::time::Instant::now()));
+        guarded(|| {
+            let inner = &self.0;
+            // The account's own storage, asked at most once a minute: a file manager checks there
+            // is room before copying in.
+            let known = *inner
+                .space
+                .lock()
+                .unwrap_or_else(std::sync::PoisonError::into_inner);
+            let space = match known {
+                Some((s, at)) if at.elapsed() < Duration::from_secs(60) => Some(s),
+                _ => {
+                    let remote = Arc::clone(&inner.remote);
+                    let got = inner
+                        .rt
+                        .block_on(async move {
+                            tokio::time::timeout(Duration::from_secs(5), remote.space()).await
+                        })
+                        .ok()
+                        .and_then(Result::ok);
+                    if let Some(s) = got {
+                        *inner
+                            .space
+                            .lock()
+                            .unwrap_or_else(std::sync::PoisonError::into_inner) =
+                            Some((s, std::time::Instant::now()));
+                    }
+                    got.or(known.map(|(s, _)| s))
                 }
-                got.or(known.map(|(s, _)| s))
+            };
+            let block = 4096u64;
+            match (space, inner.writes.is_some()) {
+                (Some((used, total)), true) => {
+                    let free = total.saturating_sub(used) / block;
+                    reply.statfs(total / block, free, free, 0, 0, 4096, 255, 4096);
+                }
+                _ => reply.statfs(0, 0, 0, 0, 0, 4096, 255, 4096),
             }
-        };
-        let block = 4096u64;
-        match (space, inner.writes.is_some()) {
-            (Some((used, total)), true) => {
-                let free = total.saturating_sub(used) / block;
-                reply.statfs(total / block, free, free, 0, 0, 4096, 255, 4096);
-            }
-            _ => reply.statfs(0, 0, 0, 0, 0, 4096, 255, 4096),
-        }
+        })
     }
 }
 
@@ -1939,6 +1994,16 @@ pub fn mount(fs: DriveFs, at: &Path) -> std::io::Result<fuser::BackgroundSession
 
 #[cfg(test)]
 mod listing_tests {
+    /// A request that panics ends with that request: the mount's thread goes on.
+    #[test]
+    fn a_request_that_panics_never_ends_the_mount() {
+        let mut ran = false;
+        guarded(|| ran = true);
+        assert!(ran);
+        guarded(|| panic!("a bug in one request"));
+        // Still here: the session's loop would take the next request.
+    }
+
     use super::*;
     use crate::{Fut, ROOT};
     use std::sync::atomic::{AtomicU64, AtomicUsize, Ordering};
