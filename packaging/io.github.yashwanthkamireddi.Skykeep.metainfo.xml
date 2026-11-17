@@ -103,6 +103,11 @@
     <color type="primary" scheme_preference="dark">#0B2A4A</color>
   </branding>
   <releases>
+    <release version="0.1.28" date="2026-11-17">
+      <description>
+        <p>Opening an app no longer freezes Skykeep on Windows, a problem that came with 0.1.27; on Linux the same freeze could catch an app opened while Skykeep was already running, and it is gone too. A window closed the moment it opens now stays closed. On Linux, closed app windows give their memory back: before, each one kept its web process, about 100 MB, until Skykeep quit. Photos keeps every picture on screen in a large library, where tiles could turn into grey boxes a few seconds after opening or after dragging the scrollbar. A download kept from an earlier update no longer installs over a newer version. On Windows, the Drive folder shows as on while it comes back after a restart rather than off, a folder File Explorer refuses one item in still opens with the rest, and folders opened before a restart are kept up to date again.</p>
+      </description>
+    </release>
     <release version="0.1.27" date="2026-11-16">
       <description>
         <p>On Windows, an app's window opened again at the size it was left, Reminders at its smallest for example, no longer freezes Skykeep or stays white. Each app's window can float on top of others: the pin beside the sidebar button, or Ctrl+Shift+P (Windows and X11). Reminders shows pinned lists in the order they were pinned, as the iPhone does. Notes' Sort Checked Items is in Settings as Apple has it, Manually or Automatically. The words still in English in the German and Chinese apps are translated. New on Linux, as a beta: an iPhone over the cable as this computer's camera and microphone, in any app, from Settings, iPhone.</p>
