@@ -187,12 +187,7 @@ impl CloudFolder {
                     let mut one = [made.info()];
                     // SAFETY: the name and identity are alive for the call.
                     let created = unsafe {
-                        CfCreatePlaceholders(
-                            &long_path(dir),
-                            &mut one,
-                            CF_CREATE_FLAG_NONE,
-                            None,
-                        )
+                        CfCreatePlaceholders(&long_path(&dir), &mut one, CF_CREATE_FLAG_NONE, None)
                     };
                     if let Err(e) = created {
                         crate::note_about(

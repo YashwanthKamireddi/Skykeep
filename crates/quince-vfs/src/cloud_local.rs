@@ -22,7 +22,6 @@ use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use std::time::{Instant, SystemTime};
-use windows::core::HSTRING;
 use windows::Win32::Storage::CloudFilters::*;
 
 /// The files Explorer and Windows keep for themselves in every folder, never sent: left "syncing"
