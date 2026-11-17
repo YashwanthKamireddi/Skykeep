@@ -7,6 +7,12 @@
 # release (release.yml) on the new tag: a tag made with the workflow's own token starts no
 # workflow by itself, so it is started here, by name.
 # The tag is the version bump's commit; its message becomes the update's notes.
+#
+# It also runs by itself as each of those four finishes on main: once the last of them is green
+# on a release commit ("Skykeep x.y.z", the newest commit on main), it tags and releases with
+# the same checks as the button. Before, a green release commit waited for someone to notice and
+# press it. Anything else (a fix, a check still running or failed, a version already tagged) is
+# passed over quietly; the button still releases any commit by hand.
 name: Tag a release
 
 on:
@@ -20,17 +26,28 @@ on:
         description: "Only check: say whether it could be released, tag nothing"
         type: boolean
         default: false
+  workflow_run:
+    workflows: [CI, Windows checks, Linux checks, Linux compatibility]
+    types: [completed]
+    branches: [main]
 
 permissions:
   contents: read
 
-# One at a time: two presses never race to the same tag.
+# One at a time: two presses never race to the same tag. Four checks finishing together queue
+# here; the newest waiting run replaces an older one, and the last to finish sees all four.
 concurrency:
   group: tag-a-release
   cancel-in-progress: false
 
 jobs:
   tag:
+    # Started by a check: only one that succeeded, on a commit whose message starts as a
+    # release's does, takes a runner at all; the step below decides the rest.
+    if: >-
+      github.event_name != 'workflow_run' ||
+      (github.event.workflow_run.conclusion == 'success' &&
+       startsWith(github.event.workflow_run.head_commit.message, 'Skykeep '))
     runs-on: ubuntu-24.04
     timeout-minutes: 20  # the licence list reads every crate's licence files (a few minutes)
     permissions:
@@ -46,11 +63,22 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
           REPO: ${{ github.repository }}
-          GIVEN: ${{ inputs.sha }}
+          GIVEN: ${{ inputs.sha || github.event.workflow_run.head_sha }}
           DRY: ${{ inputs.dry_run }}
+          AUTO: ${{ github.event_name == 'workflow_run' }}
         run: |
+          # Started by a check finishing: only a release commit that is main's newest, once every
+          # check is green, and only once. Anything else is not this run's to release: said, not
+          # failed.
+          pass() { echo "::notice::not releasing: $1"; echo "go=false" >> "$GITHUB_OUTPUT"; exit 0; }
           SHA=$(git rev-parse --verify "${GIVEN:-HEAD}^{commit}") || { echo "::error::no such commit: $GIVEN"; exit 1; }
           export SHA
+          if [ "$AUTO" = true ]; then
+            [ "$SHA" = "$(git rev-parse HEAD)" ] || pass "$SHA is no longer main's newest commit"
+            v=$(git show "$SHA:src-tauri/tauri.conf.json" | jq -r .version)
+            [ "$(git log -1 --format=%s "$SHA")" = "Skykeep $v" ] || pass "$SHA is not a release commit"
+            ! git ls-remote --exit-code --tags origin "refs/tags/v$v" >/dev/null || pass "v$v is already tagged"
+          fi
           if ! git merge-base --is-ancestor "$SHA" HEAD; then echo "::error::$SHA is not on main"; exit 1; fi
           version=$(git show "$SHA:src-tauri/tauri.conf.json" | jq -r .version)
           tag="v$version"
@@ -64,7 +92,10 @@ jobs:
             [ "$w" = linux-compat.yml ] && events='"push", "workflow_dispatch"'
             run=$(gh api "repos/$REPO/actions/workflows/$w/runs?head_sha=$SHA&status=success&branch=main&per_page=20" \
               -q "[.workflow_runs[] | select(.head_sha == env.SHA and .head_branch == \"main\" and (.event | IN($events)))][0].html_url // empty")
-            if [ -z "$run" ]; then echo "::error::$w has not succeeded on a push of $SHA to main (still running, failed, or never ran)"; exit 1; fi
+            if [ -z "$run" ]; then
+              [ "$AUTO" = true ] && pass "$w has not succeeded on $SHA yet"
+              echo "::error::$w has not succeeded on a push of $SHA to main (still running, failed, or never ran)"; exit 1
+            fi
             echo "$w succeeded on $SHA: $run"
           done
           if git ls-remote --exit-code --tags origin "refs/tags/$tag" >/dev/null; then
@@ -73,21 +104,26 @@ jobs:
           fi
           echo "sha=$SHA" >> "$GITHUB_OUTPUT"
           echo "tag=$tag" >> "$GITHUB_OUTPUT"
+          echo "go=true" >> "$GITHUB_OUTPUT"
       # The open-source licences the app shows (src/licences.json, written by `npm run licences`
       # and committed) must be the ones this commit's lockfiles give. Checked here, not on pull
       # requests, so a dependency update's pull request stays green until the list is rewritten.
       - name: The commit being released
+        if: steps.ready.outputs.go == 'true'
         env:
           SHA: ${{ steps.ready.outputs.sha }}
         run: git checkout --detach "$SHA"
       - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        if: steps.ready.outputs.go == 'true'
         with:
           node-version: 22
           cache: npm
       - uses: taiki-e/install-action@cfdb7ed4ccc7c7dce37759eae89dc5674b469b39 # v2.90.3
+        if: steps.ready.outputs.go == 'true'
         with:
           tool: cargo-about@0.9.3
       - name: Licence list current
+        if: steps.ready.outputs.go == 'true'
         run: |
           # No install scripts: this job can push tags, so no package's own code runs in it.
           npm ci --no-audit --no-fund --ignore-scripts
@@ -97,7 +133,7 @@ jobs:
             exit 1
           fi
       - name: Tag, then start the release
-        if: ${{ !inputs.dry_run }}
+        if: steps.ready.outputs.go == 'true' && !inputs.dry_run
         env:
           GH_TOKEN: ${{ github.token }}
           REPO: ${{ github.repository }}
