@@ -55,6 +55,13 @@ const Context = createContext<Sync | null>(null);
 export const RETURN_THROTTLE_MS = 30_000;
 
 /**
+ * The service an app's screen is kept by, as the backend names it (`sync_some`). Drive's screen
+ * is "drivews" (its web service) and its service "drive": asked for by its screen's name, the
+ * backend matched nothing, and Drive's window never updated on opening or coming back.
+ */
+export const serviceOf = (screen: string) => (screen === "drivews" ? "drive" : screen);
+
+/**
  * The service this window is the app for (`?app=notes`), or null in Skykeep's own window. An
  * app's window opening or coming to the front asks for its own service only: it asked for all
  * six, so opening Notes fetched Photos, Drive and Calendar's whole months too, once per window
@@ -64,7 +71,7 @@ export const RETURN_THROTTLE_MS = 30_000;
 const OWN_SERVICE = (() => {
   if (typeof window === "undefined") return null;
   const app = new URLSearchParams(window.location.search).get("app");
-  return app && ["notes", "reminders", "calendar", "contacts", "drivews", "photos"].includes(app) ? app : null;
+  return app && ["notes", "reminders", "calendar", "contacts", "drivews", "photos"].includes(app) ? serviceOf(app) : null;
 })();
 
 export function SyncProvider({ children }: { children: ReactNode }) {

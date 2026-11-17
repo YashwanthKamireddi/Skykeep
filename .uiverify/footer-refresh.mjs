@@ -1,6 +1,7 @@
-// The footer speaks for the app in front: its own freshness, and a small control that updates
-// that app alone — spinning while it works. Ctrl+R and F5 do the same and never reload the
-// window. The window's title follows the screen. In Settings the footer is the whole account.
+// An app window's account card speaks for that app: its own freshness, and the round button
+// beside it updates that app alone — the ring round the picture turning while it works. Ctrl+R
+// and F5 do the same and never reload the window. The window is titled for its app. In
+// Skykeep's own window (Settings) the keys update the whole account.
 import { engine } from "./engine.mjs";
 import { SERVICES, installStub, openSettings, openScreen } from "./stub.mjs";
 const b = await engine.launch();
@@ -15,6 +16,7 @@ await ctx.addInitScript(() => {
   window.__TAURI_INTERNALS__.metadata = { currentWindow: { label: "app-notes" }, currentWebview: { windowLabel: "app-notes", label: "app-notes" } };
   window.__TAURI_INTERNALS__.invoke = async (cmd, args) => {
     if (cmd === "plugin:window|set_title") { window.__titles.push(args.value); return null; }
+    if (cmd === "sync_all") { window.__all = (window.__all ?? 0) + 1; return inner(cmd, args); }
     if (cmd === "sync_some") {
       window.__some.push(args.services);
       await new Promise((r) => setTimeout(r, window.__someDelay ?? 600));
@@ -28,56 +30,68 @@ await ctx.addInitScript(() => {
 const page = await ctx.newPage();
 let reloaded = 0;
 page.on("framenavigated", (f) => { if (f === page.mainFrame()) reloaded++; });
-await page.goto("http://localhost:4173", { waitUntil: "networkidle" });
-await page.waitForTimeout(500);
-reloaded = 0;
+await page.goto(process.env.URL ?? process.env.BASE ?? "http://localhost:4173", { waitUntil: "networkidle" });
 let failures = 0;
 const ok = (p, m) => { console.log(`${p ? "PASS" : "FAIL"} ${m}`); if (!p) failures++; };
 
 await openScreen(page, "Reminders");
 await page.waitForTimeout(150);
-// The freshness line is itself the control (no separate glyph): its tooltip says the whole
-// sentence, and "Click to update now" while it is not already updating.
-const status = page.locator(".sidebar-sync");
-const said = async () => ((await status.getAttribute("title")) ?? "").replace(/\. Click to update now$/, "");
-ok(/^Reminders updated/.test(await said()) && /^Updated/.test(await status.locator(".sidebar-sync-text").innerText()), `the footer speaks for Reminders  [${await said()}]`);
-const fits = await status.locator(".sidebar-sync-text").evaluate((el) => el.scrollWidth <= el.clientWidth);
+const card = page.locator(".account-card");
+const update = card.locator(".account-update");
+// The whole sentence, naming the app, is the card's tooltip; the sidebar line is its short form.
+const said = async () => ((await card.locator(".sidebar-account").getAttribute("title")) ?? "").replace(/ · Skykeep$/, "");
+ok(/^Reminders updated/.test(await said()) && /^Updated/.test(await card.locator(".account-status").innerText()), `the card speaks for Reminders  [${await said()}]`);
+const fits = await card.locator(".account-status").evaluate((el) => el.scrollWidth <= el.clientWidth);
 ok(fits, "and its words fit, not cut off");
 ok((await page.evaluate(() => window.__titles.at(-1))) === "Reminders", "the window is titled Reminders");
+// Opening an app's window is itself a request for its data: its own service, and only it.
+ok(JSON.stringify(await page.evaluate(() => window.__some)) === '[["reminders"]]', "opening Reminders' window updates Reminders alone");
+ok(await update.isVisible() && /^Update Now\. Reminders updated/.test((await update.getAttribute("aria-label")) ?? ""), "the round button updates Reminders, and says so");
 
-const btn = status;
-ok(await btn.isVisible() && /Update now$/.test((await btn.getAttribute("aria-label")) ?? ""), "the line itself is the control to update Reminders");
-await btn.click();
+reloaded = 0;
+await update.click();
 await page.waitForTimeout(100);
-ok((await said()) === "Updating Reminders…", "pressing it says Reminders is updating");
-const anim = await page.evaluate(() => getComputedStyle(document.querySelector(".sidebar-sync.is-working .sync-dot")).animationName);
-ok(anim === "sync-spin", `and its dot turns in place  [${anim}]`);
-ok(JSON.stringify(await page.evaluate(() => window.__some)) === '[["reminders"]]', "only Reminders is asked for");
+ok((await update.getAttribute("aria-label")) === "Updating Reminders…" && await update.isDisabled(), "pressing it says Reminders is updating");
+const anim = await page.evaluate(() => getComputedStyle(document.querySelector(".account-card.is-working .account-ring"), "::after").animationName);
+ok(anim === "sync-spin", `and the ring round the picture turns  [${anim}]`);
+const some = await page.evaluate(() => window.__some);
+ok(JSON.stringify(some) === `[["reminders"],["reminders"]]`, `only Reminders is asked for  ${JSON.stringify(some)}`);
 await page.waitForTimeout(700);
 ok((await said()) === "Reminders updated just now", `and settles  [${await said()}]`);
+ok(((await page.locator("[role=status]").filter({ hasText: "Reminders" }).first().textContent()) ?? "") === "Reminders updated just now", "and how it ended is said aloud");
 
 await openScreen(page, "Drive");
 await page.waitForTimeout(150);
-ok((await page.evaluate(() => window.__titles.at(-1))) === "Drive", "the title follows to iCloud Drive");
+reloaded = 0;
+ok((await page.evaluate(() => window.__titles.at(-1))) === "Drive", "Drive's window is titled Drive");
+// Asked by its screen's name ("drivews"), the backend matched no service: Drive's window never
+// updated on opening or coming back.
+await page.waitForTimeout(700);
+ok(JSON.stringify(await page.evaluate(() => window.__some)) === '[["drive"]]', `opening Drive's window updates Drive's own service  ${JSON.stringify(await page.evaluate(() => window.__some))}`);
 await page.keyboard.press("Control+r");
 await page.waitForTimeout(100);
 ok(JSON.stringify(await page.evaluate(() => window.__some.at(-1))) === '["drive"]', "Ctrl+R updates Drive's own service (drive, not drivews)");
 await page.waitForTimeout(700);
 await page.keyboard.press("F5");
 await page.waitForTimeout(100);
-ok((await page.evaluate(() => window.__some.length)) === 3, "F5 does the same");
+ok((await page.evaluate(() => window.__some.length)) === 3, `F5 does the same  ${JSON.stringify(await page.evaluate(() => window.__some))}`);
 await page.waitForTimeout(700);
 ok(reloaded === 0, "neither key reloads the window");
 
 await page.evaluate(() => { window.__someFail = "Apple didn’t answer."; });
-await status.click();
+await update.click();
 await page.waitForTimeout(800);
-ok((await said()) === "Drive didn’t update: Apple didn’t answer." && (await status.getAttribute("class")).includes("is-trouble"), `a failure says why  [${await said()}]`);
+ok((await said()) === "Drive didn’t update: Apple didn’t answer." && (await card.getAttribute("class")).includes("is-trouble"), `a failure says why  [${await said()}]`);
 
 await openSettings(page);
 await page.waitForSelector(".settings");
-ok((await page.evaluate(() => window.__titles.at(-1))) === "Settings", "in Settings the window is titled Settings");
-ok(/^(Updated|Syncing|Some)/.test(await status.locator(".sidebar-sync-text").innerText()) && !/iCloud Drive|Reminders/.test(await said()), `and the footer is the whole account  [${await said()}]`);
+reloaded = 0;
+ok((await page.evaluate(() => window.__titles.at(-1))) === "Skykeep", "Skykeep's own window is titled Skykeep");
+const all = await page.evaluate(() => window.__all ?? 0);
+await page.keyboard.press("Control+r");
+await page.waitForTimeout(200);
+ok((await page.evaluate(() => window.__all ?? 0)) === all + 1 && (await page.evaluate(() => window.__some.length)) === 0, "there, Ctrl+R updates the whole account");
+ok(reloaded === 0, "and never reloads the window");
 
 await b.close();
 console.log(failures ? `${failures} FAILED` : "all passed");

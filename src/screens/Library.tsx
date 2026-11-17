@@ -7,7 +7,7 @@ import { listen } from "@tauri-apps/api/event";
 import { invoke } from "@tauri-apps/api/core";
 import { api, DATA_ACCESS, messageOf, NEW_EVENT, SYNCED, type AccountInfo, type DataAccess } from "../lib/ipc";
 import { ApprovalNotice, ApprovalScreen, awaitsApproval } from "../components/DeviceApproval";
-import { SyncProvider, useSync } from "../lib/sync";
+import { SyncProvider, serviceOf, useSync } from "../lib/sync";
 import { AccountCard } from "../components/Account";
 import { AppFootContext } from "../components/AppFoot";
 import { useFloatOnTop } from "../components/FloatOnTop";
@@ -85,10 +85,6 @@ const SCREENS: { key: string; name: string }[] = [
   { key: "calendar", name: "Calendar" },
   { key: "contacts", name: "Contacts" },
 ];
-
-/** The sync service behind a screen, where its key differs: Drive's screen is Apple's `drivews`. */
-const SERVICE_OF: Record<string, string> = { drivews: "drive" };
-const serviceOf = (screen: string) => SERVICE_OF[screen] ?? screen;
 
 /**
  * Ctrl+R and F5 update the app in front, as they reload a page in a browser — and never
