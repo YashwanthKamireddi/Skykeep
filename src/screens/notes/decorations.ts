@@ -89,15 +89,24 @@ function redrawText(tr: Transaction, was: DecorationSet, scan: Scan): Decoration
     return false;
   });
   if (!blocks.length) return set;
+  const from = blocks[0].pos;
   const last = blocks[blocks.length - 1];
-  const stale = set.find(blocks[0].pos, last.pos + last.node.nodeSize);
+  const to = last.pos + last.node.nodeSize;
   const fresh: Decoration[] = [];
   for (const { node, pos } of blocks) {
     node.forEach((child, offset) => {
       if (child.isText) fresh.push(...scan(child, pos + 1 + offset));
     });
   }
-  return set.remove(stale).add(doc, fresh);
+  let cleared = set.remove(set.find(from, to));
+  // A deletion can map a drawing across the edge of a paragraph (from the gap before it into its
+  // text). `find` returns such a one but `remove` can't place it in its tree, and it stayed drawn
+  // over text it no longer matched (seed 305 of the model test). Then, and only then, the set is
+  // made again without anything over the paragraphs read; no drawing outside them reaches in.
+  if (cleared.find(from, to).length) {
+    cleared = DecorationSet.create(doc, cleared.find().filter((d) => d.to <= from || d.from >= to));
+  }
+  return cleared.add(doc, fresh);
 }
 
 /** An address: with its scheme, or starting www. — ending before closing punctuation, as a

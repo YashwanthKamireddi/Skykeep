@@ -100,7 +100,9 @@ const plain = (set, doc) =>
     .sort();
 
 test("redrawing after each edit draws exactly what drawing the whole note again would", () => {
-  for (let seed = 1; seed <= Number(process.env.SEEDS ?? 40); seed++) {
+  // Seed 305: a deletion that mapped a search mark across a paragraph's edge (decorations.ts).
+  const seeds = [...Array.from({ length: Number(process.env.SEEDS ?? 40) }, (_, i) => i + 1), 305];
+  for (const seed of seeds) {
     const rnd = random(seed);
     let state = EditorState.create({ doc: docOf(rnd, 30), plugins: [autolink, numbered, found] });
     state = state.apply(state.tr.setMeta(found, WORDS_SEARCHED));
