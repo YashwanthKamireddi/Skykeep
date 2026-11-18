@@ -13,9 +13,14 @@ name: CI
 
 on:
   workflow_dispatch:
-  # Pull requests only: a merge to main is the code its pull request already checked (and the
-  # release builds and tests every platform itself). Run again on main, each was cancelled by
-  # the next merge (54 of 104 runs in two days).
+  # Pull requests: a merge to main is the code its pull request already checked (and the
+  # release builds and tests every platform itself). Run again on every merge, each was
+  # cancelled by the next (54 of 104 runs in two days). On main only when the dependencies or
+  # the toolchain change: pull requests restore the compile caches main saves, keyed by
+  # Cargo.lock, and with no run on main they would never be saved again.
+  push:
+    branches: [main]
+    paths: ["Cargo.lock", "rust-toolchain.toml", ".github/workflows/ci.yml"]
   # Every pull request runs, so `ci-ok` (below) always reports and main's ruleset can require it;
   # `scope` skips the build for a change to words or README pictures alone.
   pull_request:
