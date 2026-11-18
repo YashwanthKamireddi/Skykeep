@@ -115,6 +115,7 @@ jobs:
       docs: ${{ steps.files.outputs.docs }}
       android: ${{ steps.files.outputs.android }}
       web: ${{ steps.files.outputs.web }}
+      lockfiles: ${{ steps.files.outputs.lockfiles }}
     steps:
       - id: files
         env:
@@ -125,6 +126,7 @@ jobs:
           docs=false
           android=true
           web=true
+          lockfiles=false
           if [ -n "$PR" ]; then
             files=$(gh api --paginate "repos/$GITHUB_REPOSITORY/pulls/$PR/files" --jq '.[].filename')
             # Each change is checked locally before it is pushed; a pull request re-checks only
@@ -135,6 +137,9 @@ jobs:
             always='^\.github/workflows/ci\.yml$'
             grep -qE "$always|^android/|^crates/(quince-(auth|icloud|core|media|sync|vfs|thumbs|mobile)|uniffi-bindgen)/|^Cargo\.(toml|lock)$|^rust-toolchain\.toml$" <<< "$files" || android=false
             grep -qE "$always|^src/|^\.uiverify/|^package(-lock)?\.json$|^index\.html$|^vite\.config|^tsconfig" <<< "$files" || web=false
+            # A dependency added or moved: the licence list is checked in the PR that moved it,
+            # not first at the release (0.1.31's PR met five crates #160 and #170 brought).
+            grep -qE '^(Cargo|package-lock)\.(lock|json)$' <<< "$files" && lockfiles=true
             # Words or README pictures alone: nothing to build or test.
             if [ -n "$files" ] && ! grep -qvE '(\.md$|^docs/media/)' <<< "$files"; then full=false; docs=true
             # Translations alone: the type check and the language test (job `languages`).
@@ -151,6 +156,7 @@ jobs:
           echo "docs=$docs" | tee -a "$GITHUB_OUTPUT"
           echo "android=$android" | tee -a "$GITHUB_OUTPUT"
           echo "web=$web" | tee -a "$GITHUB_OUTPUT"
+          echo "lockfiles=$lockfiles" | tee -a "$GITHUB_OUTPUT"
 
   languages:
     needs: scope
@@ -402,7 +408,8 @@ jobs:
   # Other pull requests are not held to it: a dependency update stays green until the list is
   # rewritten for the release (tag.yml).
   licences:
-    if: startsWith(github.head_ref, 'release/')
+    needs: scope
+    if: startsWith(github.head_ref, 'release/') || needs.scope.outputs.lockfiles == 'true'
     runs-on: ubuntu-24.04
     timeout-minutes: 15
     steps:
