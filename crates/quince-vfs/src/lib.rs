@@ -10,6 +10,9 @@
 pub mod cloud;
 #[cfg(windows)]
 mod cloud_local;
+// Used by the Windows folder; tested everywhere.
+#[cfg_attr(not(windows), allow(dead_code))]
+mod downloads;
 #[cfg(target_os = "linux")]
 pub mod fuse;
 pub mod transfer;
