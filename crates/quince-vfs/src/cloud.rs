@@ -709,6 +709,39 @@ unsafe fn request(info: *const CF_CALLBACK_INFO) -> Option<(Request, &'static Pr
     ))
 }
 
+/// Who is reading the file: the program's path as Windows names it, or empty when it doesn't.
+///
+/// # Safety
+/// `info` is Windows' own, valid for the call it came with.
+unsafe fn requester(info: *const CF_CALLBACK_INFO) -> String {
+    // SAFETY: the caller's promise; ProcessInfo and its ImagePath may each be null.
+    unsafe {
+        let p = (*info).ProcessInfo;
+        if p.is_null() || (*p).ImagePath.is_null() {
+            return String::new();
+        }
+        (*p).ImagePath.to_string().unwrap_or_default()
+    }
+}
+
+/// A download, counted under the program that asked for it, and said in the diagnostics log as
+/// the first from that program and every ten minutes after (crate::downloads).
+fn tally_download(image_path: String, bytes: u64) {
+    static TALLY: std::sync::Mutex<Option<crate::downloads::Tally>> = std::sync::Mutex::new(None);
+    let notes = TALLY
+        .lock()
+        .unwrap_or_else(std::sync::PoisonError::into_inner)
+        .get_or_insert_with(Default::default)
+        .add(
+            &crate::downloads::program(&image_path),
+            bytes,
+            std::time::Instant::now(),
+        );
+    for n in notes {
+        crate::note(&n);
+    }
+}
+
 unsafe extern "system" fn on_fetch_data(
     info: *const CF_CALLBACK_INFO,
     params: *const CF_CALLBACK_PARAMETERS,
@@ -721,6 +754,8 @@ unsafe extern "system" fn on_fetch_data(
         let fetch = unsafe { (*params).Anonymous.FetchData };
         let offset = u64::try_from(fetch.RequiredFileOffset).unwrap_or(0);
         let len = u64::try_from(fetch.RequiredLength).unwrap_or(0);
+        // SAFETY: as above; the program's path is copied out before this call ends.
+        tally_download(unsafe { requester(info) }, len);
         let (remote, rt) = (Arc::clone(&provider.remote), provider.rt.clone());
         rt.spawn(async move { fetch_data(remote.as_ref(), req, offset, len).await });
     });

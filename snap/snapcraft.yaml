@@ -38,6 +38,12 @@ apps:
     environment:
       WEBKIT_GST_USE_PLAYBIN3: "1"
     common-id: io.github.yashwanthkamireddi.Skykeep
+    # Open at login (src-tauri/src/login.rs) writes this entry in the app's own config folder,
+    # which in the Snap is $SNAP_USER_DATA/.config: the desktop never looks there, so the
+    # setting showed on and did nothing. snapd's `snap userd --autostart`, run at every desktop
+    # login, starts the app named here when that file exists, with the arguments of its Exec
+    # line (--background) after the snap's own wrapper for the program.
+    autostart: io.github.yashwanthkamireddi.Skykeep.desktop
   notes:
     command: usr/bin/skykeep --app notes
     desktop: usr/share/applications/io.github.yashwanthkamireddi.Skykeep.Notes.desktop
@@ -107,6 +113,9 @@ parts:
       - libpipewire-0.3-0t64
     override-prime: |
       craftctl default
+      # The .deb's iPhone camera setup and its polkit action are for the system's own polkit,
+      # which never reads files inside a snap; the app runs its built-in setup instead.
+      rm -rf usr/lib/skykeep usr/share/polkit-1
       # Each launcher's icon, from inside the snap.
       for f in usr/share/applications/*.desktop; do
         icon=$(sed -n 's/^Icon=//p' "$f")
