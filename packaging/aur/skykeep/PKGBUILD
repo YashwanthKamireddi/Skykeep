@@ -152,4 +152,9 @@ package() {
     "$pkgdir/usr/share/nemo/actions/skykeep-send-to-iphone.nemo_action"
   install -Dm644 packaging/file-managers/skykeep_send_to_iphone.py \
     "$pkgdir/usr/share/nautilus-python/extensions/skykeep_send_to_iphone.py"
+  # The iPhone camera as a webcam: the setup the app runs as root through pkexec, and the polkit
+  # action that makes the admin prompt name Skykeep and say what it does (packaging/linux).
+  install -Dm755 packaging/linux/iphone-camera-setup "$pkgdir/usr/lib/skykeep/iphone-camera-setup"
+  install -Dm644 packaging/linux/io.github.yashwanthkamireddi.Skykeep.iphone-camera.policy \
+    "$pkgdir/usr/share/polkit-1/actions/io.github.yashwanthkamireddi.Skykeep.iphone-camera.policy"
 }
