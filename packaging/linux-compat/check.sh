@@ -41,6 +41,8 @@
 #             same.
 #   desktop   the launchers and the metainfo validate, the icon is in hicolor under the name
 #             the launchers ask for (packages only).
+#   polkit    the iPhone camera setup and its polkit action are installed, root's, at the path
+#             the app runs and the action names (packages only).
 # Used by .github/workflows/linux-compat.yml, and runs the same by hand under docker.
 set -u
 pkg=$1 probe=$2 heic=$3
@@ -347,6 +349,34 @@ if [[ $pkg != *.AppImage ]]; then
   done
   icons=$(find /usr/share/icons/hicolor -path '*apps*' \( -iname '*skykeep*' \) | sed 's:/usr/share/icons/hicolor/::' | tr '\n' ' ')
   [[ -z $problems ]] && pass desktop "icons: $icons" || fail desktop "$problems"
+
+  # The iPhone camera setup pkexec runs as root (src-tauri/src/iphone.rs): root's alone, and
+  # the polkit action naming it by the path the app asks for, so the prompt shows its message.
+  helper=/usr/lib/skykeep/iphone-camera-setup
+  policy=/usr/share/polkit-1/actions/io.github.yashwanthkamireddi.Skykeep.iphone-camera.policy
+  problems=
+  [[ -f $helper && ! -L $helper ]] || problems+=" no $helper"
+  [[ -f $policy ]] || problems+=" no $policy"
+  if [[ $probe == - && ! -e $helper && ! -e $policy ]]; then
+    # A released package (linux-launch.yml) from before the helper was added.
+    echo "SKIP polkit — this release has no iPhone camera setup helper"
+    problems=skip
+  elif [[ -z $problems ]]; then
+    [[ $(stat -c '%U:%G %a' "$helper") == "root:root 755" ]] ||
+      problems+=" $helper is $(stat -c '%U:%G %a' "$helper"), not root:root 755"
+    [[ $(stat -c '%U:%G %a' "$policy") == "root:root 644" ]] ||
+      problems+=" policy is $(stat -c '%U:%G %a' "$policy"), not root:root 644"
+    sh -n "$helper" || problems+=" helper is not valid sh"
+    # Refused before it writes anything (this check runs as root).
+    "$helper" anything 2>/dev/null
+    [[ $? -eq 2 ]] || problems+=" helper did not refuse an argument"
+    grep -q "<annotate key=\"org.freedesktop.policykit.exec.path\">$helper</annotate>" "$policy" ||
+      problems+=" policy does not name $helper"
+    grep -q '<message>Skykeep wants to set up your iPhone camera' "$policy" ||
+      problems+=" policy has no message naming Skykeep"
+  fi
+  if [[ -z $problems ]]; then pass polkit "$helper root:root 755, policy root:root 644"
+  elif [[ $problems != skip ]]; then fail polkit "$problems"; fi
 fi
 
 echo "== $fails failed"
