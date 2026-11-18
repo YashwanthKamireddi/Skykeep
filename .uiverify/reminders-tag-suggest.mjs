@@ -57,6 +57,15 @@ await page.locator(".rx-detail .rx-tag-option", { hasText: "#errands" }).click()
 await page.waitForTimeout(300);
 ok((await page.locator(".rx-detail .rx-tag-name").allInnerTexts()).includes("#errands"), "a click takes the one clicked");
 
+// Tab takes the lit one, as a Mac's token fields do, and leaves the caret there for the next.
+await field.click();
+await field.pressSequentially("fi");
+await page.keyboard.press("Tab");
+await page.waitForTimeout(300);
+ok((await page.locator(".rx-detail .rx-tag-name").allInnerTexts()).includes("#fitness"), "Tab takes the tag offered");
+ok((await writes()).some((w) => w.cmd === "reminder_tag_add" && w.name === "fitness" && w.guid !== "r2"), "and it is sent as that tag");
+ok(await field.evaluate((el) => el === document.activeElement && el.value === ""), "and the caret stays in the emptied field");
+
 // A new tag, typed whole: added as before.
 await field.click();
 await field.pressSequentially("garden");

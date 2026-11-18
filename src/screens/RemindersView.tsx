@@ -3324,7 +3324,9 @@ function TagsField({ reminder, tags, onOpen, onAdd, onRemove, known }: {
                   e.preventDefault();
                   e.stopPropagation();
                   setClosed(true);
-                } else if (e.key === "Enter" && offered[lit]) {
+                } else if ((e.key === "Enter" || (e.key === "Tab" && !e.shiftKey)) && offered[lit]) {
+                  // Tab takes the lit tag too, as a Mac's token fields do; with no list open it
+                  // moves on as ever, so the field never holds the keyboard.
                   e.preventDefault();
                   add(offered[lit]);
                 } else if ((e.key === "Enter" || e.key === "," || e.key === " ") && word) {
