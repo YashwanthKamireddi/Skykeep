@@ -58,6 +58,8 @@ Six apps, each with its own icon in your launcher and Start menu and a window of
 
 **Back up iCloud.** Every original photo and video, and all of iCloud Drive, copied to a folder or drive you choose and kept current. Changed files keep their earlier version, and a backup never deletes.
 
+**Use it from other programs.** Launchers, status bars and scripts can read today's reminders, upcoming events, notes and contacts as JSON, and add reminders, events and notes, through the `skykeep` command. See [docs/cli.md](docs/cli.md).
+
 **iCloud in your file manager.** iCloud Drive and Photos are real folders in File Explorer and on Linux, with thumbnails before anything downloads.
 
 ## Engineering

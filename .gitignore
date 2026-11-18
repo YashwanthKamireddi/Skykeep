@@ -22,6 +22,8 @@ packaging/arch/*.log
 # every note into the public repo (0.1.6).
 /docs/*
 !/docs/media/
+# The one public page: how other programs use Skykeep (linked from the README).
+!/docs/cli.md
 
 # Other build folders: the checks' (target-check) and the Android engine's (target-android).
 /target-*/
