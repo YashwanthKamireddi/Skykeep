@@ -419,6 +419,14 @@ mod secret_service {
 
     static SERVICE: Mutex<Option<SecretService>> = Mutex::new(None);
 
+    /// How long a keyring's unlock prompt is waited on. A session is first read while Skykeep
+    /// starts, before any window is made, and the Secret Service crate otherwise waits a year
+    /// for the answer: where the prompt never came up (no prompter on a bare window manager) or
+    /// sat unseen behind other windows at login, Skykeep showed nothing at all, and every launch
+    /// after it was handed to that one. Past this, the keyring reads as not answering, which is
+    /// said, and is asked again before the next sync (`Client::reopen`).
+    const PROMPT_SECONDS: u64 = 60;
+
     /// `f` over the one connection, opened if it is not yet; when a call fails, once more over
     /// a new one, for a daemon that restarted since.
     fn with<T>(
@@ -430,13 +438,17 @@ mod secret_service {
         if let Some(ss) = held.as_ref() {
             match f(ss) {
                 Ok(v) => return Ok(v),
-                // A refusal the daemon meant (a locked keyring the person dismissed) is said as
-                // it is; anything else may be a connection gone stale.
-                Err(e @ dbus_secret_service::Error::Locked) => return Err(e.to_string()),
+                // A refusal the daemon meant (a locked keyring, a prompt the person dismissed or
+                // left unanswered) is said as it is; anything else may be a connection gone
+                // stale. Asked again, an unanswered prompt would have been waited on twice.
+                Err(
+                    e @ (dbus_secret_service::Error::Locked | dbus_secret_service::Error::Prompt),
+                ) => return Err(e.to_string()),
                 Err(_) => *held = None,
             }
         }
-        let ss = SecretService::connect(EncryptionType::Dh).map_err(|e| e.to_string())?;
+        let ss = SecretService::connect_with_max_prompt_timeout(EncryptionType::Dh, PROMPT_SECONDS)
+            .map_err(|e| e.to_string())?;
         let out = f(&ss).map_err(|e| e.to_string());
         *held = Some(ss);
         out

@@ -423,11 +423,22 @@ fn start(app: &AppHandle, which: Which, at: &std::path::Path) -> Result<(), Stri
     if mounted(which).is_some() {
         return Ok(());
     }
-    if in_flatpak() {
-        return Err("The folders aren’t part of the Flatpak version of Skykeep.".into());
+    if let Some(kind) = sandbox() {
+        return Err(format!(
+            "The folders aren’t part of the {kind} version of Skykeep."
+        ));
     }
     if !std::path::Path::new("/dev/fuse").exists() {
         return Err("This computer has no FUSE, which the folder needs. Install your system's fuse3 package.".into());
+    }
+    // A person who is not root mounts through fuse3's fusermount3 (or fuse2's fusermount).
+    // Without it the mount failed with "No such file or directory (os error 2)", which named
+    // nothing; the .deb and .rpm only recommend fuse3, and a minimal install leaves it out.
+    if !mount_helper_found(
+        std::env::var_os("PATH").as_deref(),
+        std::env::var_os("FUSERMOUNT_PATH").is_some(),
+    ) {
+        return Err("The folder needs fusermount3, which isn’t installed. Install your system's fuse3 package.".into());
     }
     // Left mounted by a Skykeep that was killed (an out-of-memory kill, SIGKILL, a crash
     // the panic hook never saw): nothing answers there, every look at the folder fails with
@@ -757,15 +768,51 @@ fn status(app: &AppHandle, which: Which, problem: Option<String>) -> FolderStatu
         path: at.to_string_lossy().into_owned(),
         problem,
         waiting,
-        // Linux (not in the Flatpak, which has no FUSE), and Windows.
-        available: (cfg!(target_os = "linux") && !in_flatpak()) || cfg!(windows),
+        // Linux (not in the Flatpak or the Snap, which have no FUSE), and Windows.
+        available: (cfg!(target_os = "linux") && sandbox().is_none()) || cfg!(windows),
     }
 }
 
-/// Running inside a Flatpak, where the folders are left out: the sandbox has no `/dev/fuse`,
-/// and installing fuse3 on the host — what the error said — could not change that.
-fn in_flatpak() -> bool {
-    std::env::var_os("FLATPAK_ID").is_some()
+/// The sandbox Skykeep runs in, where the folders are left out: "Flatpak" or "Snap". Neither
+/// lets it mount: the Flatpak has no `/dev/fuse`, and the Snap's strict confinement denies the
+/// mount (FUSE there needs an interface the store must grant), so installing fuse3 on the host
+/// — what the error said — could not change either. In the Snap the folders were still offered
+/// in Settings and failed when turned on; snapcraft.yaml says they are left out there, as here.
+fn sandbox() -> Option<&'static str> {
+    sandbox_from(
+        std::env::var_os("FLATPAK_ID").as_deref(),
+        std::env::var_os("SNAP_NAME").as_deref(),
+    )
+}
+
+fn sandbox_from(
+    flatpak_id: Option<&std::ffi::OsStr>,
+    snap_name: Option<&std::ffi::OsStr>,
+) -> Option<&'static str> {
+    if flatpak_id.is_some() {
+        Some("Flatpak")
+    } else if snap_name.is_some_and(|n| n == "skykeep") {
+        Some("Snap")
+    } else {
+        None
+    }
+}
+
+/// Whether the helper a person who is not root mounts through is there: `fusermount3` or
+/// `fusermount` on `path` or in /bin, /sbin and /usr/bin, where fuser looks for it too; or one
+/// named by `FUSERMOUNT_PATH`, which fuser uses as it is.
+fn mount_helper_found(path: Option<&std::ffi::OsStr>, named: bool) -> bool {
+    let fixed = ["/bin", "/sbin", "/usr/bin"].map(PathBuf::from);
+    named
+        || path
+            .into_iter()
+            .flat_map(std::env::split_paths)
+            .chain(fixed)
+            .any(|dir| {
+                ["fusermount3", "fusermount"]
+                    .iter()
+                    .any(|t| dir.join(t).is_file())
+            })
 }
 
 /// A mount left behind by a run that ended without letting go of it: let go of now, lazily
@@ -1079,5 +1126,51 @@ mod stale_tests {
         ] {
             assert!(!unstick(at, look, |_| panic!("nothing to let go of")));
         }
+    }
+}
+
+#[cfg(test)]
+mod sandbox_tests {
+    use super::*;
+    use std::ffi::OsStr;
+
+    /// The Flatpak and Skykeep's own Snap leave the folders out; another snap's name in the
+    /// environment (Skykeep started from inside one) does not.
+    #[test]
+    fn the_flatpak_and_the_snap_leave_the_folders_out() {
+        let id = Some(OsStr::new("io.github.yashwanthkamireddi.Skykeep"));
+        assert_eq!(sandbox_from(id, None), Some("Flatpak"));
+        assert_eq!(
+            sandbox_from(None, Some(OsStr::new("skykeep"))),
+            Some("Snap")
+        );
+        assert_eq!(sandbox_from(None, Some(OsStr::new("code"))), None);
+        assert_eq!(sandbox_from(None, None), None);
+    }
+
+    /// fusermount3 found on PATH, or named outright; an empty PATH with nothing in the fixed
+    /// places is told apart (checked against a PATH of a folder with nothing in it).
+    #[test]
+    fn the_mount_helper_is_looked_for_on_path() {
+        let dir = std::env::temp_dir().join(format!("sk-fusermount-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let empty = dir.join("empty");
+        std::fs::create_dir_all(&empty).unwrap();
+        let tools = dir.join("tools");
+        std::fs::create_dir_all(&tools).unwrap();
+        std::fs::write(tools.join("fusermount3"), "").unwrap();
+        assert!(mount_helper_found(Some(tools.as_os_str()), false));
+        assert!(mount_helper_found(Some(empty.as_os_str()), true));
+        // Only where no system folder has one either: the build machine may have fuse3.
+        let in_system = ["/bin", "/sbin", "/usr/bin"].iter().any(|d| {
+            ["fusermount3", "fusermount"]
+                .iter()
+                .any(|t| std::path::Path::new(d).join(t).is_file())
+        });
+        assert_eq!(
+            mount_helper_found(Some(empty.as_os_str()), false),
+            in_system
+        );
+        std::fs::remove_dir_all(&dir).ok();
     }
 }

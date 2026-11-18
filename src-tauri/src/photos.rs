@@ -2428,6 +2428,16 @@ fn disk(e: &std::io::Error) -> Fetch {
     }
 }
 
+/// Where [`stream_to_new_file`] writes `path` until it is whole: `IMG_1.JPG.part`.
+pub(crate) fn part_of(path: &std::path::Path) -> std::path::PathBuf {
+    path.with_extension(format!(
+        "{}.part",
+        path.extension()
+            .map(|e| e.to_string_lossy().into_owned())
+            .unwrap_or_default()
+    ))
+}
+
 /// A file from iCloud written to `path`, which must not exist: streamed into a `.part` beside
 /// it (a large video never sits in memory) and named only once whole, so a broken download
 /// leaves no half file under the real name. Answers how many bytes it holds.
@@ -2438,12 +2448,7 @@ pub(crate) async fn stream_to_new_file(
 ) -> Result<u64, Fetch> {
     use futures_util::StreamExt;
     use tokio::io::AsyncWriteExt;
-    let part = path.with_extension(format!(
-        "{}.part",
-        path.extension()
-            .map(|e| e.to_string_lossy().into_owned())
-            .unwrap_or_default()
-    ));
+    let part = part_of(path);
     let response = http.get(url).send().await.map_err(|e| Fetch {
         status: e.status().map(|s| s.as_u16()),
         disk: None,

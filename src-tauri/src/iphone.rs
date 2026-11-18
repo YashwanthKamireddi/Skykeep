@@ -79,21 +79,35 @@ pub struct IphoneStatus {
     every_app: &'static str,
 }
 
-/// The module's settings, in files of their own: the device is made at every start-up, named
-/// as Skykeep finds it, a capture device only while Skykeep sets a format (Chrome's need),
-/// with four buffers: the fewest every program accepts. With two (chosen so no picture would
-/// wait behind another), v4l2loopback 0.15 refused any reader asking for more — Chromium and
-/// Meet ask for four — with "Device or resource busy", and the picture came at 21 fps.
-/// A module already loaded with fewer is loaded again (Skykeep lets go of the device first).
+/// The module's settings, in files of their own, and the module loaded (again, if it was loaded
+/// with too few buffers): run as root. The settings and why they are what they are are in the
+/// script. The packages install it as HELPER; without it, this same text runs as `sh -c`.
 #[cfg(all(target_os = "linux", feature = "iphone"))]
-const SET_UP: &str = r#"set -e
-printf 'v4l2loopback\n' > /etc/modules-load.d/skykeep-iphone-camera.conf
-printf 'options v4l2loopback devices=1 exclusive_caps=1 max_buffers=4 card_label="iPhone Camera"\n' > /etc/modprobe.d/skykeep-iphone-camera.conf
-if grep -q '^v4l2loopback ' /proc/modules && [ "$(cat /sys/module/v4l2loopback/parameters/max_buffers)" -lt 4 ]; then
-  for _ in 1 2 3 4 5 6 7 8 9 10; do modprobe -r v4l2loopback && break; sleep 0.5; done
-fi
-if ! grep -q '^v4l2loopback ' /proc/modules; then modprobe v4l2loopback; fi
-"#;
+const SET_UP: &str = include_str!("../../packaging/linux/iphone-camera-setup");
+
+/// Where the .deb, .rpm and Arch packages install SET_UP, and the polkit action that pkexec
+/// matches to it by that path (packaging/linux/*.iphone-camera.policy): its message, naming
+/// Skykeep and what the setup does, is what the admin prompt says.
+#[cfg(all(target_os = "linux", feature = "iphone"))]
+const HELPER: &str = "/usr/lib/skykeep/iphone-camera-setup";
+#[cfg(all(target_os = "linux", feature = "iphone"))]
+const POLICY: &str =
+    "/usr/share/polkit-1/actions/io.github.yashwanthkamireddi.Skykeep.iphone-camera.policy";
+
+/// What pkexec runs: the installed helper when it and its polkit action are both there, so the
+/// prompt says what it is for; otherwise the same script as `/bin/sh -c`, whose prompt names
+/// /bin/sh (the Snap and the AppImage, which can't install either, and a build of one's own).
+/// A helper anyone but root could change is never run as root.
+#[cfg(all(target_os = "linux", feature = "iphone"))]
+fn set_up_args(helper: Option<&std::fs::Metadata>, policy: bool) -> Vec<&'static str> {
+    use std::os::unix::fs::MetadataExt;
+    let trusted = helper.is_some_and(|m| m.is_file() && m.uid() == 0 && m.mode() & 0o022 == 0);
+    if trusted && policy {
+        vec![HELPER]
+    } else {
+        vec!["/bin/sh", "-c", SET_UP]
+    }
+}
 
 /// Buffers fewer than every program accepts (see SET_UP): the module wants loading again.
 #[cfg(all(target_os = "linux", feature = "iphone"))]
@@ -138,8 +152,10 @@ pub async fn iphone_every_app(app: tauri::AppHandle) -> Result<&'static str, Str
             std::thread::sleep(std::time::Duration::from_millis(500));
         }
         let done = tauri::async_runtime::spawn_blocking(|| {
+            let helper = std::fs::metadata(HELPER).ok();
+            let policy = std::path::Path::new(POLICY).is_file();
             std::process::Command::new("pkexec")
-                .args(["/bin/sh", "-c", SET_UP])
+                .args(set_up_args(helper.as_ref(), policy))
                 .status()
         })
         .await
@@ -210,4 +226,61 @@ fn linked_status() -> Option<IphoneStatus> {
         });
     }
     None
+}
+
+#[cfg(all(test, target_os = "linux", feature = "iphone"))]
+mod tests {
+    use super::*;
+    use std::os::unix::fs::{MetadataExt, PermissionsExt};
+
+    fn fallback() -> Vec<&'static str> {
+        vec!["/bin/sh", "-c", SET_UP]
+    }
+
+    #[test]
+    fn nothing_installed_runs_the_script_through_sh() {
+        // The Snap, the AppImage, a build of one's own: no helper, or no polkit action for it.
+        assert_eq!(set_up_args(None, false), fallback());
+        assert_eq!(set_up_args(None, true), fallback());
+        let sh = std::fs::metadata("/bin/sh").unwrap();
+        assert_eq!(
+            set_up_args(Some(&sh), false),
+            fallback(),
+            "no action, so no message"
+        );
+    }
+
+    #[test]
+    fn a_root_owned_helper_with_its_policy_is_run() {
+        // /bin/sh stands in for the installed helper: a root-owned program only root can change.
+        let sh = std::fs::metadata("/bin/sh").unwrap();
+        assert_eq!((sh.uid(), sh.mode() & 0o022), (0, 0));
+        assert_eq!(set_up_args(Some(&sh), true), vec![HELPER]);
+    }
+
+    #[test]
+    fn a_helper_root_does_not_own_is_never_run() {
+        // A directory is not a program, even root's.
+        let usr = std::fs::metadata("/usr").unwrap();
+        assert_eq!(set_up_args(Some(&usr), true), fallback());
+        // One the person owns could be changed by anything they run.
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("iphone-camera-setup");
+        std::fs::write(&path, SET_UP).unwrap();
+        std::fs::set_permissions(&path, std::fs::Permissions::from_mode(0o755)).unwrap();
+        let mine = std::fs::metadata(&path).unwrap();
+        if mine.uid() != 0 {
+            assert_eq!(set_up_args(Some(&mine), true), fallback());
+        }
+    }
+
+    #[test]
+    fn the_script_takes_no_arguments() {
+        // Refused before it touches anything: $0 is the name, then one argument.
+        let out = std::process::Command::new("/bin/sh")
+            .args(["-c", SET_UP, "iphone-camera-setup", "--anything"])
+            .output()
+            .unwrap();
+        assert_eq!(out.status.code(), Some(2));
+    }
 }

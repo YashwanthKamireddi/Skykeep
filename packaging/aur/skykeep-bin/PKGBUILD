@@ -49,4 +49,8 @@ package() {
   # (hicolor/256x256@2); every size is already there under its proper name.
   rm -rf "$pkgdir"/usr/share/icons/hicolor/*@2
   chmod 755 "$pkgdir/usr/bin/skykeep"
+  # The .deb's iPhone camera setup, run as root through pkexec, so only root may change it
+  # (the package's files are root's; this makes sure of the mode the unpacking left).
+  [[ ! -e $pkgdir/usr/lib/skykeep/iphone-camera-setup ]] ||
+    chmod 755 "$pkgdir/usr/lib/skykeep/iphone-camera-setup"
 }
