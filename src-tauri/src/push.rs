@@ -216,6 +216,13 @@ pub(crate) const CALENDAR_WINDOWS: &[&str] = &["app-calendar", "main"];
 pub(crate) const CONTACTS_WINDOWS: &[&str] = &["app-contacts", "app-calendar", "main"];
 /// The windows that draw Drive: its own, and the whole-library one.
 pub(crate) const DRIVE_WINDOWS: &[&str] = &["app-drivews", "main"];
+/// The windows that draw each of [`CONTAINERS`], in its order: Notes and Photos in their own
+/// and the whole-library one; Reminders in Calendar too, which lays the dated ones out.
+const CONTAINER_WINDOWS: [&[&str]; 3] = [
+    &["app-notes", "main"],
+    &["app-reminders", "app-calendar", "main"],
+    &["app-photos", "main"],
+];
 
 /// [`presence`], for a watch whose changes only some windows draw: focused only while one of
 /// those has the focus. With Notes in front, Calendar, Contacts and Drive were each asked at
@@ -626,6 +633,12 @@ async fn poll_cloudkit(
     tx: mpsc::UnboundedSender<&'static str>,
 ) {
     let mut tokens: Vec<Option<String>> = vec![None; CONTAINERS.len()];
+    // When each container is next asked. Each goes by the windows that draw it, so with Notes
+    // in front Reminders and Photos are asked at the slower pace of a window merely open.
+    let mut next = [Instant::now(); CONTAINERS.len()];
+    // Every container is asked: the first time, after a wake (a window came to the front, the
+    // network came back) and when the live channel lets go.
+    let mut every = true;
     let mut seeded = false;
     let mut woken = WAKE.subscribe();
     let mut backoff: Option<Duration> = None;
@@ -636,10 +649,12 @@ async fn poll_cloudkit(
             // The channel carries it; woken when that changes. A window on screen still gets
             // a check every couple of minutes, in case a push went astray.
             let woke = sleep_or_wake(SAFETY_CHECK, &mut woken).await;
+            every = true;
             if woke || !LIVE.load(Ordering::SeqCst) || presence(&app) == Presence::Hidden {
                 continue;
             }
         }
+        every |= catch_up;
         let session = {
             let guard = client.lock().await;
             let s = guard.session();
@@ -653,8 +668,11 @@ async fn poll_cloudkit(
             sleep_or_wake(Duration::from_secs(30), &mut woken).await;
             continue;
         };
+        let now = Instant::now();
+        let asked = due(&next, now, every);
         let mut failed = None;
-        for (i, (container, service)) in CONTAINERS.iter().enumerate() {
+        for &i in &asked {
+            let (container, service) = CONTAINERS[i];
             match quince_icloud::push::database_changed(
                 &http,
                 &root,
@@ -664,8 +682,8 @@ async fn poll_cloudkit(
             )
             .await
             {
-                Ok((moved, next)) => {
-                    tokens[i] = next;
+                Ok((moved, token)) => {
+                    tokens[i] = token;
                     if moved {
                         if live && !catch_up {
                             quiet!("push: {service} changed (poll; the live channel missed it)");
@@ -684,6 +702,7 @@ async fn poll_cloudkit(
             }
         }
         seeded = true;
+        every = false;
         backoff = match failed {
             None => None,
             Some(e) => {
@@ -699,9 +718,24 @@ async fn poll_cloudkit(
                 Some(next)
             }
         };
-        let wait = backoff.unwrap_or_else(|| poll_every(presence(&app)));
-        sleep_or_wake(wait, &mut woken).await;
+        for &i in &asked {
+            next[i] = now
+                + backoff.unwrap_or_else(|| poll_every(presence_for(&app, CONTAINER_WINDOWS[i])));
+        }
+        let soonest = next.iter().min().copied().unwrap_or(now);
+        every = sleep_or_wake(
+            soonest.saturating_duration_since(Instant::now()),
+            &mut woken,
+        )
+        .await;
     }
+}
+
+/// Which containers are asked now: each whose time has come, or every one.
+fn due(next: &[Instant], now: Instant, every: bool) -> Vec<usize> {
+    (0..next.len())
+        .filter(|&i| every || next[i] <= now)
+        .collect()
 }
 
 #[cfg(test)]
@@ -841,6 +875,44 @@ mod tests {
             + per_minute(look_every(reckon(notes.clone(), CONTACTS_WINDOWS)))
             + per_minute(poll_every(reckon(notes, DRIVE_WINDOWS)));
         assert!(asked <= 12, "{asked} a minute");
+    }
+
+    #[test]
+    fn with_notes_in_front_the_fallback_poll_asks_notes_often_and_the_rest_at_the_open_pace() {
+        // A minute of the fallback poll, the live channel down, on mains power, Notes in
+        // front: how many times each container is asked. Every container at Notes' pace was
+        // 12 + 12 + 12 = 36.
+        let notes = on_screen(&[("app-notes", true)]);
+        let start = Instant::now();
+        let mut next = [start; CONTAINERS.len()];
+        let mut asked = [0_u32; CONTAINERS.len()];
+        let mut now = start;
+        let mut every = true;
+        while now < start + Duration::from_secs(60) {
+            for i in due(&next, now, every) {
+                asked[i] += 1;
+                next[i] = now + poll_every(reckon(notes.clone(), CONTAINER_WINDOWS[i]));
+            }
+            every = false;
+            now = *next.iter().min().unwrap();
+        }
+        assert_eq!(asked, [12, 4, 4], "notes, reminders, photos");
+        // Calendar in front lays reminders out: Reminders is asked at the focused pace.
+        let calendar = on_screen(&[("app-calendar", true)]);
+        assert_eq!(
+            reckon(calendar.clone(), CONTAINER_WINDOWS[1]),
+            Presence::Focused
+        );
+        assert_eq!(reckon(calendar, CONTAINER_WINDOWS[2]), Presence::Open);
+    }
+
+    #[test]
+    fn a_wake_asks_every_container_at_once() {
+        let now = Instant::now();
+        let later = [now + Duration::from_secs(15); 3];
+        assert!(due(&later, now, false).is_empty());
+        assert_eq!(due(&later, now, true), [0, 1, 2]);
+        assert_eq!(due(&[now, later[1], now], now, false), [0, 2]);
     }
 
     #[test]
