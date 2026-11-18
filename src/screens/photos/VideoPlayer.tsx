@@ -18,14 +18,7 @@ import { useActiveRef, useScreenActive } from "../../lib/screen";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { Pause, Play, Volume2, VolumeX } from "lucide-react";
 import { turnStyle, type Turn } from "../../lib/ipc";
-
-const clock = (s: number) => {
-  if (!Number.isFinite(s) || s < 0) s = 0;
-  const h = Math.floor(s / 3600);
-  const m = Math.floor((s % 3600) / 60);
-  const sec = Math.floor(s % 60);
-  return h ? `${h}:${String(m).padStart(2, "0")}:${String(sec).padStart(2, "0")}` : `${m}:${String(sec).padStart(2, "0")}`;
-};
+import { clock, say } from "./clock";
 
 export function VideoPlayer({
   src,
@@ -107,8 +100,8 @@ export function VideoPlayer({
     const k = d ? Math.min(1, v.currentTime / d) : 0;
     if (fill.current) fill.current.style.transform = `scaleX(${k})`;
     if (knob.current) knob.current.style.left = `${k * 100}%`;
-    if (said.current) said.current.textContent = clock(v.currentTime);
-    if (left.current) left.current.textContent = `−${clock(d - v.currentTime)}`;
+    say(said.current, clock(v.currentTime));
+    say(left.current, `−${clock(d - v.currentTime)}`);
   }, []);
   useEffect(() => {
     if (!playing) return undefined;
