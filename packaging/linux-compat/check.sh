@@ -278,7 +278,20 @@ for backend in headless headless-backend.so; do
   [[ -S $XDG_RUNTIME_DIR/$sock ]] && break
   kill $weston 2>/dev/null; wait $weston 2>/dev/null
 done
-if [[ -S $XDG_RUNTIME_DIR/$sock ]]; then
+# Where GTK loads images through glycin (Arch, and others as they move to it), each image is
+# decoded inside a bwrap sandbox, which a container without user namespaces cannot make: GTK
+# then aborts on its first icon (18 Nov, Arch: "Failed to load /usr/share/icons/Adwaita/...",
+# "bwrap" "--unshare-all"). That is this test machine, not the package — on a desktop bwrap
+# runs — so there the launch is said as skipped, with why, rather than failed or passed.
+glycin_blocked() {
+  compgen -G "/usr/lib*/glycin-loaders" >/dev/null || compgen -G "/usr/libexec/glycin-loaders" >/dev/null || return 1
+  command -v bwrap >/dev/null || return 1
+  ! bwrap --unshare-all --die-with-parent --ro-bind / / true 2>/dev/null
+}
+if [[ -S $XDG_RUNTIME_DIR/$sock ]] && glycin_blocked; then
+  echo "SKIP wayland — GTK decodes images in a bwrap sandbox (glycin), which this container cannot make"
+  kill $weston; wait $weston 2>/dev/null
+elif [[ -S $XDG_RUNTIME_DIR/$sock ]]; then
   alive wayland env -u DISPLAY WAYLAND_DISPLAY=$sock GDK_BACKEND=wayland "$prog" --background
   kill $weston; wait $weston 2>/dev/null
 else
