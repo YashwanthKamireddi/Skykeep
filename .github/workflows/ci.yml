@@ -113,6 +113,8 @@ jobs:
     outputs:
       full: ${{ steps.files.outputs.full }}
       docs: ${{ steps.files.outputs.docs }}
+      android: ${{ steps.files.outputs.android }}
+      web: ${{ steps.files.outputs.web }}
     steps:
       - id: files
         env:
@@ -121,8 +123,18 @@ jobs:
         run: |
           full=true
           docs=false
+          android=true
+          web=true
           if [ -n "$PR" ]; then
             files=$(gh api --paginate "repos/$GITHUB_REPOSITORY/pulls/$PR/files" --jq '.[].filename')
+            # Each change is checked locally before it is pushed; a pull request re-checks only
+            # what it can break. The phone's build only for what the phone builds (android/, the
+            # crates quince-mobile links and its bindings writer, the lockfile); the interface
+            # suites only for the interface. A push to main and every release still run
+            # everything, and this file changing runs both, to prove them.
+            always='^\.github/workflows/ci\.yml$'
+            grep -qE "$always|^android/|^crates/(quince-(auth|icloud|core|media|sync|vfs|thumbs|mobile)|uniffi-bindgen)/|^Cargo\.(toml|lock)$|^rust-toolchain\.toml$" <<< "$files" || android=false
+            grep -qE "$always|^src/|^\.uiverify/|^package(-lock)?\.json$|^index\.html$|^vite\.config|^tsconfig" <<< "$files" || web=false
             # Words or README pictures alone: nothing to build or test.
             if [ -n "$files" ] && ! grep -qvE '(\.md$|^docs/media/)' <<< "$files"; then full=false; docs=true
             # Translations alone: the type check and the language test (job `languages`).
@@ -137,6 +149,8 @@ jobs:
           fi
           echo "full=$full" | tee -a "$GITHUB_OUTPUT"
           echo "docs=$docs" | tee -a "$GITHUB_OUTPUT"
+          echo "android=$android" | tee -a "$GITHUB_OUTPUT"
+          echo "web=$web" | tee -a "$GITHUB_OUTPUT"
 
   languages:
     needs: scope
@@ -264,7 +278,7 @@ jobs:
   # tasks, which uninstall the app).
   android:
     needs: scope
-    if: needs.scope.outputs.full == 'true'
+    if: needs.scope.outputs.full == 'true' && needs.scope.outputs.android == 'true'
     runs-on: ubuntu-24.04
     timeout-minutes: 50
     steps:
@@ -308,7 +322,7 @@ jobs:
 
   web:
     needs: scope
-    if: needs.scope.outputs.full == 'true'
+    if: needs.scope.outputs.full == 'true' && needs.scope.outputs.web == 'true'
     runs-on: ubuntu-24.04
     timeout-minutes: 25  # the interface suites grew past 15 minutes; a warm run takes ~16
     steps:
