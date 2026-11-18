@@ -1846,6 +1846,101 @@ impl Library {
             .optional()?
             .flatten())
     }
+
+    /// Stub assets of one library (`zone`: none, the personal one) kept as the photos they
+    /// stand for: `(stub, photo)`. Album places already stored under a stub — its relation
+    /// came in an earlier pass than the stub did — move to the photo, and so does what a whole
+    /// read underway noted of them, or its end would let them go.
+    pub fn put_photo_aliases(
+        &mut self,
+        zone: Option<&str>,
+        aliases: &[(String, String)],
+    ) -> Result<()> {
+        if aliases.is_empty() {
+            return Ok(());
+        }
+        self.walk_tables()?;
+        let key = walk_key(zone);
+        let tx = self.conn.savepoint()?;
+        for (id, target) in aliases {
+            tx.execute(
+                "INSERT INTO photo_aliases (zone, id, target) VALUES (?1, ?2, ?3)
+                 ON CONFLICT(zone, id) DO UPDATE SET target = excluded.target",
+                params![key, id, target],
+            )?;
+        }
+        for (id, _) in aliases {
+            let to = alias_target(&tx, id)?;
+            if &to == id {
+                continue;
+            }
+            tx.execute(
+                "INSERT INTO photo_album_items (album, asset, position)
+                   SELECT album, ?2, position FROM photo_album_items WHERE asset = ?1
+                 ON CONFLICT(album, asset) DO NOTHING",
+                params![id, to],
+            )?;
+            tx.execute(
+                "DELETE FROM photo_album_items WHERE asset = ?1",
+                params![id],
+            )?;
+            let tail = format!("\u{1f}{id}");
+            tx.execute(
+                "INSERT OR IGNORE INTO photo_walk (zone, kind, id)
+                   SELECT zone, kind, substr(id, 1, length(id) - length(?1)) || char(31) || ?2
+                     FROM photo_walk WHERE kind = 'item' AND substr(id, -length(?1)) = ?1",
+                params![tail, to],
+            )?;
+            tx.execute(
+                "DELETE FROM photo_walk WHERE kind = 'item' AND substr(id, -length(?1)) = ?1",
+                params![tail],
+            )?;
+        }
+        tx.commit()?;
+        Ok(())
+    }
+
+    /// Stubs of one library that are stubs no longer: an asset of that name arrived whole (a
+    /// photo moved back from the Shared Library), and is itself the photo.
+    pub fn forget_photo_aliases(&mut self, zone: Option<&str>, ids: &[String]) -> Result<()> {
+        let key = walk_key(zone);
+        let tx = self.conn.savepoint()?;
+        {
+            let mut stmt = tx.prepare("DELETE FROM photo_aliases WHERE zone = ?1 AND id = ?2")?;
+            for id in ids {
+                stmt.execute(params![key, id])?;
+            }
+        }
+        tx.commit()?;
+        Ok(())
+    }
+
+    /// The photo an album's member really is: a stub followed to the asset it names, hop by
+    /// hop. A chain that comes back on itself, or runs past [`MAX_ALIAS_HOPS`], is not
+    /// followed at all: the member stays as named, and shows nothing rather than hang a pass.
+    pub fn photo_alias_target(&self, id: &str) -> Result<String> {
+        alias_target(&self.conn, id)
+    }
+}
+
+/// How far a stub is followed. rclone's resolver stops at 32 (rclone#10299); one hop, from
+/// the personal zone to the Shared Library's, is all yet seen.
+pub const MAX_ALIAS_HOPS: usize = 32;
+
+fn alias_target(conn: &rusqlite::Connection, id: &str) -> Result<String> {
+    let mut stmt = conn.prepare_cached("SELECT target FROM photo_aliases WHERE id = ?1 LIMIT 1")?;
+    let mut seen = std::collections::HashSet::from([id.to_string()]);
+    let mut at = id.to_string();
+    for _ in 0..MAX_ALIAS_HOPS {
+        let next: Option<String> = stmt.query_row(params![at], |r| r.get(0)).optional()?;
+        match next {
+            None => return Ok(at),
+            Some(next) if next == at => return Ok(at),
+            Some(next) if !seen.insert(next.clone()) => return Ok(id.to_string()),
+            Some(next) => at = next,
+        }
+    }
+    Ok(id.to_string())
 }
 
 /// Photos deleted for good here that Apple has not yet confirmed: out of the `photos` table —

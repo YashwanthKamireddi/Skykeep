@@ -1030,6 +1030,21 @@ pub const MIGRATIONS: &[&str] = &[
     r#"
     UPDATE sync_state SET token = NULL WHERE service = 'reminders';
     "#,
+    // 57 — a Shared Library photo put in a personal album is, in the personal zone, a stub
+    // asset with no master that names the Shared Library's asset (`linkedShareRecordName`,
+    // or `remappedRef`); the album's relation names the stub. Each stub is kept here as the
+    // photo it stands for, so the album holds that photo (rclone#10298: 2 of an album's 81
+    // shown). The personal library is read again whole, as the stubs were passed over before.
+    r#"
+    CREATE TABLE photo_aliases (
+        zone   TEXT NOT NULL DEFAULT '',
+        id     TEXT NOT NULL,
+        target TEXT NOT NULL,
+        PRIMARY KEY (zone, id)
+    ) STRICT;
+    CREATE INDEX photo_aliases_by_id ON photo_aliases (id);
+    UPDATE sync_state SET token = NULL WHERE service = 'photos';
+    "#,
 ];
 
 /// Migrations that need more than SQL, run in the same transaction as the one numbered.

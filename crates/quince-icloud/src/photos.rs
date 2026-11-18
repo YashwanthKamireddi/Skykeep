@@ -614,6 +614,18 @@ fn another_asset_of(other: &Photo, id: &str, asset: &Value) -> Photo {
     p
 }
 
+/// The asset a stub stands for, by record name: `remappedRef` first, then the Shared
+/// Library's `linkedShareRecordName`, the order rclone reads them in (rclone#10299). None for
+/// an asset that names nothing.
+fn stands_for(asset: &Value) -> Option<String> {
+    asset
+        .pointer("/fields/remappedRef/value/recordName")
+        .and_then(Value::as_str)
+        .map(str::to_string)
+        .or_else(|| field::string(asset, "linkedShareRecordName"))
+        .filter(|n| !n.is_empty())
+}
+
 /// A pass applied to the library, merged in as it comes, so a large library shows as it fills.
 ///
 /// A pass over what changed is only that. A whole read (one from the start, or one carrying
@@ -671,6 +683,7 @@ fn apply_whole(
     // Which photo is in which album: a relation record each, named `<asset>-IN-<album>`.
     let mut in_albums: Vec<(String, String, i64)> = Vec::new();
     let mut out_of_albums: Vec<(String, String)> = Vec::new();
+    let mut aliases: Vec<(String, String)> = Vec::new();
     for r in &records {
         if r.get("deleted").and_then(Value::as_bool) == Some(true) {
             if let Some(name) = field::record_name(r) {
@@ -693,6 +706,16 @@ fn apply_whole(
             Some("CPLAsset") if field::int(r, "isExpunged") == Some(1) => {
                 if let Some(name) = field::record_name(r) {
                     gone.push(name);
+                }
+            }
+            // A Shared Library photo put in a personal album: a stub here, no master of its
+            // own, naming the Shared Library's asset. It is not a photo — built as one, a stub
+            // of the same name would overwrite the Shared Library's photo with its empty flags
+            // and move it to this library. It is kept as the photo it names instead.
+            Some("CPLAsset") if r.pointer("/fields/masterRef").is_none() => {
+                match (field::record_name(r), stands_for(r)) {
+                    (Some(name), Some(target)) => aliases.push((name, target)),
+                    _ => assets.push(r),
                 }
             }
             Some("CPLAsset") => assets.push(r),
@@ -813,6 +836,18 @@ fn apply_whole(
     let changed = photos.len() + gone.len();
     library.put_photos_in(zone, &photos)?;
     library.forget_photos(&gone)?;
+    // An asset arriving whole is the photo itself, a stub no longer (one moved back from the
+    // Shared Library). The stubs this pass brought are kept, and every album member, put in
+    // or taken out, is the photo it stands for, as the Shared Library's own read stores it.
+    let whole: Vec<String> = photos.iter().map(|p| p.id.clone()).collect();
+    library.forget_photo_aliases(zone, &whole)?;
+    library.put_photo_aliases(zone, &aliases)?;
+    for (_, asset, _) in &mut in_albums {
+        *asset = library.photo_alias_target(asset)?;
+    }
+    for (_, asset) in &mut out_of_albums {
+        *asset = library.photo_alias_target(asset)?;
+    }
     library.put_album_items(&in_albums)?;
     library.forget_album_items(&out_of_albums)?;
     let album_ids: Vec<String> = albums.iter().map(|a| a.id.clone()).collect();
@@ -1720,6 +1755,154 @@ mod tests {
             (a1.taken_at, a1.kind, a1.width),
             (a2.taken_at, a2.kind, a2.width)
         );
+    }
+
+    /// A personal-zone stub, shaped as rclone's fixtures have it (rclone#10299): no master,
+    /// `isSparsePrivateRecord`, and the Shared Library asset it stands for.
+    fn stub(name: &str, target: &str) -> Value {
+        json!({"recordName": name, "recordType": "CPLAsset", "fields": {
+            "isSparsePrivateRecord": {"value": 1},
+            "linkedShareRecordName": {"value": target},
+            "linkedShareZoneName": {"value": "SharedSync-X"},
+            "linkedShareZoneOwner": {"value": {"recordName": "_owner"}}
+        }})
+    }
+
+    fn remapped(name: &str, target: &str) -> Value {
+        json!({"recordName": name, "recordType": "CPLAsset", "fields": {
+            "remappedRef": {"value": {"recordName": target, "zoneID": {"zoneName": "SharedSync-X"}}}
+        }})
+    }
+
+    fn in_album(asset: &str, album: &str) -> Value {
+        json!({"recordName": format!("{asset}-IN-{album}"), "recordType": "CPLContainerRelation",
+            "fields": {"containerId": {"value": album}, "itemId": {"value": asset}, "position": {"value": 1024}}})
+    }
+
+    fn pass(records: Vec<Value>, zone: Option<&str>, incremental: bool) -> PhotosFetch {
+        PhotosFetch {
+            records,
+            token: Some("T".into()),
+            from: None,
+            incremental,
+            complete: true,
+            zone: zone.map(str::to_string),
+        }
+    }
+
+    fn album_ids(lib: &quince_core::Library, album: &str) -> Vec<String> {
+        let mut ids: Vec<String> = lib
+            .album_photos(album)
+            .unwrap()
+            .into_iter()
+            .map(|p| p.id)
+            .collect();
+        ids.sort();
+        ids
+    }
+
+    /// A personal album holding Shared Library photos holds them all: each stub is followed to
+    /// the Shared Library's photo, stored as that photo's own id, with no second copy made —
+    /// and a stub named as its Shared Library asset is (rclone's fixtures) leaves that photo
+    /// in its own library, flags and all. Before, only the album's personal photos showed.
+    #[test]
+    fn shared_library_photos_in_a_personal_album_are_all_there() {
+        let mut lib = quince_core::Library::in_memory().unwrap();
+        let mut shared = Vec::new();
+        for n in 0..3 {
+            shared.push(master_named(&format!("SM{n}")));
+            shared.push(asset_named(&format!("S{n}"), &format!("SM{n}")));
+        }
+        shared[1]["fields"]["isFavorite"] = json!({"value": 1});
+        apply(&mut lib, pass(shared, Some("SharedSync-X"), false)).unwrap();
+        let personal = vec![
+            master(),
+            asset(json!({})),
+            stub("S0", "S0"),
+            stub("P1", "S1"),
+            remapped("old", "S2"),
+            in_album("A1", "AL"),
+            in_album("S0", "AL"),
+            in_album("P1", "AL"),
+            in_album("old", "AL"),
+        ];
+        apply(&mut lib, pass(personal, None, false)).unwrap();
+        assert_eq!(album_ids(&lib, "AL"), ["A1", "S0", "S1", "S2"]);
+        assert_eq!(ids(&lib), ["A1", "S0", "S1", "S2"], "no stub is a photo");
+        assert_eq!(
+            lib.photo_zone("S0").unwrap().as_deref(),
+            Some("SharedSync-X")
+        );
+        assert!(lib.photo("S0").unwrap().unwrap().favorite);
+        // Taken out on the phone: the stub's relation is deleted, and the photo leaves.
+        apply(
+            &mut lib,
+            pass(vec![json!({"recordName": "P1-IN-AL", "deleted": true})], None, true),
+        )
+        .unwrap();
+        assert_eq!(album_ids(&lib, "AL"), ["A1", "S0", "S2"]);
+    }
+
+    /// A relation can come a pass before its stub (a long read is many passes): what was
+    /// stored under the stub moves to the photo when the stub comes, and the read's end keeps it.
+    #[test]
+    fn a_stub_after_its_relation_still_fills_the_album() {
+        let mut lib = quince_core::Library::in_memory().unwrap();
+        apply(
+            &mut lib,
+            pass(
+                vec![master_named("SM1"), asset_named("S1", "SM1")],
+                Some("SharedSync-X"),
+                false,
+            ),
+        )
+        .unwrap();
+        let first = PhotosFetch {
+            records: vec![master(), asset(json!({})), in_album("P1", "AL")],
+            token: Some("T1".into()),
+            from: None,
+            incremental: false,
+            complete: false,
+            zone: None,
+        };
+        apply(&mut lib, first).unwrap();
+        let rest = PhotosFetch {
+            records: vec![stub("P1", "S1")],
+            token: Some("T2".into()),
+            from: Some("T1".into()),
+            incremental: true,
+            complete: true,
+            zone: None,
+        };
+        apply(&mut lib, rest).unwrap();
+        assert_eq!(album_ids(&lib, "AL"), ["S1"]);
+    }
+
+    /// Stubs naming each other round in a ring are not followed for ever: the pass ends, the
+    /// ring's member shows nothing, and a sound stub beside it still fills its place.
+    #[test]
+    fn a_ring_of_stubs_ends() {
+        let mut lib = quince_core::Library::in_memory().unwrap();
+        apply(
+            &mut lib,
+            pass(
+                vec![master_named("SM1"), asset_named("S1", "SM1")],
+                Some("SharedSync-X"),
+                false,
+            ),
+        )
+        .unwrap();
+        let records = vec![
+            stub("X", "Y"),
+            remapped("Y", "Z"),
+            stub("Z", "X"),
+            stub("P1", "S1"),
+            in_album("X", "AL"),
+            in_album("P1", "AL"),
+        ];
+        apply(&mut lib, pass(records, None, false)).unwrap();
+        assert_eq!(album_ids(&lib, "AL"), ["S1"]);
+        assert_eq!(lib.photo_alias_target("X").unwrap(), "X");
     }
 
     #[test]
