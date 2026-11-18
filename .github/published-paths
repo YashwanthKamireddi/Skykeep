@@ -14,6 +14,8 @@ third_party/.*
 packaging/.*
 snap/.*
 docs/media/.*
+# How other programs use Skykeep, linked from the README.
+docs/cli\.md
 (\.gitignore|\.gitleaks\.toml|\.gitleaksignore)
 (ARCHITECTURE|README|SECURITY|PRIVACY)\.md
 LICENSE
