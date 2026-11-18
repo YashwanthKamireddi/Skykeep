@@ -243,7 +243,11 @@ mod tests {
         assert_eq!(set_up_args(None, false), fallback());
         assert_eq!(set_up_args(None, true), fallback());
         let sh = std::fs::metadata("/bin/sh").unwrap();
-        assert_eq!(set_up_args(Some(&sh), false), fallback(), "no action, so no message");
+        assert_eq!(
+            set_up_args(Some(&sh), false),
+            fallback(),
+            "no action, so no message"
+        );
     }
 
     #[test]
