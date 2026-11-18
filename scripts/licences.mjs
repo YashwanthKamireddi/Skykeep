@@ -16,7 +16,9 @@ import { promisify } from "node:util";
 
 const run = promisify(execFile);
 const root = join(dirname(fileURLToPath(import.meta.url)), "..");
-const OUT = join(root, "src", "licences.json");
+// LICENCES_OUT writes the list elsewhere: the gate compares it with the committed file while the
+// app is being built and checked from that file, which must not change under them.
+const OUT = process.env.LICENCES_OUT ?? join(root, "src", "licences.json");
 
 // Every target a desktop build is made for. One list for all of them, so the committed file is
 // the same whichever machine writes it; a crate only one of them uses is listed for all.

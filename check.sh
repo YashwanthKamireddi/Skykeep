@@ -19,21 +19,38 @@ step() {
 # checks measured frames of 450–1000 ms that alone are 17–575 ms). Results print in this file's order.
 JOBS=${CHECK_JOBS:-$(( $(nproc) / 2 ))}; [ "$JOBS" -ge 1 ] || JOBS=1
 out=$(mktemp -d)
-names=() pids=() later=()
+names=() cmds=() later=()
 # Also alone: photos-strip opens a 2,000-photo library (under six browsers its window took past
 # 30 s to appear), and contacts-lists times "at once" in both modes (9 and 10 Nov, each failed
 # only in the pool and passed 3 of 3 alone).
 timed() { case "$*" in *notes-long.mjs*|*photos-scale.mjs*|*photos-scroll.mjs*|*photos-paging.mjs*|*photos-dense-months.mjs*|*photos-levels-scale.mjs*|*photos-strip.mjs*|*contacts-lists.mjs*|*glass-frames.mjs*) return 0 ;; esac; return 1; }
+# A browser check, noted here and started by run_pool once every one is known.
 pooled() {
   local name=$1; shift
   if timed "$@"; then later+=("$name"$'\x1f'"$(printf '%q ' "$@")"); return; fi
-  local i=${#names[@]}; names+=("$name")
-  while :; do
-    local live=0 p; for p in "${pids[@]}"; do kill -0 "$p" 2>/dev/null && live=$((live + 1)); done
-    [ "$live" -lt "$JOBS" ] && break; wait -n "${pids[@]}" 2>/dev/null
+  names+=("$name"); cmds+=("$(printf '%q ' "$@")")
+}
+# How long each browser check took in the last run (target/ is this checkout's own and never
+# published). The longest start first: started in this file's order, a long suite that happened
+# to come late kept the pool open with one browser running after every other was done. A check
+# with no time yet (a new one) starts first.
+times=target/check-times.tsv
+run_pool() {
+  local -A took=()
+  local ms name i p live pids=()
+  if [ -f "$times" ]; then while IFS=$'\t' read -r ms name; do took[$name]=$ms; done <"$times"; fi
+  for i in $(for i in "${!names[@]}"; do echo "${took[${names[$i]}]:-999999} $i"; done | sort -rn | cut -d' ' -f2); do
+    while :; do
+      live=0; for p in "${pids[@]}"; do kill -0 "$p" 2>/dev/null && live=$((live + 1)); done
+      [ "$live" -lt "$JOBS" ] && break; wait -n "${pids[@]}" 2>/dev/null
+    done
+    ( s=$(date +%s%N); eval "${cmds[$i]}" >"$out/$i.log" 2>&1; echo $? >"$out/$i.rc"
+      echo $(( ($(date +%s%N) - s) / 1000000 )) >"$out/$i.ms" ) &
+    pids+=($!)
   done
-  ( "$@" >"$out/$i.log" 2>&1; echo $? >"$out/$i.rc" ) &
-  pids+=($!)
+  wait "${pids[@]}" 2>/dev/null
+  mkdir -p target
+  for i in "${!names[@]}"; do printf '%s\t%s\n' "$(cat "$out/$i.ms" 2>/dev/null)" "${names[$i]}"; done >"$times"
 }
 
 # The app must serve its own bundle. Pointing it at a dev server made it depend on `npm run
@@ -53,10 +70,15 @@ licences_current() {
     echo "cargo-about is not installed, so the licence list was not checked (cargo install --locked cargo-about@0.9.3)"
     return 0
   fi
-  npm run --silent licences && git diff --exit-code --stat src/licences.json \
+  LICENCES_OUT="$out/licences.json" npm run --silent licences \
+    && git show :src/licences.json | diff -q - "$out/licences.json" >/dev/null \
     || { echo "src/licences.json is out of date: run npm run licences and commit"; return 1; }
 }
-step "licence list current" licences_current
+# cargo-about takes from half a minute to several on a busy machine, and nothing else waits for
+# it: the list is written beside the committed one, not over it, so it runs behind everything and
+# its result is shown at the end.
+licences_current >"$out/licences.log" 2>&1 &
+licences_pid=$!
 
 
 # Every suite CI runs is one this gate runs too, so a suite renamed or removed here can't
@@ -71,8 +93,9 @@ ci_suites() {
 step "CI's suites are the gate's" ci_suites
 
 # The app embeds the built bundle when it compiles, so the bundle is built before the Rust lane
-# starts and never changes under it.
-step "frontend build"   npm run build
+# starts and never changes under it. Vite alone: `npm run build` type-checks first, and the
+# type check runs in the pool below, where nothing waits on it.
+step "frontend build"   npx vite build
 
 # The Rust lane runs behind everything else; its output is kept and shown at the end.
 rust_lane() {
@@ -101,19 +124,20 @@ rust_lane() {
 rust_lane >"$out/rust.log" 2>&1 &
 rust_pid=$!
 
-step "typescript"       npx tsc --noEmit
-step "calendar layout"  node --test .uiverify/calendar-model.test.mjs
-step "notes layout"     node --test .uiverify/notes-model.test.mjs
-step "notes editor model" node --test .uiverify/notes-rich.test.mjs
+pooled "typescript"       npx tsc --noEmit
 # Every model test, the way CI's "Model tests" runs them, so a test file this list doesn't name
-# can't pass here and fail there.
-step "model tests (all)" bash -c 'node --test .uiverify/*.test.mjs'
+# can't pass here and fail there. It includes the calendar and notes layout and the notes editor
+# model, which were also run on their own before it.
+pooled "model tests (all)" bash -c 'node --test .uiverify/*.test.mjs'
 
 # The browser checks need the built bundle served.
-npx vite preview --port 4173 --strictPort >/tmp/quince-preview.log 2>&1 &
+# CHECK_PORT moves it, so a gate can run while another worktree's preview holds 4173.
+PORT=${CHECK_PORT:-4173}
+export URL="http://localhost:$PORT"
+npx vite preview --port "$PORT" --strictPort >"$out/preview.log" 2>&1 &
 preview=$!
 trap 'kill $preview 2>/dev/null' EXIT
-for _ in $(seq 20); do curl -sf -o /dev/null http://localhost:4173/ && break; sleep 0.5; done
+for _ in $(seq 20); do curl -sf -o /dev/null "$URL/" && break; sleep 0.5; done
 
 export PLAYWRIGHT_SKIP_VALIDATE_HOST_REQUIREMENTS=1
 step "webkit: set up"   .uiverify/webkit-libs.sh
@@ -302,7 +326,12 @@ pooled "notes merge"       node .uiverify/notes-merge.mjs
 # this catches what only WebKit does — pointer capture, blur on removal, its own layout.
 pooled "webkit: nav"      env ENGINE=webkit node .uiverify/assert.mjs
 pooled "webkit: keyboard" env ENGINE=webkit node .uiverify/keyboard.mjs
-pooled "webkit: notes"    bash -c 'ENGINE=webkit node .uiverify/notes-compose.mjs && ENGINE=webkit node .uiverify/notes-trash.mjs && ENGINE=webkit node .uiverify/notes-pin.mjs && ENGINE=webkit node .uiverify/notes-long.mjs'
+# One check each: run as one chain, the chain held a timed suite (notes-long), so all four waited
+# for the quiet end and ran one after another there.
+pooled "webkit: notes"    env ENGINE=webkit node .uiverify/notes-compose.mjs
+pooled "webkit: deleting a note" env ENGINE=webkit node .uiverify/notes-trash.mjs
+pooled "webkit: pinning a note" env ENGINE=webkit node .uiverify/notes-pin.mjs
+pooled "webkit: a long note" env ENGINE=webkit node .uiverify/notes-long.mjs
 pooled "webkit: drive"    env ENGINE=webkit node .uiverify/drive-upload.mjs
 pooled "webkit: calendar" env ENGINE=webkit node .uiverify/calendar.mjs
 pooled "webkit: sizes"    env ENGINE=webkit node .uiverify/sizes.mjs
@@ -323,8 +352,18 @@ pooled "calendar undo"    node .uiverify/calendar-undo.mjs
 pooled "backup"           node .uiverify/settings-backup.mjs
 pooled "webkit: backup"   env ENGINE=webkit node .uiverify/settings-backup.mjs
 
-
-wait "${pids[@]}" 2>/dev/null
+# One browser of each engine serves the whole pool (browsers.mjs): each suite connects to it
+# rather than starting its own, so the pool no longer starts and stops two hundred browsers.
+# Stopped before the timed checks, which start their own browsers as before.
+node .uiverify/browsers.mjs "$out/browsers.env" >"$out/browsers.log" 2>&1 &
+browsers=$!
+trap 'kill $preview $browsers 2>/dev/null' EXIT
+for _ in $(seq 600); do [ -f "$out/browsers.env" ] && break; kill -0 $browsers 2>/dev/null || break; sleep 0.1; done
+if [ -f "$out/browsers.env" ]; then set -a; . "$out/browsers.env"; set +a
+else echo "The shared browsers did not start, so each check starts its own:"; cat "$out/browsers.log"; fi
+run_pool
+kill $browsers 2>/dev/null; wait $browsers 2>/dev/null
+unset PW_CHROMIUM_WS PW_WEBKIT_WS
 for i in "${!names[@]}"; do
   printf '\n\033[1m── %s ──\033[0m\n' "${names[$i]}"
   if [ "$(cat "$out/$i.rc" 2>/dev/null)" = 0 ]; then printf '\033[32mok\033[0m\n'
@@ -332,6 +371,8 @@ for i in "${!names[@]}"; do
 done
 # The checks that measure time, alone on a quiet machine (the Rust lane may still be running, so
 # it is waited for first).
+wait "$licences_pid"; licences_rc=$?
+step "licence list current" bash -c "cat '$out/licences.log'; exit $licences_rc"
 wait "$rust_pid"; rust_rc=$?
 cat "$out/rust.log"; [ "$rust_rc" -eq 0 ] || fail=1
 # Each engine warmed first: the first launch after the build measured a cold disk, not the app.

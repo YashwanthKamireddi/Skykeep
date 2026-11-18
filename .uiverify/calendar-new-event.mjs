@@ -65,7 +65,7 @@ const stub = { screen: "library", services: SERVICES, twoFactor: null, calendarF
   const page = await ctx.newPage();
   page.on("pageerror", (e) => { console.log(`FAIL page error: ${e.message}`); failures++; });
   const asked = Buffer.from(JSON.stringify({ screen: "calendar", id: "", startNew: true })).toString("base64url");
-  await page.goto(`http://localhost:4173/?app=calendar&reveal=${asked}`, { waitUntil: "networkidle" });
+  await page.goto(`${process.env.URL ?? process.env.BASE ?? "http://localhost:4173"}/?app=calendar&reveal=${asked}`, { waitUntil: "networkidle" });
   await page.waitForTimeout(800);
   ok((await started(page)) === 1, "Calendar's window made for it starts the new event");
   await ctx.close();

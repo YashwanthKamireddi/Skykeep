@@ -27,7 +27,11 @@ const base = engineName === "webkit" || engineName === "gtk" ? webkit : chromium
  */
 export const engine = {
   launch: async (options = {}) => {
-    const browser = await base.launch({
+    // The gate's shared browser of this engine (browsers.mjs), when there is one and the suite
+    // asks for no launch options of its own. Closing a connected browser closes only the
+    // contexts this suite made in it.
+    const shared = engineName === "chromium" ? process.env.PW_CHROMIUM_WS : engineName === "webkit" ? process.env.PW_WEBKIT_WS : null;
+    const browser = shared && Object.keys(options).length === 0 ? await base.connect(shared) : await base.launch({
       ...options,
       ...(engineName === "gtk" ? { headless: false } : {}),
       ...(engineName === "msedge" ? { channel: "msedge" } : {}),
