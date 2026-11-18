@@ -25,32 +25,44 @@ const at = () => page.evaluate(() => Math.round(document.querySelector(".px-scro
 const start = await at();
 ok(start > 3000, `opened at the foot, far from the oldest  (${start})`);
 
-// Each way of taking over: a wheel, a press on the grid, a key.
-for (const how of ["wheel", "press", "key"]) {
+const jump = async () => {
   await page.locator(".px-scroll").evaluate((s) => { s.scrollTop = s.scrollHeight; });
   await page.waitForTimeout(400);
   await page.getByRole("button", { name: "Go to a Month" }).click();
   const dialog = page.getByRole("dialog", { name: "Go to a Month" });
   await dialog.getByRole("tab").first().click();
   await dialog.locator(".px-jump-month").first().click();
+};
+// Where the month is: a glide left alone ends there.
+await jump();
+await page.waitForTimeout(1200);
+const month = await at();
+ok(Math.abs(month - start) > 3000, `the month is far from the foot  (${start} → ${month})`);
+
+// Each way of taking over: a wheel, a press on the grid, a key.
+for (const how of ["wheel", "press", "key"]) {
+  await jump();
   // Part way down the glide, the person takes over.
   await page.waitForTimeout(60);
   const mid = await at();
   const box = await page.locator(".px-scroll").boundingBox();
   if (how === "wheel") {
     await page.mouse.move(box.x + box.width / 2, box.y + box.height / 2);
-    await page.mouse.wheel(0, 0.1);
+    await page.mouse.wheel(0, 40);
   } else if (how === "press") {
     await page.locator(".px-scroll").dispatchEvent("pointerdown", { bubbles: true });
   } else {
     await page.keyboard.press("Shift");
   }
+  // The take-over has landed (WebKit hands a wheel over after the call returns): from here the
+  // view must not move, and must not have been thrown on to the month.
+  await page.waitForTimeout(300);
   const taken = await at();
   await page.waitForTimeout(600);
   const end = await at();
   ok(mid > 1500, `${how}: the glide was part way when taken over  (${start} → ${mid})`);
-  ok(Math.abs(taken - mid) < 400 && Math.abs(end - taken) < 400,
-    `${how}: taken over, the view stays where it was, not thrown to the month  (${mid} → ${taken} → ${end})`);
+  ok(Math.abs(taken - month) > 200 && Math.abs(end - taken) < 40,
+    `${how}: taken over, the view stops where it was, not thrown to the month at ${month}  (${mid} → ${taken} → ${end})`);
 }
 await b.close();
 process.exitCode = failures ? 1 : 0;
