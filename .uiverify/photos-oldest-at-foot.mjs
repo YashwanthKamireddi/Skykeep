@@ -76,6 +76,31 @@ await sp.locator(".px-scroll").evaluate((s) => { s.scrollTop -= 1500; });
 await sp.waitForTimeout(800);
 const up = await sp.evaluate(() => { const s = document.querySelector(".px-scroll"); return s.scrollHeight - s.clientHeight - s.scrollTop; });
 ok(up > 1000, `scrolled up, it stays where the person put it  (${Math.round(up)}px above the foot)`);
+// Made full screen at the foot, it stays at the foot (a wider tile is a taller one: the grid
+// grows, and the view landed mid-library, 18 Nov); made small again, still there.
+await sp.locator(".px-scroll").evaluate((s) => { s.scrollTop = s.scrollHeight; });
+await sp.waitForTimeout(300);
+for (const [w, h] of [[1920, 1080], [900, 600], [1600, 1000]]) {
+  await sp.setViewportSize({ width: w, height: h });
+  await sp.waitForTimeout(500);
+  const f = await sp.evaluate(() => { const s = document.querySelector(".px-scroll"); return Math.round(s.scrollHeight - s.clientHeight - s.scrollTop); });
+  ok(f <= 2, `resized to ${w}×${h} at the foot, it stays at the foot  (${f}px above it)`);
+}
+// Scrolled up to a photo, a resize keeps that photo where it was on the screen.
+await sp.locator(".px-scroll").evaluate((s) => { s.scrollTop = Math.round(s.scrollHeight / 3); });
+await sp.waitForTimeout(400);
+const before = await sp.evaluate(() => {
+  const s = document.querySelector(".px-scroll"); const box = s.getBoundingClientRect();
+  const t = [...s.querySelectorAll(".px-tile")].find((x) => x.getBoundingClientRect().bottom > box.top + 120);
+  return { id: t.dataset.id, top: Math.round(t.getBoundingClientRect().top - box.top) };
+});
+await sp.setViewportSize({ width: 1920, height: 1080 });
+await sp.waitForTimeout(500);
+const after = await sp.evaluate((id) => {
+  const s = document.querySelector(".px-scroll"); const t = s.querySelector(`.px-tile[data-id="${id}"]`);
+  return t ? Math.round(t.getBoundingClientRect().top - s.getBoundingClientRect().top) : null;
+}, before.id);
+ok(after !== null && Math.abs(after - before.top) <= 2, `scrolled up, a resize keeps the same photo in place  (${before.id}: ${before.top} → ${after})`);
 await slow.close();
 await b.close();
 process.exitCode = failures ? 1 : 0;

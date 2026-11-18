@@ -83,6 +83,8 @@ const inView = () => page.evaluate(() => {
 // Scrolled at a steady 3,000 px/s for a while: pages fetched ahead, so the screen is never bare.
 const run = (speed, ms) => page.evaluate(([speed, ms]) => new Promise((done) => {
   const el = document.querySelector(".px-scroll");
+  // From the top: Photos opens at its foot, on the newest, with nothing below to scroll to.
+  el.scrollTop = 0;
   const gaps = [];
   let bare = 0;
   let last = performance.now();
