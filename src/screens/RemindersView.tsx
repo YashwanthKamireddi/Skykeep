@@ -1889,6 +1889,7 @@ export function RemindersView() {
     toggle, askRemove, rename, indent, outdent, flag, setNotes, setUrl, setDue, setEarly, setRepeat,
     tagAdd, tagRemove, setPriority, moveToList, moveToSection, openTag, setOpenGuid, reorder,
     foldSubtasks,
+    knownTags: () => tags.map((x) => x.name),
     next: (r) => {
       // Below it in a list, where its order is the list's; elsewhere, at the foot of the view.
       if (inList && !searching && !r.completedAt) setInsertAfter(r);
@@ -2356,6 +2357,8 @@ type RowActions = {
   moveToList: (r: Reminder, listGuid: string) => Promise<unknown>;
   moveToSection: (r: Reminder, section: string | null) => Promise<unknown>;
   openTag: (name: string) => void;
+  /** Every tag in use, read at the moment it is asked (the tag field's suggestions). */
+  knownTags: () => string[];
   setOpenGuid: (guid: string | null) => void;
   openMenu: (r: Reminder, at: { x: number; y: number; alignRight: boolean }) => void;
   reorder: (guid: string, before: string) => Promise<unknown>;
@@ -2824,6 +2827,7 @@ const ReminderRow = memo(function ReminderRow({
               onOpen={(name) => act.current.openTag(name)}
               onAdd={(name) => void act.current.tagAdd(reminder, name)}
               onRemove={(name) => void act.current.tagRemove(reminder, name)}
+              known={() => act.current.knownTags()}
             />
             <div className="rx-field">
               <span>{t("reminders.subtasks")}</span>
@@ -3239,15 +3243,40 @@ function EarlyField({ reminder, alerts, onChange }: {
   );
 }
 
-/** Tags as Apple writes them, #name. Tap one to see everything carrying it. */
-function TagsField({ reminder, tags, onOpen, onAdd, onRemove }: {
+/**
+ * Tags as Apple writes them, #name. Tap one to see everything carrying it. Typing offers the
+ * tags already in use, as Reminders does on a Mac and an iPhone: those starting with what is
+ * typed first, then those containing it — picked with the arrows and Return, or a click — so a
+ * tag used often is never typed whole again, nor typed slightly wrong into a second one (#63).
+ */
+function TagsField({ reminder, tags, onOpen, onAdd, onRemove, known }: {
   reminder: Reminder;
   tags: string[];
   onOpen: (name: string) => void;
   onAdd: (name: string) => void;
   onRemove: (name: string) => void;
+  /** The tags in use anywhere, asked only while typing (rows are not drawn again for them). */
+  known: () => string[];
 }) {
   const [typed, setTyped] = useState("");
+  const [lit, setLit] = useState(0);
+  const [closed, setClosed] = useState(false);
+  const word = typed.replace(/^#+/, "").toLowerCase();
+  const offered = useMemo(() => {
+    if (!word || closed) return [];
+    const have = new Set(tags.map((x) => x.toLowerCase()));
+    const rank = (name: string) => (name.toLowerCase().startsWith(word) ? 0 : name.toLowerCase().includes(word) ? 1 : 2);
+    return known()
+      .filter((name) => !have.has(name.toLowerCase()) && rank(name) < 2)
+      .sort((x, y) => rank(x) - rank(y) || x.localeCompare(y))
+      .slice(0, 8);
+  }, [word, closed, tags]); // eslint-disable-line react-hooks/exhaustive-deps
+  const listId = `rx-tags-for-${reminder.guid}`;
+  const add = (name: string) => {
+    onAdd(name);
+    setTyped("");
+    setLit(0);
+  };
   if (!REMINDER_DETAIL_WRITES && tags.length === 0) return null;
   return (
     <div className="rx-field">
@@ -3266,27 +3295,72 @@ function TagsField({ reminder, tags, onOpen, onAdd, onRemove }: {
           </span>
         ))}
         {REMINDER_DETAIL_WRITES && (
-          <input
-            className="rx-tag-input"
-            value={typed}
-            placeholder={tags.length ? t("reminders.add") : t("reminders.addTag")}
-            aria-label={t("reminders.addTagTo", { title: reminder.title })}
-            onChange={(e) => setTyped(e.target.value.replace(/\s/g, ""))}
-            onKeyDown={(e) => {
-              if (composing(e)) return;
-              if ((e.key === "Enter" || e.key === "," || e.key === " ") && typed.replace(/^#+/, "")) {
-                e.preventDefault();
-                onAdd(typed);
+          <span className="rx-tag-find">
+            <input
+              className="rx-tag-input"
+              value={typed}
+              role="combobox"
+              aria-autocomplete="list"
+              aria-expanded={offered.length > 0}
+              aria-controls={listId}
+              aria-activedescendant={offered.length ? `${listId}-${lit}` : undefined}
+              placeholder={tags.length ? t("reminders.add") : t("reminders.addTag")}
+              aria-label={t("reminders.addTagTo", { title: reminder.title })}
+              onChange={(e) => {
+                setTyped(e.target.value.replace(/\s/g, ""));
+                setLit(0);
+                setClosed(false);
+              }}
+              onKeyDown={(e) => {
+                if (composing(e)) return;
+                if (e.key === "ArrowDown" && offered.length) {
+                  e.preventDefault();
+                  setLit((i) => Math.min(offered.length - 1, i + 1));
+                } else if (e.key === "ArrowUp" && offered.length) {
+                  e.preventDefault();
+                  setLit((i) => Math.max(0, i - 1));
+                } else if (e.key === "Escape" && offered.length) {
+                  // The suggestions go; the words typed stay, and the pane stays open.
+                  e.preventDefault();
+                  e.stopPropagation();
+                  setClosed(true);
+                } else if (e.key === "Enter" && offered[lit]) {
+                  e.preventDefault();
+                  add(offered[lit]);
+                } else if ((e.key === "Enter" || e.key === "," || e.key === " ") && word) {
+                  e.preventDefault();
+                  add(typed);
+                } else if (e.key === "Backspace" && !typed && tags.length) {
+                  onRemove(tags[tags.length - 1]);
+                }
+              }}
+              onBlur={() => {
+                if (word) onAdd(typed);
                 setTyped("");
-              } else if (e.key === "Backspace" && !typed && tags.length) {
-                onRemove(tags[tags.length - 1]);
-              }
-            }}
-            onBlur={() => {
-              if (typed.replace(/^#+/, "")) onAdd(typed);
-              setTyped("");
-            }}
-          />
+              }}
+            />
+            {offered.length > 0 && (
+              <span className="rx-tag-suggest" id={listId} role="listbox" aria-label={t("reminders.tags")}>
+                {offered.map((name, i) => (
+                  <span
+                    key={name}
+                    id={`${listId}-${i}`}
+                    role="option"
+                    aria-selected={i === lit}
+                    className={`rx-tag-option${i === lit ? " is-lit" : ""}`}
+                    // Chosen before the field loses focus, which would add what was typed instead.
+                    onMouseDown={(e) => {
+                      e.preventDefault();
+                      add(name);
+                    }}
+                    onMouseMove={() => setLit(i)}
+                  >
+                    #{name}
+                  </span>
+                ))}
+              </span>
+            )}
+          </span>
         )}
       </div>
     </div>
