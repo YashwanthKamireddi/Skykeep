@@ -7512,7 +7512,15 @@ fn main() {
                 });
                 let before = std::panic::take_hook();
                 std::panic::set_hook(Box::new(move |info| {
-                    mount::release();
+                    // Only a panic that ends Skykeep lets the folders go: one on the main
+                    // thread. Elsewhere it ends its own thread or is caught — a Drive folder
+                    // request (fuse.rs `guarded`), a command, a library change rolled back —
+                    // and Skykeep goes on; the hook runs before any catch, and unmounted both
+                    // folders for each of those, the very request the catch was there to
+                    // survive included.
+                    if std::thread::current().name() == Some("main") {
+                        mount::release();
+                    }
                     before(info);
                 }));
             }
