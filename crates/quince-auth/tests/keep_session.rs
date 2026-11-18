@@ -379,3 +379,113 @@ async fn a_locked_account_still_ends_the_session() {
     assert_eq!(kept, Kept::SignIn);
     assert!(kept.ended());
 }
+
+const CK: &str = "https://p00-ckdatabasews.test.invalid:443";
+
+/// `/validate` answering 200 with `body`.
+async fn validate_answers(server: &MockServer, body: serde_json::Value) {
+    Mock::given(method("POST"))
+        .and(path("/setup/ws/1/validate"))
+        .respond_with(ResponseTemplate::new(200).set_body_json(body))
+        .mount(server)
+        .await;
+}
+
+/// Apple answering `/validate` with `"webservices": {}`, as it has for accounts with a beta-OS
+/// device (icloudpd#1390): the services known are kept, on disk too, and the session is said as
+/// away rather than taken up with no services.
+#[tokio::test]
+async fn an_empty_services_list_keeps_the_known_ones() {
+    let dir = tempfile::tempdir().unwrap();
+    signed_in(dir.path()).await;
+
+    let server = MockServer::start().await;
+    validate_answers(
+        &server,
+        json!({ "webservices": {}, "configBag": { "urls": {} } }),
+    )
+    .await;
+    let mut client = client_for(&server, dir.path());
+    assert!(client.resume().await.is_err(), "away, not resumed");
+    assert_eq!(
+        client.session().service_url("ckdatabasews").as_deref(),
+        Some(CK)
+    );
+    assert!(client.session().session_token.is_some());
+    assert!(matches!(
+        client.reopen().await.unwrap(),
+        quince_auth::Reopen::Library
+    ));
+
+    // What was saved is the good list too.
+    let again = client_for(&server, dir.path());
+    assert_eq!(
+        again.session().service_url("ckdatabasews").as_deref(),
+        Some(CK)
+    );
+}
+
+/// The same from `accountLogin` (icloudpd#1361): the session is taken up, its services kept.
+#[tokio::test]
+async fn an_empty_services_list_from_account_login_keeps_the_known_ones() {
+    let dir = tempfile::tempdir().unwrap();
+    signed_in(dir.path()).await;
+
+    let server = MockServer::start().await;
+    Mock::given(method("POST"))
+        .and(path("/setup/ws/1/validate"))
+        .respond_with(ResponseTemplate::new(421))
+        .mount(&server)
+        .await;
+    Mock::given(method("POST"))
+        .and(path("/setup/ws/1/accountLogin"))
+        .respond_with(ResponseTemplate::new(200).set_body_json(json!({
+            "dsInfo": { "dsid": "1234567890" },
+            "webservices": {}
+        })))
+        .mount(&server)
+        .await;
+    let mut client = client_for(&server, dir.path());
+    assert!(client.resume().await.unwrap());
+    assert_eq!(
+        client.session().service_url("ckdatabasews").as_deref(),
+        Some(CK)
+    );
+}
+
+/// A partial list keeps the services it leaves out and takes the ones it names, new or moved.
+#[tokio::test]
+async fn a_partial_services_list_is_merged_key_by_key() {
+    let dir = tempfile::tempdir().unwrap();
+    signed_in(dir.path()).await;
+
+    let server = MockServer::start().await;
+    let drive = "https://p00-drivews.test.invalid:443";
+    validate_answers(
+        &server,
+        json!({ "webservices": { "drivews": { "url": drive, "status": "active" } } }),
+    )
+    .await;
+    let mut client = client_for(&server, dir.path());
+    assert!(client.resume().await.unwrap());
+    assert_eq!(
+        client.session().service_url("ckdatabasews").as_deref(),
+        Some(CK)
+    );
+    assert_eq!(client.session().service_url("drivews").as_deref(), Some(drive));
+
+    // Apple moving a service to another partition: the new address is the one used.
+    let moved = "https://p42-ckdatabasews.test.invalid:443";
+    server.reset().await;
+    validate_answers(
+        &server,
+        json!({ "webservices": { "ckdatabasews": { "url": moved, "status": "active" } } }),
+    )
+    .await;
+    assert!(client.resume().await.unwrap());
+    assert_eq!(
+        client.session().service_url("ckdatabasews").as_deref(),
+        Some(moved)
+    );
+    assert_eq!(client.session().service_url("drivews").as_deref(), Some(drive));
+}

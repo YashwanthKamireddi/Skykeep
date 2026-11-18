@@ -298,6 +298,35 @@ fn apple_error(context: &str, status: StatusCode, body: &str) -> Error {
     Error::Protocol(format!("{context}: HTTP {status} {snippet}"))
 }
 
+/// Apple's map of the account's services, with what it has just said taken in key by key.
+///
+/// Apple sometimes answers `/validate` and `accountLogin` with `"webservices": {}`, or with
+/// only some of them, for accounts with a beta-OS device (icloudpd#1390, #1361, #1387). Taken
+/// as it came, the empty map was saved over the good one and every service after it found no
+/// address, with the session itself fine. So a service Apple names is taken, new or changed,
+/// and one it leaves out keeps the address it had.
+fn merge_services(known: Option<Value>, answer: &Value) -> Value {
+    match (known, answer.as_object()) {
+        (Some(Value::Object(mut known)), Some(answer)) => {
+            for (name, service) in answer {
+                known.insert(name.clone(), service.clone());
+            }
+            Value::Object(known)
+        }
+        // Not a map at all: nothing in it to take over what is known.
+        (Some(known @ Value::Object(_)), None) => known,
+        // Nothing known yet: the first answer is what there is.
+        _ => answer.clone(),
+    }
+}
+
+/// An answer that carries the services map, empty or not a map: Apple not answering properly.
+/// One without the key says nothing about them.
+fn answered_without_services(data: &Value) -> bool {
+    data.get("webservices")
+        .is_some_and(|ws| ws.as_object().is_none_or(serde_json::Map::is_empty))
+}
+
 /// Apple turning the password down (a 401, or a 403 before the password was even tried) —
 /// unless its own code in the reply says why it really refused.
 ///
@@ -1108,6 +1137,15 @@ impl Client {
             Ok(data) => {
                 self.absorb(&data);
                 self.keep();
+                // Apple has answered `/validate` 200 with `"webservices": {}` for some accounts
+                // with a beta-OS device, now and then and then not (icloudpd#1390): Apple not
+                // answering properly, not the session changing. The services known stay (see
+                // `merge_services`) and the pass is left to the next look, as away.
+                if answered_without_services(&data) {
+                    return Err(Error::Protocol(
+                        "Apple answered without the account's services".into(),
+                    ));
+                }
                 return Ok(true);
             }
             Err(e) => e,
@@ -2017,7 +2055,7 @@ impl Client {
             self.session.password = Some(password);
         }
         if let Some(ws) = data.get("webservices") {
-            self.session.webservices = Some(ws.clone());
+            self.session.webservices = Some(merge_services(self.session.webservices.take(), ws));
         }
         if let Some(d) = data.pointer("/dsInfo/dsid").and_then(|v| v.as_str()) {
             self.session.dsid = Some(d.to_string());
