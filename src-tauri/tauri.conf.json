@@ -95,7 +95,7 @@
           "gstreamer1.0-libav",
           "libpipewire-0.3-0t64 | libpipewire-0.3-0"
         ],
-        "recommends": ["usbmuxd", "gstreamer1.0-plugins-bad"],
+        "recommends": ["usbmuxd", "gstreamer1.0-plugins-bad", "fuse3"],
         "desktopTemplate": "../packaging/io.github.yashwanthkamireddi.Skykeep.desktop.in",
         "files": {
           "/usr/share/metainfo/io.github.yashwanthkamireddi.Skykeep.metainfo.xml": "../packaging/io.github.yashwanthkamireddi.Skykeep.metainfo.xml",
@@ -199,7 +199,7 @@
           "(gstreamer1-plugin-openh264 or gstreamer-plugin-openh264)",
           "libpipewire-0.3.so.0()(64bit)"
         ],
-        "recommends": ["usbmuxd", "(gstreamer1-plugins-bad-free or gstreamer-plugins-bad)"],
+        "recommends": ["usbmuxd", "(gstreamer1-plugins-bad-free or gstreamer-plugins-bad)", "fuse3"],
         "desktopTemplate": "../packaging/io.github.yashwanthkamireddi.Skykeep.desktop.in",
         "files": {
           "/usr/share/metainfo/io.github.yashwanthkamireddi.Skykeep.metainfo.xml": "../packaging/io.github.yashwanthkamireddi.Skykeep.metainfo.xml",
