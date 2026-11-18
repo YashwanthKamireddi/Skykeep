@@ -65,4 +65,15 @@ fn another_program_reads_skykeep_through_a_pipe() {
     let wrong = skykeep(home.path(), &["--reminders", "nope"]);
     assert_eq!(wrong.status.code(), Some(1), "{wrong:?}");
     assert!(String::from_utf8_lossy(&wrong.stderr).contains("nope"));
+
+    // A create asked for wrongly is refused before anything starts: exit 1, the reason said.
+    for bad in [
+        &["--create-reminder"][..],
+        &["--create-note", " "],
+        &["--create-event", "Dentist", "--start", "tomorrow"],
+    ] {
+        let refused = skykeep(home.path(), bad);
+        assert_eq!(refused.status.code(), Some(1), "{bad:?}: {refused:?}");
+        assert!(String::from_utf8_lossy(&refused.stderr).starts_with("skykeep: "));
+    }
 }

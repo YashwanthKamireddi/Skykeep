@@ -62,6 +62,22 @@ pub fn answer(args: &[String]) -> Option<i32> {
     })
 }
 
+/// Exit 1 when `args` asks for something to be made or changed and asks it wrongly (no title,
+/// a time that isn't a number): said on stderr before anything starts, rather than a Skykeep
+/// started, or a running one handed the launch, only to refuse it. What needs the library to
+/// judge (a list id) is judged where the change is made.
+pub fn refused(args: &[String]) -> Option<i32> {
+    use crate::apps::{event_asked, note_asked, reminder_asked, EventAsk, NoteAsk, ReminderAsk};
+    let why = match (reminder_asked(args), note_asked(args), event_asked(args)) {
+        (Some(ReminderAsk::Refused(why)), _, _)
+        | (_, Some(NoteAsk::Refused(why)), _)
+        | (_, _, Some(EventAsk::Refused(why))) => why,
+        _ => return None,
+    };
+    eprintln!("skykeep: {why}");
+    Some(ASKED_WRONGLY)
+}
+
 fn is_read(arg: &str) -> bool {
     COMMANDS
         .iter()

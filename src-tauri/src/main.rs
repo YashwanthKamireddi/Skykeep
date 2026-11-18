@@ -7262,7 +7262,9 @@ fn main() {
     enough_open_files();
     // Another program reading Reminders, Calendar or Notes (`--reminders-today`, cli.rs): the
     // answer from the library on disk, and this launch ends before anything else starts.
-    if let Some(code) = cli::answer(&std::env::args().collect::<Vec<_>>()) {
+    // A create asked for wrongly is refused here too, before a Skykeep is started for it.
+    let args: Vec<String> = std::env::args().collect();
+    if let Some(code) = cli::answer(&args).or_else(|| cli::refused(&args)) {
         std::process::exit(code);
     }
     // The uninstaller's last word (packaging/windows/installer-hooks.nsh): iCloud Drive no
