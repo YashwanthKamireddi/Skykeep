@@ -719,21 +719,7 @@ impl Library {
     /// the sidebar worth looking at. Counting in SQL rather than by fetching each list and
     /// measuring it is the difference between one cheap query and a dozen full reads.
     pub fn reminder_counts(&self, until: i64) -> Result<ReminderCounts> {
-        // The same conditions the smart lists themselves use, so a tile can never disagree
-        // with what opening it shows.
-        let one = |clause: &str, args: &[i64]| -> Result<usize> {
-            let sql = format!(
-                "SELECT COUNT(*) FROM reminders r
-                 JOIN reminder_lists l ON l.guid = r.list_guid
-                 WHERE l.enabled = 1 AND {clause}"
-            );
-            let count: i64 = self.conn.query_row(
-                &sql,
-                rusqlite::params_from_iter(args.iter().copied()),
-                |row| row.get(0),
-            )?;
-            Ok(usize::try_from(count).unwrap_or(0))
-        };
+        let one = |clause: &str, args: &[i64]| self.reminders_where(clause, args);
 
         let mut stmt = self.conn.prepare(
             "SELECT l.guid, COUNT(r.guid)
@@ -758,6 +744,27 @@ impl Library {
             completed: one(COMPLETED, &[])?,
             lists,
         })
+    }
+
+    /// How many reminders Today holds, alone: the launcher's tile, read after every service
+    /// that lands in a pass, wanted only this one of [`Library::reminder_counts`]' six counts.
+    pub fn reminders_due_today(&self, until: i64) -> Result<usize> {
+        self.reminders_where(TODAY, &[until, all_day_bound(until)])
+    }
+
+    /// How many reminders in a shown list meet `clause` — the same conditions the smart lists
+    /// themselves use, so a count can never disagree with what opening the list shows.
+    fn reminders_where(&self, clause: &str, args: &[i64]) -> Result<usize> {
+        let count: i64 = self.conn.query_row(
+            &format!(
+                "SELECT COUNT(*) FROM reminders r
+                 JOIN reminder_lists l ON l.guid = r.list_guid
+                 WHERE l.enabled = 1 AND {clause}"
+            ),
+            rusqlite::params_from_iter(args.iter().copied()),
+            |row| row.get(0),
+        )?;
+        Ok(usize::try_from(count).unwrap_or(0))
     }
 
     pub fn reminders_smart(&self, kind: SmartList, until: i64) -> Result<Vec<Reminder>> {
@@ -1638,6 +1645,7 @@ mod smart_tests {
             .collect();
         assert_eq!(guids, vec!["all-day-today"]);
         assert_eq!(lib.reminder_counts(end_of_today).unwrap().today, 1);
+        assert_eq!(lib.reminders_due_today(end_of_today).unwrap(), 1);
     }
 
     /// Overdue belongs in Today: Apple shows it there rather than hiding it in the past.
