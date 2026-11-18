@@ -81,8 +81,12 @@ pub enum Error {
     Conflict,
     /// The zone was mid-write for someone else and the change was not applied; it is sent
     /// again (cloudkit's modify), and only reaches a person as Refused if it stays busy.
-    #[error("iCloud is busy right now. Nothing was changed — try again in a minute.")]
-    Busy,
+    ///
+    /// Carries the wait Apple asked for, when it said one. A throttled CloudKit asks for
+    /// 1200–2100 seconds (steilerDev/icloud-photos-sync#1221, icloudpd#1255): said as "a
+    /// minute", the next refresh asked again within one and kept the account throttled.
+    #[error("{}", busy_words(*.0))]
+    Busy(Option<std::time::Duration>),
     /// Apple turned a request down, said in words a person can act on. What Apple actually
     /// sent goes to the log, not the screen: a path and a JSON body told nobody anything.
     #[error("{0}")]
@@ -101,6 +105,18 @@ pub enum Error {
 }
 
 pub type Result<T> = std::result::Result<T, Error>;
+
+/// What [`Error::Busy`] says: the wait Apple asked for, in whole minutes, once it is longer
+/// than a minute. Every CloudKit request waits it out (`cloudkit`'s hold), and the app's own
+/// timers, pushes and queue ask again on their own after it, so "tries again" is true.
+fn busy_words(wait: Option<std::time::Duration>) -> String {
+    match wait.map(|w| w.as_secs().div_ceil(60)) {
+        Some(minutes) if minutes > 1 => format!(
+            "iCloud asked Skykeep to wait about {minutes} minutes before asking again. Nothing was changed — Skykeep tries again then."
+        ),
+        _ => "iCloud is busy right now. Nothing was changed — try again in a minute.".into(),
+    }
+}
 
 /// What [`Error::NeedsDeviceApproval`] says to the person.
 pub const APPROVAL_WORDS: &str =

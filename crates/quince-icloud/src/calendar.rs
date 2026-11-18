@@ -324,7 +324,7 @@ fn refusal(path: &str, status: reqwest::StatusCode, body: &str) -> Error {
         ),
         // Not a refusal of the change: Apple can't take it now. A change waiting to go is kept
         // and sent again later (the outbox), never held as turned down.
-        429 | 500..=599 => Error::Busy,
+        429 | 500..=599 => Error::Busy(None),
         code => Error::Refused(format!(
             "iCloud's calendar turned that down (status {code}). Nothing was changed."
         )),

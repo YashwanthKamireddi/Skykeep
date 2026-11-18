@@ -493,7 +493,7 @@ fn busy_status(status: reqwest::StatusCode) -> bool {
 #[must_use]
 pub fn transient(e: &Error) -> bool {
     match e {
-        Error::Network(_) | Error::Busy => true,
+        Error::Network(_) | Error::Busy(_) => true,
         Error::Refused(m) => m == BUSY,
         _ => false,
     }

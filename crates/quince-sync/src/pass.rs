@@ -903,7 +903,7 @@ mod tests {
             NOTES,
             &data,
             &c,
-            Err(Error::Busy),
+            Err(Error::Busy(None)),
             |_, ()| Ok(String::new()),
         )
         .await;

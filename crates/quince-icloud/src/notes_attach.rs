@@ -358,7 +358,7 @@ async fn post(
         return serde_json::from_str(&text)
             .map_err(|e| Error::Protocol(format!("CloudKit returned invalid JSON: {e}")));
     }
-    Err(Error::Busy)
+    Err(Error::Busy(None))
 }
 
 fn database(root: &str, op: &str) -> String {
@@ -588,7 +588,7 @@ async fn attach_file_unguarded(
                 });
             }
             // The note moved (or the zone was busy): nothing was written; place it again.
-            Err(Error::Conflict | Error::Busy) => {}
+            Err(Error::Conflict | Error::Busy(None)) => {}
             Err(e) => return Err(e),
         }
     }
@@ -621,7 +621,7 @@ fn outcome(answer: &Value) -> Result<()> {
         let this = if code == "CONFLICT" || reason.to_ascii_lowercase().contains("oplock") {
             Error::Conflict
         } else if matches!(code, "ZONE_BUSY" | "TRY_AGAIN_LATER") {
-            Error::Busy
+            Error::Busy(None)
         } else if code == "ATOMIC_ERROR" {
             // Failed only because another of the three did: that one says why.
             continue;
