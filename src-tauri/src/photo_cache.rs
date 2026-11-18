@@ -273,13 +273,18 @@ pub fn trim_grid(root: &Path, free: u64, want: u64) -> usize {
 // The other caches.
 
 /// The caches beside Photos' own, each held to a size of its own, the longest unseen let go of
-/// first: Drive's file thumbnails, contacts' faces, the pictures and files of notes and
-/// reminders. Each is a picture or a file Apple still has, made again when next wanted — the
-/// same ones "Clear Cached Pictures" lets go of. Before, nothing ever left them: every changed
-/// face and every attachment opened stayed for good.
-pub const SIDE: [(&str, u64); 5] = [
+/// first: Drive's file thumbnails, the pictures and files of notes and reminders. Each is a
+/// picture or a file Apple still has, made again when next wanted — the same ones "Clear
+/// Cached Pictures" lets go of. Before, nothing ever left them: every attachment opened stayed
+/// for good.
+///
+/// Contacts' faces are not among them: every contact's is fetched ahead after each sync
+/// (`warm_contact_photos`), so a cap smaller than the address book's faces let some go every
+/// six hours and the next sync fetched them again, each from Apple's whole picture. They are
+/// kept like the grid's pictures, one small one a contact, and only a gone contact's or an old
+/// picture's is let go of ([`prune_faces`]).
+pub const SIDE: [(&str, u64); 4] = [
     ("thumbnails", 256 * MB),
-    ("faces", 64 * MB),
     ("note-media", 512 * MB),
     ("note-files", 512 * MB),
     ("reminder-media", 256 * MB),
@@ -338,6 +343,30 @@ pub fn trim_side(dir: &Path, now: SystemTime) -> usize {
         .sum()
 }
 
+/// Faces under `dir` (`faces/` in the data folder) whose name is not in `kept` — the faces of
+/// contacts the library no longer holds, or holds with another picture — let go of. Nothing
+/// when `kept` is empty: a library not yet read says nothing about which faces are gone.
+/// Answers how many went.
+pub fn prune_faces(dir: &Path, kept: &std::collections::HashSet<String>) -> usize {
+    if kept.is_empty() {
+        return 0;
+    }
+    let mut removed = 0;
+    for e in std::fs::read_dir(dir.join("faces"))
+        .into_iter()
+        .flatten()
+        .flatten()
+    {
+        let name = e.file_name();
+        let gone = name.to_str().is_none_or(|n| !kept.contains(n));
+        if gone && e.file_type().is_ok_and(|t| t.is_file()) && remove_unless_in_use(&e.path(), &[])
+        {
+            removed += 1;
+        }
+    }
+    removed
+}
+
 /// Grid pictures (`thumb/`, small `fit/` steps) of photos not in `known`, unseen for
 /// [`GRID_ORPHAN`]: a photo deleted from iCloud keeps no picture here for good.
 pub fn prune_grid(
@@ -384,12 +413,24 @@ pub fn keep_side_caches(app: &AppHandle) {
     std::thread::spawn(move || loop {
         let dir = crate::state_dir(&app);
         let now = SystemTime::now();
-        let side = trim_side(&dir, now);
-        let known = {
+        let (known, faces) = {
             let data = app.state::<crate::Data>();
             let library = data.0.blocking_lock();
-            library.photo_ids().ok()
+            (
+                library.photo_ids().ok(),
+                library.contact_photo_signatures().unwrap_or_default(),
+            )
         };
+        let kept_faces: std::collections::HashSet<String> = faces
+            .iter()
+            .filter_map(|(guid, sig)| {
+                crate::photo_path(&dir, guid, sig)
+                    .file_name()?
+                    .to_str()
+                    .map(ToString::to_string)
+            })
+            .collect();
+        let side = trim_side(&dir, now) + prune_faces(&dir, &kept_faces);
         // Only against a library that answered and holds photos: an empty one (signed out, a
         // first pass not in) says nothing about which pictures are gone.
         let grid = known
@@ -823,6 +864,40 @@ mod side_tests {
     /// The grid's pictures, kept while the disk has room, are let go of once it is short: the
     /// longest unseen first, only until the room wanted is back, never a picture a reader holds
     /// and never a preview (those are the cap's).
+    /// Contacts' faces are kept whatever their total (a cap let some go every six hours and the
+    /// next sync fetched them again); a gone contact's, or an old picture's, is let go of; and
+    /// nothing goes before the library has said which contacts it holds.
+    #[test]
+    fn faces_are_kept_and_only_gone_ones_let_go_of() {
+        let dir = tempfile::tempdir().unwrap();
+        let faces = dir.path().join("faces");
+        std::fs::create_dir_all(&faces).unwrap();
+        let names: Vec<String> = (0..3000).map(|i| format!("G{i}-sig")).collect();
+        for n in &names {
+            std::fs::write(faces.join(n), vec![0u8; 30_000]).unwrap();
+        }
+        std::fs::write(faces.join("GONE-sig"), b"x").unwrap();
+        std::fs::write(faces.join("G1-oldsig"), b"x").unwrap();
+        assert!(
+            !SIDE.iter().any(|(name, _)| *name == "faces"),
+            "no size cap on faces"
+        );
+        assert_eq!(
+            prune_faces(dir.path(), &Default::default()),
+            0,
+            "library not read yet"
+        );
+        let kept: std::collections::HashSet<String> = names.iter().cloned().collect();
+        assert_eq!(prune_faces(dir.path(), &kept), 2);
+        assert_eq!(
+            std::fs::read_dir(&faces).unwrap().count(),
+            3000,
+            "90 MB of faces all kept"
+        );
+        assert_eq!(trim_side(dir.path(), SystemTime::now()), 0);
+        assert_eq!(std::fs::read_dir(&faces).unwrap().count(), 3000);
+    }
+
     #[test]
     fn the_grid_gives_way_when_the_disk_is_short() {
         let dir = tempfile::tempdir().unwrap();

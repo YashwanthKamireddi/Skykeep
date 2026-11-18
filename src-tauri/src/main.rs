@@ -6166,7 +6166,7 @@ fn image_type(bytes: &[u8]) -> &'static str {
     }
 }
 
-fn photo_path(dir: &std::path::Path, guid: &str, signature: &str) -> PathBuf {
+pub(crate) fn photo_path(dir: &std::path::Path, guid: &str, signature: &str) -> PathBuf {
     // The signature is base64 and can hold characters a filename cannot.
     let safe: String = signature
         .chars()
