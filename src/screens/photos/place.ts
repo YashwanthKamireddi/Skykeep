@@ -19,6 +19,8 @@
  * that is not one of ours is theirs.
  */
 
+import { reduced } from "../../lib/fade";
+
 export type Anchor =
   /** At the top: what grows below is what there is to see (newest first, opened). */
   | { kind: "top" }
@@ -29,12 +31,16 @@ export type Anchor =
   /** Sent somewhere (a month, a photo): `offset` is how far it still is from where it belongs. */
   | { kind: "target"; offset: () => number | null };
 
+/** How long a glide takes: about as long as a collection view's animated scroll to an item. */
+const GLIDE_MS = 450;
+
 export class GridPlace {
   private anchor: Anchor = { kind: "top" };
   /** A glide of ours under way: its scroll is not the person's, and nothing is put back. */
   private gliding = false;
   private takeOver: (() => void) | null = null;
-  private rest = 0;
+  /** The glide's next frame. */
+  private frame = 0;
   /** The scroll last set here: a scroll event at it is ours, any other the person's. */
   private ours = -1;
   private readonly grows: ResizeObserver;
@@ -72,22 +78,44 @@ export class GridPlace {
    * Sent to `offset`'s place with a glide (the month picker, with motion allowed). The glide's
    * own scroll is ours, not the person's: taken for theirs, each step became the anchor and the
    * months growing under it put the view back there, stopping it part way (photos-jump, 18 Nov).
-   * Once it has come to rest it is put exactly there; a wheel, a touch, a press or a key while it
-   * glides is the person taking over.
+   * At its end it is put exactly there; a wheel, a touch, a press or a key while it
+   * glides is the person taking over, and the view stays where they took it — put at the month
+   * then instead, it jumped the rest of the way at once and their wheel went on from there.
    */
   glide(offset: () => number | null) {
-    const first = offset();
-    if (first === null) return;
+    if (offset() === null) return;
+    // A glide already under way (another month picked as it went) is let go of first, its
+    // watch with it.
+    this.stop();
     this.anchor = { kind: "target", offset };
+    // Reduce Motion: there at once.
+    if (reduced()) return this.keep();
     this.gliding = true;
-    const takeOver = () => this.landed();
+    const takeOver = () => this.takenOver();
     this.takeOver = takeOver;
     this.el.addEventListener("wheel", takeOver, { passive: true, once: true });
     this.el.addEventListener("pointerdown", takeOver, { passive: true, once: true });
     this.el.addEventListener("touchstart", takeOver, { passive: true, once: true });
     window.addEventListener("keydown", takeOver, { once: true });
-    this.el.scrollTo({ top: this.el.scrollTop + first, behavior: "smooth" });
-    this.settle();
+    // Each frame is set here, not left to the engine's smooth scroll: WebKit carries its own on
+    // through a scroll put over it, so a glide taken over went on to the month; and the place it
+    // goes to is asked again each frame, as months grow under it.
+    const el = this.el;
+    const from = el.scrollTop;
+    const start = performance.now();
+    const step = (now: number) => {
+      if (!this.gliding) return;
+      const left = offset();
+      const t = Math.min(1, (now - start) / GLIDE_MS);
+      if (left === null || t >= 1) return this.landed();
+      const max = el.scrollHeight - el.clientHeight;
+      const target = Math.max(0, Math.min(max, el.scrollTop + left));
+      const to = Math.round(from + (target - from) * (1 - (1 - t) ** 3));
+      this.ours = to;
+      el.scrollTop = to;
+      this.frame = requestAnimationFrame(step);
+    };
+    this.frame = requestAnimationFrame(step);
   }
 
   /** What the view is anchored to now, to be set again later (All Photos, back from Months). */
@@ -119,7 +147,7 @@ export class GridPlace {
 
   /** Let go: the grid's window is closing. */
   dispose() {
-    this.landed();
+    this.stop();
     this.grows.disconnect();
     this.added.disconnect();
     this.el.removeEventListener("scroll", this.scrolled);
@@ -136,11 +164,24 @@ export class GridPlace {
     for (const child of this.el.children) this.grows.observe(child);
   }
 
-  /** The glide has come to rest (or the person took over): put exactly where it was sent. */
+  /** The glide has ended: put exactly where it was sent. */
   private landed() {
-    if (!this.gliding) return;
+    if (!this.stop()) return;
+    this.keep();
+  }
+
+  /** The person took over while it glided: it stops where it is, anchored there as any scroll of
+      theirs is. */
+  private takenOver() {
+    if (!this.stop()) return;
+    this.anchorHere();
+  }
+
+  /** The glide's watch let go of; false when there was none. */
+  private stop(): boolean {
+    if (!this.gliding) return false;
     this.gliding = false;
-    window.clearTimeout(this.rest);
+    cancelAnimationFrame(this.frame);
     const t = this.takeOver;
     this.takeOver = null;
     if (t) {
@@ -149,21 +190,21 @@ export class GridPlace {
       this.el.removeEventListener("touchstart", t);
       window.removeEventListener("keydown", t);
     }
-    this.keep();
-  }
-
-  /** Rest is a moment with no scroll. */
-  private settle() {
-    window.clearTimeout(this.rest);
-    this.rest = window.setTimeout(() => this.landed(), 150);
+    return true;
   }
 
   /** A scroll not made here is the person's: the anchor becomes where the view now is. */
   private scrolled = () => {
-    if (this.gliding) return this.settle();
+    if (this.gliding) return;
     const el = this.el;
     if (Math.abs(el.scrollTop - this.ours) < 1) return;
     this.ours = -1;
+    this.anchorHere();
+  };
+
+  /** Anchored to where the view now is: its top, its foot, or the photo at its top. */
+  private anchorHere() {
+    const el = this.el;
     const max = el.scrollHeight - el.clientHeight;
     if (el.scrollTop <= 1) this.anchor = { kind: "top" };
     else if (max - el.scrollTop <= 2) this.anchor = { kind: "foot" };
@@ -171,5 +212,5 @@ export class GridPlace {
       const seen = this.top();
       if (seen) this.anchor = { kind: "photo", ...seen };
     }
-  };
+  }
 }

@@ -53,15 +53,12 @@ pub async fn launcher_summary(data: State<'_, Data>) -> UiResult<Summary> {
                 });
             Ok(Summary {
                 notes: library.note_counts()?.0,
-                reminders_today: library.reminder_counts(end)?.today,
+                reminders_today: library.reminders_due_today(end)?,
                 events_today: events.len(),
                 next_event,
                 contacts: library.contact_count()?,
-                photos: library
-                    .photo_counts()?
-                    .into_iter()
-                    .find(|(v, _)| *v == View::Library)
-                    .map_or(0, |(_, n)| n),
+                // One count each, not every list's: read after each service that lands.
+                photos: library.photo_count(View::Library)?,
             })
         })
         .await

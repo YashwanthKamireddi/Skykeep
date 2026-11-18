@@ -8,7 +8,7 @@ import "./styles/calendar.css";
 import "./styles/notes.css";
 import "./styles/photos.css";
 import "./styles/a11y.css";
-import { applyTheme, followContrast, followTheme, storedTheme } from "./lib/theme";
+import { applyTheme, dressWindows, followContrast, followTheme, storedTheme } from "./lib/theme";
 import { activeLanguage, applyLanguage, followLanguage } from "./lib/i18n";
 import { keepTinted } from "./lib/tint";
 import { fadeSheetsIn } from "./lib/fade";
@@ -21,6 +21,7 @@ import { answerFlushes } from "./lib/flush";
 // Before the first paint, so the window opens in the appearance chosen.
 markEngine();
 applyTheme(storedTheme());
+dressWindows();
 followTheme();
 applyLanguage(activeLanguage());
 followLanguage();

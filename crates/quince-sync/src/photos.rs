@@ -456,7 +456,7 @@ where
         // Not in a library that has never had a pass (made again after damage) is not known
         // yet, not gone: the change waits for the pass.
         if missing && l.last_synced(p::SERVICE)?.is_none() {
-            return Err(Error::Busy);
+            return Err(Error::Busy(None));
         }
     }
     let mut failed: Vec<(Vec<usize>, Error)> = Vec::new();
@@ -932,7 +932,7 @@ mod tests {
                 .iter()
                 .map(|(id, _)| {
                     if id == "B" {
-                        Err(Error::Busy)
+                        Err(Error::Busy(None))
                     } else {
                         taken(id)
                     }
@@ -1015,7 +1015,7 @@ mod tests {
         let tries = std::sync::atomic::AtomicUsize::new(0);
         let report = drain_with(&lib, &calls, |assets| {
             if tries.fetch_add(1, std::sync::atomic::Ordering::SeqCst) == 1 {
-                Err(Error::Busy)
+                Err(Error::Busy(None))
             } else {
                 all_taken(assets)
             }

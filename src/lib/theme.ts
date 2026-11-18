@@ -26,6 +26,18 @@ export function setTheme(theme: Theme) {
     // Applies for now; the system's appearance on the next launch.
   }
   applyTheme(theme);
+  dressWindows(theme);
+}
+
+/**
+ * The windows' own title bars and frames in the same appearance: `data-theme` darkens only the
+ * page, and Dark chosen on a light desktop kept a light system title bar over it. The app sets
+ * every window's, and each made later (appearance.rs); each page says it once as it starts.
+ */
+export function dressWindows(theme: Theme = storedTheme()) {
+  void import("@tauri-apps/api/core")
+    .then(({ invoke }) => invoke("window_theme", { theme }))
+    .catch(() => {});
 }
 
 /**

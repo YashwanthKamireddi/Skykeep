@@ -267,3 +267,231 @@ async fn signed_out_asks_nothing() {
     assert_eq!(client.ensure_session().await, Kept::SignedOut);
     assert_eq!(asked(&server).await, 0);
 }
+
+/// Apple's `/signin/init` answering `400` with service error -900007, "unknown", as it does
+/// now and then (steilerDev/icloud-photos-sync#1237).
+async fn mount_init_unknown_once(server: &MockServer) {
+    Mock::given(method("POST"))
+        .and(path("/appleauth/auth/signin/init"))
+        .respond_with(ResponseTemplate::new(400).set_body_json(json!({
+            "serviceErrors": [{ "code": "-900007", "message": "unknown" }]
+        })))
+        .up_to_n_times(1)
+        .with_priority(1)
+        .mount(server)
+        .await;
+}
+
+/// The cookies and the session token lapsed: every look at the session is turned away.
+async fn turned_away(server: &MockServer) {
+    for p in ["/setup/ws/1/validate", "/setup/ws/1/accountLogin"] {
+        Mock::given(method("POST"))
+            .and(path(p))
+            .respond_with(ResponseTemplate::new(421))
+            .mount(server)
+            .await;
+    }
+}
+
+/// One odd answer while a lapsed session signs back in is not a sign-out: the session is kept
+/// and said as away, and the next attempt, once the sign-in's cooldown has passed, takes it up
+/// again with no code.
+#[tokio::test]
+async fn an_unknown_answer_from_signin_init_is_away_not_signed_out() {
+    let dir = tempfile::tempdir().unwrap();
+    signed_in(dir.path()).await;
+
+    let server = MockServer::start().await;
+    // Lapsed for the first pass (its heartbeat and its resume) and the cooled-down one after.
+    for p in ["/setup/ws/1/validate", "/setup/ws/1/accountLogin"] {
+        Mock::given(method("POST"))
+            .and(path(p))
+            .respond_with(ResponseTemplate::new(421))
+            .up_to_n_times(if p.ends_with("validate") { 4 } else { 2 })
+            .with_priority(1)
+            .mount(&server)
+            .await;
+    }
+    mount_init_unknown_once(&server).await;
+    mount_init(&server).await;
+    mount_complete(&server, 200).await;
+    mount_trust_and_login(&server).await;
+
+    let mut client = client_for(&server, dir.path());
+    let kept = client.ensure_session().await;
+    assert_eq!(kept, Kept::Away);
+    assert!(!kept.ended());
+    assert!(
+        client.session().session_token.is_some(),
+        "the session is kept"
+    );
+    assert!(client.session().password.is_some(), "and the password");
+
+    // Past the sign-in's own cooldown (five seconds after one failed attempt), the next pass
+    // signs back in.
+    tokio::time::sleep(std::time::Duration::from_secs(6)).await;
+    assert_eq!(client.ensure_session().await, Kept::Alive);
+    let reqs = server.received_requests().await.unwrap();
+    assert_eq!(requests_to(&reqs, "/signin/init").len(), 2);
+    assert!(requests_to(&reqs, "/securitycode").is_empty(), "no code");
+}
+
+/// Opening the app while Apple gives that answer opens the library that was kept, not the
+/// sign-in screen.
+#[tokio::test]
+async fn an_unknown_answer_at_launch_opens_the_library() {
+    let dir = tempfile::tempdir().unwrap();
+    signed_in(dir.path()).await;
+
+    let server = MockServer::start().await;
+    turned_away(&server).await;
+    mount_init_unknown_once(&server).await;
+
+    let mut client = client_for(&server, dir.path());
+    assert!(matches!(
+        client.reopen().await.unwrap(),
+        quince_auth::Reopen::Library
+    ));
+    assert!(client.session().session_token.is_some());
+}
+
+/// A locked account is a definite refusal: the session still ends, said as needing a sign-in.
+#[tokio::test]
+async fn a_locked_account_still_ends_the_session() {
+    let dir = tempfile::tempdir().unwrap();
+    signed_in(dir.path()).await;
+
+    let server = MockServer::start().await;
+    turned_away(&server).await;
+    Mock::given(method("POST"))
+        .and(path("/appleauth/auth/signin/init"))
+        .respond_with(ResponseTemplate::new(403).set_body_json(json!({
+            "serviceErrors": [{
+                "code": "-20209",
+                "message": "This Apple Account has been locked for security reasons."
+            }]
+        })))
+        .mount(&server)
+        .await;
+
+    let mut client = client_for(&server, dir.path());
+    let kept = client.ensure_session().await;
+    assert_eq!(kept, Kept::SignIn);
+    assert!(kept.ended());
+}
+
+const CK: &str = "https://p00-ckdatabasews.test.invalid:443";
+
+/// `/validate` answering 200 with `body`.
+async fn validate_answers(server: &MockServer, body: serde_json::Value) {
+    Mock::given(method("POST"))
+        .and(path("/setup/ws/1/validate"))
+        .respond_with(ResponseTemplate::new(200).set_body_json(body))
+        .mount(server)
+        .await;
+}
+
+/// Apple answering `/validate` with `"webservices": {}`, as it has for accounts with a beta-OS
+/// device (icloudpd#1390): the services known are kept, on disk too, and the session is said as
+/// away rather than taken up with no services.
+#[tokio::test]
+async fn an_empty_services_list_keeps_the_known_ones() {
+    let dir = tempfile::tempdir().unwrap();
+    signed_in(dir.path()).await;
+
+    let server = MockServer::start().await;
+    validate_answers(
+        &server,
+        json!({ "webservices": {}, "configBag": { "urls": {} } }),
+    )
+    .await;
+    let mut client = client_for(&server, dir.path());
+    assert!(client.resume().await.is_err(), "away, not resumed");
+    assert_eq!(
+        client.session().service_url("ckdatabasews").as_deref(),
+        Some(CK)
+    );
+    assert!(client.session().session_token.is_some());
+    assert!(matches!(
+        client.reopen().await.unwrap(),
+        quince_auth::Reopen::Library
+    ));
+
+    // What was saved is the good list too.
+    let again = client_for(&server, dir.path());
+    assert_eq!(
+        again.session().service_url("ckdatabasews").as_deref(),
+        Some(CK)
+    );
+}
+
+/// The same from `accountLogin` (icloudpd#1361): the session is taken up, its services kept.
+#[tokio::test]
+async fn an_empty_services_list_from_account_login_keeps_the_known_ones() {
+    let dir = tempfile::tempdir().unwrap();
+    signed_in(dir.path()).await;
+
+    let server = MockServer::start().await;
+    Mock::given(method("POST"))
+        .and(path("/setup/ws/1/validate"))
+        .respond_with(ResponseTemplate::new(421))
+        .mount(&server)
+        .await;
+    Mock::given(method("POST"))
+        .and(path("/setup/ws/1/accountLogin"))
+        .respond_with(ResponseTemplate::new(200).set_body_json(json!({
+            "dsInfo": { "dsid": "1234567890" },
+            "webservices": {}
+        })))
+        .mount(&server)
+        .await;
+    let mut client = client_for(&server, dir.path());
+    assert!(client.resume().await.unwrap());
+    assert_eq!(
+        client.session().service_url("ckdatabasews").as_deref(),
+        Some(CK)
+    );
+}
+
+/// A partial list keeps the services it leaves out and takes the ones it names, new or moved.
+#[tokio::test]
+async fn a_partial_services_list_is_merged_key_by_key() {
+    let dir = tempfile::tempdir().unwrap();
+    signed_in(dir.path()).await;
+
+    let server = MockServer::start().await;
+    let drive = "https://p00-drivews.test.invalid:443";
+    validate_answers(
+        &server,
+        json!({ "webservices": { "drivews": { "url": drive, "status": "active" } } }),
+    )
+    .await;
+    let mut client = client_for(&server, dir.path());
+    assert!(client.resume().await.unwrap());
+    assert_eq!(
+        client.session().service_url("ckdatabasews").as_deref(),
+        Some(CK)
+    );
+    assert_eq!(
+        client.session().service_url("drivews").as_deref(),
+        Some(drive)
+    );
+
+    // Apple moving a service to another partition: the new address is the one used.
+    let moved = "https://p42-ckdatabasews.test.invalid:443";
+    server.reset().await;
+    validate_answers(
+        &server,
+        json!({ "webservices": { "ckdatabasews": { "url": moved, "status": "active" } } }),
+    )
+    .await;
+    assert!(client.resume().await.unwrap());
+    assert_eq!(
+        client.session().service_url("ckdatabasews").as_deref(),
+        Some(moved)
+    );
+    assert_eq!(
+        client.session().service_url("drivews").as_deref(),
+        Some(drive)
+    );
+}

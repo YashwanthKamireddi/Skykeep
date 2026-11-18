@@ -313,7 +313,7 @@ fn failure(status: StatusCode) -> Error {
         404 | 410 => Error::NotFound,
         412 => Error::Conflict,
         507 => Error::Refused("The server has run out of space.".into()),
-        423 | 429 | 500..=599 => Error::Busy,
+        423 | 429 | 500..=599 => Error::Busy(None),
         code => Error::Refused(format!("The server turned that down (it answered {code}).")),
     }
 }

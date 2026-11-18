@@ -38,6 +38,7 @@ import { useChosen, useIsChosen, type Chosen } from "../lib/chosen";
 import { useArrivals } from "../lib/arrival";
 import { foundRanges, queryWords } from "./notes/found";
 import { useI18n } from "../lib/i18n";
+import { isText, keepPlace, keptPlace } from "../lib/place";
 
 const ALL = "__all__";
 
@@ -275,7 +276,10 @@ export function NotesView() {
   };
   const [viewMenu, setViewMenu] = useState<{ x: number; y: number; alignRight: boolean } | null>(null);
   const [renamingFolder, setRenamingFolder] = useState<string | null>(null);
-  const [folder, setFolder] = useState<string>(ALL);
+  /** Where Notes was left (lib/place): that folder, and that note open in it, once both are
+   *  known to still be there. Read once; null once settled, either way. */
+  const left = useRef(keptPlace("notes", isText));
+  const [folder, setFolder] = useState<string>(() => left.current?.container ?? ALL);
   const [notes, setNotes] = useState<Note[]>([]);
   // The list as shown, worked out again when the notes, the order or the day change ("Today" and
   // "Yesterday" move at midnight, desktop audit M4). The order the rows are in is read off the
@@ -381,6 +385,15 @@ export function NotesView() {
         : api.notesIn(folder === ALL ? null : folder),
     ]);
     if (mine !== reads.current) return;
+    // The folder Notes was left in, deleted since: All instead, read again by its own change
+    // rather than drawn as an empty folder no row in the sidebar is marked for.
+    const gone = (Array.isArray(found) ? found : []).every((f) => f.guid !== folder);
+    if (left.current?.container === folder && folder !== ALL && folder !== TRASH_FOLDER && gone) {
+      left.current = { container: ALL, item: left.current.item };
+      setFolders(Array.isArray(found) ? found : []);
+      setFolder(ALL);
+      return;
+    }
     setFolders(Array.isArray(found) ? found : []);
     // Each note unchanged keeps its row as it was (lib/same).
     setNotes((was) => keepSame(was, over(Array.isArray(list) ? list : []), (n) => n.guid));
@@ -489,11 +502,23 @@ export function NotesView() {
   // while a new note is being written, which has nothing open behind it on purpose.
   useEffect(() => {
     if (composingRef.current) return;
+    // The note Notes was left on, the first time the notes are in.
+    const wanted = loaded && left.current ? left.current.item : null;
+    if (loaded) left.current = null;
     if (notes.length === 0) return setOpenGuid(null);
     setOpenGuid((current) =>
-      current && notes.some((n) => n.guid === current) ? current : notes[0].guid
+      current && notes.some((n) => n.guid === current)
+        ? current
+        : wanted && notes.some((n) => n.guid === wanted) ? wanted : notes[0].guid
     );
-  }, [notes]);
+  }, [notes, loaded]);
+
+  // Where Notes is now, kept for the next time it opens — once where it was left is settled,
+  // so the moments before the library answers never stand in for it.
+  useEffect(() => {
+    if (!loaded || left.current) return;
+    keepPlace("notes", { container: folder, item: openGuid });
+  }, [loaded, folder, openGuid]);
 
   // A link to another note, followed: that note opened — from All iCloud when the folder in
   // front does not hold it — or, when it is not in this account's notes, said so.

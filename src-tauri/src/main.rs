@@ -2419,6 +2419,11 @@ async fn event_repeat(
 /// restart. Answers the event's id, chosen here for a new one.
 #[tauri::command]
 async fn event_save(draft: EventDraft, data: State<'_, Data>) -> UiResult<String> {
+    save_event(&data, draft).await
+}
+
+/// [`event_save`]'s work, shared with events asked for from the command line.
+async fn save_event(data: &Data, draft: EventDraft) -> UiResult<String> {
     let title = draft.title.trim();
     if title.is_empty() {
         return Err("An event needs a title.".into());
@@ -3482,6 +3487,89 @@ fn list_for(
     }
 }
 
+/// The calendar an event asked for goes in: the one named, which must take writes; else the one
+/// Apple marks as the default; else the first that takes writes, as Calendar's new event does.
+fn calendar_for(
+    calendars: &[quince_core::calendar::Calendar],
+    asked: Option<&str>,
+) -> UiResult<String> {
+    let writable = || calendars.iter().filter(|c| c.writable);
+    match asked {
+        Some(id) if writable().any(|c| c.guid == id) => Ok(id.to_string()),
+        Some(id) => Err(format!("No calendar you can add to has the id {id}.")),
+        None => writable()
+            .find(|c| c.is_default)
+            .or_else(|| writable().next())
+            .map(|c| c.guid.clone())
+            .ok_or_else(|| {
+                "An event has to go in a calendar, and this account has none you can add to.".into()
+            }),
+    }
+}
+
+/// An asked-for event's start and end. Timed: as given, an hour long when no end is given.
+/// All day: from the midnight that starts the start's day to the midnight after the last day,
+/// in `zone` — the shape Calendar's form saves; an end exactly at a midnight ends the day before,
+/// so the app's own exclusive end means the same here.
+fn event_span(new: &apps::NewEvent, zone: &jiff::tz::TimeZone) -> UiResult<(i64, i64)> {
+    if !new.all_day {
+        return Ok((new.starts_at, new.ends_at.unwrap_or(new.starts_at + 3600)));
+    }
+    let day = |t: i64| -> UiResult<jiff::civil::Date> {
+        Ok(jiff::Timestamp::from_second(t)
+            .map_err(|e| e.to_string())?
+            .to_zoned(zone.clone())
+            .date())
+    };
+    let first = day(new.starts_at)?;
+    let last = day(new
+        .ends_at
+        .map_or(new.starts_at, |e| (e - 1).max(new.starts_at)))?;
+    let midnight = |d: jiff::civil::Date| -> UiResult<i64> {
+        Ok(d.to_zoned(zone.clone())
+            .map_err(|e| e.to_string())?
+            .timestamp()
+            .as_second())
+    };
+    let after = last.tomorrow().map_err(|e| e.to_string())?;
+    Ok((midnight(first)?, midnight(after)?))
+}
+
+/// An event another program asked for (`--create-event`): into the calendar named or the
+/// account's default, in this computer's time zone, made by Calendar's own save path and shown
+/// at once in a Calendar window that is open.
+pub async fn create_event_asked(app: &tauri::AppHandle, new: &apps::NewEvent) -> UiResult<String> {
+    let data = app.state::<Data>();
+    let calendar_guid = {
+        let library = data.0.lock().await;
+        let calendars = library.calendars().map_err(|e| e.to_string())?;
+        calendar_for(&calendars, new.calendar.as_deref())?
+    };
+    let zone = jiff::tz::TimeZone::system();
+    let (starts_at, ends_at) = event_span(new, &zone)?;
+    let draft = EventDraft {
+        guid: None,
+        calendar_guid,
+        title: new.title.clone(),
+        location: None,
+        starts_at,
+        ends_at,
+        all_day: new.all_day,
+        timezone: Some(zone.iana_name().unwrap_or("UTC").to_string()),
+        notes: None,
+        url: None,
+        alerts: None,
+        scope: None,
+        repeat: None,
+        repeat_changed: false,
+        base: None,
+    };
+    let made = save_event(&data, draft).await?;
+    let report = refresh::status_changed(&data.0, &["calendar"]).await;
+    app.emit(SYNCED, &report).ok();
+    Ok(made)
+}
+
 /// The list a reminder was last added to, as Skykeep's own state.
 const LAST_REMINDER_LIST: &str = "reminders_last_list";
 
@@ -3976,15 +4064,57 @@ async fn note_create(
     body: String,
     data: State<'_, Data>,
 ) -> UiResult<String> {
+    create_note(&data, folder_guid, &body).await
+}
+
+/// A note made: in the library at once, queued for Apple. Notes' own windows and the command
+/// line both come here.
+async fn create_note(data: &Data, folder_guid: Option<String>, body: &str) -> UiResult<String> {
     if body.trim().is_empty() {
         return Err("A note needs something in it.".into());
     }
     let guid = {
         let mut library = data.0.lock().await;
-        outbox::record_note_create(&mut library, folder_guid, &body).map_err(|e| e.to_string())?
+        outbox::record_note_create(&mut library, folder_guid, body).map_err(|e| e.to_string())?
     };
     outbox::kick();
     Ok(guid)
+}
+
+/// The folder a note asked for goes in: the one named, which must be a folder this library holds
+/// and not Recently Deleted (asked for wrongly, a script is told, not quietly filed elsewhere);
+/// none named, Notes' own default folder (`None`), as the quick capture files one.
+fn note_folder_for(
+    folders: &[quince_core::notes::NoteFolder],
+    asked: Option<&str>,
+) -> UiResult<Option<String>> {
+    match asked {
+        None | Some("DefaultFolder-CloudKit") => Ok(None),
+        Some(quince_core::notes::TRASH_FOLDER) => {
+            Err("A note can't be made in Recently Deleted.".into())
+        }
+        Some(id) if folders.iter().any(|f| f.guid == id) => Ok(Some(id.to_string())),
+        Some(id) => Err(format!("No Notes folder has the id {id}.")),
+    }
+}
+
+/// A note another program asked for (`--create-note`): checked, then made by Notes' own path,
+/// and shown at once in a Notes window that is open.
+pub async fn create_note_asked(
+    app: &tauri::AppHandle,
+    text: &str,
+    folder: Option<&str>,
+) -> UiResult<String> {
+    let data = app.state::<Data>();
+    let folder = {
+        let library = data.0.lock().await;
+        let folders = library.note_folders().map_err(|e| e.to_string())?;
+        note_folder_for(&folders, folder)?
+    };
+    let made = create_note(&data, folder, text).await?;
+    let report = refresh::status_changed(&data.0, &["notes"]).await;
+    app.emit(SYNCED, &report).ok();
+    Ok(made)
 }
 
 /// Delete a note: to Recently Deleted, or from there for good. At once here, sent behind.
@@ -6709,6 +6839,8 @@ fn make_main(app: &tauri::AppHandle) -> Option<tauri::WebviewWindow> {
     timing::mark("main made");
     first_show::owe(&window);
     restore_window_state(&window);
+    // Made again after it was let go: its title bar in the appearance chosen (appearance.rs).
+    appearance::dress(&window);
     // A tiling compositor places, sizes and closes windows itself; a title bar with minimise
     // and maximise there only takes room and does nothing it does not. On a desktop that
     // floats windows — GNOME, KDE — it is how a window is moved, so it stays.
@@ -7606,7 +7738,15 @@ fn main() {
                 });
                 let before = std::panic::take_hook();
                 std::panic::set_hook(Box::new(move |info| {
-                    mount::release();
+                    // Only a panic that ends Skykeep lets the folders go: one on the main
+                    // thread. Elsewhere it ends its own thread or is caught — a Drive folder
+                    // request (fuse.rs `guarded`), a command, a library change rolled back —
+                    // and Skykeep goes on; the hook runs before any catch, and unmounted both
+                    // folders for each of those, the very request the catch was there to
+                    // survive included.
+                    if std::thread::current().name() == Some("main") {
+                        mount::release();
+                    }
                     before(info);
                 }));
             }
@@ -7691,6 +7831,7 @@ fn main() {
             outbox::outbox_discard,
             outbox::outbox_wake,
             appearance::system_contrast,
+            appearance::window_theme,
             network_reach,
             updates::update_status,
             updates::update_check,
@@ -7967,6 +8108,103 @@ mod tests {
         assert_eq!(super::list_for(&lists, None, Some("off")).unwrap(), "a");
         assert_eq!(super::list_for(&lists, None, None).unwrap(), "a");
         assert!(super::list_for(&[list("off", false)], None, None).is_err());
+    }
+
+    /// An event asked for goes in the calendar named, if it takes writes; else Apple's default;
+    /// else the first that takes writes. Never a feed or a read-only shared calendar.
+    #[test]
+    fn an_event_asked_for_goes_in_the_right_calendar() {
+        use quince_core::calendar::Calendar;
+        let cal = |guid: &str, writable: bool, is_default: bool| Calendar {
+            guid: guid.into(),
+            title: guid.into(),
+            colour: None,
+            ctag: None,
+            sort_order: 0,
+            enabled: true,
+            writable,
+            is_default,
+        };
+        let cals = [
+            cal("feed", false, false),
+            cal("a", true, false),
+            cal("home", true, true),
+        ];
+        assert_eq!(super::calendar_for(&cals, None).unwrap(), "home");
+        assert_eq!(super::calendar_for(&cals, Some("a")).unwrap(), "a");
+        assert!(super::calendar_for(&cals, Some("feed")).is_err());
+        assert!(super::calendar_for(&cals, Some("gone")).is_err());
+        assert_eq!(super::calendar_for(&cals[..2], None).unwrap(), "a");
+        assert!(super::calendar_for(&cals[..1], None).is_err());
+    }
+
+    /// Timed: an hour by default. All day: whole local days, midnight to midnight, the end
+    /// read as Calendar's own exclusive end; checked in a zone ahead of UTC.
+    #[test]
+    fn an_asked_for_event_spans_what_calendar_would_save() {
+        let zone = jiff::tz::TimeZone::fixed(jiff::tz::offset(5));
+        let at = |s: &str| -> i64 { s.parse::<jiff::Timestamp>().unwrap().as_second() };
+        let new = |start: &str, end: Option<&str>, all_day: bool| crate::apps::NewEvent {
+            title: "x".into(),
+            starts_at: at(start),
+            ends_at: end.map(at),
+            calendar: None,
+            all_day,
+        };
+        let span = |n| super::event_span(&n, &zone).unwrap();
+        // 10:00 local = 05:00Z.
+        assert_eq!(
+            span(new("2026-11-20T05:00:00Z", None, false)),
+            (at("2026-11-20T05:00:00Z"), at("2026-11-20T06:00:00Z"))
+        );
+        // 02:00 local on the 21st (21:00Z on the 20th): the 21st, local midnight to midnight.
+        let day21 = (at("2026-11-20T19:00:00Z"), at("2026-11-21T19:00:00Z"));
+        assert_eq!(span(new("2026-11-20T21:00:00Z", None, true)), day21);
+        // An end at the next local midnight is the app's exclusive end: still one day.
+        assert_eq!(
+            span(new(
+                "2026-11-20T21:00:00Z",
+                Some("2026-11-21T19:00:00Z"),
+                true
+            )),
+            day21
+        );
+        // An end inside the 22nd: two days.
+        assert_eq!(
+            span(new(
+                "2026-11-20T21:00:00Z",
+                Some("2026-11-22T03:00:00Z"),
+                true
+            )),
+            (day21.0, at("2026-11-22T19:00:00Z"))
+        );
+    }
+
+    /// A note asked for with no folder goes in Notes' default folder; a folder named must be one
+    /// the library holds, and never Recently Deleted.
+    #[test]
+    fn a_note_asked_for_goes_in_the_right_folder() {
+        use quince_core::notes::{NoteFolder, TRASH_FOLDER};
+        let folder = |guid: &str| NoteFolder {
+            guid: guid.into(),
+            title: guid.into(),
+            sort_order: 0,
+            parent_guid: None,
+        };
+        let folders = [folder("work"), folder(TRASH_FOLDER)];
+        assert_eq!(super::note_folder_for(&folders, None).unwrap(), None);
+        assert_eq!(
+            super::note_folder_for(&folders, Some("DefaultFolder-CloudKit")).unwrap(),
+            None
+        );
+        assert_eq!(
+            super::note_folder_for(&folders, Some("work"))
+                .unwrap()
+                .as_deref(),
+            Some("work")
+        );
+        assert!(super::note_folder_for(&folders, Some(TRASH_FOLDER)).is_err());
+        assert!(super::note_folder_for(&folders, Some("gone")).is_err());
     }
 
     /// rfd 0.16.0 (and 0.17.x up to at least 0.17.2) hands a message dialog's text to GTK as a

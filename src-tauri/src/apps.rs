@@ -125,20 +125,142 @@ pub fn reminder_asked(args: &[String]) -> Option<ReminderAsk> {
         .or_else(|| value_of(args, "--reminder").map(ReminderAsk::Show))
 }
 
-/// `--create-reminder`, if asked: the reminder, or why it can't be made. The title is taken
-/// as given, even one starting with "--" (`--create-reminder=--x`), but never empty.
-fn create_asked(args: &[String]) -> Option<ReminderAsk> {
+/// A note another program asks to be made (#49's shape for Notes): `--create-note <text>
+/// [--folder <folder id>]`, made as Notes makes one — its first line the title — into the
+/// folder named, or Notes' own default folder.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum NoteAsk {
+    Create {
+        text: String,
+        folder: Option<String>,
+    },
+    /// Asked for wrongly: said on stderr, nothing made.
+    Refused(String),
+}
+
+/// `--create-note`, if asked.
+pub fn note_asked(args: &[String]) -> Option<NoteAsk> {
+    let text = flag_text(args, "--create-note")?;
+    if text.trim().is_empty() {
+        return Some(NoteAsk::Refused("A note needs something in it.".into()));
+    }
+    Some(NoteAsk::Create {
+        text,
+        folder: value_of(args, "--folder"),
+    })
+}
+
+/// Make what [`note_asked`] found, printing the new note's id when `this_launch` made it.
+pub fn on_note(app: &AppHandle, ask: NoteAsk, this_launch: bool) {
+    let app = app.clone();
+    tauri::async_runtime::spawn(async move {
+        match ask {
+            NoteAsk::Refused(why) => eprintln!("skykeep: {why}"),
+            NoteAsk::Create { text, folder } => {
+                match crate::create_note_asked(&app, &text, folder.as_deref()).await {
+                    Ok(guid) if this_launch => println!("{guid}"),
+                    Ok(_) => {}
+                    Err(e) => {
+                        eprintln!("skykeep: {e}");
+                        quiet!("a command line's note could not be made: {e}");
+                    }
+                }
+            }
+        }
+    });
+}
+
+/// An event another program asks to be made: `--create-event <title> --start <unix seconds>
+/// [--end <unix seconds>] [--calendar <id>] [--all-day]`, made as Calendar makes one.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct NewEvent {
+    pub title: String,
+    pub starts_at: i64,
+    /// Absent: an hour after the start, or the start's day when all day, as Calendar's default.
+    pub ends_at: Option<i64>,
+    pub calendar: Option<String>,
+    pub all_day: bool,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum EventAsk {
+    Create(NewEvent),
+    /// Asked for wrongly: said on stderr, nothing made.
+    Refused(String),
+}
+
+/// `--create-event`, if asked.
+pub fn event_asked(args: &[String]) -> Option<EventAsk> {
+    let title = flag_text(args, "--create-event")?;
+    if title.trim().is_empty() {
+        return Some(EventAsk::Refused("An event needs a title.".into()));
+    }
+    let time = |flag: &str| match value_of(args, flag) {
+        None => Ok(None),
+        Some(v) => v
+            .parse::<i64>()
+            .map(Some)
+            .map_err(|_| format!("{flag} takes a time in seconds since 1970, not \"{v}\".")),
+    };
+    let (starts_at, ends_at) = match (time("--start"), time("--end")) {
+        (Ok(Some(start)), Ok(end)) => (start, end),
+        (Ok(None), _) => return Some(EventAsk::Refused("An event needs --start.".into())),
+        (Err(why), _) | (_, Err(why)) => return Some(EventAsk::Refused(why)),
+    };
+    if ends_at.is_some_and(|end| end < starts_at) {
+        return Some(EventAsk::Refused(
+            "An event can't end before it starts.".into(),
+        ));
+    }
+    Some(EventAsk::Create(NewEvent {
+        title,
+        starts_at,
+        ends_at,
+        calendar: value_of(args, "--calendar"),
+        all_day: args.iter().any(|a| a == "--all-day"),
+    }))
+}
+
+/// Make what [`event_asked`] found, printing the new event's id when `this_launch` made it.
+pub fn on_event(app: &AppHandle, ask: EventAsk, this_launch: bool) {
+    let app = app.clone();
+    tauri::async_runtime::spawn(async move {
+        match ask {
+            EventAsk::Refused(why) => eprintln!("skykeep: {why}"),
+            EventAsk::Create(new) => match crate::create_event_asked(&app, &new).await {
+                Ok(guid) if this_launch => println!("{guid}"),
+                Ok(_) => {}
+                Err(e) => {
+                    eprintln!("skykeep: {e}");
+                    quiet!("a command line's event could not be made: {e}");
+                }
+            },
+        }
+    });
+}
+
+/// The text given to `flag` (`flag <text>` or `flag=<text>`) when `flag` is there at all: empty
+/// when nothing follows it (said as refused by the caller, never taken for no flag). After "=",
+/// taken as given even when it starts with "--".
+fn flag_text(args: &[String], flag: &str) -> Option<String> {
+    let with = format!("{flag}=");
     let at = args
         .iter()
-        .position(|a| a == "--create-reminder" || a.starts_with("--create-reminder="))?;
-    let title = match args[at].strip_prefix("--create-reminder=") {
+        .position(|a| a == flag || a.starts_with(&with))?;
+    Some(match args[at].strip_prefix(&with) {
         Some(t) => t.to_string(),
         None => args
             .get(at + 1)
             .filter(|t| !t.starts_with("--"))
             .cloned()
             .unwrap_or_default(),
-    };
+    })
+}
+
+/// `--create-reminder`, if asked: the reminder, or why it can't be made. The title is taken
+/// as given, even one starting with "--" (`--create-reminder=--x`), but never empty.
+fn create_asked(args: &[String]) -> Option<ReminderAsk> {
+    let title = flag_text(args, "--create-reminder")?;
     if title.trim().is_empty() {
         return Some(ReminderAsk::Refused("A reminder needs a title.".into()));
     }
@@ -391,6 +513,8 @@ fn make(app: &AppHandle, key: &str, asking: &str) {
             crate::first_show::owe(&w);
             // The size and place it was left at, now that it is made (#62).
             crate::restore_window_state(&w);
+            // Its title bar in the appearance chosen, not the system's, from its first frame.
+            crate::appearance::dress(&w);
             w
         }
         Err(e) => {
@@ -857,6 +981,107 @@ mod tests {
             reminder_asked(&args(&["skykeep", "--app", "reminders"])),
             None
         );
+    }
+
+    /// Another program asks for an event: a start is needed, an end only when given, and a
+    /// time that isn't a number or an end before the start is refused.
+    #[test]
+    fn another_program_can_make_an_event() {
+        assert_eq!(
+            event_asked(&args(&[
+                "skykeep",
+                "--create-event",
+                "Dentist",
+                "--start",
+                "1795000000",
+                "--end=1795003600",
+                "--calendar",
+                "C1",
+                "--all-day"
+            ])),
+            Some(EventAsk::Create(NewEvent {
+                title: "Dentist".into(),
+                starts_at: 1_795_000_000,
+                ends_at: Some(1_795_003_600),
+                calendar: Some("C1".into()),
+                all_day: true,
+            }))
+        );
+        assert_eq!(
+            event_asked(&args(&["skykeep", "--create-event", "x", "--start", "10"])),
+            Some(EventAsk::Create(NewEvent {
+                title: "x".into(),
+                starts_at: 10,
+                ends_at: None,
+                calendar: None,
+                all_day: false,
+            }))
+        );
+        assert_eq!(event_asked(&args(&["skykeep", "--app", "calendar"])), None);
+        for bad in [
+            vec!["skykeep", "--create-event", "--start", "10"],
+            vec!["skykeep", "--create-event", "x"],
+            vec!["skykeep", "--create-event", "x", "--start", "tomorrow"],
+            vec![
+                "skykeep",
+                "--create-event",
+                "x",
+                "--start",
+                "10",
+                "--end",
+                "soon",
+            ],
+            vec![
+                "skykeep",
+                "--create-event",
+                "x",
+                "--start",
+                "10",
+                "--end",
+                "9",
+            ],
+        ] {
+            assert!(
+                matches!(event_asked(&args(&bad)), Some(EventAsk::Refused(_))),
+                "{bad:?} should be refused"
+            );
+        }
+    }
+
+    /// Another program asks for a note: its text, and a folder only when named.
+    #[test]
+    fn another_program_can_make_a_note() {
+        assert_eq!(
+            note_asked(&args(&[
+                "skykeep",
+                "--create-note",
+                "Groceries\nmilk",
+                "--folder",
+                "F1"
+            ])),
+            Some(NoteAsk::Create {
+                text: "Groceries\nmilk".into(),
+                folder: Some("F1".into()),
+            })
+        );
+        assert_eq!(
+            note_asked(&args(&["skykeep", "--create-note=--dash"])),
+            Some(NoteAsk::Create {
+                text: "--dash".into(),
+                folder: None,
+            })
+        );
+        assert_eq!(note_asked(&args(&["skykeep", "--app", "notes"])), None);
+        for bad in [
+            vec!["skykeep", "--create-note"],
+            vec!["skykeep", "--create-note", "  "],
+            vec!["skykeep", "--create-note", "--folder", "F1"],
+        ] {
+            assert!(
+                matches!(note_asked(&args(&bad)), Some(NoteAsk::Refused(_))),
+                "{bad:?} should be refused"
+            );
+        }
     }
 
     /// #49: another program asks for a reminder to be made, with the flags the widget sends.

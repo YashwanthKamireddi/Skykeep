@@ -1,15 +1,15 @@
 import "prosemirror-view/style/prosemirror.css";
 import { forwardRef, useEffect, useImperativeHandle, useRef, useState } from "react";
 import { EditorState, Plugin, TextSelection, type Command, type Transaction } from "prosemirror-state";
-import { Decoration, DecorationSet, EditorView } from "prosemirror-view";
+import { EditorView } from "prosemirror-view";
 import { history, undo, redo } from "prosemirror-history";
 import { keymap } from "prosemirror-keymap";
 import { baseKeymap, splitBlockAs, toggleMark, chainCommands } from "prosemirror-commands";
 import { Fragment, Slice, type Node as PMNode } from "prosemirror-model";
 import type { Run } from "./Formatted";
-import { checklistMove, fromDoc, listNumbers, LIST_STYLES, schema, STYLE, tableCells, toDoc } from "./rich";
+import { checklistMove, fromDoc, LIST_STYLES, schema, STYLE, tableCells, toDoc } from "./rich";
 import { MOVE_CHECKED_KEY } from "./model";
-import { foundRanges } from "./found";
+import { found, numbered } from "./decorations";
 
 function moveCheckedOn(): boolean {
   try {
@@ -598,59 +598,6 @@ function moveLines(by: 1 | -1): Command {
     return true;
   };
 }
-
-/** Each numbered line's number (`data-n`, which the stylesheet draws), counted as Notes counts
- *  them (rich.ts listNumbers) — worked out again only when the note changes. */
-function numbering(doc: PMNode): DecorationSet {
-  const lines: PMNode[] = [];
-  const at: number[] = [];
-  doc.forEach((node, offset) => {
-    lines.push(node);
-    at.push(offset);
-  });
-  const numbers = listNumbers(lines.map((n) => n.attrs as { style: number | null; indent: number; start: number | null }));
-  const marks: Decoration[] = [];
-  numbers.forEach((n, i) => {
-    if (n !== null) marks.push(Decoration.node(at[i], at[i] + lines[i].nodeSize, { "data-n": String(n) }));
-  });
-  return DecorationSet.create(doc, marks);
-}
-const numbered: Plugin<DecorationSet> = new Plugin<DecorationSet>({
-  state: {
-    init: (_, state) => numbering(state.doc),
-    apply: (tr, was) => (tr.docChanged ? numbering(tr.doc) : was),
-  },
-  props: { decorations: (state): DecorationSet | undefined => numbered.getState(state) },
-});
-
-/**
- * The words of a search marked in the note, as Notes marks them in a note opened from its
- * results. Only drawn — never part of the note — and worked out again only when the words or
- * the text change; with no search, nothing is walked at all.
- */
-type FoundState = { words: string[]; marks: DecorationSet };
-function foundMarks(doc: PMNode, words: string[]): DecorationSet {
-  if (!words.length) return DecorationSet.empty;
-  const marks: Decoration[] = [];
-  doc.descendants((node, pos) => {
-    if (!node.isText || !node.text) return true;
-    for (const [a, b] of foundRanges(node.text, words)) marks.push(Decoration.inline(pos + a, pos + b, { class: "note-found" }));
-    return false;
-  });
-  return DecorationSet.create(doc, marks);
-}
-const found: Plugin<FoundState> = new Plugin<FoundState>({
-  state: {
-    init: () => ({ words: [], marks: DecorationSet.empty }),
-    apply: (tr, was) => {
-      const words = tr.getMeta(found) as string[] | undefined;
-      if (words) return { words, marks: foundMarks(tr.doc, words) };
-      if (!tr.docChanged || !was.words.length) return was;
-      return { words: was.words, marks: foundMarks(tr.doc, was.words) };
-    },
-  },
-  props: { decorations: (state): DecorationSet | undefined => found.getState(state)?.marks },
-});
 
 const parentOf = (state: EditorState) => state.selection.$from.parent;
 const inList = (state: EditorState) => LIST_STYLES.includes(parentOf(state).attrs.style);

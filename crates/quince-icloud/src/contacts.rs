@@ -364,7 +364,7 @@ pub async fn photo_bytes(
     let response = http.get(url).query(params).send().await?;
     let status = response.status();
     if status == reqwest::StatusCode::TOO_MANY_REQUESTS || status.is_server_error() {
-        return Err(Error::Busy);
+        return Err(Error::Busy(None));
     }
     if !status.is_success() {
         return Err(Error::Protocol(format!(
@@ -988,7 +988,7 @@ async fn write_with(
         // Apple can't take it now (429, 503 under load): busy, asked again later — never a
         // broken answer, which the outbox gives up on after a few tries.
         if status.as_u16() == 429 || status.is_server_error() {
-            return Err(Error::Busy);
+            return Err(Error::Busy(None));
         }
         return Err(Error::Protocol(format!(
             "contacts returned {status}: {}",
@@ -1411,7 +1411,7 @@ async fn write_list_with(
         // Apple can't take it now (429, 503 under load): busy, asked again later — never a
         // broken answer, which the outbox gives up on after a few tries.
         if status.as_u16() == 429 || status.is_server_error() {
-            return Err(Error::Busy);
+            return Err(Error::Busy(None));
         }
         return Err(Error::Protocol(format!(
             "contacts returned {status}: {}",
@@ -1585,7 +1585,7 @@ async fn co_text_with(
         // Apple can't take it now (429, 503 under load): busy, asked again later — never a
         // broken answer, which the outbox gives up on after a few tries.
         if status.as_u16() == 429 || status.is_server_error() {
-            return Err(Error::Busy);
+            return Err(Error::Busy(None));
         }
         return Err(Error::Protocol(format!(
             "contacts returned {status}: {}",
@@ -2134,7 +2134,7 @@ async fn startup(
         // Apple can't take it now (429, 503 under load): busy, asked again later — never a
         // broken answer, which the outbox gives up on after a few tries.
         if status.as_u16() == 429 || status.is_server_error() {
-            return Err(Error::Busy);
+            return Err(Error::Busy(None));
         }
         return Err(Error::Protocol(format!(
             "/co/startup returned {status}: {}",
@@ -2244,7 +2244,11 @@ mod busy_tests {
                 .mount(&server)
                 .await;
             let got = fetch(&reqwest::Client::new(), &server.uri(), vec![]).await;
-            assert!(matches!(got, Err(Error::Busy)), "{status}: {:?}", got.err());
+            assert!(
+                matches!(got, Err(Error::Busy(_))),
+                "{status}: {:?}",
+                got.err()
+            );
         }
     }
 }

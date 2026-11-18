@@ -569,6 +569,19 @@ function sameMonth(a: MonthProps, b: MonthProps): boolean {
 }
 
 /** Where a month's photos lie — its grid and whatever of it is still to be built — on screen. */
+/**
+ * The gap between a month's rows, as its stylesheet sets it (photos.css): the built grid's own
+ * row gap, or the `--gap` its rows still to be built are drawn with. Read, never repeated here, so
+ * the place keeper's arithmetic can't drift from what is drawn.
+ */
+function rowGap(sec: HTMLElement): number {
+  const first = sec.querySelector<HTMLElement>(":scope > .px-grid, :scope > .px-later");
+  if (!first) return 0;
+  const style = getComputedStyle(first);
+  const gap = first.classList.contains("px-grid") ? style.rowGap : style.getPropertyValue("--gap");
+  return parseFloat(gap) || 0;
+}
+
 function photosArea(sec: HTMLElement): { top: number; height: number } {
   const first = sec.querySelector<HTMLElement>(":scope > .px-grid, :scope > .px-later") ?? sec;
   const top = first.getBoundingClientRect().top;
@@ -2897,9 +2910,17 @@ export function PhotosView() {
     const sec = el.querySelectorAll<HTMLElement>(".px-month")[g];
     if (!sec) return null;
     const row = Math.floor((index - months[g].items[0].index) / across);
-    const r = photosArea(sec);
-    return r.top - box.top + (row * r.height) / Math.ceil(months[g].items.length / across);
+    return photosArea(sec).top - box.top + row * rowPitch(sec, months[g].items.length);
   };
+  /**
+   * How far one row of a month's photos is below the one above, built or not: its rows share its
+   * height and one gap fewer than they have. The height alone shared out was a part of a gap
+   * short for every row down, up to the whole gap (14 px with photos shown whole) — a photo
+   * read as at the top was that far from its tile, and the view nudged by it as soon as anything
+   * changed size after a scroll (photos-place-still).
+   */
+  const rowPitch = (sec: HTMLElement, count: number) =>
+    (photosArea(sec).height + rowGap(sec)) / Math.ceil(count / across);
   /** The tile at an index brought to the top of the grid, under the bar. */
   const goToPhoto = (index: number) => {
     const el = scroller.current;
@@ -2946,7 +2967,7 @@ export function PhotosView() {
     if (!m?.items.length) return null;
     const r = photosArea(secs[lo]);
     const rows = Math.ceil(m.items.length / across);
-    const rowH = r.height / rows;
+    const rowH = rowPitch(secs[lo], m.items.length);
     const row = Math.max(0, Math.min(rows - 1, Math.floor((edge - r.top) / rowH)));
     const item = m.items[row * across];
     return item ? { id: item.id, top: r.top + row * rowH - box.top } : null;

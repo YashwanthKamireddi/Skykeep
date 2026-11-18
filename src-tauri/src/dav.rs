@@ -115,7 +115,7 @@ fn words(e: &Error, host: &str) -> String {
         Error::Network(_) => format!(
             "Couldn’t reach {host}. Check the address and your connection. A server with a self-signed certificate can’t be used."
         ),
-        Error::Busy => format!("{host} is busy right now. Try again in a minute."),
+        Error::Busy(_) => format!("{host} is busy right now. Try again in a minute."),
         Error::Protocol(_) => format!("{host} sent back something unexpected."),
         Error::ReauthRequired => SIGN_IN_AGAIN.to_string(),
         other => other.to_string(),
@@ -159,7 +159,7 @@ fn secret_of(app: &AppHandle, id: &str) -> Result<String, Error> {
         }
         Ok(None) => Err(Error::ReauthRequired),
         // A keyring that would not answer says nothing about the password: try again later.
-        Err(_) => Err(Error::Busy),
+        Err(_) => Err(Error::Busy(None)),
     }
 }
 

@@ -899,13 +899,9 @@ mod tests {
     async fn a_failure_is_recorded_for_the_service() {
         let data = library_of(DSID);
         let c = ctx(DSID, &NoHooks);
-        let report = store::<(), _>(
-            NOTES,
-            &data,
-            &c,
-            Err(Error::Busy),
-            |_, ()| Ok(String::new()),
-        )
+        let report = store::<(), _>(NOTES, &data, &c, Err(Error::Busy(None)), |_, ()| {
+            Ok(String::new())
+        })
         .await;
         assert_eq!(report.outcome, Outcome::Failed);
         let health = data.lock().await.sync_health().unwrap();

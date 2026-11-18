@@ -357,19 +357,25 @@ export function sameFormatting(text: string, a: Run[] | null, b: Run[] | null): 
  * start it elsewhere. Null for a line that is not numbered. One count for every depth had a
  * nested list's items counted into the outer list, so it went on from 4 where the phone shows 2.
  */
-export function listNumbers(lines: { style: number | null; indent: number; start?: number | null }[]): (number | null)[] {
+export function listNumbers(lines: ListLine[]): (number | null)[] {
   const counts: number[] = [];
-  return lines.map((line) => {
-    if (line.style !== STYLE.numbered) {
-      counts.length = 0;
-      return null;
-    }
-    const depth = Math.max(0, line.indent | 0);
-    counts.length = Math.min(counts.length, depth + 1);
-    while (counts.length <= depth) counts.push(0);
-    counts[depth] = counts[depth] === 0 && line.start ? line.start : counts[depth] + 1;
-    return counts[depth];
-  });
+  return lines.map((line) => nextNumber(counts, line));
+}
+
+export type ListLine = { style: number | null; indent: number; start?: number | null };
+
+/** One line's number, from the counts of the lines above it at each depth — which it updates,
+ *  so the editor can count on from any line whose counts it knows (decorations.ts). */
+export function nextNumber(counts: number[], line: ListLine): number | null {
+  if (line.style !== STYLE.numbered) {
+    counts.length = 0;
+    return null;
+  }
+  const depth = Math.max(0, line.indent | 0);
+  counts.length = Math.min(counts.length, depth + 1);
+  while (counts.length <= depth) counts.push(0);
+  counts[depth] = counts[depth] === 0 && line.start ? line.start : counts[depth] + 1;
+  return counts[depth];
 }
 
 /**

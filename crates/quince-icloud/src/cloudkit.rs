@@ -143,8 +143,91 @@ fn zone_was_busy(code: &str, reason: &str) -> bool {
             .to_ascii_lowercase()
             .contains("sync zone cas op-lock failed")
 }
-/// The longest single wait a busy CloudKit is given, whatever it asks for.
+/// The longest wait that is sat out inside a request. A busy CloudKit asking for longer is
+/// not asked again until then (`hold_off`), and the request says so at once.
 const LONGEST_WAIT: u64 = 30;
+
+/// A wait no throttle means: a `Retry-After` beyond a day is a mangled header or a clock
+/// gone wrong, not Apple's ask. Apple's own measured asks are 1200–2100 seconds
+/// (steilerDev/icloud-photos-sync#1221, icloudpd#1255 and #970), well inside it.
+const ABSURD_WAIT: u64 = 24 * 60 * 60;
+
+/// When each CloudKit container may next be asked, after Apple asked to be left alone.
+///
+/// Kept for the whole app, not for one client: a client lives for one request, and a sync
+/// pass, a push-woken refresh, the polling timer and the outbox each make their own. Each of
+/// them asked again within minutes of a 503 with `Retry-After: 1800`, and every early ask
+/// keeps the account throttled. Wall-clock time, not `Instant`: a laptop asleep through the
+/// wait has served it.
+type Holds = std::collections::HashMap<String, std::time::SystemTime>;
+static HELD_OFF: std::sync::Mutex<Option<Holds>> = std::sync::Mutex::new(None);
+
+/// The hold on `key` let go of. Tests only: a mock server is pooled and handed to the next test
+/// at the same address, which a hold left behind would refuse.
+#[cfg(test)]
+fn release_hold(key: &str) {
+    if let Some(map) = HELD_OFF
+        .lock()
+        .unwrap_or_else(std::sync::PoisonError::into_inner)
+        .as_mut()
+    {
+        map.remove(key);
+    }
+}
+
+/// How long `key` is still held off, if it is.
+fn held_off(key: &str) -> Option<std::time::Duration> {
+    let now = std::time::SystemTime::now();
+    let mut held = HELD_OFF
+        .lock()
+        .unwrap_or_else(std::sync::PoisonError::into_inner);
+    let map = held.get_or_insert_with(Default::default);
+    match map.get(key).map(|until| until.duration_since(now)) {
+        Some(Ok(left)) if !left.is_zero() => Some(left),
+        Some(_) => {
+            map.remove(key);
+            None
+        }
+        None => None,
+    }
+}
+
+/// Ask nothing of `key` for `seconds`. Never shortens a hold already longer.
+fn hold_off(key: &str, seconds: u64) {
+    if seconds == 0 {
+        return;
+    }
+    let until =
+        std::time::SystemTime::now() + std::time::Duration::from_secs(seconds.min(ABSURD_WAIT));
+    let mut held = HELD_OFF
+        .lock()
+        .unwrap_or_else(std::sync::PoisonError::into_inner);
+    let at = held
+        .get_or_insert_with(Default::default)
+        .entry(key.to_string())
+        .or_insert(until);
+    if *at < until {
+        *at = until;
+    }
+}
+
+/// The wait a busy answer asked for, in seconds: CloudKit's own `retryAfter` in the body
+/// first, then the `Retry-After` header — as seconds or as an HTTP date (RFC 9110 §10.2.3
+/// allows both). A date already past asks for no wait; anything unreadable asks for none.
+fn asked_wait(body: &str, header: Option<&str>, now: std::time::SystemTime) -> Option<u64> {
+    let in_body = serde_json::from_str::<Value>(body)
+        .ok()
+        .and_then(|v| v.get("retryAfter").and_then(Value::as_u64));
+    in_body.or_else(|| {
+        let header = header?.trim();
+        header.parse::<u64>().ok().or_else(|| {
+            // An HTTP date is RFC 5322's shape ("Wed, 18 Nov 2026 07:30:00 GMT").
+            let at = jiff::fmt::rfc2822::parse(header).ok()?.timestamp();
+            let now = jiff::Timestamp::try_from(now).ok()?;
+            Some(u64::try_from(at.as_second() - now.as_second()).unwrap_or(0))
+        })
+    })
+}
 
 impl<'a> ZoneClient<'a> {
     pub fn new(
@@ -204,7 +287,22 @@ impl<'a> ZoneClient<'a> {
         q
     }
 
-    /// One page of changes for `zone`.
+    /// The container's place in the hold (`HELD_OFF`): the server and the container, so a
+    /// stand-in server in a test, or another container, is never held by this one.
+    fn hold_key(&self) -> String {
+        format!("{}/{}", self.base, self.container)
+    }
+
+    /// Busy, having been asked to wait `asked`: a wait too long to sit out here holds the
+    /// container off until it has passed. A shorter one is sat out inside the request and tried
+    /// again there; holding it as well only made one client's few seconds every other's.
+    fn busy(&self, asked: Option<u64>) -> Error {
+        if let Some(seconds) = asked.filter(|s| *s > LONGEST_WAIT) {
+            hold_off(&self.hold_key(), seconds);
+        }
+        Error::Busy(asked.map(|s| std::time::Duration::from_secs(s.min(ABSURD_WAIT))))
+    }
+
     /// POST to CloudKit, waiting out a busy server the way it asks to be waited out.
     ///
     /// Measured on the account: an overloaded CloudKit answers 503 with
@@ -212,7 +310,17 @@ impl<'a> ZoneClient<'a> {
     /// raw JSON and the write was simply lost. It is a request to come back shortly, so it is
     /// honoured — up to `BUSY_TRIES` times, never waiting more than `LONGEST_WAIT` — and only
     /// a server still busy after that is reported, in words.
+    ///
+    /// A longer ask is not sat out here and not capped either: the container is held off for
+    /// all of it (`hold_off`), and until it passes every request is refused here, unsent.
     async fn post_json(&self, url: &str, body: &Value) -> Result<(reqwest::StatusCode, String)> {
+        if let Some(left) = held_off(&self.hold_key()) {
+            quiet!(
+                "cloudkit: held off for {}s more, as Apple asked",
+                left.as_secs()
+            );
+            return Err(Error::Busy(Some(left)));
+        }
         let mut tries = 0;
         loop {
             tries += 1;
@@ -228,7 +336,7 @@ impl<'a> ZoneClient<'a> {
                 .headers()
                 .get("retry-after")
                 .and_then(|v| v.to_str().ok())
-                .and_then(|v| v.trim().parse::<u64>().ok());
+                .map(ToString::to_string);
             let text = response.text().await.unwrap_or_default();
             // Advanced Data Protection keeping this session out until it is approved on a
             // device (403 ACCESS_DENIED, "private db access disabled"): said as that, for every
@@ -247,18 +355,18 @@ impl<'a> ZoneClient<'a> {
             if !matches!(status.as_u16(), 429 | 503) && !zone_busy {
                 return Ok((status, text));
             }
+            let asked = asked_wait(&text, header_wait.as_deref(), std::time::SystemTime::now());
+            if asked.is_some_and(|s| s > LONGEST_WAIT) {
+                quiet!("cloudkit: {status}, asked to wait {asked:?}s");
+                return Err(self.busy(asked));
+            }
             if tries >= BUSY_TRIES {
                 quiet!("cloudkit: still busy after {tries} tries ({status})");
                 // Busy, not refused: nothing was applied, and a change waiting to be sent is
                 // kept for later rather than dropped as if Apple had turned it down.
-                return Err(Error::Busy);
+                return Err(self.busy(asked));
             }
-            let asked = serde_json::from_str::<Value>(&text)
-                .ok()
-                .and_then(|v| v.get("retryAfter").and_then(Value::as_u64))
-                .or(header_wait)
-                .unwrap_or(2);
-            tokio::time::sleep(std::time::Duration::from_secs(asked.clamp(1, LONGEST_WAIT))).await;
+            tokio::time::sleep(std::time::Duration::from_secs(asked.unwrap_or(2).max(1))).await;
         }
     }
 
@@ -282,13 +390,13 @@ impl<'a> ZoneClient<'a> {
                 Err(e) => return Err(e),
                 Ok(Ok(page)) => return Ok(page),
                 // Waited out as a busy request is (`post_json`), then said in words.
-                Ok(Err(asked)) if tries < BUSY_TRIES => {
-                    let wait = asked.unwrap_or(2).clamp(1, LONGEST_WAIT);
+                Ok(Err(asked)) if tries < BUSY_TRIES && asked.is_none_or(|s| s <= LONGEST_WAIT) => {
+                    let wait = asked.unwrap_or(2).max(1);
                     tokio::time::sleep(std::time::Duration::from_secs(wait)).await;
                 }
-                Ok(Err(_)) => {
-                    quiet!("cloudkit: zone {zone} still busy after {tries} tries");
-                    return Err(Error::Busy);
+                Ok(Err(asked)) => {
+                    quiet!("cloudkit: zone {zone} busy after {tries} tries, asked {asked:?}s");
+                    return Err(self.busy(asked));
                 }
             }
         }
@@ -1106,13 +1214,14 @@ impl ZoneClient<'_> {
         loop {
             tries += 1;
             match self.modify_once(zone, &operation).await {
-                Err(Error::Busy) if tries < BUSY_TRIES => {
+                // Only a busy with no wait asked (a zone mid-write) is tried again here: one
+                // that asked for a wait has had it sat out, or is held off for it.
+                Err(Error::Busy(None)) if tries < BUSY_TRIES => {
                     tokio::time::sleep(std::time::Duration::from_millis(
                         400 * u64::from(tries) * u64::from(tries),
                     ))
                     .await;
                 }
-                Err(Error::Busy) => return Err(Error::Busy),
                 other => return other,
             }
         }
@@ -1147,7 +1256,7 @@ impl ZoneClient<'_> {
                 .and_then(Value::as_str)
                 .unwrap_or("");
             if zone_was_busy(code, reason) {
-                return Err(Error::Busy);
+                return Err(Error::Busy(None));
             }
             // Apple signals a stale change tag as CONFLICT, and sometimes as an "oplock"
             // message with a different code; both mean the same thing.
@@ -2171,6 +2280,13 @@ mod trouble_tests {
     use wiremock::matchers::{method, path_regex};
     use wiremock::{Mock, MockServer, ResponseTemplate};
 
+    /// The container's hold let go of when the test ends, passed or not (`release_hold`).
+    struct Unheld(String);
+    impl Drop for Unheld {
+        fn drop(&mut self) {
+            super::release_hold(&self.0);
+        }
+    }
     fn zone_reply(zone: Value) -> ResponseTemplate {
         ResponseTemplate::new(200).set_body_json(json!({ "zones": [zone] }))
     }
@@ -2181,6 +2297,136 @@ mod trouble_tests {
 
     fn client<'a>(http: &'a reqwest::Client, uri: &str, container: &str) -> ZoneClient<'a> {
         ZoneClient::new(http, uri, container, vec![])
+    }
+
+    /// A throttled CloudKit answers 503 with `Retry-After: 1800` (steilerDev/icloud-photos-sync
+    /// #1221). The wait is carried in the error whole, not cut to thirty seconds; nothing is
+    /// sent to the container again until it has passed — by any client — and after it,
+    /// requests go out again.
+    #[tokio::test]
+    async fn a_long_retry_after_holds_the_container_off_for_all_of_it() {
+        let server = MockServer::start().await;
+        Mock::given(method("POST"))
+            .and(path_regex(r".*/changes/zone$"))
+            .respond_with(
+                ResponseTemplate::new(503)
+                    .insert_header("Retry-After", "1800")
+                    .set_body_string("throttled"),
+            )
+            .up_to_n_times(1)
+            .mount(&server)
+            .await;
+        Mock::given(method("POST"))
+            .and(path_regex(r".*/changes/zone$"))
+            .respond_with(zone_reply(json!({
+                "records": [record("R1", "Reminder")],
+                "syncToken": "T1", "moreComing": false
+            })))
+            .mount(&server)
+            .await;
+        let http = reqwest::Client::new();
+        let uri = server.uri();
+        let _unheld = Unheld(format!("{uri}/com.apple.reminders"));
+        let asked = |n: usize| {
+            let server = &server;
+            async move {
+                assert_eq!(server.received_requests().await.unwrap().len(), n);
+            }
+        };
+
+        let err = client(&http, &uri, "com.apple.reminders")
+            .all_records("Reminders", None)
+            .await
+            .err()
+            .expect("throttled");
+        let Error::Busy(Some(wait)) = err else {
+            panic!("{err:?}")
+        };
+        assert_eq!(wait.as_secs(), 1800, "Apple's wait, not a capped one");
+        assert!(err.to_string().contains("30 minutes"), "{err}");
+        asked(1).await;
+
+        // Another client of the same container — the outbox, a push, the timer — is told
+        // at once, without a request.
+        let err = client(&http, &uri, "com.apple.reminders")
+            .all_records("Reminders", None)
+            .await
+            .err()
+            .expect("still held off");
+        assert!(
+            matches!(err, Error::Busy(Some(w)) if w.as_secs() > 1790),
+            "{err:?}"
+        );
+        asked(1).await;
+
+        // Another container on the same server is not held by this one.
+        let other = client(&http, &uri, "com.apple.notes")
+            .all_records("Notes", None)
+            .await;
+        assert!(other.is_ok(), "{:?}", other.err());
+        asked(2).await;
+
+        // Once the wait has passed, it is asked again.
+        let key = format!("{uri}/com.apple.reminders");
+        HELD_OFF.lock().unwrap().as_mut().unwrap().insert(
+            key,
+            std::time::SystemTime::now() - std::time::Duration::from_secs(1),
+        );
+        let walk = client(&http, &uri, "com.apple.reminders")
+            .all_records("Reminders", None)
+            .await
+            .unwrap();
+        assert_eq!(walk.records.len(), 1);
+        asked(3).await;
+    }
+
+    /// `Retry-After` may be an HTTP date (RFC 9110 §10.2.3); read as the seconds until it.
+    #[tokio::test]
+    async fn a_retry_after_date_is_read_as_the_wait_until_it() {
+        let server = MockServer::start().await;
+        let at = jiff::Timestamp::now() + jiff::SignedDuration::from_secs(1800);
+        let date = jiff::fmt::rfc2822::DateTimePrinter::new()
+            .timestamp_to_rfc9110_string(&at)
+            .unwrap();
+        Mock::given(method("POST"))
+            .and(path_regex(r".*/changes/zone$"))
+            .respond_with(ResponseTemplate::new(503).insert_header("Retry-After", date.as_str()))
+            .mount(&server)
+            .await;
+        let http = reqwest::Client::new();
+        let uri = server.uri();
+        let _unheld = Unheld(format!("{uri}/com.apple.reminders"));
+        let err = client(&http, &uri, "com.apple.reminders")
+            .all_records("Reminders", None)
+            .await
+            .err()
+            .expect("throttled");
+        assert!(
+            matches!(err, Error::Busy(Some(w)) if (1790..=1800).contains(&w.as_secs())),
+            "{date}: {err:?}"
+        );
+        assert_eq!(server.received_requests().await.unwrap().len(), 1);
+    }
+
+    #[test]
+    fn a_retry_after_is_read_in_every_form_apple_sends() {
+        let now = std::time::UNIX_EPOCH + std::time::Duration::from_secs(1_800_000_000);
+        // 1_800_000_000 is Fri, 15 Jan 2027 08:00:00 GMT.
+        let ask = |body: &str, header: Option<&str>| asked_wait(body, header, now);
+        assert_eq!(
+            ask(r#"{"retryAfter":10}"#, Some("99")),
+            Some(10),
+            "the body's first"
+        );
+        assert_eq!(ask("", Some(" 1800 ")), Some(1800));
+        assert_eq!(ask("", Some("Fri, 15 Jan 2027 08:30:00 GMT")), Some(1800));
+        assert_eq!(
+            ask("", Some("Fri, 15 Jan 2027 07:00:00 GMT")),
+            Some(0),
+            "past"
+        );
+        assert_eq!(ask("", Some("soon")), None);
+        assert_eq!(ask("", None), None);
     }
 
     /// A brand new Apple ID that has never opened Notes has no Notes zone. That is an empty
@@ -2256,7 +2502,7 @@ mod trouble_tests {
             .await
             .err()
             .expect("still throttled");
-        assert!(matches!(err, Error::Busy), "{err:?}");
+        assert!(matches!(err, Error::Busy(Some(_))), "{err:?}");
         assert_eq!(
             server.received_requests().await.unwrap().len(),
             BUSY_TRIES as usize,

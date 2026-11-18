@@ -45,6 +45,7 @@ import { useChosen, useIsChosen, type Chosen } from "../lib/chosen";
 import { useArrivals } from "../lib/arrival";
 import { copyText } from "../lib/clipboard";
 import { carryLabel } from "../lib/dragPicture";
+import { isText, keepPlace, keptPlace } from "../lib/place";
 
 /** The sidebar row that is every contact rather than a list. */
 const ALL = "";
@@ -283,8 +284,13 @@ export function ContactsView() {
     return () => window.clearTimeout(timer);
   }, [copied]);
   const [lists, setLists] = useState<ContactList[]>([]);
+  /** Whether the lists have been read once: until then an open list is not yet missing. */
+  const [listsIn, setListsIn] = useState(false);
+  /** Where Contacts was left (lib/place): that list, and that card open in it, once both are
+   *  known to still be there. Read once; null once settled, either way. */
+  const left = useRef(keptPlace("contacts", isText));
   /** The list being looked at, or ALL. */
-  const [list, setList] = useState<string>(ALL);
+  const [list, setList] = useState<string>(() => left.current?.container ?? ALL);
   // A contact found by the search across everything: shown, from All Contacts and with this
   // screen's own search cleared, so nothing here hides it.
   useReveal("contacts", (r) => {
@@ -375,6 +381,7 @@ export function ContactsView() {
   const readLists = useCallback(async () => {
     const [found, mine] = await Promise.all([api.contactLists(), api.contactMe()]);
     setLists(Array.isArray(found) ? found : []);
+    setListsIn(true);
     setMe(typeof mine === "string" ? mine : null);
   }, []);
 
@@ -439,7 +446,11 @@ export function ContactsView() {
     }
   };
   useEffect(() => {
-    readLists().catch((e) => setError(messageOf(e)));
+    readLists().catch((e) => {
+      setError(messageOf(e));
+      // No lists to open: the one Contacts was left in is not waited on.
+      setListsIn(true);
+    });
   }, [readLists, due]);
 
   const readDupes = useCallback(async () => {
@@ -539,9 +550,10 @@ export function ContactsView() {
     });
   };
   // A list deleted elsewhere is not left open, empty, with nothing to say why.
+  // The list Contacts was left in, deleted since, is one of these: All Contacts instead.
   useEffect(() => {
-    if (list !== ALL && !lists.some((l) => l.guid === list)) setList(ALL);
-  }, [lists, list]);
+    if (listsIn && list !== ALL && !lists.some((l) => l.guid === list)) setList(ALL);
+  }, [listsIn, lists, list]);
 
   // The open card's addresses, part by part — read again whenever the library may have moved,
   // unless a change of this screen's own is still on its way to Apple.
@@ -600,12 +612,26 @@ export function ContactsView() {
   const shown = useMemo(() => searchBook(inList, query), [inList, query]);
 
   useEffect(() => {
+    // The card Contacts was left on, once the book and its lists are in (and a list deleted
+    // since has gone back to All): until then the list shown is not yet the one to look in.
+    const was = left.current;
+    if (was && !(loaded && listsIn && (list === ALL || lists.some((l) => l.guid === list)))) return;
+    left.current = null;
     if (shown.length === 0) return setOpenGuid(null);
+    const wanted = was?.item ?? null;
     // The first in the list's order, found without sorting everyone a second time.
     setOpenGuid((current) =>
-      current && shown.some((c) => c.guid === current) ? current : firstContact(shown)!.guid
+      current && shown.some((c) => c.guid === current)
+        ? current
+        : wanted && shown.some((c) => c.guid === wanted) ? wanted : firstContact(shown)!.guid
     );
-  }, [shown]);
+  }, [shown, loaded, listsIn]);
+
+  // Where Contacts is now, kept for the next time it opens — once where it was left is settled.
+  useEffect(() => {
+    if (!loaded || left.current) return;
+    keepPlace("contacts", { container: list, item: openGuid });
+  }, [loaded, list, openGuid]);
 
   /**
    * A change to a list: drawn at once, then sent. When Apple says no, the lists are read

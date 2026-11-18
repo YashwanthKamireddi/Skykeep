@@ -34,7 +34,7 @@ pub fn transient(e: &Error, tries: i64) -> bool {
         Error::Network(_)
         | Error::ReauthRequired
         | Error::StaleCursor
-        | Error::Busy
+        | Error::Busy(_)
         | Error::NeedsDeviceApproval
         | Error::Io(_)
         | Error::Storage(_) => true,
@@ -175,7 +175,7 @@ pub async fn known_gone(library: &LibraryLock, service: &str) -> Result<(), Erro
     if library.lock().await.last_synced(service)?.is_some() {
         Ok(())
     } else {
-        Err(Error::Busy)
+        Err(Error::Busy(None))
     }
 }
 

@@ -772,7 +772,7 @@ mod tests {
             "looked at again later"
         );
         assert!(preparing(&data, Ok(Readiness::Ready)).await.is_none());
-        assert!(preparing(&data, Err(quince_icloud::Error::Busy))
+        assert!(preparing(&data, Err(quince_icloud::Error::Busy(None)))
             .await
             .is_none());
     }

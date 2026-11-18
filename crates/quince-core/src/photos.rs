@@ -616,86 +616,82 @@ impl Library {
     /// How many photos each view holds, as [`Library::photos_shown`] shows them: Recently
     /// Deleted's count leaves its hidden photos out until Hidden is unlocked (`hidden_open`).
     pub fn photo_counts_shown(&self, hidden_open: bool) -> Result<Vec<(View, i64)>> {
+        COUNTED
+            .into_iter()
+            .map(|view| Ok((view, self.photo_count_shown(view, hidden_open)?)))
+            .collect()
+    }
+
+    /// How many photos one view holds, with Hidden locked: the launcher's tile, read after
+    /// every service that lands in a pass, wanted only Library's of the nine counts — which,
+    /// with one library of two chosen, are each a count over the whole table.
+    pub fn photo_count(&self, view: View) -> Result<i64> {
+        self.photo_count_shown(view, false)
+    }
+
+    /// One view's count, as [`Library::photo_counts_shown`] gives it.
+    fn photo_count_shown(&self, view: View, hidden_open: bool) -> Result<i64> {
         // One library of two: the kept counts are of both, so these are counted.
         if self.photo_library()? != PhotoLibrary::Both {
-            return self.counted(true, hidden_open);
+            return self.counted_one(view, true, hidden_open);
         }
         // Kept by the photos' own triggers (migration 50): read, never counted. Less, for the
         // views that show a burst once, the burst's other photos — counted over the bursts'
         // own index, which holds bursts only.
-        let mut kept = self
+        let n: i64 = self
             .conn
-            .prepare_cached("SELECT n FROM photo_view_counts WHERE view = ?1")?;
-        let mut out = Vec::new();
-        for view in COUNTED {
-            let n: i64 = kept.query_row([view_key(view)], |r| r.get(0))?;
-            let extra: i64 = if view == View::RecentlyDeleted {
-                // The kept count holds every deleted photo; locked, the hidden ones are not
-                // shown, so not counted (read over the (deleted, hidden) index: a few rows).
-                if hidden_open {
-                    0
-                } else {
-                    self.conn
-                        .prepare_cached(
-                            "SELECT COUNT(*) FROM photos WHERE deleted = 1 AND hidden = 1",
-                        )?
-                        .query_row([], |r| r.get(0))?
-                }
+            .prepare_cached("SELECT n FROM photo_view_counts WHERE view = ?1")?
+            .query_row([view_key(view)], |r| r.get(0))?;
+        let extra: i64 = if view == View::RecentlyDeleted {
+            // The kept count holds every deleted photo; locked, the hidden ones are not
+            // shown, so not counted (read over the (deleted, hidden) index: a few rows).
+            if hidden_open {
+                0
             } else {
-                let (filter, _) = Self::view_query(view, hidden_open);
                 self.conn
-                    .prepare_cached(&format!(
-                        "SELECT COUNT(*) FROM photos INDEXED BY photos_by_burst
-                         WHERE burst IS NOT NULL AND {filter} AND NOT {ONE_PER_BURST}"
-                    ))?
+                    .prepare_cached("SELECT COUNT(*) FROM photos WHERE deleted = 1 AND hidden = 1")?
                     .query_row([], |r| r.get(0))?
-            };
-            out.push((view, n - extra));
-        }
-        Ok(out)
+            }
+        } else {
+            let (filter, _) = Self::view_query(view, hidden_open);
+            self.conn
+                .prepare_cached(&format!(
+                    "SELECT COUNT(*) FROM photos INDEXED BY photos_by_burst
+                     WHERE burst IS NOT NULL AND {filter} AND NOT {ONE_PER_BURST}"
+                ))?
+                .query_row([], |r| r.get(0))?
+        };
+        Ok(n - extra)
     }
 
     /// How many photos each view holds, each counted over the library: what the kept counts
     /// ([`Library::photo_counts_shown`]) must always agree with, Hidden locked or open.
     pub fn photo_counts_counted(&self, hidden_open: bool) -> Result<Vec<(View, i64)>> {
-        self.counted(false, hidden_open)
+        COUNTED
+            .into_iter()
+            .map(|view| Ok((view, self.counted_one(view, false, hidden_open)?)))
+            .collect()
     }
 
-    /// Each view counted over the library: of both libraries, or (`chosen`) of the one the
-    /// views show.
-    fn counted(&self, chosen: bool, hidden_open: bool) -> Result<Vec<(View, i64)>> {
-        let mut out = Vec::new();
-        for view in [
-            View::Library,
-            View::Favorites,
-            View::Videos,
-            View::Screenshots,
-            View::Panoramas,
-            View::Portrait,
-            View::Hidden,
-            View::Rated,
-            View::RecentlyDeleted,
-        ] {
-            // Counted where the rows are: a library of twenty thousand is not read seven times
-            // over to say how many each view holds.
-            let filter = if chosen {
-                self.view_query_in(view, hidden_open)?.0
-            } else {
-                Self::view_query(view, hidden_open).0.to_string()
-            };
-            let bursts = if view == View::RecentlyDeleted {
-                "1"
-            } else {
-                ONE_PER_BURST
-            };
-            let n: i64 = self.conn.query_row(
-                &format!("SELECT COUNT(*) FROM photos WHERE {filter} AND {bursts}"),
-                [],
-                |r| r.get(0),
-            )?;
-            out.push((view, n));
-        }
-        Ok(out)
+    /// One view counted over the library: of both libraries, or (`chosen`) of the one the
+    /// views show. Counted where the rows are: a library of twenty thousand is not read seven
+    /// times over to say how many each view holds.
+    fn counted_one(&self, view: View, chosen: bool, hidden_open: bool) -> Result<i64> {
+        let filter = if chosen {
+            self.view_query_in(view, hidden_open)?.0
+        } else {
+            Self::view_query(view, hidden_open).0.to_string()
+        };
+        let bursts = if view == View::RecentlyDeleted {
+            "1"
+        } else {
+            ONE_PER_BURST
+        };
+        Ok(self.conn.query_row(
+            &format!("SELECT COUNT(*) FROM photos WHERE {filter} AND {bursts}"),
+            [],
+            |r| r.get(0),
+        )?)
     }
 
     /// Files added to the upload queue, waiting.
@@ -1980,6 +1976,57 @@ pub(crate) mod tests {
             burst_pick: false,
             burst_count: 0,
             live_size: None,
+        }
+    }
+
+    /// The SQLite steps `read` takes: a count of the work done, the same however busy the
+    /// machine is.
+    fn steps<T>(lib: &mut Library, read: impl FnOnce(&Library) -> T) -> (T, u64) {
+        use std::sync::atomic::{AtomicU64, Ordering};
+        use std::sync::Arc;
+        let n = Arc::new(AtomicU64::new(0));
+        let counting = Arc::clone(&n);
+        // Called every 100 steps.
+        lib.conn
+            .progress_handler(
+                100,
+                Some(move || {
+                    counting.fetch_add(100, Ordering::SeqCst);
+                    false
+                }),
+            )
+            .unwrap();
+        let out = read(lib);
+        lib.conn
+            .progress_handler(100, None::<fn() -> bool>)
+            .unwrap();
+        (out, n.load(Ordering::SeqCst))
+    }
+
+    /// The launcher wants Library's count alone. With one library of two chosen every view is
+    /// counted over the whole table, so asking all nine to take one read the table nine times.
+    #[test]
+    fn one_views_count_reads_the_library_once_not_nine_times() {
+        let mut lib = Library::in_memory().unwrap();
+        let many: Vec<Photo> = (0..5_000).map(|i| photo(&format!("p{i}"), i)).collect();
+        lib.put_photos_in(None, &many).unwrap();
+        lib.set_photo_library(PhotoLibrary::Personal).unwrap();
+        let (all, all_steps) = steps(&mut lib, |l| l.photo_counts().unwrap());
+        let (one, one_steps) = steps(&mut lib, |l| l.photo_count(View::Library).unwrap());
+        let library = all.iter().find(|(v, _)| *v == View::Library).unwrap().1;
+        assert_eq!(one, library);
+        assert_eq!(one, 5_000);
+        // Library's count is the one that walks the table, so it is most of the nine's cost
+        // (3.5 times less on 18 Nov): well under half proves the other eight are not read.
+        assert!(
+            one_steps * 2 < all_steps,
+            "one view took {one_steps} steps, all nine {all_steps}"
+        );
+        // Both libraries: read from the kept counts, and the same answer.
+        lib.set_photo_library(PhotoLibrary::Both).unwrap();
+        let both = lib.photo_counts().unwrap();
+        for (view, n) in both {
+            assert_eq!(lib.photo_count(view).unwrap(), n, "{view:?}");
         }
     }
 
