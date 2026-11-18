@@ -17,7 +17,7 @@
 //! * signing back in goes through the sign-in's own cooldown (`Error::CoolingDown`, kept on
 //!   disk per account), which this never resets.
 
-use crate::{Client, Error};
+use crate::Client;
 use std::time::{Duration, Instant};
 
 /// How long a session found alive is taken to stay so without asking Apple again.
@@ -85,16 +85,11 @@ impl Client {
             Ok(true) => Kept::Alive,
             Ok(false) if self.awaiting_code() => Kept::Code,
             Ok(false) => Kept::SignIn,
-            // Offline, Apple busy or asking to wait, or the sign-in's own cooldown: not a
-            // sign-out, and not a reason to ask again sooner than the next pass.
-            Err(
-                Error::Network(_)
-                | Error::Unavailable(_)
-                | Error::RateLimited
-                | Error::CoolingDown { .. },
-            ) => Kept::Away,
-            // Anything else (an answer not understood, a keyring that would not answer) says
-            // nothing about whether Apple still holds the session either.
+            // Apple saying no to the account itself (see `Error::ends_session`).
+            Err(e) if e.ends_session() => Kept::SignIn,
+            // Offline, Apple busy or asking to wait, the sign-in's own cooldown, an answer not
+            // understood, a keyring that would not answer: none says whether Apple still holds
+            // the session, and none is a reason to ask again sooner than the next pass.
             Err(_) => Kept::Away,
         };
         match kept {

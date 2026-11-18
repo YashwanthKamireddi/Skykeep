@@ -267,3 +267,115 @@ async fn signed_out_asks_nothing() {
     assert_eq!(client.ensure_session().await, Kept::SignedOut);
     assert_eq!(asked(&server).await, 0);
 }
+
+/// Apple's `/signin/init` answering `400` with service error -900007, "unknown", as it does
+/// now and then (steilerDev/icloud-photos-sync#1237).
+async fn mount_init_unknown_once(server: &MockServer) {
+    Mock::given(method("POST"))
+        .and(path("/appleauth/auth/signin/init"))
+        .respond_with(ResponseTemplate::new(400).set_body_json(json!({
+            "serviceErrors": [{ "code": "-900007", "message": "unknown" }]
+        })))
+        .up_to_n_times(1)
+        .with_priority(1)
+        .mount(server)
+        .await;
+}
+
+/// The cookies and the session token lapsed: every look at the session is turned away.
+async fn turned_away(server: &MockServer) {
+    for p in ["/setup/ws/1/validate", "/setup/ws/1/accountLogin"] {
+        Mock::given(method("POST"))
+            .and(path(p))
+            .respond_with(ResponseTemplate::new(421))
+            .mount(server)
+            .await;
+    }
+}
+
+/// One odd answer while a lapsed session signs back in is not a sign-out: the session is kept
+/// and said as away, and the next attempt, once the sign-in's cooldown has passed, takes it up
+/// again with no code.
+#[tokio::test]
+async fn an_unknown_answer_from_signin_init_is_away_not_signed_out() {
+    let dir = tempfile::tempdir().unwrap();
+    signed_in(dir.path()).await;
+
+    let server = MockServer::start().await;
+    // Lapsed for the first pass (its heartbeat and its resume) and the cooled-down one after.
+    for p in ["/setup/ws/1/validate", "/setup/ws/1/accountLogin"] {
+        Mock::given(method("POST"))
+            .and(path(p))
+            .respond_with(ResponseTemplate::new(421))
+            .up_to_n_times(if p.ends_with("validate") { 4 } else { 2 })
+            .with_priority(1)
+            .mount(&server)
+            .await;
+    }
+    mount_init_unknown_once(&server).await;
+    mount_init(&server).await;
+    mount_complete(&server, 200).await;
+    mount_trust_and_login(&server).await;
+
+    let mut client = client_for(&server, dir.path());
+    let kept = client.ensure_session().await;
+    assert_eq!(kept, Kept::Away);
+    assert!(!kept.ended());
+    assert!(
+        client.session().session_token.is_some(),
+        "the session is kept"
+    );
+    assert!(client.session().password.is_some(), "and the password");
+
+    // Past the sign-in's own cooldown (five seconds after one failed attempt), the next pass
+    // signs back in.
+    tokio::time::sleep(std::time::Duration::from_secs(6)).await;
+    assert_eq!(client.ensure_session().await, Kept::Alive);
+    let reqs = server.received_requests().await.unwrap();
+    assert_eq!(requests_to(&reqs, "/signin/init").len(), 2);
+    assert!(requests_to(&reqs, "/securitycode").is_empty(), "no code");
+}
+
+/// Opening the app while Apple gives that answer opens the library that was kept, not the
+/// sign-in screen.
+#[tokio::test]
+async fn an_unknown_answer_at_launch_opens_the_library() {
+    let dir = tempfile::tempdir().unwrap();
+    signed_in(dir.path()).await;
+
+    let server = MockServer::start().await;
+    turned_away(&server).await;
+    mount_init_unknown_once(&server).await;
+
+    let mut client = client_for(&server, dir.path());
+    assert!(matches!(
+        client.reopen().await.unwrap(),
+        quince_auth::Reopen::Library
+    ));
+    assert!(client.session().session_token.is_some());
+}
+
+/// A locked account is a definite refusal: the session still ends, said as needing a sign-in.
+#[tokio::test]
+async fn a_locked_account_still_ends_the_session() {
+    let dir = tempfile::tempdir().unwrap();
+    signed_in(dir.path()).await;
+
+    let server = MockServer::start().await;
+    turned_away(&server).await;
+    Mock::given(method("POST"))
+        .and(path("/appleauth/auth/signin/init"))
+        .respond_with(ResponseTemplate::new(403).set_body_json(json!({
+            "serviceErrors": [{
+                "code": "-20209",
+                "message": "This Apple Account has been locked for security reasons."
+            }]
+        })))
+        .mount(&server)
+        .await;
+
+    let mut client = client_for(&server, dir.path());
+    let kept = client.ensure_session().await;
+    assert_eq!(kept, Kept::SignIn);
+    assert!(kept.ended());
+}
