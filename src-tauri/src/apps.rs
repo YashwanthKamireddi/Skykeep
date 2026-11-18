@@ -314,6 +314,8 @@ fn make(app: &AppHandle, key: &str, asking: &str) {
             crate::first_show::owe(&w);
             // The size and place it was left at, now that it is made (#62).
             crate::restore_window_state(&w);
+            // Its title bar in the appearance chosen, not the system's, from its first frame.
+            crate::appearance::dress(&w);
             w
         }
         Err(e) => {

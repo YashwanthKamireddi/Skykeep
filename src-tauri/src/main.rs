@@ -6620,6 +6620,8 @@ fn make_main(app: &tauri::AppHandle) -> Option<tauri::WebviewWindow> {
     timing::mark("main made");
     first_show::owe(&window);
     restore_window_state(&window);
+    // Made again after it was let go: its title bar in the appearance chosen (appearance.rs).
+    appearance::dress(&window);
     // A tiling compositor places, sizes and closes windows itself; a title bar with minimise
     // and maximise there only takes room and does nothing it does not. On a desktop that
     // floats windows — GNOME, KDE — it is how a window is moved, so it stays.
@@ -7597,6 +7599,7 @@ fn main() {
             outbox::outbox_discard,
             outbox::outbox_wake,
             appearance::system_contrast,
+            appearance::window_theme,
             network_reach,
             updates::update_status,
             updates::update_check,
