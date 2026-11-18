@@ -61,6 +61,7 @@ mod poster {
     }
 }
 mod push;
+mod recover;
 mod refresh;
 mod reminders_cmds;
 mod saving;
@@ -7171,7 +7172,11 @@ fn main() {
                         }
                     }
                 })
-                .on_webview_ready(|webview| app_cache(&webview))
+                .on_webview_ready(|webview| {
+                    app_cache(&webview);
+                    // A page whose process dies is loaded again, not left blank (recover.rs).
+                    recover::watch(&webview);
+                })
                 .build(),
         )
         // Closing the window hides it rather than quitting, so reminders still ring. Quit is
