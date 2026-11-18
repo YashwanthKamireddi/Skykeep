@@ -13,8 +13,10 @@
 # The identity (Partner Center → the app → Product identity) is taken from this run's inputs,
 # else from the repository variables MSIX_IDENTITY_NAME, MSIX_PUBLISHER and
 # MSIX_PUBLISHER_DISPLAY_NAME, else from stand-ins that make a package fit only for the test
-# install here — never for the Store. A published release (stores.yml) calls it with `store` on,
-# which refuses the stand-ins: the artifact it keeps is the one uploaded to Partner Center.
+# install here — never for the Store. A published release (stores.yml) takes the package its
+# Windows checks made here (prebuilt, with the repository's identity); only when it has none does
+# it call this with `store` on, which refuses the stand-ins: the artifact it keeps is the one
+# uploaded to Partner Center.
 name: MSIX for the Microsoft Store
 
 on:

@@ -11,8 +11,10 @@
 #                (SCOOP_BUCKET_TOKEN);
 #   winget     — a pull request to microsoft/winget-pkgs from the owner's fork, made by Komac
 #                from the release's NSIS installer (WINGET_TOKEN);
-#   msix       — msix.yml: the unsigned Microsoft Store package, kept as the `skykeep-msix`
-#                artifact for the owner to upload to Partner Center (there is no upload here).
+#   msix       — the unsigned Microsoft Store package, kept as the `skykeep-msix` artifact for
+#                the owner to upload to Partner Center (there is no upload here): the very
+#                package the release's Windows checks packed from the published installers and
+#                installed (msix-proven); only when there is none, msix.yml builds it from the tag.
 # COPR needs nothing: it builds each new tag from its own GitHub webhook.
 #
 # A release published with a person's token (gh, the web page) starts this; one published by a
@@ -21,6 +23,7 @@
 # Re-run one release by hand: Actions → Stores → Run workflow, with its tag. Channels that
 # already have the version say so: Scoop and winget leave it as it is; Chocolatey's push and
 # the Snap upload are refused or add a revision, as those stores decide.
+# A dry run by hand (`msix_only`) makes only the Microsoft Store package: no channel is touched.
 name: Stores
 
 on:
@@ -32,11 +35,16 @@ on:
         description: "The published release to send to every store, such as v0.1.5"
         type: string
         required: true
+      msix_only:
+        description: "Only the Microsoft Store package (a dry run): nothing is sent to any store"
+        type: boolean
+        default: false
 
 permissions: {}
 
+# A dry run has a group of its own: it never waits on, or holds up, the real run of its release.
 concurrency:
-  group: stores-${{ github.event.release.tag_name || inputs.tag }}
+  group: stores-${{ github.event.release.tag_name || inputs.tag }}${{ inputs.msix_only && '-msix-only' || '' }}
   cancel-in-progress: false
 
 jobs:
@@ -75,7 +83,7 @@ jobs:
 
   snap:
     needs: resolve
-    if: needs.resolve.outputs.go == 'true'
+    if: needs.resolve.outputs.go == 'true' && !inputs.msix_only
     permissions:
       contents: read
     uses: ./.github/workflows/snap.yml
@@ -87,7 +95,7 @@ jobs:
 
   chocolatey:
     needs: resolve
-    if: needs.resolve.outputs.go == 'true'
+    if: needs.resolve.outputs.go == 'true' && !inputs.msix_only
     permissions:
       contents: read
     uses: ./.github/workflows/packages.yml
@@ -100,7 +108,7 @@ jobs:
 
   scoop:
     needs: resolve
-    if: needs.resolve.outputs.go == 'true'
+    if: needs.resolve.outputs.go == 'true' && !inputs.msix_only
     runs-on: ubuntu-24.04
     timeout-minutes: 10
     permissions:
@@ -164,7 +172,7 @@ jobs:
 
   winget:
     needs: resolve
-    if: needs.resolve.outputs.go == 'true'
+    if: needs.resolve.outputs.go == 'true' && !inputs.msix_only
     runs-on: ubuntu-24.04
     timeout-minutes: 15
     # Komac reads the release with WINGET_TOKEN; this run's own token is not used.
@@ -222,9 +230,72 @@ jobs:
           komac update "$IDENTIFIER" --version "$VERSION" --urls "$installers" \
             --release-notes-url "https://github.com/$REPO/releases/tag/$TAG" --submit
 
-  msix:
+  # The Store gets the package already made and proven: the Windows checks (windows-checks.yml)
+  # on a push of the tag's commit to main packed it from the installers the release then
+  # published, and installed and started it, with Partner Center's identity. It is taken when
+  # that run's installers are the release's (its SHA256SUMS-windows.txt is the release's, byte
+  # for byte) and its manifest names the Store's identity and this version; anything else — no
+  # such run, a release that built Windows itself, an expired artifact, an identity changed
+  # since — and msix.yml builds it from the tag, as before. Before, every release spent 14 of
+  # Stores' 17 minutes building Windows again, and shipped a build no check had installed.
+  msix-proven:
     needs: resolve
     if: needs.resolve.outputs.go == 'true'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    permissions:
+      actions: read
+      contents: read
+    outputs:
+      proven: ${{ steps.ask.outputs.proven }}
+    steps:
+      - id: ask
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPO: ${{ github.repository }}
+          TAG: ${{ needs.resolve.outputs.tag }}
+          VERSION: ${{ needs.resolve.outputs.version }}
+          IDENTITY_NAME: ${{ vars.MSIX_IDENTITY_NAME }}
+          PUBLISHER: ${{ vars.MSIX_PUBLISHER }}
+          PUBLISHER_DISPLAY_NAME: ${{ vars.MSIX_PUBLISHER_DISPLAY_NAME }}
+        run: |
+          not() { echo "$1: msix.yml builds the package from $TAG"; echo "proven=false" >> "$GITHUB_OUTPUT"; exit 0; }
+          # Without Partner Center's identity no package is fit for the Store; msix.yml says which.
+          [ -n "$IDENTITY_NAME" ] && [ -n "$PUBLISHER" ] && [ -n "$PUBLISHER_DISPLAY_NAME" ] \
+            || not "the MSIX_* repository variables are not all set"
+          sha=$(gh api "repos/$REPO/commits/refs/tags/$TAG" --jq .sha)
+          # A push to main's own run only, as release.yml takes it: a pull request's or a run by
+          # hand on another branch can carry the same SHA.
+          run=$(SHA=$sha gh api "repos/$REPO/actions/workflows/windows-checks.yml/runs?head_sha=$sha&status=success&event=push&branch=main&per_page=1" \
+            -q '.workflow_runs[0] | select(.head_sha == env.SHA and .event == "push" and .head_branch == "main") | .id' 2>/dev/null || true)
+          [ -n "$run" ] || not "no successful Windows checks on a push of $sha to main"
+          gh run download "$run" --repo "$REPO" --name skykeep-windows --dir checked \
+            && gh run download "$run" --repo "$REPO" --name skykeep-msix --dir proven \
+            || not "run $run lacks its installers or its package (expired?)"
+          gh release download "$TAG" --repo "$REPO" -p SHA256SUMS-windows.txt --dir released
+          cmp -s checked/SHA256SUMS-windows.txt released/SHA256SUMS-windows.txt \
+            || not "run $run's installers are not the ones $TAG published (the release built Windows itself)"
+          msix="proven/Skykeep_${VERSION}_x64.msix"
+          [ "$(find proven -type f | wc -l)" -eq 1 ] && [ -f "$msix" ] || not "run $run's package is not one Skykeep_${VERSION}_x64.msix: $(ls proven)"
+          unzip -p "$msix" AppxManifest.xml > manifest.xml
+          read_() { xmllint --xpath "string(/*[local-name()='Package']/$1)" manifest.xml; }
+          got="$(read_ "*[local-name()='Identity']/@Name")|$(read_ "*[local-name()='Identity']/@Publisher")|$(read_ "*[local-name()='Identity']/@Version")|$(read_ "*[local-name()='Properties']/*[local-name()='PublisherDisplayName']")"
+          want="$IDENTITY_NAME|$PUBLISHER|$VERSION.0|$PUBLISHER_DISPLAY_NAME"
+          [ "$got" = "$want" ] || not "run $run's package says '$got', not the Store's '$want'"
+          sha256sum "$msix"
+          echo "Windows checks run $run packed and installed this package on $sha, from the installers $TAG published: it is the Store's"
+          echo "proven=true" >> "$GITHUB_OUTPUT"
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        if: steps.ask.outputs.proven == 'true'
+        with:
+          name: skykeep-msix
+          path: proven/*.msix
+          if-no-files-found: error
+
+  # Also when msix-proven itself failed: the Store still gets a package, built from the tag.
+  msix:
+    needs: [resolve, msix-proven]
+    if: ${{ !cancelled() && needs.resolve.outputs.go == 'true' && needs.msix-proven.outputs.proven != 'true' }}
     permissions:
       contents: read
     uses: ./.github/workflows/msix.yml
@@ -236,8 +307,8 @@ jobs:
   # started by the release's token, and a run begun that way sets off no workflow_run, so
   # channels.yml's own trigger on Stores never fired (17 Nov: 0.1.29 went out unchecked).
   channels:
-    needs: [resolve, snap, chocolatey, scoop, winget, msix]
-    if: ${{ always() && needs.resolve.outputs.go == 'true' }}
+    needs: [resolve, snap, chocolatey, scoop, winget, msix-proven, msix]
+    if: ${{ always() && needs.resolve.outputs.go == 'true' && !inputs.msix_only }}
     runs-on: ubuntu-24.04
     timeout-minutes: 5
     permissions:
