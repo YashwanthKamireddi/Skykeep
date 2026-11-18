@@ -4,9 +4,7 @@
 #   linux           — the .deb and .rpm on x86_64 and 64-bit ARM, each installed and started;
 #   flatpak         — the Flatpak bundle (flatpak.yml), installed and started;
 #   android-build / android-sign — the APK, built without its key, then signed apart.
-# Called by linux-checks.yml on every push to main, and by a release only when no such run
-# passed on its commit (release.yml promotes that run's files instead). No job waits on another
-# it doesn't need.
+# Called by a release (release.yml). No job waits on another it doesn't need.
 name: Linux build
 
 on:

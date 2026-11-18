@@ -54,7 +54,7 @@ on:
       store:
         type: boolean
         default: false
-      # The Windows build already made in this run (windows-checks.yml): packed from its
+      # The Windows build already made in this run, when a caller has one: packed from its
       # `skykeep-windows` artifact instead of building Windows a second time.
       prebuilt:
         type: boolean

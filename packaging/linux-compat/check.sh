@@ -8,7 +8,7 @@
 #                   dependencies off, so only what the package itself asks for is there;
 #   <distro_check>  the probe's distro_check example (probe/examples/distro_check.rs), or `-`
 #                   for none: then gst, heic, video and keyring are left out (a released
-#                   package, checked without building anything: linux-launch.yml);
+#                   package, checked without building anything);
 #   <test.heic>     a HEIC made for the test — never anybody's photo (`-` with no probe);
 #   <video>         made-up test videos (crates/quince-media/tests/fixtures: black-start.mp4,
 #                   H.264, and hevc.mov, HEVC as an iPhone records it).
@@ -371,7 +371,7 @@ if [[ $pkg != *.AppImage ]]; then
   [[ -f $helper && ! -L $helper ]] || problems+=" no $helper"
   [[ -f $policy ]] || problems+=" no $policy"
   if [[ $probe == - && ! -e $helper && ! -e $policy ]]; then
-    # A released package (linux-launch.yml) from before the helper was added.
+    # A released package from before the helper was added.
     echo "SKIP polkit — this release has no iPhone camera setup helper"
     problems=skip
   elif [[ -z $problems ]]; then

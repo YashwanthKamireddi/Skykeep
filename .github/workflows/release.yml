@@ -1,10 +1,8 @@
 # A release, from one tag: `git tag v0.2.0 && git push origin v0.2.0`.
 #   linux   — the AppImage, the .deb and .rpm (x86_64 and 64-bit ARM), the Flatpak and the
 #             signed APK (linux.yml: each installed and started, the AppImage also offline on
-#             Ubuntu 22.04 and Fedora 41); or, when the commit's Linux checks already did all
-#             that (linux-checks.yml), their files, promoted as they are;
+#             Ubuntu 22.04 and Fedora 41);
 #   windows — the Windows pipeline (windows.yml): its tests, the .msi and .exe, the smoke test;
-#             or, when the commit's Windows checks already did all that, their signed installers;
 #   publish — every file that passed in one draft release with its checksums and its notes
 #             (the tag's message, then the APK's signing fingerprint); a platform whose build
 #             failed is added when re-run. Each installer is also attached
@@ -36,57 +34,13 @@ on:
         description: "The release commit (\"Skykeep x.y.z\") whose message is the notes, when the tag is a later commit (tag.yml gives it)"
         type: string
         default: ""
-  # Every Monday, the same dry run on main: a tool that changed its output or a distribution
-  # past its end of life shows up mid-week, never on release day (11 Nov: both did).
-  schedule:
-    - cron: "0 6 * * 1"
 
 permissions:
   contents: read
 
 jobs:
-  # Linux and Android as Linux checks (linux-checks.yml) built and proved them on this very
-  # commit's push to main: its files are this release's, promoted rather than built again.
-  # Only when there is no such run does the release build them itself (the `linux` job below).
-  linux-proven:
-    runs-on: ubuntu-24.04
-    timeout-minutes: 10
-    permissions:
-      actions: read
-    outputs:
-      proven: ${{ steps.ask.outputs.proven }}
-    steps:
-      - id: ask
-        env:
-          GH_TOKEN: ${{ github.token }}
-          SHA: ${{ github.sha }}
-          REPO: ${{ github.repository }}
-        run: |
-          run=$(gh api "repos/$REPO/actions/workflows/linux-checks.yml/runs?head_sha=$SHA&status=success&event=push&branch=main&per_page=1" \
-            -q '.workflow_runs[0] | select(.head_sha == env.SHA and .event == "push" and .head_branch == "main") | .id' 2>/dev/null || true)
-          if [ -z "$run" ]; then
-            echo "no successful Linux checks on a push of $SHA to main: the release builds Linux and Android itself"
-            echo "proven=false" >> "$GITHUB_OUTPUT"; exit 0
-          fi
-          for a in skykeep-appimage skykeep-appimage-sums skykeep-linux-x64 skykeep-linux-arm64 skykeep-x86_64.flatpak android; do
-            if ! gh run download "$run" --repo "$REPO" --name "$a" --dir "promoted/$a"; then
-              echo "run $run lacks $a (older run, or expired): the release builds them itself"
-              echo "proven=false" >> "$GITHUB_OUTPUT"; exit 0
-            fi
-          done
-          ls promoted/skykeep-appimage/*.AppImage.sig promoted/android/*-android.apk promoted/skykeep-x86_64.flatpak/*.flatpak
-          echo "Linux checks run $run passed on $SHA: its files are this release's"
-          echo "proven=true" >> "$GITHUB_OUTPUT"
-      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
-        if: steps.ask.outputs.proven == 'true'
-        with:
-          name: skykeep-linux-proven
-          path: promoted
-          if-no-files-found: error
-
+  # Each platform built once, here, in parallel; nothing waits on a run elsewhere.
   linux:
-    needs: linux-proven
-    if: needs.linux-proven.outputs.proven != 'true'
     uses: ./.github/workflows/linux.yml
     secrets:
       TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
@@ -94,52 +48,7 @@ jobs:
       ANDROID_KEYSTORE: ${{ secrets.ANDROID_KEYSTORE }}
       ANDROID_KEYSTORE_PASSWORD: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
 
-  # Build once: when this exact commit passed the Windows checks (windows-checks.yml, by SHA:
-  # tests, Explorer test, installers signed for the updater, installed and started, MSIX), the
-  # release publishes those very installers, byte for byte, instead of building Windows again
-  # (an hour of a release spent re-making what was already proven). Anything else — no such
-  # run, or its signed installers missing or expired — and the release builds and tests Windows
-  # itself, as before. Nothing is published that was not proven.
-  windows-proven:
-    runs-on: ubuntu-24.04
-    timeout-minutes: 10
-    permissions:
-      actions: read
-    outputs:
-      proven: ${{ steps.ask.outputs.proven }}
-    steps:
-      - id: ask
-        env:
-          GH_TOKEN: ${{ github.token }}
-          SHA: ${{ github.sha }}
-          REPO: ${{ github.repository }}
-        run: |
-          # A push to main's own run only: a pull request's (a fork's included) or a run by hand
-          # on another branch can carry the same SHA, and its installers are never published.
-          run=$(gh api "repos/$REPO/actions/workflows/windows-checks.yml/runs?head_sha=$SHA&status=success&event=push&branch=main&per_page=1" \
-            -q '.workflow_runs[0] | select(.head_sha == env.SHA and .event == "push" and .head_branch == "main") | .id' 2>/dev/null || true)
-          if [ -z "$run" ]; then
-            echo "no successful Windows checks on a push of $SHA to main: the release builds and tests Windows itself"
-            echo "proven=false" >> "$GITHUB_OUTPUT"; exit 0
-          fi
-          if gh run download "$run" --repo "$REPO" --name skykeep-windows --dir promoted \
-            && ls promoted/msi/*.msi.sig promoted/nsis/*-setup.exe.sig promoted/SHA256SUMS-windows.txt; then
-            echo "Windows checks run $run passed on $SHA: its signed installers are this release's"
-            echo "proven=true" >> "$GITHUB_OUTPUT"
-          else
-            echo "run $run has no signed installers (older run, or expired): the release builds Windows itself"
-            echo "proven=false" >> "$GITHUB_OUTPUT"
-          fi
-      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
-        if: steps.ask.outputs.proven == 'true'
-        with:
-          name: skykeep-windows
-          path: promoted
-          if-no-files-found: error
-
   windows:
-    needs: windows-proven
-    if: needs.windows-proven.outputs.proven != 'true'
     uses: ./.github/workflows/windows.yml
     with:
       test_first: true
@@ -154,7 +63,7 @@ jobs:
     # (GitHub re-runs this job with it; every step below takes what is there). Each platform's
     # own tests still decide whether its file exists at all.
     if: startsWith(github.ref, 'refs/tags/v') && !cancelled()
-    needs: [linux-proven, linux, windows-proven, windows]
+    needs: [linux, windows]
     runs-on: ubuntu-24.04
     permissions:
       contents: write

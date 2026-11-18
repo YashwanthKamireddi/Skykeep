@@ -22,17 +22,8 @@
 name: Linux compatibility
 
 on:
+  # By hand, when a change to how Skykeep starts on Linux wants proving on every distribution.
   workflow_dispatch:
-  # On a release commit, which always changes the version in tauri.conf.json: tag.yml requires
-  # this run's success on that exact commit, and every other push to main is already proven by
-  # Linux checks. Ten distributions on every merge was the heaviest run for the least news.
-  push:
-    branches: [main]
-    paths: ["src-tauri/tauri.conf.json"]
-  # Every Monday, the same dry run on main: a tool that changed its output or a distribution
-  # past its end of life shows up mid-week, never on release day (11 Nov: both did).
-  schedule:
-    - cron: "0 6 * * 1"
 
 permissions:
   contents: read

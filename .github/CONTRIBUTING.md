@@ -270,14 +270,14 @@ Pull requests to `main` run [`ci.yml`](workflows/ci.yml). A change to Markdown o
 | `android` | `cargo ndk` engine for both ABIs, bindings, `assembleDebug assembleDebugAndroidTest testDebugUnitTest`; every engine `.so` aligned for 16 KB pages |
 | `web` | `tsc`, production build, model tests, the key interface suites in Chromium |
 
-Other workflows run on `main` or for releases, not on pull requests:
+Nothing runs on `main` itself: a merge is the code its pull request checked. The rest run for
+releases or by hand:
 
 | Workflow | When | What |
 |---|---|---|
-| `windows-checks.yml` | every push to `main` (not for Android, docs or Linux-only packaging) | the full Windows pipeline and the MSIX |
-| `windows.yml` | by hand, or called by the above and by releases | tests with `--profile ci-windows`, the Explorer test, `.msi` and `.exe`, a silent install and launch; Edge suites on request |
-| `linux-compat.yml` | by hand and on tags | each package installed and started in clean containers of the main distributions |
-| `tag.yml`, `release.yml` | maintainers | tags only a commit whose CI and Windows checks passed, then builds and drafts the release |
+| `tag.yml`, `release.yml` | merging the release PR (`Skykeep x.y.z`) | tags it at once, builds and tests every platform once, publishes |
+| `windows.yml` | releases, or by hand | tests with `--profile ci-windows`, the Explorer test, `.msi` and `.exe`, a silent install and launch; Edge suites on request |
+| `linux-compat.yml` | by hand | each package installed and started in clean containers of the main distributions |
 | `appimage.yml`, `flatpak.yml`, `snap.yml`, `packages.yml`, `msix.yml`, `stores.yml` | releases and by hand | packaging |
 
 Every third-party action is pinned to a commit SHA, and `.uiverify/workflows-pinned.test.mjs`

@@ -7,18 +7,15 @@
 #   web  — npm ci, the type check, the production build, the model tests, and a smoke run of
 #          the key interface suites in Chromium against `vite preview`.
 # The jobs run side by side. A pull request's newer push cancels its older run. Windows is
-# proven by windows-checks.yml on every push to main, and by windows.yml by hand or for a
-# release. A branch can be run by hand (Actions → CI → Run workflow) before it goes to main.
+# built and tested by every release (windows.yml), or by hand. A branch can be run by hand
+# (Actions → CI → Run workflow) before it goes to main.
 name: CI
 
 on:
   workflow_dispatch:
-  # A change to the words or pictures alone (README, docs) builds nothing: it skipped no check
-  # that could fail, and every README edit cancelled the run before it. Secrets in any commit are
-  # still refused by the pre-commit guard, and the release runs every check whatever changed.
-  push:
-    branches: [main]
-    paths-ignore: ["**.md", "docs/media/**"]
+  # Pull requests only: a merge to main is the code its pull request already checked (and the
+  # release builds and tests every platform itself). Run again on main, each was cancelled by
+  # the next merge (54 of 104 runs in two days).
   # Every pull request runs, so `ci-ok` (below) always reports and main's ruleset can require it;
   # `scope` skips the build for a change to words or README pictures alone.
   pull_request:
@@ -179,7 +176,9 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        runner: [ubuntu-24.04, ubuntu-24.04-arm]
+        # x86_64 only on pull requests: the same tests on ARM found nothing x86_64 didn't, and
+        # every release still builds and ships the ARM packages (linux.yml).
+        runner: [ubuntu-24.04]
     runs-on: ${{ matrix.runner }}
     timeout-minutes: 50  # a cold cache (new toolchain, new lockfile) compiles everything; warm runs take ~12
     permissions:

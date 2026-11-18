@@ -231,18 +231,3 @@ jobs:
     with:
       tag: ${{ needs.resolve.outputs.tag }}
       store: true
-
-  # Then whether every channel has it (channels.yml), started by name: this run was itself
-  # started by the release's token, and a run begun that way sets off no workflow_run, so
-  # channels.yml's own trigger on Stores never fired (17 Nov: 0.1.29 went out unchecked).
-  channels:
-    needs: [resolve, snap, chocolatey, scoop, winget, msix]
-    if: ${{ always() && needs.resolve.outputs.go == 'true' }}
-    runs-on: ubuntu-24.04
-    timeout-minutes: 5
-    permissions:
-      actions: write
-    env:
-      GH_TOKEN: ${{ github.token }}
-    steps:
-      - run: gh workflow run channels.yml -R "$GITHUB_REPOSITORY"

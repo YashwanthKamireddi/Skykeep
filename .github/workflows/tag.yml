@@ -1,18 +1,10 @@
-# A release, started with one button: Actions → Tag a release → Run workflow.
-# It tags only a commit that is on main, whose version is not released yet, and on which both
-# CI (ci.yml), the Windows checks (windows-checks.yml), the Linux checks (linux-checks.yml) and
-# Linux compatibility (linux-compat.yml, every distribution) succeeded — looked up by that exact
-# SHA, so another commit's green run can never stand in for it (9 and 10 Nov: a run of a
-# different commit was read as this one's, by a script and then by hand). Then it starts the
-# release (release.yml) on the new tag: a tag made with the workflow's own token starts no
-# workflow by itself, so it is started here, by name.
-# The tag is the version bump's commit; its message becomes the update's notes.
-#
-# It also runs by itself as each of those four finishes on main: once the last of them is green
-# on a release commit ("Skykeep x.y.z", the newest commit on main), it tags and releases with
-# the same checks as the button. Before, a green release commit waited for someone to notice and
-# press it. Anything else (a fix, a check still running or failed, a version already tagged) is
-# passed over quietly; the button still releases any commit by hand.
+# A release, started by merging its pull request ("Skykeep x.y.z", from bump-version.py): that
+# commit landing on main is tagged at once and the release (release.yml) started on the tag. Its
+# pull request's checks (ci.yml, the licence list included) proved it; the release then builds
+# and tests every platform itself. It tags only a commit on main whose version is not released
+# yet. A tag made with the workflow's own token starts no workflow by itself, so the release is
+# started here, by name. The release commit's message becomes the update's notes.
+# By hand (Actions → Tag a release → Run workflow) for a given commit, or as a dry run.
 name: Tag a release
 
 on:
@@ -26,10 +18,11 @@ on:
         description: "Only check: say whether it could be released, tag nothing"
         type: boolean
         default: false
-  workflow_run:
-    workflows: [CI, Windows checks, Linux checks, Linux compatibility]
-    types: [completed]
+  # The release commit landing on main (it alone changes the version): tagged at once. Its
+  # pull request's checks (ci.yml, the licence list included) are what proved it.
+  push:
     branches: [main]
+    paths: ["src-tauri/tauri.conf.json"]
 
 permissions:
   contents: read
@@ -44,10 +37,7 @@ jobs:
   tag:
     # Started by a check: only one that succeeded, on a commit whose message starts as a
     # release's does, takes a runner at all; the step below decides the rest.
-    if: >-
-      github.event_name != 'workflow_run' ||
-      (github.event.workflow_run.conclusion == 'success' &&
-       startsWith(github.event.workflow_run.head_commit.message, 'Skykeep '))
+    if: github.event_name != 'push' || startsWith(github.event.head_commit.message, 'Skykeep ')
     runs-on: ubuntu-24.04
     timeout-minutes: 20  # the licence list reads every crate's licence files (a few minutes)
     permissions:
@@ -63,9 +53,9 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
           REPO: ${{ github.repository }}
-          GIVEN: ${{ inputs.sha || github.event.workflow_run.head_sha }}
+          GIVEN: ${{ inputs.sha || github.sha }}
           DRY: ${{ inputs.dry_run }}
-          AUTO: ${{ github.event_name == 'workflow_run' }}
+          AUTO: ${{ github.event_name == 'push' }}
         run: |
           # Started by a check finishing: only a release commit that is main's newest, once every
           # check is green, and only once. Anything else is not this run's to release: said, not
@@ -82,22 +72,6 @@ jobs:
           if ! git merge-base --is-ancestor "$SHA" HEAD; then echo "::error::$SHA is not on main"; exit 1; fi
           version=$(git show "$SHA:src-tauri/tauri.conf.json" | jq -r .version)
           tag="v$version"
-          for w in ci.yml windows-checks.yml linux-checks.yml linux-compat.yml; do
-            # A run on main itself only: a pull request's (a fork's included) or a run on another
-            # branch can carry the same SHA, and never stands in for it. Linux compatibility runs
-            # by itself only on a push that changes the version (linux-compat.yml), so a fix
-            # merged after the release commit is proven by running it by hand on main, for that
-            # same SHA (gh workflow run linux-compat.yml --ref main), which counts too.
-            events='"push"'
-            [ "$w" = linux-compat.yml ] && events='"push", "workflow_dispatch"'
-            run=$(gh api "repos/$REPO/actions/workflows/$w/runs?head_sha=$SHA&status=success&branch=main&per_page=20" \
-              -q "[.workflow_runs[] | select(.head_sha == env.SHA and .head_branch == \"main\" and (.event | IN($events)))][0].html_url // empty")
-            if [ -z "$run" ]; then
-              [ "$AUTO" = true ] && pass "$w has not succeeded on $SHA yet"
-              echo "::error::$w has not succeeded on a push of $SHA to main (still running, failed, or never ran)"; exit 1
-            fi
-            echo "$w succeeded on $SHA: $run"
-          done
           if git ls-remote --exit-code --tags origin "refs/tags/$tag" >/dev/null; then
             if [ "$DRY" = true ]; then echo "::warning::$tag already exists (dry run)"; else
               echo "::error::$tag already exists: a release is a new version (bump it on main first)"; exit 1; fi
@@ -105,33 +79,11 @@ jobs:
           echo "sha=$SHA" >> "$GITHUB_OUTPUT"
           echo "tag=$tag" >> "$GITHUB_OUTPUT"
           echo "go=true" >> "$GITHUB_OUTPUT"
-      # The open-source licences the app shows (src/licences.json, written by `npm run licences`
-      # and committed) must be the ones this commit's lockfiles give. Checked here, not on pull
-      # requests, so a dependency update's pull request stays green until the list is rewritten.
       - name: The commit being released
         if: steps.ready.outputs.go == 'true'
         env:
           SHA: ${{ steps.ready.outputs.sha }}
         run: git checkout --detach "$SHA"
-      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
-        if: steps.ready.outputs.go == 'true'
-        with:
-          node-version: 22
-          cache: npm
-      - uses: taiki-e/install-action@4a76afe23f9e08d2d9550fb56e556444e8611d21 # v2.90.4
-        if: steps.ready.outputs.go == 'true'
-        with:
-          tool: cargo-about@0.9.3
-      - name: Licence list current
-        if: steps.ready.outputs.go == 'true'
-        run: |
-          # No install scripts: this job can push tags, so no package's own code runs in it.
-          npm ci --no-audit --no-fund --ignore-scripts
-          npm run licences
-          if ! git diff --exit-code --stat src/licences.json; then
-            echo "::error::src/licences.json is out of date: run npm run licences and commit"
-            exit 1
-          fi
       - name: Tag, then start the release
         if: steps.ready.outputs.go == 'true' && !inputs.dry_run
         env:
