@@ -2244,7 +2244,11 @@ mod busy_tests {
                 .mount(&server)
                 .await;
             let got = fetch(&reqwest::Client::new(), &server.uri(), vec![]).await;
-            assert!(matches!(got, Err(Error::Busy(_))), "{status}: {:?}", got.err());
+            assert!(
+                matches!(got, Err(Error::Busy(_))),
+                "{status}: {:?}",
+                got.err()
+            );
         }
     }
 }

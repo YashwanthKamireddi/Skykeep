@@ -162,6 +162,19 @@ const ABSURD_WAIT: u64 = 24 * 60 * 60;
 type Holds = std::collections::HashMap<String, std::time::SystemTime>;
 static HELD_OFF: std::sync::Mutex<Option<Holds>> = std::sync::Mutex::new(None);
 
+/// The hold on `key` let go of. Tests only: a mock server is pooled and handed to the next test
+/// at the same address, which a hold left behind would refuse.
+#[cfg(test)]
+fn release_hold(key: &str) {
+    if let Some(map) = HELD_OFF
+        .lock()
+        .unwrap_or_else(std::sync::PoisonError::into_inner)
+        .as_mut()
+    {
+        map.remove(key);
+    }
+}
+
 /// How long `key` is still held off, if it is.
 fn held_off(key: &str) -> Option<std::time::Duration> {
     let now = std::time::SystemTime::now();
@@ -280,10 +293,11 @@ impl<'a> ZoneClient<'a> {
         format!("{}/{}", self.base, self.container)
     }
 
-    /// Busy, having been asked to wait `asked`: a wait too long to sit out here, or one asked
-    /// for after every try, holds the container off until it has passed.
+    /// Busy, having been asked to wait `asked`: a wait too long to sit out here holds the
+    /// container off until it has passed. A shorter one is sat out inside the request and tried
+    /// again there; holding it as well only made one client's few seconds every other's.
     fn busy(&self, asked: Option<u64>) -> Error {
-        if let Some(seconds) = asked {
+        if let Some(seconds) = asked.filter(|s| *s > LONGEST_WAIT) {
             hold_off(&self.hold_key(), seconds);
         }
         Error::Busy(asked.map(|s| std::time::Duration::from_secs(s.min(ABSURD_WAIT))))
@@ -376,9 +390,7 @@ impl<'a> ZoneClient<'a> {
                 Err(e) => return Err(e),
                 Ok(Ok(page)) => return Ok(page),
                 // Waited out as a busy request is (`post_json`), then said in words.
-                Ok(Err(asked))
-                    if tries < BUSY_TRIES && asked.is_none_or(|s| s <= LONGEST_WAIT) =>
-                {
+                Ok(Err(asked)) if tries < BUSY_TRIES && asked.is_none_or(|s| s <= LONGEST_WAIT) => {
                     let wait = asked.unwrap_or(2).max(1);
                     tokio::time::sleep(std::time::Duration::from_secs(wait)).await;
                 }
@@ -2268,6 +2280,13 @@ mod trouble_tests {
     use wiremock::matchers::{method, path_regex};
     use wiremock::{Mock, MockServer, ResponseTemplate};
 
+    /// The container's hold let go of when the test ends, passed or not (`release_hold`).
+    struct Unheld(String);
+    impl Drop for Unheld {
+        fn drop(&mut self) {
+            super::release_hold(&self.0);
+        }
+    }
     fn zone_reply(zone: Value) -> ResponseTemplate {
         ResponseTemplate::new(200).set_body_json(json!({ "zones": [zone] }))
     }
@@ -2307,6 +2326,7 @@ mod trouble_tests {
             .await;
         let http = reqwest::Client::new();
         let uri = server.uri();
+        let _unheld = Unheld(format!("{uri}/com.apple.reminders"));
         let asked = |n: usize| {
             let server = &server;
             async move {
@@ -2375,6 +2395,7 @@ mod trouble_tests {
             .await;
         let http = reqwest::Client::new();
         let uri = server.uri();
+        let _unheld = Unheld(format!("{uri}/com.apple.reminders"));
         let err = client(&http, &uri, "com.apple.reminders")
             .all_records("Reminders", None)
             .await
@@ -2392,10 +2413,18 @@ mod trouble_tests {
         let now = std::time::UNIX_EPOCH + std::time::Duration::from_secs(1_800_000_000);
         // 1_800_000_000 is Fri, 15 Jan 2027 08:00:00 GMT.
         let ask = |body: &str, header: Option<&str>| asked_wait(body, header, now);
-        assert_eq!(ask(r#"{"retryAfter":10}"#, Some("99")), Some(10), "the body's first");
+        assert_eq!(
+            ask(r#"{"retryAfter":10}"#, Some("99")),
+            Some(10),
+            "the body's first"
+        );
         assert_eq!(ask("", Some(" 1800 ")), Some(1800));
         assert_eq!(ask("", Some("Fri, 15 Jan 2027 08:30:00 GMT")), Some(1800));
-        assert_eq!(ask("", Some("Fri, 15 Jan 2027 07:00:00 GMT")), Some(0), "past");
+        assert_eq!(
+            ask("", Some("Fri, 15 Jan 2027 07:00:00 GMT")),
+            Some(0),
+            "past"
+        );
         assert_eq!(ask("", Some("soon")), None);
         assert_eq!(ask("", None), None);
     }
