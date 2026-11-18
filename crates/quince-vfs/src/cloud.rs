@@ -746,7 +746,20 @@ async fn fetch_data(remote: &dyn Remote, req: Request, offset: u64, len: u64) {
     // once if need be, never through Apple in pieces.
     if let Some(whole) = remote.file(&item) {
         report(&req, end - start, 0);
-        let path = match whole.await {
+        // The whole file is fetched before its first byte can go to Windows: a video of a few
+        // gigabytes takes minutes on a slow line, and Windows fails a request it hears nothing
+        // about for 60 seconds, so the video never opened. Progress said meanwhile keeps the
+        // request waiting until the file is here.
+        let (connection, transfer, total) = (req.connection, req.transfer, end - start);
+        let beat = tokio::spawn(async move {
+            loop {
+                tokio::time::sleep(KEEP_ALIVE).await;
+                progress(connection, transfer, total, 0);
+            }
+        });
+        let fetched = whole.await;
+        beat.abort();
+        let path = match fetched {
             Ok(path) => path,
             Err(e) => {
                 crate::note_about(&format!("fetching a file: {e}"), &item.drivewsid);
@@ -817,11 +830,22 @@ fn read_at(path: &Path, at: u64, n: u64) -> Option<Vec<u8>> {
     Some(buf)
 }
 
+/// How often a request waiting on a whole file is told it is still being worked on: well
+/// inside Windows' 60 seconds.
+const KEEP_ALIVE: std::time::Duration = std::time::Duration::from_secs(15);
+
 fn report(req: &Request, total: u64, done: u64) {
+    progress(req.connection, req.transfer, total, done);
+}
+
+fn progress(connection: CF_CONNECTION_KEY, transfer: i64, total: u64, done: u64) {
+    // Sizes past 4 GiB as Windows takes them: i64, never a narrower type on the way.
+    let (total, done) = (
+        i64::try_from(total).unwrap_or(i64::MAX),
+        i64::try_from(done).unwrap_or(i64::MAX),
+    );
     // SAFETY: a plain call with keys Windows gave us.
-    let _ = unsafe {
-        CfReportProviderProgress(req.connection, req.transfer, total as i64, done as i64)
-    };
+    let _ = unsafe { CfReportProviderProgress(connection, transfer, total, done) };
 }
 
 /// One piece handed to Windows, or with a failure status the range it fails.
