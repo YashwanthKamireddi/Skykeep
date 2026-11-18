@@ -770,6 +770,20 @@ async fn fetch(
     if let Err(e) = tokio::fs::create_dir_all(&month).await {
         return Err(disk_trouble(e.kind(), &e.to_string(), folder));
     }
+    // A `.part` under this name is what a download cut short by a quit or a crash left behind:
+    // no other is being written (passes never overlap, and this name was given to this file
+    // alone). Left there, it refused the new download, the pass ended on it, and as the same
+    // photo came first again every pass after it did too: nothing more was ever backed up.
+    // Only a file or a link goes, never what a link points to.
+    let part = crate::photos::part_of(&path);
+    if tokio::fs::symlink_metadata(&part)
+        .await
+        .is_ok_and(|m| !m.is_dir())
+    {
+        if let Err(e) = tokio::fs::remove_file(&part).await {
+            return Err(disk_trouble(e.kind(), &e.to_string(), folder));
+        }
+    }
     match stream_to_new_file(http, url, &path).await {
         Ok(size) if expected.is_none_or(|e| e == size) => Ok(Fetched::Done(rel, size)),
         Ok(_) => {
@@ -1005,6 +1019,137 @@ mod tests {
             let stem = name.split('.').next().unwrap_or_default().to_uppercase();
             assert_ne!(stem, "CON", "{name:?}");
         }
+    }
+
+    /// Apple's files, by path: what each download link answers.
+    async fn apple(files: &[(&str, Vec<u8>)]) -> wiremock::MockServer {
+        let server = wiremock::MockServer::start().await;
+        for (path, bytes) in files {
+            wiremock::Mock::given(wiremock::matchers::path(*path))
+                .respond_with(wiremock::ResponseTemplate::new(200).set_body_bytes(bytes.clone()))
+                .mount(&server)
+                .await;
+        }
+        server
+    }
+
+    fn names(claimed: &[&str]) -> Arc<Mutex<Names>> {
+        Arc::new(Mutex::new(Names::new(
+            claimed.iter().map(|p| p.to_lowercase()).collect(),
+        )))
+    }
+
+    fn listed(dir: &Path) -> Vec<String> {
+        let mut out: Vec<String> = std::fs::read_dir(dir)
+            .unwrap()
+            .map(|e| e.unwrap().file_name().to_string_lossy().into_owned())
+            .collect();
+        out.sort();
+        out
+    }
+
+    /// Two different photos named IMG_0001.JPG taken the same month, of the same size (the
+    /// hardest case: no size tells them apart): both kept, each its own bytes. Run again over
+    /// the folder (the record lost, a folder pointed at again), each finds its own file and
+    /// nothing is fetched, written or renamed; a third of that name gets a third file.
+    #[tokio::test(flavor = "multi_thread")]
+    async fn two_photos_of_one_name_in_one_month_both_survive_every_run() {
+        let (a, b, c) = (vec![1u8; 100], vec![2u8; 100], vec![3u8; 40]);
+        let server = apple(&[("/a", a.clone()), ("/b", b.clone()), ("/c", c.clone())]).await;
+        let http = reqwest::Client::new();
+        let dir = tempfile::tempdir().unwrap();
+        let folder = dir.path();
+        let month = "Photos/2026/01";
+        let get = |taken: Arc<Mutex<Names>>, link: &'static str, size: usize| {
+            let (http, url) = (http.clone(), format!("{}{link}", server.uri()));
+            async move {
+                fetch(
+                    &http,
+                    folder,
+                    &taken,
+                    month,
+                    "IMG_0001.JPG",
+                    &url,
+                    Some(size as u64),
+                )
+                .await
+                .unwrap()
+            }
+        };
+
+        let first = names(&[]);
+        let Fetched::Done(ra, 100) = get(Arc::clone(&first), "/a", 100).await else {
+            panic!("a not copied")
+        };
+        let Fetched::Done(rb, 100) = get(Arc::clone(&first), "/b", 100).await else {
+            panic!("b not copied")
+        };
+        assert_eq!(ra, "Photos/2026/01/IMG_0001.JPG");
+        assert_eq!(rb, "Photos/2026/01/IMG_0001 2.JPG");
+        assert_eq!(std::fs::read(folder.join(&ra)).unwrap(), a);
+        assert_eq!(std::fs::read(folder.join(&rb)).unwrap(), b);
+        let asked = server.received_requests().await.unwrap().len();
+        assert_eq!(asked, 2);
+
+        // Run again with nothing recorded: each found as it is, none fetched again.
+        let again = names(&[]);
+        let Fetched::Found(fa, _) = get(Arc::clone(&again), "/a", 100).await else {
+            panic!("a fetched again")
+        };
+        let Fetched::Found(fb, _) = get(Arc::clone(&again), "/b", 100).await else {
+            panic!("b fetched again")
+        };
+        assert_ne!(fa, fb, "never both taken as one file");
+        assert_eq!(server.received_requests().await.unwrap().len(), asked);
+
+        // Run again with both recorded: a third photo of that name is a third file.
+        let recorded = names(&[&ra, &rb]);
+        let Fetched::Done(rc, 40) = get(recorded, "/c", 40).await else {
+            panic!("c not copied")
+        };
+        assert_eq!(rc, "Photos/2026/01/IMG_0001 3.JPG");
+        assert_eq!(
+            listed(&folder.join(month)),
+            ["IMG_0001 2.JPG", "IMG_0001 3.JPG", "IMG_0001.JPG"]
+        );
+        assert_eq!(std::fs::read(folder.join(&ra)).unwrap(), a, "a untouched");
+        assert_eq!(std::fs::read(folder.join(&rb)).unwrap(), b, "b untouched");
+        assert_eq!(std::fs::read(folder.join(&rc)).unwrap(), c);
+    }
+
+    /// Skykeep quit (or the computer slept for good) half way through a video: its `.part` is
+    /// left. The next pass copies that photo whole all the same; the leftover never ends the
+    /// pass, so it never stops every pass after it.
+    #[tokio::test(flavor = "multi_thread")]
+    async fn a_download_cut_short_by_a_quit_never_stalls_the_backup() {
+        let video = vec![7u8; 5000];
+        let server = apple(&[("/v", video.clone())]).await;
+        let dir = tempfile::tempdir().unwrap();
+        let folder = dir.path();
+        let month = "Photos/2026/02";
+        std::fs::create_dir_all(folder.join(month)).unwrap();
+        std::fs::write(folder.join(month).join("IMG_0002.MOV.part"), [0u8; 1200]).unwrap();
+
+        let got = fetch(
+            &reqwest::Client::new(),
+            folder,
+            &names(&[]),
+            month,
+            "IMG_0002.MOV",
+            &format!("{}/v", server.uri()),
+            Some(5000),
+        )
+        .await;
+        let Ok(Fetched::Done(rel, 5000)) = got else {
+            panic!("the backup stopped on a leftover part")
+        };
+        assert_eq!(rel, "Photos/2026/02/IMG_0002.MOV");
+        assert_eq!(std::fs::read(folder.join(&rel)).unwrap(), video);
+        assert_eq!(
+            listed(&folder.join(month)),
+            ["IMG_0002.MOV"],
+            "nothing left over"
+        );
     }
 
     #[test]

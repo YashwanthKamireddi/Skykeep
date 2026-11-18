@@ -113,6 +113,9 @@ parts:
       - libpipewire-0.3-0t64
     override-prime: |
       craftctl default
+      # The .deb's iPhone camera setup and its polkit action are for the system's own polkit,
+      # which never reads files inside a snap; the app runs its built-in setup instead.
+      rm -rf usr/lib/skykeep usr/share/polkit-1
       # Each launcher's icon, from inside the snap.
       for f in usr/share/applications/*.desktop; do
         icon=$(sed -n 's/^Icon=//p' "$f")
