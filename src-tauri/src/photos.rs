@@ -179,7 +179,7 @@ fn fresh_links(master: &str) -> Option<Links> {
 }
 
 /// Which of a photo's pictures is wanted.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
 pub enum Size {
     Thumb,
     Medium,
@@ -374,7 +374,21 @@ pub async fn fitted(app: &AppHandle, id: &str, long: u32) -> Result<Vec<u8>, Str
         MAKING.add_permits(cores);
     });
     let mut last = None;
+    // The whole picture here already (kept ahead, or opened): nothing fetched to make a smaller
+    // one. Asked for Apple's medium first, a preview of a photo kept ahead downloaded it, and
+    // again each time the cap let it go (#167).
+    let full_here = tokio::fs::try_exists(cache_path(app, id, Size::Full))
+        .await
+        .unwrap_or(false);
     for size in [Size::Thumb, Size::Medium, Size::Full] {
+        if size == Size::Medium
+            && full_here
+            && !tokio::fs::try_exists(cache_path(app, id, Size::Medium))
+                .await
+                .unwrap_or(false)
+        {
+            continue;
+        }
         // A picture Apple has not got (a HEIC whose original cannot be read, a screenshot with
         // no screen-sized copy) is passed over: the largest there is serves, never an error
         // where a picture could be shown.
@@ -748,13 +762,20 @@ pub fn trim_cache(app: &AppHandle) -> u64 {
 
 /// Keeps the newest photos' whole pictures, and videos, on disk ahead of being opened — as
 /// Photos on a Mac keeps originals — so a photo opens at full quality and a video plays at once,
-/// never waiting on the network. Newest first, two at a time, at most 600 and 3 GB a pass, after
-/// each sync; one pass at a time; what is on disk already is skipped.
+/// never waiting on the network. Newest first, two at a time, after each sync; one pass at a
+/// time; what is on disk already is skipped.
+///
+/// What is kept ahead fits the cache by construction ([`ahead_plan`]): at most half its limit
+/// (and 3 GB), the other half left to what the person opens, and refreshed each pass so the
+/// cap lets viewed pictures go before it. Before, the newest 600 were fetched whatever the cap:
+/// a library whose newest 600 outgrew it had them let go of and fetched again after every
+/// sync, 23 GB a day with nothing opened (#167).
 pub fn keep_ahead(app: AppHandle) {
-    // The pictures the window shows, for whatever the sync brought.
-    prepare(app.clone());
     static RUNNING: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
     if RUNNING.swap(true, std::sync::atomic::Ordering::SeqCst) {
+        // A pass under way: the window's pictures for whatever the sync brought, from the set
+        // it last kept ahead (that pass makes them again once it has decided).
+        prepare(app);
         return;
     }
     tauri::async_runtime::spawn(async move {
@@ -797,37 +818,75 @@ pub fn keep_ahead(app: AppHandle) {
                     .insert(id);
             }
         }
-        // What is on disk already, asked of the disk off the runtime's workers: a stat each, and
-        // on Windows a stat is slow enough to count.
+        // The cache held to its limit first; half of that limit (and 3 GB) is what may be kept
+        // ahead. What is on disk is asked of the disk off the runtime's workers: a stat each,
+        // and on Windows a stat is slow enough to count.
         let ask = app.clone();
-        let wanted: Vec<(String, Size)> = tauri::async_runtime::spawn_blocking(move || {
-            newest
-                .into_iter()
-                .take(600)
-                // A video's streaming copy as well as its original: the copy is what the
-                // window plays (H.264, its index first, a few megabytes), so a video opens
-                // playing from the disk, never waiting on Apple for its first frame.
-                .flat_map(|p| {
-                    if p.kind == quince_core::photos::Kind::Video {
-                        vec![(p.id.clone(), Size::Video), (p.id, Size::Original)]
-                    } else {
-                        vec![(p.id, Size::Full)]
+        let (wanted, room) = tauri::async_runtime::spawn_blocking(move || {
+            let (out, limit) = crate::photo_cache::trim_now(&ask);
+            let steps = preview_steps(&ask);
+            // A still's previews are made from its whole picture and kept with it: counted
+            // with it, so the set and what is made from it fit together.
+            let previews = |id: &str| -> u64 {
+                steps
+                    .iter()
+                    .filter_map(|step| std::fs::metadata(fit_path(&ask, id, *step)).ok())
+                    .map(|m| m.len())
+                    .sum()
+            };
+            let plan = ahead_plan(
+                newest.iter().take(600).map(|p| {
+                    (
+                        p.id.as_str(),
+                        p.kind == quince_core::photos::Kind::Video,
+                        p.size.and_then(|s| u64::try_from(s).ok()),
+                    )
+                }),
+                |id, size| {
+                    std::fs::metadata(cache_path(&ask, id, size))
+                        .ok()
+                        .map(|m| m.len() + if size == Size::Full { previews(id) } else { 0 })
+                },
+                (limit / 2).min(AHEAD_MOST),
+            );
+            // Seen now, so the cap lets what was opened go first: the set fits half the limit,
+            // so the other half is always there for what the person views.
+            let now = std::time::SystemTime::now();
+            let seen = |path: PathBuf| {
+                if let Ok(file) = std::fs::File::options().write(true).open(&path) {
+                    let _ = file.set_modified(now);
+                }
+            };
+            for (id, size) in &plan.kept {
+                seen(cache_path(&ask, id, *size));
+                if *size == Size::Full {
+                    for step in &steps {
+                        seen(fit_path(&ask, id, *step));
                     }
-                })
-                .filter(|(id, size)| !cache_path(&ask, id, *size).exists())
-                .collect()
+                }
+            }
+            // The stills kept ahead that are on disk: theirs are the previews `prepare` makes,
+            // from what is here (those still to come join once fetched, below).
+            set_ahead(
+                plan.kept
+                    .iter()
+                    .filter(|(_, size)| *size == Size::Full)
+                    .map(|(id, _)| id.clone())
+                    .collect(),
+            );
+            let room = limit.saturating_sub(out.after).min(plan.room);
+            (plan.fetch, room)
         })
         .await
         .unwrap_or_default();
-        // At most 3 GB a pass, and never past the cache's budget: a computer short of space
-        // keeps fewer ahead, not a full disk.
-        let room = {
-            let app = app.clone();
-            tauri::async_runtime::spawn_blocking(move || trim_cache(&app))
-                .await
-                .unwrap_or(0)
-        };
-        let budget = std::sync::atomic::AtomicU64::new(room.min(3 * 1024 * 1024 * 1024));
+        // The grid's pictures now, not after the downloads below.
+        prepare(app.clone());
+        let budget = std::sync::atomic::AtomicU64::new(room);
+        let wanted_ids: Vec<String> = wanted
+            .iter()
+            .filter(|(_, size)| *size == Size::Full)
+            .map(|(id, _)| id.clone())
+            .collect();
         futures_util::stream::iter(wanted)
             .for_each_concurrent(2, |(id, size)| {
                 let (app, budget) = (app.clone(), &budget);
@@ -852,8 +911,76 @@ pub fn keep_ahead(app: AppHandle) {
             .await;
         let trim = app.clone();
         let _ = tauri::async_runtime::spawn_blocking(move || trim_cache(&trim)).await;
+        // The stills fetched join the set, their whole picture now here to make previews from.
+        let fetched: Vec<String> = wanted_ids
+            .into_iter()
+            .filter(|id| cache_path(&app, id, Size::Full).exists())
+            .collect();
+        if !fetched.is_empty() {
+            let mut all = (*kept_ahead()).clone();
+            all.extend(fetched);
+            set_ahead(all);
+            prepare(app.clone());
+        }
         RUNNING.store(false, std::sync::atomic::Ordering::SeqCst);
     });
+}
+
+/// The most kept ahead, whatever the cache's limit.
+const AHEAD_MOST: u64 = 3 * 1024 * 1024 * 1024;
+
+/// What a photo's picture is reckoned to take before it is on disk, when Apple gave no size.
+const UNKNOWN_SIZE: u64 = 8 * 1024 * 1024;
+
+/// What [`keep_ahead`] does in a pass: the pictures to fetch, the ones already here to keep, and
+/// the bytes the fetches may take.
+#[derive(Debug, Default, PartialEq)]
+struct AheadPlan {
+    fetch: Vec<(String, Size)>,
+    kept: Vec<(String, Size)>,
+    room: u64,
+}
+
+/// The newest photos (id, is a video, Apple's size of the original) taken ahead, newest first,
+/// while what they take stays within `budget`: a picture on disk at its size, one still to come
+/// at its original's (an upper bound for a still's whole picture; a video's streaming copy is
+/// reckoned the same). One that would not fit is passed over, so the same library makes the
+/// same set every pass, and a pass after the first fetches only what is new.
+fn ahead_plan<'a>(
+    newest: impl IntoIterator<Item = (&'a str, bool, Option<u64>)>,
+    on_disk: impl Fn(&str, Size) -> Option<u64>,
+    budget: u64,
+) -> AheadPlan {
+    let mut plan = AheadPlan::default();
+    let mut taken = 0u64;
+    for (id, video, original) in newest {
+        // A video's streaming copy as well as its original: the copy is what the window plays
+        // (H.264, its index first), so a video opens playing from the disk, never waiting on
+        // Apple for its first frame.
+        let sizes: &[Size] = if video {
+            &[Size::Video, Size::Original]
+        } else {
+            &[Size::Full]
+        };
+        let here: Vec<Option<u64>> = sizes.iter().map(|s| on_disk(id, *s)).collect();
+        let cost: u64 = here
+            .iter()
+            .map(|h| h.unwrap_or_else(|| original.unwrap_or(UNKNOWN_SIZE)))
+            .sum();
+        if taken.saturating_add(cost) > budget {
+            continue;
+        }
+        taken += cost;
+        for (size, h) in sizes.iter().zip(here) {
+            if h.is_some() {
+                plan.kept.push((id.to_string(), *size));
+            } else {
+                plan.fetch.push((id.to_string(), *size));
+                plan.room = plan.room.saturating_add(original.unwrap_or(UNKNOWN_SIZE));
+            }
+        }
+    }
+    plan
 }
 
 /// What the window is showing pictures at: a grid cell's width in device pixels, whether the
@@ -875,25 +1002,26 @@ pub struct Shown {
 /// How many of the grid's photos `prepare` reads at a time.
 const GRID_PAGE: usize = 2_000;
 
-/// Of one page of the grid's photos (`stills_before` stills came in earlier pages), the
-/// pictures to make: each still's grid picture while it is thumbnail-sized (kept always), the
-/// larger grid and viewer pictures of the newest 600 stills only — previews the cache's cap
-/// lets go of, made for every photo they were let go and made again after every sync — and
-/// of those only the ones `missing`. Answers them and how many stills the page held.
+/// Of one page of the grid's photos, the pictures to make: each still's grid picture while it
+/// is thumbnail-sized (kept always), and the larger grid and viewer pictures of the photos kept
+/// ahead (`ahead`, [`keep_ahead`]'s set) only — previews the cache's cap lets go of, so made
+/// only for photos whose whole picture is on disk to make them from, and counted in the budget
+/// that set fits. Before, they were made for the grid's first 600, in its own order: with
+/// Oldest First (#120) that was the oldest 600, a picture downloaded for each, let go of by
+/// the cap and made again after every sync (#167). Of those only the ones `missing`.
 fn wanted_steps(
     page: &[quince_core::photos::PhotoShape],
     shown: Shown,
-    stills_before: usize,
+    ahead: &std::collections::HashSet<String>,
     missing: impl Fn(&str, u32) -> bool,
-) -> (Vec<(String, u32)>, usize) {
-    let stills: Vec<&quince_core::photos::PhotoShape> = page
+) -> Vec<(String, u32)> {
+    let stills = page
         .iter()
-        .filter(|p| p.kind != quince_core::photos::Kind::Video)
-        .collect();
+        .filter(|p| p.kind != quince_core::photos::Kind::Video);
     let mut out = Vec::new();
-    for (i, p) in stills.iter().enumerate() {
+    for p in stills {
         let (grid, viewer) = steps_of(p.width, p.height, shown);
-        let newest = stills_before + i < 600;
+        let newest = ahead.contains(&p.id);
         if grid <= crate::photo_cache::THUMB_STEP || newest {
             out.push((p.id.clone(), grid));
         }
@@ -902,7 +1030,43 @@ fn wanted_steps(
         }
     }
     out.retain(|(id, step)| missing(id, *step));
-    (out, stills.len())
+    out
+}
+
+/// The photos [`keep_ahead`] last kept ahead: the ones whose previews `prepare` makes.
+static AHEAD: Mutex<Option<std::sync::Arc<std::collections::HashSet<String>>>> = Mutex::new(None);
+
+fn set_ahead(stills: std::collections::HashSet<String>) {
+    *AHEAD
+        .lock()
+        .unwrap_or_else(std::sync::PoisonError::into_inner) = Some(std::sync::Arc::new(stills));
+}
+
+fn kept_ahead() -> std::sync::Arc<std::collections::HashSet<String>> {
+    AHEAD
+        .lock()
+        .unwrap_or_else(std::sync::PoisonError::into_inner)
+        .clone()
+        .unwrap_or_default()
+}
+
+/// The preview steps on disk (`fit/<step>` folders past thumbnail size).
+fn preview_steps(app: &AppHandle) -> Vec<u32> {
+    std::fs::read_dir(crate::state_dir(app).join("photos").join("fit"))
+        .into_iter()
+        .flatten()
+        .flatten()
+        .filter_map(|e| e.file_name().to_str()?.parse::<u32>().ok())
+        .filter(|step| *step > crate::photo_cache::THUMB_STEP)
+        .collect()
+}
+
+fn fit_path(app: &AppHandle, id: &str, step: u32) -> PathBuf {
+    crate::state_dir(app)
+        .join("photos")
+        .join("fit")
+        .join(step.to_string())
+        .join(&*cache_name(id))
 }
 
 /// The step a picture is made at for a longer side of `long` device pixels — the window's own
@@ -975,8 +1139,10 @@ pub fn prepare(app: AppHandle) {
             .unwrap_or_default();
         if !shared.is_empty() {
             let dir = fit_dir.clone();
-            let (wanted, _) = tauri::async_runtime::spawn_blocking(move || {
-                wanted_steps(&shared, shown, 0, |id, step| {
+            // Their grid pictures; a preview of one is made when it is opened (it is made from
+            // the original, which the cap would let go of and a sync fetch again).
+            let wanted = tauri::async_runtime::spawn_blocking(move || {
+                wanted_steps(&shared, shown, &Default::default(), |id, step| {
                     !dir.join(step.to_string()).join(&*cache_name(id)).exists()
                 })
             })
@@ -999,7 +1165,7 @@ pub fn prepare(app: AppHandle) {
         // library (the whole of it, read as photos under the writer's lock, was 665 MB and
         // seconds of every pass's wait at a million).
         let mut after = None;
-        let mut stills_seen = 0usize;
+        let ahead = kept_ahead();
         loop {
             if PREPARING.load(std::sync::atomic::Ordering::SeqCst) != mine {
                 return;
@@ -1013,18 +1179,16 @@ pub fn prepare(app: AppHandle) {
             else {
                 return;
             };
-            let seen = stills_seen;
             let dir = fit_dir.clone();
+            let ahead = ahead.clone();
             // A stat per picture, off the runtime's workers (see keep_ahead).
-            let (wanted, stills): (Vec<(String, u32)>, usize) =
-                tauri::async_runtime::spawn_blocking(move || {
-                    wanted_steps(&page, shown, seen, |id, step| {
-                        !dir.join(step.to_string()).join(&*cache_name(id)).exists()
-                    })
+            let wanted: Vec<(String, u32)> = tauri::async_runtime::spawn_blocking(move || {
+                wanted_steps(&page, shown, &ahead, |id, step| {
+                    !dir.join(step.to_string()).join(&*cache_name(id)).exists()
                 })
-                .await
-                .unwrap_or_default();
-            stills_seen += stills;
+            })
+            .await
+            .unwrap_or_default();
             futures_util::stream::iter(wanted)
                 .for_each_concurrent(4, |(id, step)| {
                     let app = app.clone();
@@ -3354,6 +3518,133 @@ mod link_tests {
 
 #[cfg(test)]
 mod tests {
+    /// #167: previews are made for the photos kept ahead, whatever order the grid is in. With
+    /// Oldest First (#120) the grid's first 600 were the oldest, and theirs were made.
+    #[test]
+    fn previews_are_made_for_the_photos_kept_ahead_not_the_grids_first() {
+        use quince_core::photos::{Kind, PhotoShape};
+        let shape = |id: &str| PhotoShape {
+            id: id.into(),
+            width: 4032,
+            height: 3024,
+            kind: Kind::Image,
+            taken_at: 0,
+        };
+        // Oldest first: the newest is last.
+        let page: Vec<PhotoShape> = (0..1000).map(|i| shape(&format!("p{i}"))).collect();
+        let shown = super::Shown {
+            cell: 180.0,
+            fit: false,
+            stage_w: 1300.0,
+            stage_h: 800.0,
+            dpr: 1.0,
+            view: None,
+        };
+        let ahead: std::collections::HashSet<String> = ["p999".to_string()].into();
+        let wanted = super::wanted_steps(&page, shown, &ahead, |_, _| true);
+        let previews: Vec<&(String, u32)> = wanted
+            .iter()
+            .filter(|(_, step)| *step > crate::photo_cache::THUMB_STEP)
+            .collect();
+        assert_eq!(previews, [&("p999".to_string(), 1536)]);
+        // Every photo's grid picture (thumbnail-sized, kept always) is still made.
+        assert_eq!(wanted.len(), 1001);
+        // Nothing kept ahead: no previews at all.
+        let none = super::wanted_steps(&page, shown, &Default::default(), |_, _| true);
+        assert!(none
+            .iter()
+            .all(|(_, step)| *step <= crate::photo_cache::THUMB_STEP));
+    }
+
+    /// #167: a library whose newest photos outgrow the cache. What is kept ahead stays within
+    /// its budget; once fetched, the next pass fetches nothing and keeps the same set; a photo
+    /// too big to fit is passed over, not a reason to stop; only what is new is fetched after.
+    #[test]
+    fn what_is_kept_ahead_fits_and_is_fetched_once() {
+        use super::{ahead_plan, Size};
+        use std::cell::RefCell;
+        use std::collections::HashMap;
+        const MB: u64 = 1024 * 1024;
+        // 600 photos of 4 MB and a 3 GB video among them, under a 2 GB cache: 1 GB ahead.
+        let mut photos: Vec<(String, bool, Option<u64>)> = (0..600)
+            .map(|i| (format!("p{i}"), false, Some(4 * MB)))
+            .collect();
+        photos.insert(3, ("v".into(), true, Some(3 * 1024 * MB)));
+        let (cap, budget) = (2048 * MB, 1024 * MB);
+        // The cache: each picture's size and when it was last seen (the clock is the pass).
+        let disk: RefCell<HashMap<(String, Size), (u64, u32)>> = RefCell::new(HashMap::new());
+        let clock = std::cell::Cell::new(0u32);
+        let pass = |photos: &[(String, bool, Option<u64>)]| {
+            clock.set(clock.get() + 1);
+            let plan = ahead_plan(
+                photos.iter().map(|(id, v, s)| (id.as_str(), *v, *s)),
+                |id, size| disk.borrow().get(&(id.to_string(), size)).map(|(b, _)| *b),
+                budget,
+            );
+            // Kept ahead: seen now (keep_ahead refreshes them).
+            for k in &plan.kept {
+                if let Some(e) = disk.borrow_mut().get_mut(k) {
+                    e.1 = clock.get();
+                }
+            }
+            for (id, size) in &plan.fetch {
+                // Fetched smaller than the original's size, as a whole picture is.
+                disk.borrow_mut()
+                    .insert((id.clone(), *size), (3 * MB, clock.get()));
+            }
+            plan
+        };
+        // Between syncs the person opens 300 MB of older photos, and the cap lets the longest
+        // unseen go, as photo_cache's trim does.
+        let view_and_trim = |n: u32| {
+            let mut d = disk.borrow_mut();
+            for i in 0..100 {
+                d.insert(
+                    (format!("old{n}-{i}"), Size::Original),
+                    (3 * MB, clock.get()),
+                );
+            }
+            while d.values().map(|(b, _)| b).sum::<u64>() > cap {
+                let oldest = d
+                    .iter()
+                    .min_by_key(|(_, (_, seen))| *seen)
+                    .map(|(k, _)| k.clone());
+                d.remove(&oldest.unwrap());
+            }
+        };
+        // Twenty syncs: no picture fetched twice, what is kept ahead never past its budget,
+        // and the passes settle to fetching nothing.
+        let mut fetched = std::collections::HashSet::new();
+        let mut last = usize::MAX;
+        for n in 0..20 {
+            let plan = pass(&photos);
+            assert!(
+                plan.fetch.iter().all(|(id, _)| id != "v"),
+                "the video doesn't fit"
+            );
+            for f in &plan.fetch {
+                assert!(fetched.insert(f.clone()), "pass {n} fetched {f:?} again");
+            }
+            let ahead: u64 = disk
+                .borrow()
+                .iter()
+                .filter(|((id, _), _)| !id.starts_with("old"))
+                .map(|(_, (b, _))| b)
+                .sum();
+            assert!(
+                ahead <= budget,
+                "pass {n}: {ahead} kept ahead, budget {budget}"
+            );
+            last = plan.fetch.len();
+            view_and_trim(n);
+        }
+        assert_eq!(last, 0, "settled");
+        // A new photo at the top: fetched, and nothing else.
+        let mut newer = photos.clone();
+        newer.insert(0, ("new".into(), false, Some(MB)));
+        let fourth = pass(&newer);
+        assert_eq!(fourth.fetch, vec![("new".to_string(), Size::Full)]);
+    }
 
     /// Hidden's photos are handed out only while it is unlocked, and locking it (the window
     /// leaving it, or the account changing) takes that back; nothing else is held back.
