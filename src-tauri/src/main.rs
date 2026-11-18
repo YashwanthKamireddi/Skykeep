@@ -6536,16 +6536,37 @@ fn wind_down(app: &tauri::AppHandle) {
     static ENDING: AtomicBool = AtomicBool::new(false);
     if !ENDING.swap(true, Ordering::SeqCst) {
         // Where each window was, kept before the quick exit below skips the usual teardown.
-        {
-            use tauri_plugin_window_state::AppHandleExt;
-            app.save_window_state(window_state_kept()).ok();
-        }
+        save_window_places(app);
         first_show::settle_all();
         for w in app.webview_windows().values() {
             w.hide().ok();
         }
         cpu::stop();
         mount::release_within(Duration::from_secs(3));
+    }
+}
+
+/// Where each window is, written down for the next run: on the main thread, as restoring is
+/// (#83), and for the same reason (tauri-apps/plugins-workspace#3594). `save_window_state` holds
+/// the plugin's cache lock while it asks each window for its size, place and maximised state;
+/// from another thread each of those asks waits for the main thread, and a main thread in the
+/// middle of a resize or move is in the plugin's own handler waiting for that same lock: a Quit,
+/// a signal or an update's restart (all off the main thread) during a resize could hang for
+/// good. On the main thread the asks are answered directly; called there already, it runs at
+/// once (Tauri runs a main-thread task inline when it is asked from the main thread). Waited for
+/// a short while only: a main thread that never gets to it costs the places, never the quit.
+fn save_window_places(app: &tauri::AppHandle) {
+    let (done, saved) = std::sync::mpsc::sync_channel(1);
+    let a = app.clone();
+    let queued = app.run_on_main_thread(move || {
+        use tauri_plugin_window_state::AppHandleExt;
+        if let Err(e) = a.save_window_state(window_state_kept()) {
+            quiet!("where the windows were could not be kept: {e}");
+        }
+        done.send(()).ok();
+    });
+    if queued.is_ok() && saved.recv_timeout(Duration::from_secs(2)).is_err() {
+        quiet!("where the windows were was not kept in time");
     }
 }
 
