@@ -51,6 +51,7 @@ import { instantIn, wallIn, zoneName, type Wall } from "./calendar/model";
 import { keepSame, same } from "../lib/same";
 import { useArrivals } from "../lib/arrival";
 import { carryLabel } from "../lib/dragPicture";
+import { keepPlace, keptPlace } from "../lib/place";
 
 /** The built-in views, in iCloud's order, each with its glyph and Skykeep's colour for it (the
  *  same as the Android app's). Each carries white glyphs at 3.5:1 or better. */
@@ -345,6 +346,23 @@ type Selection =
   | { type: "tag"; name: string }
   | { type: "custom"; guid: string };
 
+const TODAY: Selection = { type: "smart", kind: "today" };
+
+/** A selection as stored (lib/place): shaped like one, whether or not it still exists. */
+const isSelection = (c: unknown): c is Selection => {
+  if (!c || typeof c !== "object") return false;
+  const s = c as Record<string, unknown>;
+  if (s.type === "smart") return SMART.some((x) => x.kind === s.kind);
+  if (s.type === "list" || s.type === "custom") return typeof s.guid === "string";
+  return s.type === "tag" && typeof s.name === "string";
+};
+
+const sameSelection = (a: Selection, b: Selection) =>
+  a.type === b.type &&
+  (a.type === "smart" ? a.kind === (b as typeof a).kind
+    : a.type === "tag" ? a.name === (b as typeof a).name
+      : a.guid === (b as typeof a).guid);
+
 export function RemindersView() {
   // Through the hook, so the screen draws again in a language chosen while it is open.
   useI18n();
@@ -391,10 +409,12 @@ export function RemindersView() {
    * arrived, and takes all of them in one draw. Moving the heading first left the new
    * list's title over the old list's reminders for a moment — the flicker on every switch.
    */
-  const [picked, setSelection] = useState<Selection>({
-    type: "smart",
-    kind: "today",
-  });
+  /** Where Reminders was left (lib/place): that view, and that reminder's details open in it,
+   *  once both are known to still be there. Read once; null once settled, either way. */
+  const left = useRef(keptPlace("reminders", isSelection));
+  /** Whether where it was left is settled: until then nothing is kept over it. */
+  const [placed, setPlaced] = useState(left.current === null);
+  const [picked, setSelection] = useState<Selection>(() => left.current?.container ?? TODAY);
   const [selection, setShown] = useState<Selection>(picked);
   // A reminder found by the search across everything: its list opened, its details shown,
   // and its row brought into view once the list has come.
@@ -405,6 +425,8 @@ export function RemindersView() {
     setOpenGuid(r.id);
   });
   const [items, setItems] = useState<Reminder[]>([]);
+  /** How many reads of the view's reminders have landed. */
+  const [itemsIn, setItemsIn] = useState(0);
   // Info belongs to the view it was opened in; another view starts with it closed — unless
   // the search across everything is opening this very reminder.
   useEffect(() => {
@@ -511,7 +533,10 @@ export function RemindersView() {
     });
     setCustomLists(custom);
     setCustomCounts(new Map(custom.map((x) => [x.guid, extras?.customCounts?.[x.guid] ?? 0])));
+    setExtrasIn(true);
   };
+  /** Whether the tags and hand-made smart lists have been read once. */
+  const [extrasIn, setExtrasIn] = useState(false);
 
   // A list's headings are read with its reminders (readItems), so they arrive together.
 
@@ -583,6 +608,7 @@ export function RemindersView() {
     setItems((was) => keepSame(was, fresh, (r) => r.guid));
     setListSections(Array.isArray(sections) ? sections : []);
     setUnknownRules(unknown);
+    setItemsIn((n) => n + 1);
     return fresh;
   }, [picked, showDone, sought, seeking, over]);
 
@@ -629,6 +655,36 @@ export function RemindersView() {
     readItems().catch((e) => setError(messageOf(e)));
     // `outbox.tick`: a change sent, or turned down, changes what the library holds.
   }, [readItems, revision, outbox.tick]);
+
+  // Where Reminders was left, settled once the library says whether it is still there: a list,
+  // tag or smart list deleted since falls back to Today; the reminder's details open again
+  // once that view's reminders are in, if it is still among them.
+  useEffect(() => {
+    const was = left.current;
+    if (!was || !loaded) return;
+    const c = was.container;
+    if ((c.type === "tag" || c.type === "custom") && !extrasIn) return;
+    const there =
+      c.type === "smart" ||
+      (c.type === "list" ? lists.some((l) => l.guid === c.guid)
+        : c.type === "tag" ? tags.some((x) => x.name === c.name)
+          : customLists.some((x) => x.guid === c.guid));
+    if (!there) {
+      left.current = null;
+      setPlaced(true);
+      setSelection(TODAY);
+      return;
+    }
+    if (itemsIn === 0 || !sameSelection(selection, c)) return;
+    left.current = null;
+    setPlaced(true);
+    if (was.item && items.some((r) => r.guid === was.item)) setOpenGuid(was.item);
+  }, [loaded, extrasIn, lists, tags, customLists, itemsIn, selection, items]);
+
+  // Where Reminders is now, kept for the next time it opens.
+  useEffect(() => {
+    if (placed) keepPlace("reminders", { container: picked, item: openGuid });
+  }, [placed, picked, openGuid]);
 
   useEffect(() => {
     if (!moved) return undefined;
