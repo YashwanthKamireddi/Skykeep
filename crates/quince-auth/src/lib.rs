@@ -199,11 +199,14 @@ impl Error {
     pub fn ends_session(&self) -> bool {
         match self {
             // The password was changed elsewhere, the account is locked, or Apple wants
-            // something finished on it first, or a code: none of these passes by waiting.
+            // something finished on it first, or a code; or the account signs in a way
+            // Skykeep doesn't speak, which no later pass changes and the sign-in screen says:
+            // none of these passes by waiting.
             Error::BadCredentials
             | Error::AccountLocked
             | Error::RepairNeeded
-            | Error::CodeAgain => true,
+            | Error::CodeAgain
+            | Error::UnsupportedAccount(_) => true,
             // Not reaching Apple, Apple busy or asking to wait, an answer not understood, or
             // this computer failing (its keyring, its disk): tried again later.
             Error::Network(_)
@@ -212,7 +215,6 @@ impl Error {
             | Error::CoolingDown { .. }
             | Error::Protocol(_)
             | Error::NoTrustToken
-            | Error::UnsupportedAccount(_)
             | Error::ReauthRequired
             | Error::Moved
             | Error::BadCode
