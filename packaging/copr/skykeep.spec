@@ -125,6 +125,12 @@ install -Dm644 packaging/file-managers/skykeep-send-to-iphone.nemo_action \
   %{buildroot}%{_datadir}/nemo/actions/skykeep-send-to-iphone.nemo_action
 install -Dm644 packaging/file-managers/skykeep_send_to_iphone.py \
   %{buildroot}%{_datadir}/nautilus-python/extensions/skykeep_send_to_iphone.py
+# The iPhone camera as a webcam: the setup the app runs as root through pkexec, and the polkit
+# action that makes the admin prompt name Skykeep and say what it does (packaging/linux). The
+# app looks for it at /usr/lib/skykeep, the path the action names, on every distribution.
+install -Dm755 packaging/linux/iphone-camera-setup %{buildroot}/usr/lib/skykeep/iphone-camera-setup
+install -Dm644 packaging/linux/%{appid}.iphone-camera.policy \
+  %{buildroot}%{_datadir}/polkit-1/actions/%{appid}.iphone-camera.policy
 
 %check
 desktop-file-validate %{buildroot}%{_datadir}/applications/*.desktop
@@ -152,6 +158,9 @@ appstream-util validate-relax --nonet %{buildroot}%{_metainfodir}/%{appid}.metai
 %dir %{_datadir}/nautilus-python
 %dir %{_datadir}/nautilus-python/extensions
 %{_datadir}/nautilus-python/extensions/skykeep_send_to_iphone.py
+%dir /usr/lib/skykeep
+/usr/lib/skykeep/iphone-camera-setup
+%{_datadir}/polkit-1/actions/%{appid}.iphone-camera.policy
 
 %changelog
 * Wed Nov 04 2026 Yashwanth Kamireddi <yashwanthkamireddi@users.noreply.github.com> - 0.1.2-1

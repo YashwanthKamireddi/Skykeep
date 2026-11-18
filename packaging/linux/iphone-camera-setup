@@ -1,0 +1,29 @@
+#!/bin/sh
+# Makes the iPhone camera a webcam every program on this computer sees (src-tauri/src/iphone.rs).
+# Skykeep runs it as root through pkexec when the person presses Set Up in Settings. The
+# packages install it as /usr/lib/skykeep/iphone-camera-setup, owned by root, with the polkit
+# action io.github.yashwanthkamireddi.Skykeep.iphone-camera beside it, so the admin prompt says
+# what it does rather than naming /bin/sh. Where no package put them there (the Snap, the
+# AppImage, a build of one's own), Skykeep runs this same text with pkexec /bin/sh -c instead.
+#
+# It writes v4l2loopback's two settings files and loads the module. The settings: the device is
+# made at every start-up, named as Skykeep finds it, a capture device only while Skykeep sets a
+# format (Chrome's need), with four buffers: the fewest every program accepts. With two (chosen
+# so no picture would wait behind another), v4l2loopback 0.15 refused any reader asking for
+# more (Chromium and Meet ask for four) with "Device or resource busy", and the picture came at
+# 21 fps. A module already loaded with fewer is loaded again (Skykeep lets go of the device
+# first).
+#
+# It takes no arguments and reads nothing from whoever started it.
+set -e
+if [ "$#" -ne 0 ]; then
+  echo "iphone-camera-setup takes no arguments" >&2
+  exit 2
+fi
+PATH=/usr/sbin:/usr/bin:/sbin:/bin
+printf 'v4l2loopback\n' > /etc/modules-load.d/skykeep-iphone-camera.conf
+printf 'options v4l2loopback devices=1 exclusive_caps=1 max_buffers=4 card_label="iPhone Camera"\n' > /etc/modprobe.d/skykeep-iphone-camera.conf
+if grep -q '^v4l2loopback ' /proc/modules && [ "$(cat /sys/module/v4l2loopback/parameters/max_buffers)" -lt 4 ]; then
+  for _ in 1 2 3 4 5 6 7 8 9 10; do modprobe -r v4l2loopback && break; sleep 0.5; done
+fi
+if ! grep -q '^v4l2loopback ' /proc/modules; then modprobe v4l2loopback; fi
