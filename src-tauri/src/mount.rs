@@ -424,7 +424,9 @@ fn start(app: &AppHandle, which: Which, at: &std::path::Path) -> Result<(), Stri
         return Ok(());
     }
     if let Some(kind) = sandbox() {
-        return Err(format!("The folders aren’t part of the {kind} version of Skykeep."));
+        return Err(format!(
+            "The folders aren’t part of the {kind} version of Skykeep."
+        ));
     }
     if !std::path::Path::new("/dev/fuse").exists() {
         return Err("This computer has no FUSE, which the folder needs. Install your system's fuse3 package.".into());
@@ -806,7 +808,11 @@ fn mount_helper_found(path: Option<&std::ffi::OsStr>, named: bool) -> bool {
             .into_iter()
             .flat_map(std::env::split_paths)
             .chain(fixed)
-            .any(|dir| ["fusermount3", "fusermount"].iter().any(|t| dir.join(t).is_file()))
+            .any(|dir| {
+                ["fusermount3", "fusermount"]
+                    .iter()
+                    .any(|t| dir.join(t).is_file())
+            })
 }
 
 /// A mount left behind by a run that ended without letting go of it: let go of now, lazily
@@ -1134,7 +1140,10 @@ mod sandbox_tests {
     fn the_flatpak_and_the_snap_leave_the_folders_out() {
         let id = Some(OsStr::new("io.github.yashwanthkamireddi.Skykeep"));
         assert_eq!(sandbox_from(id, None), Some("Flatpak"));
-        assert_eq!(sandbox_from(None, Some(OsStr::new("skykeep"))), Some("Snap"));
+        assert_eq!(
+            sandbox_from(None, Some(OsStr::new("skykeep"))),
+            Some("Snap")
+        );
         assert_eq!(sandbox_from(None, Some(OsStr::new("code"))), None);
         assert_eq!(sandbox_from(None, None), None);
     }
@@ -1158,7 +1167,10 @@ mod sandbox_tests {
                 .iter()
                 .any(|t| std::path::Path::new(d).join(t).is_file())
         });
-        assert_eq!(mount_helper_found(Some(empty.as_os_str()), false), in_system);
+        assert_eq!(
+            mount_helper_found(Some(empty.as_os_str()), false),
+            in_system
+        );
         std::fs::remove_dir_all(&dir).ok();
     }
 }
