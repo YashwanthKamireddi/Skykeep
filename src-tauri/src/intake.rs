@@ -101,7 +101,7 @@ pub struct ImportContact {
 /// Act on a command line — this launch's, or one forwarded by a second launch: a quick
 /// capture, or files to import. Whether it asked for either; if not, the caller opens what
 /// it would have opened anyway.
-pub fn arrived(app: &AppHandle, args: &[String], cwd: &Path) -> bool {
+pub fn arrived(app: &AppHandle, args: &[String], cwd: &Path, this_launch: bool) -> bool {
     // Send to iPhone, from a file manager: sent, and no window opened for it.
     if let Some(files) = crate::send::asked(args, cwd) {
         crate::send::send(app, files);
@@ -110,7 +110,7 @@ pub fn arrived(app: &AppHandle, args: &[String], cwd: &Path) -> bool {
     // A reminder named by another program: ticked, put back or shown, with no window of its
     // own unless it was to be shown (#35).
     if let Some(ask) = crate::apps::reminder_asked(args) {
-        crate::apps::on_reminder(app, ask);
+        crate::apps::on_reminder(app, ask, this_launch);
         return true;
     }
     if let Some(kind) = crate::apps::new_asked(args) {
