@@ -73,14 +73,18 @@ export class GridPlace {
    * own scroll is ours, not the person's: taken for theirs, each step became the anchor and the
    * months growing under it put the view back there, stopping it part way (photos-jump, 18 Nov).
    * Once it has come to rest it is put exactly there; a wheel, a touch, a press or a key while it
-   * glides is the person taking over.
+   * glides is the person taking over, and the view stays where they took it — put at the month
+   * then instead, it jumped the rest of the way at once and their wheel went on from there.
    */
   glide(offset: () => number | null) {
     const first = offset();
     if (first === null) return;
+    // A glide already under way (another month picked as it went) is let go of first, its
+    // watch with it.
+    this.stop();
     this.anchor = { kind: "target", offset };
     this.gliding = true;
-    const takeOver = () => this.landed();
+    const takeOver = () => this.takenOver();
     this.takeOver = takeOver;
     this.el.addEventListener("wheel", takeOver, { passive: true, once: true });
     this.el.addEventListener("pointerdown", takeOver, { passive: true, once: true });
@@ -119,7 +123,7 @@ export class GridPlace {
 
   /** Let go: the grid's window is closing. */
   dispose() {
-    this.landed();
+    this.stop();
     this.grows.disconnect();
     this.added.disconnect();
     this.el.removeEventListener("scroll", this.scrolled);
@@ -136,9 +140,28 @@ export class GridPlace {
     for (const child of this.el.children) this.grows.observe(child);
   }
 
-  /** The glide has come to rest (or the person took over): put exactly where it was sent. */
+  /** The glide has come to rest: put exactly where it was sent. */
   private landed() {
-    if (!this.gliding) return;
+    if (!this.stop()) return;
+    this.keep();
+  }
+
+  /**
+   * The person took over while it glided: stopped where it is (an instant scroll ends the
+   * engine's own glide, which a key or a press does not), and anchored there, as any scroll of
+   * theirs is.
+   */
+  private takenOver() {
+    if (!this.stop()) return;
+    const here = this.el.scrollTop;
+    this.ours = here;
+    this.el.scrollTo({ top: here, behavior: "instant" });
+    this.anchorHere();
+  }
+
+  /** The glide's watch let go of; false when there was none. */
+  private stop(): boolean {
+    if (!this.gliding) return false;
     this.gliding = false;
     window.clearTimeout(this.rest);
     const t = this.takeOver;
@@ -149,7 +172,7 @@ export class GridPlace {
       this.el.removeEventListener("touchstart", t);
       window.removeEventListener("keydown", t);
     }
-    this.keep();
+    return true;
   }
 
   /** Rest is a moment with no scroll. */
@@ -164,6 +187,12 @@ export class GridPlace {
     const el = this.el;
     if (Math.abs(el.scrollTop - this.ours) < 1) return;
     this.ours = -1;
+    this.anchorHere();
+  };
+
+  /** Anchored to where the view now is: its top, its foot, or the photo at its top. */
+  private anchorHere() {
+    const el = this.el;
     const max = el.scrollHeight - el.clientHeight;
     if (el.scrollTop <= 1) this.anchor = { kind: "top" };
     else if (max - el.scrollTop <= 2) this.anchor = { kind: "foot" };
@@ -171,5 +200,5 @@ export class GridPlace {
       const seen = this.top();
       if (seen) this.anchor = { kind: "photo", ...seen };
     }
-  };
+  }
 }
