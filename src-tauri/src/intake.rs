@@ -118,6 +118,11 @@ pub fn arrived(app: &AppHandle, args: &[String], cwd: &Path, this_launch: bool) 
         crate::apps::on_note(app, ask, this_launch);
         return true;
     }
+    // An event asked for by another program: made, with no window.
+    if let Some(ask) = crate::apps::event_asked(args) {
+        crate::apps::on_event(app, ask, this_launch);
+        return true;
+    }
     if let Some(kind) = crate::apps::new_asked(args) {
         // An event is made in Calendar's own window, with its days and times; the others in
         // the one-field capture.
