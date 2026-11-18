@@ -6,8 +6,10 @@
 #   <package>       a .deb, .rpm, .pkg.tar.zst or .AppImage — installed with the system's own
 #                   package manager (the .AppImage is only run), with recommends/weak
 #                   dependencies off, so only what the package itself asks for is there;
-#   <distro_check>  the probe's distro_check example (probe/examples/distro_check.rs);
-#   <test.heic>     a HEIC made for the test — never anybody's photo;
+#   <distro_check>  the probe's distro_check example (probe/examples/distro_check.rs), or `-`
+#                   for none: then gst, heic, video and keyring are left out (a released
+#                   package, checked without building anything: linux-launch.yml);
+#   <test.heic>     a HEIC made for the test — never anybody's photo (`-` with no probe);
 #   <video>         made-up test videos (crates/quince-media/tests/fixtures: black-start.mp4,
 #                   H.264, and hevc.mov, HEVC as an iPhone records it).
 #
@@ -31,6 +33,12 @@
 #             CAP_SYS_ADMIN), as the AppImage catalog starts it;
 #   relaunch  with no tray to click, launching again hands over to the running Skykeep and
 #             its window shows;
+#   wayland   the same on a Wayland compositor (weston, headless) with no X server at all, as
+#             GNOME and KDE start it by default — every launch above is X11;
+#   no keyring  on a session bus with no Secret Service on it and none to start (a window
+#             manager with no keyring daemon), the page still draws and the program stays up;
+#   no bus    with no session bus at all (a bare window manager started without one), the
+#             same.
 #   desktop   the launchers and the metainfo validate, the icon is in hicolor under the name
 #             the launchers ask for (packages only).
 # Used by .github/workflows/linux-compat.yml, and runs the same by hand under docker.
@@ -48,7 +56,7 @@ case "$like" in
   *" debian "* | *" ubuntu "*)
     export DEBIAN_FRONTEND=noninteractive
     apt-get update -qq
-    tools="xvfb xauth dbus gnome-keyring gstreamer1.0-tools desktop-file-utils appstream"
+    tools="xvfb xauth dbus gnome-keyring gstreamer1.0-tools desktop-file-utils appstream weston"
     # An AppImage carries its libraries but not the ones every desktop has (linuxdeploy's
     # excludelist): GL, X11, fonts and text shaping, ALSA, DRM. Without them in this bare
     # container gst-libav (libavcodec links them) does not load and avdec_* looks missing.
@@ -66,7 +74,7 @@ case "$like" in
     ;;
   *" fedora "*)
     tools="xorg-x11-server-Xvfb xorg-x11-xauth dbus-daemon gnome-keyring gstreamer1 \
-           desktop-file-utils appstream which"
+           desktop-file-utils appstream which weston"
     # As above; libGLESv2 (libglvnd-gles) too, which WebKit opens and every Fedora desktop has.
     [[ $pkg == *.AppImage ]] && tools+=" mesa-libGL mesa-libEGL libglvnd-gles fontconfig \
       dejavu-sans-fonts libX11 libX11-xcb libxcb libdrm harfbuzz fribidi freetype alsa-lib \
@@ -78,7 +86,7 @@ case "$like" in
   *" suse "* | *" opensuse "*)
     # dbus-run-session is in dbus-1-daemon, not dbus-1.
     tools="xvfb-run dbus-1 dbus-1-daemon gnome-keyring gstreamer-utils desktop-file-utils \
-      AppStream which"
+      AppStream which weston"
     [[ $pkg == *.AppImage ]] && tools+=" Mesa-libGL1 Mesa-libEGL1 fontconfig dejavu-fonts libgpg-error0"
     # shellcheck disable=SC2086
     zypper -q --non-interactive install --no-recommends $tools
@@ -88,7 +96,7 @@ case "$like" in
     ;;
   *" arch "*)
     pacman -Syu --noconfirm --needed -q xorg-server-xvfb xorg-xauth dbus gnome-keyring \
-      gstreamer desktop-file-utils appstream which >/dev/null
+      gstreamer desktop-file-utils appstream which weston >/dev/null
     [[ $pkg == *.pkg.tar.* ]] && { pacman -U --noconfirm "$pkg" || exit 1; }
     ;;
   *) echo "no installer for $ID"; exit 2 ;;
@@ -108,7 +116,7 @@ if [[ $pkg == *.AppImage ]]; then
   # The probe beside the program, in the AppDir, with APPDIR set as the AppImage's AppRun sets
   # it: it then finds the AppImage's libheif plugins exactly as the app does (only a program
   # inside APPDIR is pointed at them).
-  cp "$probe" "$root/usr/bin/distro_check" && probe="$root/usr/bin/distro_check"
+  [[ $probe == - ]] || { cp "$probe" "$root/usr/bin/distro_check" && probe="$root/usr/bin/distro_check"; }
   export APPDIR=$root
 else
   prog=/usr/bin/skykeep bin=/usr/bin/skykeep libs=
@@ -172,7 +180,9 @@ media() {
 # openSUSE is the same: no libde265 and an FFmpeg without HEVC in its own repositories; H.264
 # comes from the openh264 repository it has enabled out of the box, HEVC from Packman.
 known() { echo "KNOWN $1 — ${2} (no HEVC decoder in $NAME's own repositories)"; }
-if [[ $like == *" fedora "* && $pkg != *.AppImage ]]; then
+if [[ $probe == - ]]; then
+  echo "SKIP gst, heic, video — no probe given"
+elif [[ $like == *" fedora "* && $pkg != *.AppImage ]]; then
   media known
   rel=$(rpm -E %fedora)
   # RPM Fusion's own instructions (rpmfusion.org/Howto/Multimedia): the full FFmpeg in place of
@@ -212,7 +222,8 @@ cat >/tmp/session.sh <<'SH'
 # password), then the keyring check and the two launches.
 probe=$1 prog=$2 libs=$3
 echo -n throwaway | gnome-keyring-daemon --unlock --components=secrets >/dev/null 2>&1
-if out=$(LD_LIBRARY_PATH=$libs "$probe" keyring 2>&1); then echo "PASS keyring — $out"
+if [[ $probe == - ]]; then echo "SKIP keyring — no probe given"
+elif out=$(LD_LIBRARY_PATH=$libs "$probe" keyring 2>&1); then echo "PASS keyring — $out"
 else echo "FAIL keyring — $out"; fi
 for how in --background launcher "--app notes"; do
   log=$(mktemp)
@@ -241,6 +252,59 @@ if grep -q 'second launch exited 0' "$log" && grep -q 'handed a launch' "$log" &
 else
   echo "FAIL relaunch"; grep -v skykeep-timing "$log" | tail -20
 fi
+# Started by "$@", its log in $log, and stopped after 8 s (or $stop_after, for a command that
+# times its own 8 s inside a wrapper that would not pass a stop on): the page drawn, still
+# running, never a panic.
+alive() {
+  local name=$1; shift
+  log=$(mktemp)
+  timeout --kill-after=5 "${stop_after:-8}" "$@" >"$log" 2>&1
+  local rc=$? drawn
+  drawn=$(grep -m1 -o "+[0-9.]*ms window_ready main" "$log")
+  if [[ $rc -eq 124 && -n $drawn ]] && ! grep -q 'panicked at' "$log"; then
+    echo "PASS $name — page drawn at ${drawn%% *}, still running at 8 s"
+  else
+    echo "FAIL $name — exit $rc, drawn: ${drawn:-never}"; grep -v skykeep-timing "$log" | tail -20
+  fi
+}
+# Wayland, with no X server to fall back on: weston's headless output, drawn in software.
+# Weston 10 and later name the backend `headless`, older ones (Ubuntu 22.04's 9) the module.
+sock=wayland-skykeep
+for backend in headless headless-backend.so; do
+  env -u DISPLAY -u WAYLAND_DISPLAY weston --backend=$backend --socket=$sock --idle-time=0 \
+    --width=1280 --height=800 >/tmp/weston.log 2>&1 &
+  weston=$!
+  for _ in $(seq 50); do [[ -S $XDG_RUNTIME_DIR/$sock ]] && break; sleep 0.1; done
+  [[ -S $XDG_RUNTIME_DIR/$sock ]] && break
+  kill $weston 2>/dev/null; wait $weston 2>/dev/null
+done
+if [[ -S $XDG_RUNTIME_DIR/$sock ]]; then
+  alive wayland env -u DISPLAY WAYLAND_DISPLAY=$sock GDK_BACKEND=wayland "$prog" --background
+  kill $weston; wait $weston 2>/dev/null
+else
+  echo "FAIL wayland — weston did not start"; tail -5 /tmp/weston.log
+fi
+# No Secret Service: a bus of its own with nothing on it and nothing it may start (no service
+# directory), where gnome-keyring's activation file would otherwise start one.
+cat >/tmp/bare-bus.conf <<'XML'
+<!DOCTYPE busconfig PUBLIC "-//freedesktop//DTD D-Bus Bus Configuration 1.0//EN"
+ "http://www.freedesktop.org/standards/dbus/1.0/busconfig.dtd">
+<busconfig>
+  <type>session</type>
+  <listen>unix:tmpdir=/tmp</listen>
+  <policy context="default">
+    <allow send_destination="*" eavesdrop="true"/>
+    <allow eavesdrop="true"/>
+    <allow own="*"/>
+  </policy>
+</busconfig>
+XML
+# dbus-run-session does not hand a stop on to what it runs, so the 8 s are timed inside it.
+stop_after=20 alive "no keyring" dbus-run-session --config-file=/tmp/bare-bus.conf -- \
+  timeout --kill-after=5 8 xvfb-run -a -s "-screen 0 1280x800x24" "$prog" --background
+# No session bus at all: an address that leads nowhere, so nothing starts one either.
+alive "no bus" env DBUS_SESSION_BUS_ADDRESS=unix:path=/nonexistent/bus \
+  xvfb-run -a -s "-screen 0 1280x800x24" "$prog" --background
 SH
 chmod +x /tmp/session.sh
 # The AppImage offline: the whole session in a network namespace of its own, with no network.

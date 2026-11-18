@@ -1,0 +1,77 @@
+# The latest release's own .deb, .rpm and AppImage, started on each distribution by
+# packaging/linux-compat/check.sh with no probe — installed, launched under X11 and under
+# Wayland, with no Secret Service and with no session bus — so a change to the launch checks
+# is proven in minutes on the packages people already have, without the hour of building that
+# linux-compat.yml spends. Nothing is built here, and nothing is published.
+name: Linux launch
+
+on:
+  workflow_dispatch:
+  pull_request:
+    paths:
+      - packaging/linux-compat/**
+      - .github/workflows/linux-launch.yml
+
+permissions:
+  contents: read
+
+concurrency:
+  group: linux-launch-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  fetch:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - name: The latest release's Linux packages
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          mkdir pkgs
+          gh release download -R "$GITHUB_REPOSITORY" -D pkgs \
+            -p 'Skykeep-linux-amd64.deb' -p 'Skykeep-linux-x86_64.rpm' -p 'Skykeep-linux-x86_64.AppImage'
+          ls -l pkgs
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: released
+          path: pkgs/
+          if-no-files-found: error
+          retention-days: 3
+
+  launch:
+    needs: fetch
+    name: ${{ matrix.name }}
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - { name: "Ubuntu 24.04 (.deb)", image: "ubuntu:24.04", pkg: "Skykeep-linux-amd64.deb" }
+          - { name: "Debian 13 (.deb)", image: "debian:trixie", pkg: "Skykeep-linux-amd64.deb" }
+          - { name: "Fedora 43 (.rpm)", image: "fedora:43", pkg: "Skykeep-linux-x86_64.rpm" }
+          - { name: "Fedora 45 (.rpm)", image: "fedora:45", pkg: "Skykeep-linux-x86_64.rpm" }
+          - { name: "openSUSE Tumbleweed (.rpm)", image: "opensuse/tumbleweed", pkg: "Skykeep-linux-x86_64.rpm" }
+          - { name: "Ubuntu 22.04 (AppImage)", image: "ubuntu:22.04", pkg: "Skykeep-linux-x86_64.AppImage", options: "--cap-add=SYS_ADMIN" }
+          - { name: "Fedora 45 (AppImage)", image: "fedora:45", pkg: "Skykeep-linux-x86_64.AppImage", options: "--cap-add=SYS_ADMIN" }
+    container:
+      image: ${{ matrix.image }}
+      # As in linux-compat.yml: gnome-keyring 51 aborts where it may not lock its memory.
+      options: --cap-add=IPC_LOCK ${{ matrix.options || '' }}
+      # openSUSE's image declares no PATH of its own (linux-compat.yml, `native`).
+      env:
+        PATH: /usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
+    steps:
+      - name: Tools the artifact actions need
+        if: startsWith(matrix.image, 'opensuse')
+        run: zypper -n install --no-recommends tar gzip
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          sparse-checkout: packaging/linux-compat
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          name: released
+          path: /released
+      - name: Install and launch
+        run: bash packaging/linux-compat/check.sh "/released/${{ matrix.pkg }}" - -

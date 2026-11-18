@@ -104,6 +104,18 @@ jobs:
           cat run.log | tail -40
           # 124 = still running when the timeout ended it: it started and stayed up.
           [ "$code" -eq 124 ] || { echo "::error::Skykeep exited ($code) instead of staying up"; exit 1; }
+          # Open at login, as snapd does it when a desktop session starts: the entry the app
+          # writes in its own config folder (login.rs; the Exec path is the app's own, which
+          # snapd replaces with the snap's wrapper) starts it, hidden.
+          entry=~/snap/skykeep/current/.config/autostart/io.github.yashwanthkamireddi.Skykeep.desktop
+          mkdir -p "$(dirname "$entry")"
+          printf '[Desktop Entry]\nType=Application\nName=Skykeep\nExec="/snap/skykeep/x1/usr/bin/skykeep" --background\n' > "$entry"
+          systemd-run --user --scope --quiet -- timeout 20 xvfb-run -a bash -c \
+            'pgrep -x skykeep && exit 3; snap userd --autostart & sleep 8; pgrep -x skykeep >/dev/null' \
+            > login.log 2>&1
+          code=$?
+          tail -20 login.log
+          [ "$code" -eq 0 ] || { echo "::error::Open at login did not start Skykeep ($code)"; exit 1; }
       - id: name
         run: echo "snap=$(basename '${{ steps.build.outputs.snap }}')" >> "$GITHUB_OUTPUT"
       - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2

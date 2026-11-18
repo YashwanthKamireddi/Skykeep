@@ -51,6 +51,7 @@ import { AdjustDate } from "./photos/AdjustDate";
 import { useReveal } from "../lib/reveal";
 import { Picker } from "../components/Picker";
 import { KEEP, PAGE, PhotoList, PhotoStore } from "./photos/list";
+import { GridPlace, type Anchor } from "./photos/place";
 import { Periods, monthName, type Level, type Place } from "./photos/Periods";
 import { same } from "../lib/same";
 import { composing } from "../lib/keys";
@@ -280,27 +281,6 @@ const RECEIVING_MOST = 30_000;
 function justArrived(id: string): boolean {
   const at = arrived.get(id);
   return at !== undefined && performance.now() - at < ARRIVAL_MS;
-}
-
-/**
- * The tile at the top of the view and where it stands, for keeping it there while photos land
- * above it (see PhotosView). The grid's tiles are in the page in the order they are drawn, so
- * the first one reaching below the header is found in a few steps, not by measuring them all.
- */
-function anchorOf(el: HTMLElement | null): { id: string; top: number } | null {
-  if (!el || el.scrollTop <= 0 || !el.clientHeight) return null;
-  const tiles = el.querySelectorAll<HTMLElement>(".px-tile");
-  if (!tiles.length) return null;
-  const edge = el.getBoundingClientRect().top + (parseFloat(getComputedStyle(el).paddingTop) || 0);
-  let [lo, hi] = [0, tiles.length - 1];
-  while (lo < hi) {
-    const mid = (lo + hi) >> 1;
-    if (tiles[mid].getBoundingClientRect().bottom > edge) hi = mid;
-    else lo = mid + 1;
-  }
-  const tile = tiles[lo];
-  const id = tile.dataset.id;
-  return id ? { id, top: tile.getBoundingClientRect().top } : null;
 }
 
 /** The rest on a tile before its picture is fetched (see Tile). */
@@ -1127,8 +1107,6 @@ export function PhotosView() {
   };
   /** The files being sent from here, by name: each lands in the library as a photo of that name. */
   const ownNames = () => new Set(uploads.list().filter((u) => u.state !== "failed" && u.state !== "cancelled").map((u) => u.name));
-  /** The tile at the top of the view as a read with new photos was drawn, kept there (see below). */
-  const anchorAt = useRef<{ id: string; top: number; list: PhotoList } | null>(null);
   const read = useCallback(async () => {
     if (burstOpen.current) return;
     const mine = ++reads.current;
@@ -1190,8 +1168,6 @@ export function PhotosView() {
       });
       for (const [id, when] of arrived) if (at - when > ARRIVAL_MS) arrived.delete(id);
       for (const id of arriving) arrived.set(id, at);
-      const keep = anchorOf(scroller.current);
-      anchorAt.current = keep && { ...keep, list: next };
     }
     // Read again (a sync landed, a change was made): what is held is fetched again where the
     // grid is, and only a list that changed is drawn again.
@@ -2888,46 +2864,24 @@ export function PhotosView() {
       });
   }, [months, drawn]); // eslint-disable-line react-hooks/exhaustive-deps
   /**
-   * The grid scrolled so `offset` (how far what is wanted sits below the top, measured afresh)
-   * is nothing. Months drawn as they come into view take their real height, and those above the
-   * one chosen move it. Chromium's scroll anchoring holds it in place; WebKit has none, and a
-   * month twenty years down landed a year off. So, for a moment after an instant jump, it is held
-   * at the top — let go at once if the person scrolls or presses a key themselves.
+   * The grid sent to where `offset` (how far what is wanted sits below where it belongs,
+   * measured afresh) is nothing. At once, it is anchored there (photos/place), and stays there
+   * while the months above it take their real height — WebKit has no scroll anchoring of its own,
+   * and a month twenty years down landed a year off — until the person moves. Asked to glide (the
+   * picker, with motion allowed), it glides there once.
    */
-  const scrollHeld = (el: HTMLElement, offset: () => number | null, instant: boolean) => {
+  const scrollHeld = (offset: () => number | null, instant: boolean) => {
     const first = offset();
     if (first === null) return;
-    const now = instant || still();
-    el.scrollTo({ top: el.scrollTop + first, behavior: now ? "auto" : "smooth" });
-    if (!now) return;
-    let frames = 0;
-    let held = true;
-    const letGo = () => { held = false; };
-    const opts = { once: true, passive: true } as const;
-    el.addEventListener("wheel", letGo, opts);
-    el.addEventListener("pointerdown", letGo, opts);
-    el.addEventListener("touchstart", letGo, opts);
-    window.addEventListener("keydown", letGo, { once: true });
-    const hold = () => {
-      const off = held ? offset() : null;
-      if (off === null) return;
-      if (Math.abs(off) > 1) el.scrollTop += off;
-      if (++frames < 30) requestAnimationFrame(hold);
-      else {
-        el.removeEventListener("wheel", letGo);
-        el.removeEventListener("pointerdown", letGo);
-        el.removeEventListener("touchstart", letGo);
-        window.removeEventListener("keydown", letGo);
-      }
-    };
-    requestAnimationFrame(hold);
+    if (instant || still()) placeKeeper.current?.set({ kind: "target", offset });
+    else placeKeeper.current?.glide(offset);
   };
   const goToMonth = (label: string, instant = false) => {
     const el = scroller.current;
     const at = el?.querySelector<HTMLElement>(`.px-month[data-month="${CSS.escape(label)}"]`);
     // Measured against the scroller itself: offsetTop counts from whatever positioned box
     // happens to hold the month, which is not always the scroller.
-    if (el && at) scrollHeld(el, () => (at.isConnected ? at.getBoundingClientRect().top - el.getBoundingClientRect().top - 4 : null), instant);
+    if (el && at) scrollHeld(() => (at.isConnected ? at.getBoundingClientRect().top - el.getBoundingClientRect().top - 4 : null), instant);
   };
   /**
    * How far below the grid's top the tile at an index is: its own box, or — its month not built
@@ -2951,9 +2905,62 @@ export function PhotosView() {
     const el = scroller.current;
     if (!el) return;
     const pad = parseFloat(getComputedStyle(el).scrollPaddingTop) || 0;
-    scrollHeld(el, () => { const t = tileBelow(index); return t === null ? null : t - pad; }, true);
+    scrollHeld(() => { const t = tileBelow(index); return t === null ? null : t - pad; }, true);
   };
   const scroller = useRef<HTMLDivElement | null>(null);
+  /** Where the grid is, kept through every change of its layout (photos/place). */
+  const placeKeeper = useRef<GridPlace | null>(null);
+  /** How far below the grid's top a photo's tile lies, from this render's months and columns. */
+  const whereNow = useRef<(id: string) => number | null>(() => null);
+  whereNow.current = (id) => {
+    // Its own tile, by its id: a tile is not drawn again when photos land above it, so its
+    // data-index still says where it stood before them (and the tile at its new index is
+    // another photo, a row away).
+    const el = scroller.current;
+    const tile = el?.querySelector<HTMLElement>(`.px-tile[data-id="${CSS.escape(id)}"]`);
+    if (el && tile) return tile.getBoundingClientRect().top - el.getBoundingClientRect().top;
+    // Its month not built: where its row will be in the month's block.
+    const i = photosNow.current?.indexOf(id) ?? -1;
+    return i < 0 ? null : tileBelow(i);
+  };
+  /**
+   * The photo at the top of the view (under the bar) and how far below the grid's top it is,
+   * from the months' own layout — so the same where its month is not built yet and has no tiles
+   * in the page (a jump far down lands on blocks), as tileBelow measures it.
+   */
+  const topNow = useRef<() => { id: string; top: number } | null>(() => null);
+  topNow.current = () => {
+    const el = scroller.current;
+    if (!el || !el.clientHeight) return null;
+    const box = el.getBoundingClientRect();
+    const edge = box.top + (parseFloat(getComputedStyle(el).paddingTop) || 0);
+    const secs = el.querySelectorAll<HTMLElement>(".px-month");
+    if (!secs.length) return null;
+    let [lo, hi] = [0, secs.length - 1];
+    while (lo < hi) {
+      const mid = (lo + hi) >> 1;
+      if (secs[mid].getBoundingClientRect().bottom > edge) hi = mid;
+      else lo = mid + 1;
+    }
+    const m = months[lo];
+    if (!m?.items.length) return null;
+    const r = photosArea(secs[lo]);
+    const rows = Math.ceil(m.items.length / across);
+    const rowH = r.height / rows;
+    const row = Math.max(0, Math.min(rows - 1, Math.floor((edge - r.top) / rowH)));
+    const item = m.items[row * across];
+    return item ? { id: item.id, top: r.top + row * rowH - box.top } : null;
+  };
+  useLayoutEffect(() => {
+    const el = scroller.current;
+    if (!el) return undefined;
+    const keeper = new GridPlace(el, (id) => whereNow.current(id), () => topNow.current());
+    placeKeeper.current = keeper;
+    return () => {
+      keeper.dispose();
+      placeKeeper.current = null;
+    };
+  }, []);
   const looking = useRef(false);
   // Read a few times a second, not every frame, and by halving rather than going down every
   // month: at the foot of three hundred months, measuring each one on every frame was work
@@ -3009,7 +3016,7 @@ export function PhotosView() {
   /** The place at the top of Years or Months now (kept by them). */
   const periodAt = useRef<Place | null>(null);
   /** All Photos as it was left: its scroll, and the month at its top. */
-  const leftAll = useRef<{ top: number; place: Place | null } | null>(null);
+  const leftAll = useRef<{ anchor: Anchor | null; place: Place | null } | null>(null);
   /** All Photos about to be shown, and the place to show it at. */
   const toAll = useRef<Place | null | undefined>(undefined);
   /** The month at the top of All Photos. */
@@ -3037,7 +3044,7 @@ export function PhotosView() {
     const from = level === "all" ? gridPlace() : periodAt.current;
     const place = to === undefined ? from : to;
     if (level === "all") {
-      leftAll.current = { top: scroller.current?.scrollTop ?? 0, place: from };
+      leftAll.current = { anchor: placeKeeper.current?.get() ?? null, place: from };
       // Nothing stays chosen out of sight, for a key to act on.
       setChosen(new Set());
       anchor.current = null;
@@ -3061,7 +3068,7 @@ export function PhotosView() {
     if (level !== "all" || to === undefined || !el) return;
     const left = leftAll.current;
     if (left && (!to || (left.place?.year === to.year && (to.month === undefined || left.place.month === to.month)))) {
-      el.scrollTop = left.top;
+      if (left.anchor) placeKeeper.current?.set(left.anchor);
       return;
     }
     if (!to) return;
@@ -3141,67 +3148,42 @@ export function PhotosView() {
   // which glitched on his screen), from part-shown so there is never an empty moment.
   const firstDraw = useRef(true);
   useLayoutEffect(() => {
-    const el = scroller.current;
-    // At the foot, held there while the months below are measured and the grid grows (let go
-    // the moment the person scrolls).
-    if (el && sort?.oldest) scrollHeld(el, () => el.scrollHeight - el.clientHeight - el.scrollTop, true);
-    else if (el) el.scrollTop = 0;
-    if (firstDraw.current) {
-      firstDraw.current = false;
-      return;
-    }
-    fadeIn(scroller.current, { from: 0.35, duration: 160 });
+    // On the newest: anchored at the foot when oldest come first, at the top otherwise, and kept
+    // there as the photos arrive and the months take their height (photos/place).
+    placeKeeper.current?.set({ kind: sort?.oldest ? "foot" : "top" });
+    if (firstDraw.current) firstDraw.current = false;
+    else fadeIn(scroller.current, { from: 0.35, duration: 160 });
   }, [drawn, sort?.oldest, sort?.by]); // eslint-disable-line react-hooks/exhaustive-deps
   const across = ACROSS[zoom];
+  // Put back in the same commit that changed the grid (photos landing, another month, the
+  // columns), before any frame can see it moved; what changes outside React — the window's size,
+  // a month built — its own watcher answers (photos/place).
+  useLayoutEffect(() => {
+    placeKeeper.current?.keep();
+  }, [photos, months, across]);
   /*
    * A zoom keeps its place, as Photos': the selected photo — or, with none in view, the photo at
    * the top left — stays where it was on the screen while the grid around it changes size.
    * Before, every step of the zoom left the view at a scroll offset that now meant a different
    * month, and the photo being looked at was gone.
    */
-  const keepAt = useRef<{ index: number; top: number } | null>(null);
   function zoomBy(by: number) {
     const next = Math.max(0, Math.min(ACROSS.length - 1, zoom + by));
     if (next === zoom) return;
     const el = scroller.current;
-    if (el && el.clientHeight) {
+    // The photo chosen, if it is in sight, else the one at the top: anchored where it is now,
+    // and put back there once the grid is laid out at the new size (photos/place).
+    if (el && el.clientHeight && el.scrollTop > 0) {
       const box = el.getBoundingClientRect();
       const pad = parseFloat(getComputedStyle(el).paddingTop) || 0;
-      const seen = (t: Element | null) => {
-        const r = t?.getBoundingClientRect();
-        return r && r.bottom > box.top + pad - 8 && r.top < box.bottom ? r : null;
-      };
-      const mine = anchor.current !== null ? el.querySelector(`.px-tile[data-index="${anchor.current}"]`) : null;
-      const tile = (seen(mine) ? mine : document.elementFromPoint(box.left + 8, box.top + pad + 8)?.closest(".px-tile")) as HTMLElement | null;
-      if (tile && el.scrollTop > 0) keepAt.current = { index: Number(tile.dataset.index), top: tile.getBoundingClientRect().top - box.top };
+      const mine = anchor.current !== null ? el.querySelector<HTMLElement>(`.px-tile[data-index="${anchor.current}"]`) : null;
+      const r = mine?.getBoundingClientRect();
+      const seen = r && r.bottom > box.top + pad - 8 && r.top < box.bottom;
+      const at = seen && mine?.dataset.id ? { id: mine.dataset.id, top: r.top - box.top } : topNow.current();
+      if (at) placeKeeper.current?.set({ kind: "photo", ...at });
     }
     setZoom(next);
   }
-  useLayoutEffect(() => {
-    const k = keepAt.current;
-    keepAt.current = null;
-    const el = scroller.current;
-    if (!k || !el) return;
-    const below = tileBelow(k.index);
-    if (below !== null) el.scrollTop = Math.max(0, below + el.scrollTop - k.top);
-  }, [across]); // eslint-disable-line react-hooks/exhaustive-deps
-  /*
-   * Photos landing above the view leave it on the photos it showed, as a chat keeps its place
-   * when older messages load: the tile at its top is put back where it was, before the frame is
-   * painted. The engine's own anchoring is off here (photos.css says why), and WebKit has none.
-   * At the very top nothing is kept: the new photos are what is there to be seen.
-   */
-  useLayoutEffect(() => {
-    const k = anchorAt.current;
-    const el = scroller.current;
-    if (!k || k.list !== photos || !el) return;
-    anchorAt.current = null;
-    const esc = typeof CSS !== "undefined" && CSS.escape ? CSS.escape(k.id) : k.id;
-    const tile = el.querySelector<HTMLElement>(`.px-tile[data-id="${esc}"]`);
-    if (!tile) return;
-    const by = tile.getBoundingClientRect().top - k.top;
-    if (Math.abs(by) >= 0.5) el.scrollTop += by;
-  }, [photos]);
   // A cell's width in device pixels, for the size each tile's picture is made at; in steps of
   // 32, so a window being resized does not redraw every tile on every frame.
   const [gridWidth, setGridWidth] = useState(0);
