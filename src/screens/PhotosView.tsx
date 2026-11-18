@@ -131,6 +131,43 @@ type Flag = "favorite" | "deleted" | "hidden" | "expunged";
 /** A coordinate as a map gives it: 17.7654° N. */
 const degrees = (v: number, plus: string, minus: string) => `${Math.abs(v).toFixed(4)}° ${v >= 0 ? plus : minus}`;
 
+/**
+ * `el` kept scrolled to its foot while what is in it grows, until the person moves away from
+ * it: Photos opens on the newest, at the bottom, as on a Mac. Held for half a second after the
+ * first draw, the grid then grew under it as the library's photos came over IPC and its months
+ * took their height, and Photos sat at 2019 (18 Nov). A grid growing never moves its scroll, so
+ * a scroll that leaves the foot is the person's own (wheel, keys, the scrollbar).
+ */
+function pinFoot(el: HTMLElement): () => void {
+  let on = true;
+  const toFoot = () => {
+    if (on) el.scrollTop = el.scrollHeight;
+  };
+  const grows = new ResizeObserver(toFoot);
+  const watch = () => {
+    grows.observe(el);
+    for (const child of el.children) grows.observe(child);
+  };
+  const added = new MutationObserver(() => {
+    watch();
+    toFoot();
+  });
+  const moved = () => {
+    if (el.scrollHeight - el.clientHeight - el.scrollTop > 2) stop();
+  };
+  const stop = () => {
+    on = false;
+    grows.disconnect();
+    added.disconnect();
+    el.removeEventListener("scroll", moved);
+  };
+  added.observe(el, { childList: true });
+  el.addEventListener("scroll", moved, { passive: true });
+  watch();
+  toFoot();
+  return stop;
+}
+
 /** How a view is sorted, as Photos offers it: by the date taken or the date added, either way. */
 type Sort = { by: "taken" | "added"; oldest: boolean };
 const SORTS_KEY = "quince.photos.sort";
@@ -3142,15 +3179,13 @@ export function PhotosView() {
   const firstDraw = useRef(true);
   useLayoutEffect(() => {
     const el = scroller.current;
-    // At the foot, held there while the months below are measured and the grid grows (let go
-    // the moment the person scrolls).
-    if (el && sort?.oldest) scrollHeld(el, () => el.scrollHeight - el.clientHeight - el.scrollTop, true);
-    else if (el) el.scrollTop = 0;
-    if (firstDraw.current) {
-      firstDraw.current = false;
-      return;
-    }
-    fadeIn(scroller.current, { from: 0.35, duration: 160 });
+    // At the foot, kept there while the photos arrive and the months take their height, until
+    // the person moves away from it.
+    const unpin = el && sort?.oldest ? pinFoot(el) : undefined;
+    if (el && !sort?.oldest) el.scrollTop = 0;
+    if (firstDraw.current) firstDraw.current = false;
+    else fadeIn(scroller.current, { from: 0.35, duration: 160 });
+    return unpin;
   }, [drawn, sort?.oldest, sort?.by]); // eslint-disable-line react-hooks/exhaustive-deps
   const across = ACROSS[zoom];
   /*
