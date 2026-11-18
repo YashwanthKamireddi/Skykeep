@@ -54,9 +54,9 @@ env:
   CARGO_INCREMENTAL: "0"
 
 jobs:
-  # The whole test suite on Windows, beside the build rather than before it: the two compile
-  # the same crates on two machines at once (13.6 and 6.8 minutes one after the other, 11 Nov).
-  # The run, and so a release, succeeds only if both do.
+  # The whole test suite on Windows, beside the build rather than before it, on two machines at
+  # once (13.6 and 6.8 minutes one after the other, 11 Nov). The run, and so a release, succeeds
+  # only if both do.
   tests:
     if: ${{ inputs.test_first }}
     runs-on: windows-latest
@@ -68,6 +68,7 @@ jobs:
       - uses: ./.github/actions/windows-setup
         with:
           save: ${{ github.ref == 'refs/heads/main' && inputs.ref == '' }}
+          cache: windows-test
       # iCloud Drive in File Explorer on this Windows: a cloud folder registered, listed and
       # read by another process, its output shown (whether the shell took the registration).
       # With the thumbnail provider (crates/quince-thumbs) built first: the test registers it for
@@ -75,21 +76,23 @@ jobs:
       - name: iCloud Drive in File Explorer
         env:
           RUSTFLAGS: --remap-path-prefix=${{ github.workspace }}=skykeep -C target-feature=+crt-static
-          SKYKEEP_THUMBS_DLL: ${{ github.workspace }}\target\release\quince_thumbs.dll
+          SKYKEEP_THUMBS_DLL: ${{ github.workspace }}\target\ci-test\quince_thumbs.dll
         run: |
-          cargo build --release -p quince-thumbs --locked
-          cargo test --release -p quince-vfs --test cloud_windows --locked -- --nocapture --test-threads=1
+          cargo build --profile ci-test -p quince-thumbs --locked
+          cargo test --profile ci-test -p quince-vfs --test cloud_windows --locked -- --nocapture --test-threads=1
       - uses: taiki-e/install-action@cfdb7ed4ccc7c7dce37759eae89dc5674b469b39 # v2.90.3
         with:
           tool: cargo-nextest
       - name: Tests, on Windows
-        # In release mode, with the build's flags, so both jobs share one cache; tests only (the
-        # probe examples are live tools for Linux, not tests). nextest, with the ci-windows
-        # profile (.config/nextest.toml): every core, hung tests stopped, the slow named; the
-        # scale tests run on Linux and the Explorer test in its own step above.
+        # The ci-test profile (Cargo.toml), here and in the Explorer test above: the release's
+        # optimised code and the build's flags without the link-time work each test binary paid
+        # again, with a cache of its own. Tests only (the probe examples are live tools for Linux,
+        # not tests). nextest, with the ci-windows profile (.config/nextest.toml): every core,
+        # hung tests stopped, the slow named; the scale tests run on Linux and the Explorer test
+        # in its own step above.
         env:
           RUSTFLAGS: --remap-path-prefix=${{ github.workspace }}=skykeep -C target-feature=+crt-static
-        run: cargo nextest run --release --workspace --lib --bins --tests --locked --profile ci-windows
+        run: cargo nextest run --cargo-profile ci-test --workspace --lib --bins --tests --locked --profile ci-windows
 
   build:
     runs-on: windows-latest

@@ -58,3 +58,14 @@ panic = "unwind"
 # freed (tauri-apps/wry#1871). Remove once a wry release has it; see third_party/README.md.
 [patch.crates-io]
 wry = { path = "third_party/wry" }
+
+# The Windows tests in CI (windows.yml): the release's code (opt-level 3, no debug assertions,
+# unwinding) without its link-time work. Thin LTO with one codegen unit was paid again for each
+# of the ~26 test binaries: with every dependency cached, 12 of the test step's 17.6 minutes were
+# that compile (0.1.29). The installers are still built and checked with the release profile;
+# nothing built with this one is shipped. Its crates have a cache of their own (windows-test).
+[profile.ci-test]
+inherits = "release"
+lto = false
+codegen-units = 16
+strip = false

@@ -12,6 +12,11 @@ inputs:
   save:
     description: Keep this run's caches ("true" only for main's own commit, on main)
     default: "false"
+  # Which compiled-crates cache: the installers' (release profile) or the tests' (ci-test
+  # profile). Their crates are compiled with different settings, so neither can use the other's.
+  cache:
+    description: Rust cache name ("windows-release" for the installers, "windows-test" for the tests)
+    default: windows-release
 
 runs:
   using: composite
@@ -36,11 +41,12 @@ runs:
           console.log(`@tauri-apps/api ${npm}, tauri crate ${rust}`);
           if (mm(npm) !== mm(rust)) { console.error("Tauri npm package and crate differ: align them"); process.exit(1); }'
     - uses: dtolnay/rust-toolchain@b725eda525362e7cf34af9a7243cac1e3f01a7ec # stable
-    # One cache for both jobs: the tests and the installers compile the same crates in release
-    # mode with the same flags, so whichever finishes first keeps it for the next run.
+    # One cache per profile: the installers' crates (release, thin LTO) and the tests' (ci-test,
+    # no LTO) are compiled differently, and each job restores exactly what it compiles. One
+    # shared cache, kept by whichever job finished first, left the other recompiling crates.
     - uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2.9.3
       with:
-        shared-key: windows-release
+        shared-key: ${{ inputs.cache }}
         # Saved from main's own commit only: a tag's or a branch's copy is never read again, and
         # only fills the repository's 10 GB of caches until main's own are evicted.
         save-if: ${{ inputs.save == 'true' }}
