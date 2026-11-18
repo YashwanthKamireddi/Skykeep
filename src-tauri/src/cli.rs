@@ -21,6 +21,9 @@ const COMMANDS: &[&str] = &[
     "--reminders",
     "--calendars",
     "--note-folders",
+    "--events",
+    "--search-notes",
+    "--search-contacts",
 ];
 
 /// Exit codes: 0 answered; 1 asked wrongly or the library couldn't be read; 2 no library yet.
@@ -128,6 +131,86 @@ fn read(library: &Library, asked: &str, args: &[String], now: i64) -> Result<Str
                 })
                 .collect::<Vec<_>>(),
         ),
+        "--events" => {
+            let days = match value(args, "--days") {
+                None => 7,
+                Some(d) => d
+                    .parse::<i64>()
+                    .ok()
+                    .filter(|d| (1..=366).contains(d))
+                    .ok_or_else(|| {
+                        format!("--days takes a number of days from 1 to 366, not \"{d}\".")
+                    })?,
+            };
+            to_json(
+                library
+                    .events_between(now, now + days * 86_400)
+                    .map_err(|e| e.to_string())?
+                    .into_iter()
+                    .map(|e| EventOut {
+                        id: e.guid,
+                        calendar: e.calendar_guid,
+                        title: e.title,
+                        location: e.location.filter(|l| !l.trim().is_empty()),
+                        start: e.starts_at,
+                        end: e.ends_at,
+                        all_day: e.all_day,
+                        timezone: e.timezone,
+                    })
+                    .collect::<Vec<_>>(),
+            )
+        }
+        "--search-notes" => {
+            let query =
+                value(args, "--search-notes").ok_or("--search-notes takes the words to find.")?;
+            to_json(
+                library
+                    .search_notes(&query)
+                    .map_err(|e| e.to_string())?
+                    .into_iter()
+                    .map(|n| NoteOut {
+                        id: n.guid,
+                        folder: n.folder_guid,
+                        title: n.title,
+                        // A locked note's words stay locked: its title only, as the phone lists it.
+                        snippet: n.snippet.filter(|_| !n.locked),
+                        locked: n.locked,
+                        pinned: n.pinned,
+                        modified: n.modified_at,
+                    })
+                    .collect::<Vec<_>>(),
+            )
+        }
+        "--search-contacts" => {
+            let query = value(args, "--search-contacts")
+                .ok_or("--search-contacts takes the words to find.")?;
+            to_json(
+                library
+                    .contacts(Some(&query))
+                    .map_err(|e| e.to_string())?
+                    .into_iter()
+                    .map(|c| {
+                        let of = |kind: &str| {
+                            c.methods
+                                .iter()
+                                .filter(|m| m.kind == kind)
+                                .map(|m| MethodOut {
+                                    label: m.label.clone(),
+                                    value: m.value.clone(),
+                                })
+                                .collect::<Vec<_>>()
+                        };
+                        ContactOut {
+                            phones: of("phone"),
+                            emails: of("email"),
+                            name: c.display_name(),
+                            company: c.company.clone().filter(|n| !n.trim().is_empty()),
+                            id: c.guid,
+                        }
+                    })
+                    .collect::<Vec<_>>(),
+            )
+        }
         other => return Err(format!("{other} isn't a read command.")),
     };
     json.map_err(|e| e.to_string())
@@ -253,6 +336,47 @@ struct ReminderOut {
     parent: Option<String>,
 }
 
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+struct EventOut {
+    id: String,
+    calendar: String,
+    title: String,
+    location: Option<String>,
+    /// Seconds since 1970. All day: local midnight to the next local midnight after the last day.
+    start: i64,
+    end: i64,
+    all_day: bool,
+    timezone: Option<String>,
+}
+
+#[derive(Serialize)]
+struct NoteOut {
+    id: String,
+    folder: Option<String>,
+    title: String,
+    snippet: Option<String>,
+    locked: bool,
+    pinned: bool,
+    /// Seconds since 1970.
+    modified: Option<i64>,
+}
+
+#[derive(Serialize)]
+struct ContactOut {
+    id: String,
+    name: String,
+    company: Option<String>,
+    phones: Vec<MethodOut>,
+    emails: Vec<MethodOut>,
+}
+
+#[derive(Serialize)]
+struct MethodOut {
+    label: Option<String>,
+    value: String,
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -352,5 +476,124 @@ mod tests {
             now
         )
         .is_err());
+    }
+
+    /// Events from now for the days asked (a week unless said), the one still running included;
+    /// searches need words; a days count out of range is refused.
+    #[test]
+    fn events_and_searches_answer_from_the_library() {
+        use quince_core::calendar::{Calendar, Event};
+        let mut library = Library::in_memory().unwrap();
+        library
+            .put_calendars(&[Calendar {
+                guid: "C".into(),
+                title: "Home".into(),
+                enabled: true,
+                writable: true,
+                ..Default::default()
+            }])
+            .unwrap();
+        let now = 1_795_000_000;
+        let e = |guid: &str, start: i64, hours: i64| Event {
+            guid: guid.into(),
+            calendar_guid: "C".into(),
+            title: guid.into(),
+            starts_at: start,
+            ends_at: start + hours * 3600,
+            timezone: Some("UTC".into()),
+            ..Default::default()
+        };
+        library
+            .put_events(&[
+                e("running", now - 3600, 2),
+                e("past", now - 86_400, 1),
+                e("in3days", now + 3 * 86_400, 1),
+                e("in10days", now + 10 * 86_400, 1),
+            ])
+            .unwrap();
+        let ids = |a: &[&str]| -> Vec<String> {
+            let a = args(a);
+            let v: serde_json::Value =
+                serde_json::from_str(&read(&library, &a[1], &a, now).unwrap()).unwrap();
+            v.as_array()
+                .unwrap()
+                .iter()
+                .map(|x| x["id"].as_str().unwrap().to_string())
+                .collect()
+        };
+        assert_eq!(ids(&["skykeep", "--events"]), ["running", "in3days"]);
+        assert_eq!(ids(&["skykeep", "--events", "--days", "1"]), ["running"]);
+        assert_eq!(
+            ids(&["skykeep", "--events", "--days=30"]),
+            ["running", "in3days", "in10days"]
+        );
+        for bad in [
+            vec!["skykeep", "--events", "--days", "0"],
+            vec!["skykeep", "--events", "--days", "soon"],
+            vec!["skykeep", "--search-notes"],
+            vec!["skykeep", "--search-contacts"],
+        ] {
+            let a = args(&bad);
+            assert!(read(&library, &a[1], &a, now).is_err(), "{bad:?}");
+        }
+        assert!(ids(&["skykeep", "--search-notes", "nothing"]).is_empty());
+        assert!(ids(&["skykeep", "--search-contacts", "nobody"]).is_empty());
+        // Found by a word in its text; a locked note found by its title shows no words; one in
+        // Recently Deleted is never found.
+        let note = |guid: &str, title: &str, folder: Option<&str>, locked: bool| {
+            quince_core::notes::Note {
+                guid: guid.into(),
+                folder_guid: folder.map(Into::into),
+                title: title.into(),
+                snippet: Some(format!("{title} snippet")),
+                body: Some(format!("{title}\nmilk and bread")),
+                locked,
+                pinned: false,
+                created_at: None,
+                modified_at: Some(now),
+                editable: true,
+                etag: None,
+                runs: None,
+            }
+        };
+        library
+            .put_note_folders(&[quince_core::notes::NoteFolder {
+                guid: quince_core::notes::TRASH_FOLDER.into(),
+                title: "Recently Deleted".into(),
+                sort_order: 0,
+                parent_guid: None,
+            }])
+            .unwrap();
+        library
+            .put_notes(&[
+                note("open", "Groceries", None, false),
+                note("secret", "Groceries locked", None, true),
+                note(
+                    "gone",
+                    "Groceries old",
+                    Some(quince_core::notes::TRASH_FOLDER),
+                    false,
+                ),
+            ])
+            .unwrap();
+        let a = args(&["skykeep", "--search-notes", "groc"]);
+        let found: serde_json::Value =
+            serde_json::from_str(&read(&library, &a[1], &a, now).unwrap()).unwrap();
+        let mut by_id: Vec<(String, bool)> = found
+            .as_array()
+            .unwrap()
+            .iter()
+            .map(|n| {
+                (
+                    n["id"].as_str().unwrap().to_string(),
+                    n["snippet"].is_null(),
+                )
+            })
+            .collect();
+        by_id.sort();
+        assert_eq!(
+            by_id,
+            [("open".to_string(), false), ("secret".to_string(), true)]
+        );
     }
 }
