@@ -168,6 +168,10 @@ jobs:
       - uses: dtolnay/rust-toolchain@b725eda525362e7cf34af9a7243cac1e3f01a7ec # stable
       - uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2.9.3
         with:
+          # One cache with linux-compat.yml's .deb and .rpm build: the same crates, compiled in release
+          # mode with the same flags on the same machine. Kept apart, the two were 1.9 GB of
+          # the repository's 10 GB, and the Windows tests' cache had no room left.
+          shared-key: linux-release
           # Saved from main only: a tag's or a branch's copy is never read again, and only fills
           # the repository's 10 GB of caches until main's own are evicted.
           save-if: ${{ github.ref == 'refs/heads/main' }}
@@ -253,13 +257,13 @@ jobs:
       version: ${{ steps.version.outputs.version }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-      - uses: actions/setup-java@77dd5b2ce225ea11469928ac317850245a74ae78 # v6.2.0
+      - uses: actions/setup-java@d1374f8ac74474200d16ef8ecee22c7ae7a51880 # v6.3.0
         with:
           distribution: temurin
           java-version: 17
       - run: rustup target add aarch64-linux-android x86_64-linux-android
       - run: cargo install cargo-ndk --version 4.1.2 --locked
-      - uses: taiki-e/install-action@cfdb7ed4ccc7c7dce37759eae89dc5674b469b39 # v2.90.3
+      - uses: taiki-e/install-action@4a76afe23f9e08d2d9550fb56e556444e8611d21 # v2.90.4
         with:
           tool: cargo-about@0.9.3
       - name: The release build, unsigned
