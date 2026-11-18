@@ -7196,6 +7196,7 @@ fn main() {
             // Coming back to a window is when a change made elsewhere is looked for at once.
             if let tauri::WindowEvent::Focused(true) = event {
                 push::wake();
+                dav::focused(window.label());
             }
             // The whole-library window is put away, as the engine keeps running behind the
             // tray. An app's own window is put away too, so opening it again is instant rather
