@@ -17,6 +17,9 @@ stress = { max-threads = 2 }
 [[profile.default.overrides]]
 filter = "test(/random_use_and_crashes/)"
 test-group = "stress"
+# The slowest test (over 4 minutes on Windows, 0.1.29): started first, so the rest run beside it
+# instead of the whole run waiting on it alone at the end (295 s to 184 s on Windows, 17 Nov).
+priority = 100
 slow-timeout = { period = "120s", terminate-after = 3 }
 
 [[profile.default.overrides]]

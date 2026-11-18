@@ -1213,3 +1213,160 @@ fn a_folder_off_a_local_ntfs_drive_is_refused_plainly() {
         "{why}"
     );
 }
+
+/// A file saved again while its last save was still going to Apple goes over that version, which
+/// is ours: never beside it as a conflicted copy. Obsidian saves a note every few seconds while
+/// it is typed in, and each save that landed during an upload made a new "(conflicted copy …)"
+/// beside it (#169): the second send named the version before the first as the one it replaced.
+#[test]
+fn a_save_during_an_upload_makes_no_conflicted_copy() {
+    /// Apple as it is: what was sent shows in the next listing, a replacement is a new version,
+    /// and an upload takes long enough for the app to save again meanwhile.
+    struct Live(
+        std::sync::Mutex<HashMap<String, Vec<DriveItem>>>,
+        Arc<std::sync::Mutex<Vec<String>>>,
+    );
+    impl Remote for Live {
+        fn mkdir(&self, _: &DriveItem, _: &str) -> Fut<DriveItem> {
+            Box::pin(async { Err("no folders here".to_string()) })
+        }
+        fn upload(&self, folder: &DriveItem, path: &Path) -> Fut<DriveItem> {
+            let name = path.file_name().unwrap().to_string_lossy().to_string();
+            let len = std::fs::metadata(path).map(|m| m.len() as i64).unwrap_or(0);
+            self.1.lock().unwrap().push(format!("upload {name} {len}"));
+            let (stem, ext) = name.rsplit_once('.').unwrap_or((&name, ""));
+            let mut sent = file(&format!("up-{name}"), stem, ext, len);
+            sent.parent_id = Some(folder.drivewsid.clone());
+            self.0
+                .lock()
+                .unwrap()
+                .entry(folder.drivewsid.clone())
+                .or_default()
+                .push(sent.clone());
+            Box::pin(async move {
+                tokio::time::sleep(std::time::Duration::from_secs(3)).await;
+                Ok(sent)
+            })
+        }
+        fn replace(&self, item: &DriveItem, path: &Path) -> Fut<Option<DriveItem>> {
+            let len = std::fs::metadata(path).map(|m| m.len() as i64).unwrap_or(0);
+            self.1
+                .lock()
+                .unwrap()
+                .push(format!("replace {} {len}", item.display_name()));
+            let mut now = item.clone();
+            now.size = Some(len);
+            now.etag = Some(format!("{}+", item.etag.clone().unwrap_or_default()));
+            for items in self.0.lock().unwrap().values_mut() {
+                for i in items.iter_mut().filter(|i| i.drivewsid == now.drivewsid) {
+                    *i = now.clone();
+                }
+            }
+            Box::pin(async move { Ok(Some(now)) })
+        }
+        fn rename(&self, _: &DriveItem, _: &str) -> Fut<()> {
+            Box::pin(async { Ok(()) })
+        }
+        fn move_to(&self, _: &DriveItem, _: &DriveItem) -> Fut<()> {
+            Box::pin(async { Ok(()) })
+        }
+        fn delete(&self, _: &DriveItem) -> Fut<()> {
+            Box::pin(async { Ok(()) })
+        }
+        fn list(&self, folder: &str) -> Fut<Vec<DriveItem>> {
+            let items = self
+                .0
+                .lock()
+                .unwrap()
+                .get(folder)
+                .cloned()
+                .unwrap_or_default();
+            Box::pin(async move { Ok(items) })
+        }
+        fn read(&self, item: &DriveItem, offset: u64, len: u64) -> Fut<Vec<u8>> {
+            let end = (offset + len).min(item.size.unwrap_or(0) as u64);
+            Box::pin(async move { Ok((offset..end).map(byte).collect()) })
+        }
+    }
+    struct Known(HashMap<String, Vec<DriveItem>>);
+    impl Store for Known {
+        fn children(&self, folder: &str) -> Option<Vec<DriveItem>> {
+            self.0.get(folder).cloned()
+        }
+    }
+    let rt = tokio::runtime::Runtime::new().unwrap();
+    let base = PathBuf::from(std::env::var("USERPROFILE").unwrap());
+    let place = base.join(format!("Skykeep saves {}", std::process::id()));
+    let out = std::env::temp_dir().join(format!("skykeep-saves-out-{}", std::process::id()));
+    std::fs::create_dir_all(&out).unwrap();
+    let log = Arc::new(std::sync::Mutex::new(Vec::<String>::new()));
+    let apple = Arc::new(Live(
+        std::sync::Mutex::new([(ROOT.to_string(), Vec::new())].into()),
+        Arc::clone(&log),
+    ));
+    let id = cloud::sync_root_id(&format!("saves{}", std::process::id())).unwrap();
+    let shown = Shown {
+        id: &id,
+        name: "Skykeep saves",
+        icon: "%SystemRoot%\\system32\\imageres.dll,-1043",
+    };
+    let folder = cloud::start(
+        &place,
+        &shown,
+        Provider::new(
+            Arc::clone(&apple) as Arc<dyn Remote>,
+            Arc::new(Known([(ROOT.to_string(), Vec::new())].into())),
+            rt.handle().clone(),
+            out.join("sending"),
+        ),
+    )
+    .expect("the cloud folder registers and connects");
+    let heard = |what: &str| log.lock().unwrap().iter().any(|l| l.starts_with(what));
+    let wait = |what: &str| {
+        for _ in 0..150 {
+            if heard(what) {
+                return;
+            }
+            std::thread::sleep(std::time::Duration::from_millis(200));
+        }
+        panic!(
+            "never reached Apple: {what}; Apple heard {:?}",
+            log.lock().unwrap()
+        );
+    };
+
+    let note = place.join("note.md");
+    std::fs::write(&note, "a").unwrap();
+    // Saved again while the first save is on its way (the upload takes three seconds).
+    wait("upload note.md");
+    std::thread::sleep(std::time::Duration::from_millis(500));
+    std::fs::write(&note, "abc").unwrap();
+    wait("replace note.md 3");
+    // And once more after that, as typing goes on.
+    std::fs::write(&note, "abcdef").unwrap();
+    wait("replace note.md 6");
+    std::thread::sleep(std::time::Duration::from_secs(3));
+
+    let said = log.lock().unwrap().clone();
+    println!("Apple heard: {said:?}");
+    assert!(
+        !said.iter().any(|l| l.contains("conflicted copy")),
+        "a save during an upload made a conflicted copy: {said:?}"
+    );
+    let here = dir(&place);
+    assert_eq!(here, ["note.md"], "only the note, no copies beside it");
+    let at_apple = apple
+        .0
+        .lock()
+        .unwrap()
+        .get(ROOT)
+        .cloned()
+        .unwrap_or_default();
+    assert_eq!(at_apple.len(), 1, "one file at Apple: {at_apple:?}");
+    assert_eq!(at_apple[0].size, Some(6), "Apple has the latest save");
+
+    drop(folder);
+    cloud::unregister(&place, &id);
+    let _ = std::fs::remove_dir_all(&place);
+    let _ = std::fs::remove_dir_all(&out);
+}
