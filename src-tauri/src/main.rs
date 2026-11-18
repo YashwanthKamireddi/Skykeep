@@ -3976,15 +3976,57 @@ async fn note_create(
     body: String,
     data: State<'_, Data>,
 ) -> UiResult<String> {
+    create_note(&data, folder_guid, &body).await
+}
+
+/// A note made: in the library at once, queued for Apple. Notes' own windows and the command
+/// line both come here.
+async fn create_note(data: &Data, folder_guid: Option<String>, body: &str) -> UiResult<String> {
     if body.trim().is_empty() {
         return Err("A note needs something in it.".into());
     }
     let guid = {
         let mut library = data.0.lock().await;
-        outbox::record_note_create(&mut library, folder_guid, &body).map_err(|e| e.to_string())?
+        outbox::record_note_create(&mut library, folder_guid, body).map_err(|e| e.to_string())?
     };
     outbox::kick();
     Ok(guid)
+}
+
+/// The folder a note asked for goes in: the one named, which must be a folder this library holds
+/// and not Recently Deleted (asked for wrongly, a script is told, not quietly filed elsewhere);
+/// none named, Notes' own default folder (`None`), as the quick capture files one.
+fn note_folder_for(
+    folders: &[quince_core::notes::NoteFolder],
+    asked: Option<&str>,
+) -> UiResult<Option<String>> {
+    match asked {
+        None | Some("DefaultFolder-CloudKit") => Ok(None),
+        Some(quince_core::notes::TRASH_FOLDER) => {
+            Err("A note can't be made in Recently Deleted.".into())
+        }
+        Some(id) if folders.iter().any(|f| f.guid == id) => Ok(Some(id.to_string())),
+        Some(id) => Err(format!("No Notes folder has the id {id}.")),
+    }
+}
+
+/// A note another program asked for (`--create-note`): checked, then made by Notes' own path,
+/// and shown at once in a Notes window that is open.
+pub async fn create_note_asked(
+    app: &tauri::AppHandle,
+    text: &str,
+    folder: Option<&str>,
+) -> UiResult<String> {
+    let data = app.state::<Data>();
+    let folder = {
+        let library = data.0.lock().await;
+        let folders = library.note_folders().map_err(|e| e.to_string())?;
+        note_folder_for(&folders, folder)?
+    };
+    let made = create_note(&data, folder, text).await?;
+    let report = refresh::status_changed(&data.0, &["notes"]).await;
+    app.emit(SYNCED, &report).ok();
+    Ok(made)
 }
 
 /// Delete a note: to Recently Deleted, or from there for good. At once here, sent behind.
@@ -7966,6 +8008,33 @@ mod tests {
         assert_eq!(super::list_for(&lists, None, Some("off")).unwrap(), "a");
         assert_eq!(super::list_for(&lists, None, None).unwrap(), "a");
         assert!(super::list_for(&[list("off", false)], None, None).is_err());
+    }
+
+    /// A note asked for with no folder goes in Notes' default folder; a folder named must be one
+    /// the library holds, and never Recently Deleted.
+    #[test]
+    fn a_note_asked_for_goes_in_the_right_folder() {
+        use quince_core::notes::{NoteFolder, TRASH_FOLDER};
+        let folder = |guid: &str| NoteFolder {
+            guid: guid.into(),
+            title: guid.into(),
+            sort_order: 0,
+            parent_guid: None,
+        };
+        let folders = [folder("work"), folder(TRASH_FOLDER)];
+        assert_eq!(super::note_folder_for(&folders, None).unwrap(), None);
+        assert_eq!(
+            super::note_folder_for(&folders, Some("DefaultFolder-CloudKit")).unwrap(),
+            None
+        );
+        assert_eq!(
+            super::note_folder_for(&folders, Some("work"))
+                .unwrap()
+                .as_deref(),
+            Some("work")
+        );
+        assert!(super::note_folder_for(&folders, Some(TRASH_FOLDER)).is_err());
+        assert!(super::note_folder_for(&folders, Some("gone")).is_err());
     }
 
     /// rfd 0.16.0 (and 0.17.x up to at least 0.17.2) hands a message dialog's text to GTK as a

@@ -125,20 +125,73 @@ pub fn reminder_asked(args: &[String]) -> Option<ReminderAsk> {
         .or_else(|| value_of(args, "--reminder").map(ReminderAsk::Show))
 }
 
-/// `--create-reminder`, if asked: the reminder, or why it can't be made. The title is taken
-/// as given, even one starting with "--" (`--create-reminder=--x`), but never empty.
-fn create_asked(args: &[String]) -> Option<ReminderAsk> {
+/// A note another program asks to be made (#49's shape for Notes): `--create-note <text>
+/// [--folder <folder id>]`, made as Notes makes one — its first line the title — into the
+/// folder named, or Notes' own default folder.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum NoteAsk {
+    Create {
+        text: String,
+        folder: Option<String>,
+    },
+    /// Asked for wrongly: said on stderr, nothing made.
+    Refused(String),
+}
+
+/// `--create-note`, if asked.
+pub fn note_asked(args: &[String]) -> Option<NoteAsk> {
+    let text = flag_text(args, "--create-note")?;
+    if text.trim().is_empty() {
+        return Some(NoteAsk::Refused("A note needs something in it.".into()));
+    }
+    Some(NoteAsk::Create {
+        text,
+        folder: value_of(args, "--folder"),
+    })
+}
+
+/// Make what [`note_asked`] found, printing the new note's id when `this_launch` made it.
+pub fn on_note(app: &AppHandle, ask: NoteAsk, this_launch: bool) {
+    let app = app.clone();
+    tauri::async_runtime::spawn(async move {
+        match ask {
+            NoteAsk::Refused(why) => eprintln!("skykeep: {why}"),
+            NoteAsk::Create { text, folder } => {
+                match crate::create_note_asked(&app, &text, folder.as_deref()).await {
+                    Ok(guid) if this_launch => println!("{guid}"),
+                    Ok(_) => {}
+                    Err(e) => {
+                        eprintln!("skykeep: {e}");
+                        quiet!("a command line's note could not be made: {e}");
+                    }
+                }
+            }
+        }
+    });
+}
+
+/// The text given to `flag` (`flag <text>` or `flag=<text>`) when `flag` is there at all: empty
+/// when nothing follows it (said as refused by the caller, never taken for no flag). After "=",
+/// taken as given even when it starts with "--".
+fn flag_text(args: &[String], flag: &str) -> Option<String> {
+    let with = format!("{flag}=");
     let at = args
         .iter()
-        .position(|a| a == "--create-reminder" || a.starts_with("--create-reminder="))?;
-    let title = match args[at].strip_prefix("--create-reminder=") {
+        .position(|a| a == flag || a.starts_with(&with))?;
+    Some(match args[at].strip_prefix(&with) {
         Some(t) => t.to_string(),
         None => args
             .get(at + 1)
             .filter(|t| !t.starts_with("--"))
             .cloned()
             .unwrap_or_default(),
-    };
+    })
+}
+
+/// `--create-reminder`, if asked: the reminder, or why it can't be made. The title is taken
+/// as given, even one starting with "--" (`--create-reminder=--x`), but never empty.
+fn create_asked(args: &[String]) -> Option<ReminderAsk> {
+    let title = flag_text(args, "--create-reminder")?;
     if title.trim().is_empty() {
         return Some(ReminderAsk::Refused("A reminder needs a title.".into()));
     }
@@ -857,6 +910,42 @@ mod tests {
             reminder_asked(&args(&["skykeep", "--app", "reminders"])),
             None
         );
+    }
+
+    /// Another program asks for a note: its text, and a folder only when named.
+    #[test]
+    fn another_program_can_make_a_note() {
+        assert_eq!(
+            note_asked(&args(&[
+                "skykeep",
+                "--create-note",
+                "Groceries\nmilk",
+                "--folder",
+                "F1"
+            ])),
+            Some(NoteAsk::Create {
+                text: "Groceries\nmilk".into(),
+                folder: Some("F1".into()),
+            })
+        );
+        assert_eq!(
+            note_asked(&args(&["skykeep", "--create-note=--dash"])),
+            Some(NoteAsk::Create {
+                text: "--dash".into(),
+                folder: None,
+            })
+        );
+        assert_eq!(note_asked(&args(&["skykeep", "--app", "notes"])), None);
+        for bad in [
+            vec!["skykeep", "--create-note"],
+            vec!["skykeep", "--create-note", "  "],
+            vec!["skykeep", "--create-note", "--folder", "F1"],
+        ] {
+            assert!(
+                matches!(note_asked(&args(&bad)), Some(NoteAsk::Refused(_))),
+                "{bad:?} should be refused"
+            );
+        }
     }
 
     /// #49: another program asks for a reminder to be made, with the flags the widget sends.
