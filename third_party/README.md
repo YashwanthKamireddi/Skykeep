@@ -3,7 +3,7 @@
 Each one is the crates.io release as published, with a single change. The change is named here,
 along with when to drop the copy and go back to crates.io.
 
-## wry 0.57.0 (`third_party/wry`)
+## wry 0.57.2 (`third_party/wry`)
 
 **Change:** `src/webkitgtk/mod.rs`, `attach_ipc_handler`. The IPC signal handler holds the WebView
 weakly instead of strongly.
@@ -18,8 +18,11 @@ web process (about 80–125 MB) running until Skykeep quit: seven of them, about
 day's use with no window open. With the change, a closed window's web process exits once the window
 is let go (`apps::KEPT`).
 
-Upstream: [tauri-apps/wry#1871](https://github.com/tauri-apps/wry/issues/1871) (open at the time of
-writing, no release has the fix).
+Upstream: [tauri-apps/wry#1871](https://github.com/tauri-apps/wry/issues/1871) (still open on 18 Nov
+2026; 0.57.2 still captures the view strongly). The copy moved from 0.57.0 to 0.57.2 on 18 Nov for
+upstream's own fixes: on Linux a custom-protocol request body cut short on a short read (#1911),
+which Tauri's IPC goes through; on Windows long-path drops (#1922), empty drop events after a
+refused drag, and a window move blurring the web view (#1910).
 
 **Drop it when** a wry release holds the view weakly in `attach_ipc_handler`. Then:
 

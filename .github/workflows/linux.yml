@@ -168,6 +168,10 @@ jobs:
       - uses: dtolnay/rust-toolchain@b725eda525362e7cf34af9a7243cac1e3f01a7ec # stable
       - uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2.9.3
         with:
+          # One cache with linux-compat.yml's .deb and .rpm build: the same crates, compiled in release
+          # mode with the same flags on the same machine. Kept apart, the two were 1.9 GB of
+          # the repository's 10 GB, and the Windows tests' cache had no room left.
+          shared-key: linux-release
           # Saved from main only: a tag's or a branch's copy is never read again, and only fills
           # the repository's 10 GB of caches until main's own are evicted.
           save-if: ${{ github.ref == 'refs/heads/main' }}
