@@ -21,7 +21,7 @@ ok(JSON.stringify(await kept()) === '{"container":{"type":"list","guid":"l2"},"i
 await page.reload({ waitUntil: "networkidle" });
 await settle();
 ok(JSON.stringify(await kept()) === '{"container":{"type":"list","guid":"l2"},"item":null}', `reopened, GYM is the list open  ${JSON.stringify(await kept())}`);
-ok((await page.getByText("Evening run").count()) > 0, "with its reminders");
+ok((await page.getByRole("checkbox", { name: "Evening run" }).count()) > 0, "with its reminders");
 
 await page.evaluate(() => localStorage.setItem("quince.reminders.place", JSON.stringify({ container: { type: "list", guid: "l2" }, item: "r3" })));
 await page.reload({ waitUntil: "networkidle" });
