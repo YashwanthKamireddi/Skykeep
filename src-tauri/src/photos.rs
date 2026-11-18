@@ -224,17 +224,48 @@ pub fn requested_upload(path: &str) -> Option<String> {
         .then(|| id.to_string())
 }
 
-/// A small square of a queued file, made once and kept for the run: decoding a large photo
-/// costs, so it is done off the async threads and never twice.
+/// How many queued files' small squares are kept in memory: the rows the upload list can show,
+/// and more.
+const UPLOAD_PICTURES: usize = 512;
+
+/// The small squares of queued files, the latest made last.
+#[derive(Default)]
+struct UploadPictures {
+    made: HashMap<String, Vec<u8>>,
+    order: std::collections::VecDeque<String>,
+}
+
+impl UploadPictures {
+    fn get(&self, id: &str) -> Option<Vec<u8>> {
+        self.made.get(id).cloned()
+    }
+
+    /// Kept, and the oldest let go of past [`UPLOAD_PICTURES`]: kept for the whole run, every
+    /// file ever queued kept its square in memory, tens of thousands for a large import.
+    fn keep(&mut self, id: &str, bytes: Vec<u8>) {
+        if self.made.insert(id.to_string(), bytes).is_none() {
+            self.order.push_back(id.to_string());
+        }
+        while self.order.len() > UPLOAD_PICTURES {
+            if let Some(old) = self.order.pop_front() {
+                self.made.remove(&old);
+            }
+        }
+    }
+}
+
+/// A small square of a queued file, made once and kept while it is among the latest asked for:
+/// decoding a large photo costs, so it is done off the async threads and not again for a row
+/// still on screen.
 pub async fn upload_picture(app: &AppHandle, id: &str) -> UiResult<Vec<u8>> {
-    static MADE: std::sync::OnceLock<Mutex<HashMap<String, Vec<u8>>>> = std::sync::OnceLock::new();
-    let made = MADE.get_or_init(Default::default);
-    if let Some(b) = made
+    static MADE: Mutex<Option<UploadPictures>> = Mutex::new(None);
+    if let Some(b) = MADE
         .lock()
         .unwrap_or_else(std::sync::PoisonError::into_inner)
-        .get(id)
+        .as_ref()
+        .and_then(|m| m.get(id))
     {
-        return Ok(b.clone());
+        return Ok(b);
     }
     let u = app
         .state::<Data>()
@@ -257,9 +288,10 @@ pub async fn upload_picture(app: &AppHandle, id: &str) -> UiResult<Vec<u8>> {
         .await
         .map_err(|e| e.to_string())?
         .map_err(|e| e.to_string())?;
-    made.lock()
+    MADE.lock()
         .unwrap_or_else(std::sync::PoisonError::into_inner)
-        .insert(id.to_string(), small.clone());
+        .get_or_insert_with(UploadPictures::default)
+        .keep(id, small.clone());
     Ok(small)
 }
 
@@ -3518,6 +3550,21 @@ mod link_tests {
 
 #[cfg(test)]
 mod tests {
+    /// A large import's squares are not all kept for the run: the latest 512.
+    #[test]
+    fn upload_pictures_held_in_memory_are_bounded() {
+        let mut m = super::UploadPictures::default();
+        for i in 0..10_000 {
+            m.keep(&format!("u{i}"), vec![0; 8]);
+        }
+        assert_eq!(m.made.len(), super::UPLOAD_PICTURES);
+        assert_eq!(m.order.len(), super::UPLOAD_PICTURES);
+        assert!(m.get("u9999").is_some() && m.get("u0").is_none());
+        // Kept again: not counted twice.
+        m.keep("u9999", vec![1]);
+        assert_eq!(m.order.len(), super::UPLOAD_PICTURES);
+    }
+
     /// #167: previews are made for the photos kept ahead, whatever order the grid is in. With
     /// Oldest First (#120) the grid's first 600 were the oldest, and theirs were made.
     #[test]
