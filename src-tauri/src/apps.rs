@@ -76,11 +76,29 @@ pub fn new_asked(args: &[String]) -> Option<&'static str> {
 /// change reaches Apple through the outbox as one made in Reminders does (#35):
 /// `--complete-reminder <id>`, `--uncomplete-reminder <id>`, or `--reminder <id>` (alone or
 /// with `--app reminders`) to open Reminders on it. Each also takes `--flag=<id>`.
+///
+/// And a new one (#49): `--create-reminder <title> [--list <list id>] [--due <unix seconds>]
+/// [--all-day] [--flagged]`, made exactly as one typed into Reminders — in the library at once,
+/// queued for Apple (`reminder_create`). Without `--list`, into the list last added to, as the
+/// quick capture does; `--all-day` only with a due date.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum ReminderAsk {
     Complete(String),
     Uncomplete(String),
     Show(String),
+    Create(NewReminder),
+    /// Asked for wrongly: said on stderr, nothing made.
+    Refused(String),
+}
+
+/// A reminder another program asks to be made (`--create-reminder`).
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct NewReminder {
+    pub title: String,
+    pub list: Option<String>,
+    pub due_at: Option<i64>,
+    pub all_day: bool,
+    pub flagged: bool,
 }
 
 /// The value after `flag` (`flag <v>` or `flag=<v>`), if there is one that is not another flag.
@@ -98,17 +116,114 @@ fn value_of(args: &[String], flag: &str) -> Option<String> {
 
 /// What a command line asks of one reminder, if anything.
 pub fn reminder_asked(args: &[String]) -> Option<ReminderAsk> {
+    if let Some(ask) = create_asked(args) {
+        return Some(ask);
+    }
     value_of(args, "--complete-reminder")
         .map(ReminderAsk::Complete)
         .or_else(|| value_of(args, "--uncomplete-reminder").map(ReminderAsk::Uncomplete))
         .or_else(|| value_of(args, "--reminder").map(ReminderAsk::Show))
 }
 
+/// A note another program asks to be made (#49's shape for Notes): `--create-note <text>
+/// [--folder <folder id>]`, made as Notes makes one — its first line the title — into the
+/// folder named, or Notes' own default folder.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum NoteAsk {
+    Create {
+        text: String,
+        folder: Option<String>,
+    },
+    /// Asked for wrongly: said on stderr, nothing made.
+    Refused(String),
+}
+
+/// `--create-note`, if asked.
+pub fn note_asked(args: &[String]) -> Option<NoteAsk> {
+    let text = flag_text(args, "--create-note")?;
+    if text.trim().is_empty() {
+        return Some(NoteAsk::Refused("A note needs something in it.".into()));
+    }
+    Some(NoteAsk::Create {
+        text,
+        folder: value_of(args, "--folder"),
+    })
+}
+
+/// Make what [`note_asked`] found, printing the new note's id when `this_launch` made it.
+pub fn on_note(app: &AppHandle, ask: NoteAsk, this_launch: bool) {
+    let app = app.clone();
+    tauri::async_runtime::spawn(async move {
+        match ask {
+            NoteAsk::Refused(why) => eprintln!("skykeep: {why}"),
+            NoteAsk::Create { text, folder } => {
+                match crate::create_note_asked(&app, &text, folder.as_deref()).await {
+                    Ok(guid) if this_launch => println!("{guid}"),
+                    Ok(_) => {}
+                    Err(e) => {
+                        eprintln!("skykeep: {e}");
+                        quiet!("a command line's note could not be made: {e}");
+                    }
+                }
+            }
+        }
+    });
+}
+
+/// The text given to `flag` (`flag <text>` or `flag=<text>`) when `flag` is there at all: empty
+/// when nothing follows it (said as refused by the caller, never taken for no flag). After "=",
+/// taken as given even when it starts with "--".
+fn flag_text(args: &[String], flag: &str) -> Option<String> {
+    let with = format!("{flag}=");
+    let at = args
+        .iter()
+        .position(|a| a == flag || a.starts_with(&with))?;
+    Some(match args[at].strip_prefix(&with) {
+        Some(t) => t.to_string(),
+        None => args
+            .get(at + 1)
+            .filter(|t| !t.starts_with("--"))
+            .cloned()
+            .unwrap_or_default(),
+    })
+}
+
+/// `--create-reminder`, if asked: the reminder, or why it can't be made. The title is taken
+/// as given, even one starting with "--" (`--create-reminder=--x`), but never empty.
+fn create_asked(args: &[String]) -> Option<ReminderAsk> {
+    let title = flag_text(args, "--create-reminder")?;
+    if title.trim().is_empty() {
+        return Some(ReminderAsk::Refused("A reminder needs a title.".into()));
+    }
+    let due_at = match value_of(args, "--due") {
+        Some(v) => match v.parse::<i64>() {
+            Ok(n) => Some(n),
+            Err(_) => {
+                return Some(ReminderAsk::Refused(format!(
+                    "--due takes Unix seconds (UTC), not \"{v}\"."
+                )))
+            }
+        },
+        None => None,
+    };
+    Some(ReminderAsk::Create(NewReminder {
+        title,
+        list: value_of(args, "--list"),
+        due_at,
+        all_day: due_at.is_some() && args.iter().any(|a| a == "--all-day"),
+        flagged: args.iter().any(|a| a == "--flagged"),
+    }))
+}
+
 /// Do what [`reminder_asked`] found. A tick is made as the notification's Mark as Completed
 /// makes it (`crate::set_done`: shown and queued together, a repeating one moving to its next
 /// date), after the session is taken up again, so it reaches Apple even when this launch opened
 /// no window. Asked for what is already so, it does nothing, so a widget can repeat itself.
-pub fn on_reminder(app: &AppHandle, ask: ReminderAsk) {
+///
+/// A reminder asked to be made is made through `crate::create_reminder`, as Reminders makes
+/// one; its id is printed on stdout when `this_launch` made it (a launch handed to a Skykeep
+/// already running can't print the other's answer — the asking program reads the library).
+pub fn on_reminder(app: &AppHandle, ask: ReminderAsk, this_launch: bool) {
     let app = app.clone();
     tauri::async_runtime::spawn(async move {
         let data = app.state::<crate::Data>();
@@ -116,6 +231,21 @@ pub fn on_reminder(app: &AppHandle, ask: ReminderAsk) {
             ReminderAsk::Complete(id) => (id, Some(true)),
             ReminderAsk::Uncomplete(id) => (id, Some(false)),
             ReminderAsk::Show(id) => (id, None),
+            ReminderAsk::Refused(why) => {
+                eprintln!("skykeep: {why}");
+                return;
+            }
+            ReminderAsk::Create(new) => {
+                match crate::create_reminder_asked(&app, new).await {
+                    Ok(guid) if this_launch => println!("{guid}"),
+                    Ok(_) => {}
+                    Err(e) => {
+                        eprintln!("skykeep: {e}");
+                        quiet!("a command line's reminder could not be made: {e}");
+                    }
+                }
+                return;
+            }
         };
         let found = data.0.lock().await.reminder(id).ok().flatten();
         let Some(reminder) = found else {
@@ -665,7 +795,7 @@ mod tests {
             .find(|p| p.contains("\nname = \"wry\"\n"))
             .expect("wry in Cargo.lock");
         assert!(
-            entry.contains("version = \"0.57.0\""),
+            entry.contains("version = \"0.57.2\""),
             "wry moved on: check tauri-apps/wry#1871 in it (third_party/README.md)"
         );
         assert!(
@@ -780,6 +910,95 @@ mod tests {
             reminder_asked(&args(&["skykeep", "--app", "reminders"])),
             None
         );
+    }
+
+    /// Another program asks for a note: its text, and a folder only when named.
+    #[test]
+    fn another_program_can_make_a_note() {
+        assert_eq!(
+            note_asked(&args(&[
+                "skykeep",
+                "--create-note",
+                "Groceries\nmilk",
+                "--folder",
+                "F1"
+            ])),
+            Some(NoteAsk::Create {
+                text: "Groceries\nmilk".into(),
+                folder: Some("F1".into()),
+            })
+        );
+        assert_eq!(
+            note_asked(&args(&["skykeep", "--create-note=--dash"])),
+            Some(NoteAsk::Create {
+                text: "--dash".into(),
+                folder: None,
+            })
+        );
+        assert_eq!(note_asked(&args(&["skykeep", "--app", "notes"])), None);
+        for bad in [
+            vec!["skykeep", "--create-note"],
+            vec!["skykeep", "--create-note", "  "],
+            vec!["skykeep", "--create-note", "--folder", "F1"],
+        ] {
+            assert!(
+                matches!(note_asked(&args(&bad)), Some(NoteAsk::Refused(_))),
+                "{bad:?} should be refused"
+            );
+        }
+    }
+
+    /// #49: another program asks for a reminder to be made, with the flags the widget sends.
+    #[test]
+    fn another_program_can_make_a_reminder() {
+        assert_eq!(
+            reminder_asked(&args(&[
+                "skykeep",
+                "--create-reminder",
+                "Buy milk",
+                "--list",
+                "L1",
+                "--due",
+                "1795000000",
+                "--all-day",
+                "--flagged"
+            ])),
+            Some(ReminderAsk::Create(NewReminder {
+                title: "Buy milk".into(),
+                list: Some("L1".into()),
+                due_at: Some(1_795_000_000),
+                all_day: true,
+                flagged: true,
+            }))
+        );
+        // The title after "=", even one that looks like a flag; no list or date: the defaults.
+        assert_eq!(
+            reminder_asked(&args(&["skykeep", "--create-reminder=--weird title"])),
+            Some(ReminderAsk::Create(NewReminder {
+                title: "--weird title".into(),
+                list: None,
+                due_at: None,
+                all_day: false,
+                flagged: false,
+            }))
+        );
+        // All day only means something with a date.
+        assert!(matches!(
+            reminder_asked(&args(&["skykeep", "--create-reminder", "x", "--all-day"])),
+            Some(ReminderAsk::Create(NewReminder { all_day: false, .. }))
+        ));
+        // No title, an empty one, or a date that isn't a number: refused, nothing made.
+        for bad in [
+            vec!["skykeep", "--create-reminder"],
+            vec!["skykeep", "--create-reminder="],
+            vec!["skykeep", "--create-reminder", "   "],
+            vec!["skykeep", "--create-reminder", "x", "--due", "tomorrow"],
+        ] {
+            assert!(
+                matches!(reminder_asked(&args(&bad)), Some(ReminderAsk::Refused(_))),
+                "{bad:?} should be refused"
+            );
+        }
     }
 
     #[test]

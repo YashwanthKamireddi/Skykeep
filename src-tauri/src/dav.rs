@@ -19,6 +19,7 @@ use quince_icloud::ical_edit::{self, Change, Removal, Written};
 use quince_icloud::{nextcloud, Error};
 use reqwest::{Client, Url};
 use std::collections::HashMap;
+use std::sync::atomic::{AtomicI64, Ordering};
 use std::sync::{Arc, Mutex as StdMutex};
 use std::time::{Duration, Instant};
 use tauri::{AppHandle, Emitter, Manager, State};
@@ -29,6 +30,12 @@ use tokio::sync::{Mutex, Notify};
 pub static PASS: Mutex<()> = Mutex::const_new(());
 
 static WAKE: Notify = Notify::const_new();
+
+/// When the accounts were last looked at, in seconds since 1970.
+static LOOKED: AtomicI64 = AtomicI64::new(0);
+
+/// How often the accounts are looked at while a window that draws Calendar is in front.
+const FOCUSED_EVERY: i64 = 30;
 
 /// Passwords already read this run. Read from the keyring on every poll, a locked keyring
 /// would ask the person over and over.
@@ -59,6 +66,19 @@ const USER_AGENT: &str = "Skykeep";
 /// Look at the accounts now, not on the next poll.
 pub fn wake() {
     WAKE.notify_one();
+}
+
+/// The window `label` came to the front. One that draws Calendar has the accounts looked at
+/// now, unless they were within the focused pace: with another app in front they are looked
+/// at only every minute, and switching to Calendar must not show what is up to a minute old.
+pub fn focused(label: &str) {
+    if wakes_for(label, unix_now(), LOOKED.load(Ordering::Relaxed)) {
+        wake();
+    }
+}
+
+fn wakes_for(label: &str, now: i64, looked: i64) -> bool {
+    crate::push::CALENDAR_WINDOWS.contains(&label) && now - looked >= FOCUSED_EVERY
 }
 
 fn unix_now() -> i64 {
@@ -379,6 +399,7 @@ pub fn spawn(app: AppHandle) {
     tauri::async_runtime::spawn(async move {
         loop {
             // Another person's iCloud library, or none: not this account's to touch.
+            LOOKED.store(unix_now(), Ordering::Relaxed);
             if crate::same_account(&app).await {
                 let accounts = app
                     .state::<Data>()
@@ -390,8 +411,8 @@ pub fn spawn(app: AppHandle) {
                     let _ = pass_and_record(&app, a).await;
                 }
             }
-            let wait = match crate::push::presence(&app) {
-                crate::push::Presence::Focused => Duration::from_secs(30),
+            let wait = match crate::push::presence_for(&app, crate::push::CALENDAR_WINDOWS) {
+                crate::push::Presence::Focused => Duration::from_secs(FOCUSED_EVERY.unsigned_abs()),
                 crate::push::Presence::Open => Duration::from_secs(60),
                 crate::push::Presence::Hidden => Duration::from_secs(300),
             };
@@ -1069,6 +1090,18 @@ mod tests {
     use super::*;
     use std::sync::Mutex as Shared;
     use wiremock::{Mock, MockServer, Request, Respond, ResponseTemplate};
+
+    #[test]
+    fn coming_to_calendar_looks_at_the_accounts_unless_just_looked() {
+        let now = 1_000_000;
+        // Another app in front: the accounts were looked at 45 s ago, on the minute's pace.
+        assert!(wakes_for("app-calendar", now, now - 45));
+        assert!(wakes_for("main", now, now - 45));
+        // Notes draws no events: its focus asks nothing.
+        assert!(!wakes_for("app-notes", now, now - 45));
+        // Looked at moments ago: nothing to catch up.
+        assert!(!wakes_for("app-calendar", now, now - 10));
+    }
 
     const HOME: &str = "/remote.php/dav/calendars/felix/";
     const CAL: &str = "/remote.php/dav/calendars/felix/personal/";

@@ -61,6 +61,7 @@ mod poster {
     }
 }
 mod push;
+mod recover;
 mod refresh;
 mod reminders_cmds;
 mod saving;
@@ -3430,25 +3431,92 @@ async fn reminder_create(
     if list_guid.trim().is_empty() {
         return Err("A reminder has to go in a list, and this account has none yet.".into());
     }
-    // In the library at once under a name chosen here, and queued for Apple (outbox.rs): made
-    // offline, it is there now and reaches Apple when Apple can be reached — made once.
+    create_reminder(
+        &data,
+        outbox::Create {
+            list_guid,
+            title,
+            due_at,
+            all_day,
+            flagged,
+        },
+    )
+    .await
+}
+
+/// A reminder made: in the library at once under a name chosen here, and queued for Apple
+/// (outbox.rs) — made offline, it is there now and reaches Apple when Apple can be reached,
+/// once. The list it went into is kept as the one last added to, where a reminder asked for
+/// with no list goes (`create_reminder_asked`). Reminders' own form and the command line both
+/// come here, so one made either way is the same.
+async fn create_reminder(data: &Data, new: outbox::Create) -> UiResult<String> {
     let guid = {
         let mut library = data.0.lock().await;
-        outbox::record_reminder_create(
-            &mut library,
-            &outbox::Create {
-                list_guid,
-                title,
-                due_at,
-                all_day,
-                flagged,
-            },
-        )
-        .map_err(|e| e.to_string())?
+        let list = new.list_guid.clone();
+        let guid = outbox::record_reminder_create(&mut library, &new).map_err(|e| e.to_string())?;
+        // Remembered, not required: a failure here leaves the reminder made.
+        let _ = library.set_state(LAST_REMINDER_LIST, &list);
+        guid
     };
     outbox::kick();
     alerts::changed();
     Ok(guid)
+}
+
+/// Where a reminder asked for goes: the list `asked` for, which must be one in use; else the
+/// one `last` added to, if still in use; else the first in use, in the account's own order.
+fn list_for(
+    lists: &[quince_core::reminders::ReminderList],
+    asked: Option<&str>,
+    last: Option<&str>,
+) -> UiResult<String> {
+    let in_use = |guid: &str| lists.iter().any(|l| l.enabled && l.guid == guid);
+    match asked {
+        Some(id) if in_use(id) => Ok(id.to_string()),
+        Some(id) => Err(format!("No list in use has the id {id}.")),
+        None => last
+            .filter(|g| in_use(g))
+            .map(ToString::to_string)
+            .or_else(|| lists.iter().find(|l| l.enabled).map(|l| l.guid.clone()))
+            .ok_or_else(|| "A reminder has to go in a list, and this account has none yet.".into()),
+    }
+}
+
+/// The list a reminder was last added to, as Skykeep's own state.
+const LAST_REMINDER_LIST: &str = "reminders_last_list";
+
+/// A reminder another program asked for (`--create-reminder`, #49): into the list named, which
+/// must be one of the account's lists in use; else the list last added to; else the first in
+/// use, as the quick capture chooses. Checked as the form checks it, then made by the same path.
+pub async fn create_reminder_asked(
+    app: &tauri::AppHandle,
+    new: &apps::NewReminder,
+) -> UiResult<String> {
+    let data = app.state::<Data>();
+    let list_guid = {
+        let library = data.0.lock().await;
+        let lists = library.reminder_lists().map_err(|e| e.to_string())?;
+        let last = library.state(LAST_REMINDER_LIST).ok().flatten();
+        list_for(&lists, new.list.as_deref(), last.as_deref())?
+    };
+    if new.title.trim().is_empty() {
+        return Err("A reminder needs a title.".into());
+    }
+    let made = create_reminder(
+        &data,
+        outbox::Create {
+            list_guid,
+            title: new.title.clone(),
+            due_at: new.due_at,
+            all_day: new.due_at.map(|_| new.all_day),
+            flagged: Some(new.flagged),
+        },
+    )
+    .await?;
+    // Reminders' window, if open, shows it at once.
+    let report = refresh::status_changed(&data.0, &["reminders"]).await;
+    app.emit(SYNCED, &report).ok();
+    Ok(made)
 }
 
 #[tauri::command]
@@ -3908,15 +3976,57 @@ async fn note_create(
     body: String,
     data: State<'_, Data>,
 ) -> UiResult<String> {
+    create_note(&data, folder_guid, &body).await
+}
+
+/// A note made: in the library at once, queued for Apple. Notes' own windows and the command
+/// line both come here.
+async fn create_note(data: &Data, folder_guid: Option<String>, body: &str) -> UiResult<String> {
     if body.trim().is_empty() {
         return Err("A note needs something in it.".into());
     }
     let guid = {
         let mut library = data.0.lock().await;
-        outbox::record_note_create(&mut library, folder_guid, &body).map_err(|e| e.to_string())?
+        outbox::record_note_create(&mut library, folder_guid, body).map_err(|e| e.to_string())?
     };
     outbox::kick();
     Ok(guid)
+}
+
+/// The folder a note asked for goes in: the one named, which must be a folder this library holds
+/// and not Recently Deleted (asked for wrongly, a script is told, not quietly filed elsewhere);
+/// none named, Notes' own default folder (`None`), as the quick capture files one.
+fn note_folder_for(
+    folders: &[quince_core::notes::NoteFolder],
+    asked: Option<&str>,
+) -> UiResult<Option<String>> {
+    match asked {
+        None | Some("DefaultFolder-CloudKit") => Ok(None),
+        Some(quince_core::notes::TRASH_FOLDER) => {
+            Err("A note can't be made in Recently Deleted.".into())
+        }
+        Some(id) if folders.iter().any(|f| f.guid == id) => Ok(Some(id.to_string())),
+        Some(id) => Err(format!("No Notes folder has the id {id}.")),
+    }
+}
+
+/// A note another program asked for (`--create-note`): checked, then made by Notes' own path,
+/// and shown at once in a Notes window that is open.
+pub async fn create_note_asked(
+    app: &tauri::AppHandle,
+    text: &str,
+    folder: Option<&str>,
+) -> UiResult<String> {
+    let data = app.state::<Data>();
+    let folder = {
+        let library = data.0.lock().await;
+        let folders = library.note_folders().map_err(|e| e.to_string())?;
+        note_folder_for(&folders, folder)?
+    };
+    let made = create_note(&data, folder, text).await?;
+    let report = refresh::status_changed(&data.0, &["notes"]).await;
+    app.emit(SYNCED, &report).ok();
+    Ok(made)
 }
 
 /// Delete a note: to Recently Deleted, or from there for good. At once here, sent behind.
@@ -6536,16 +6646,37 @@ fn wind_down(app: &tauri::AppHandle) {
     static ENDING: AtomicBool = AtomicBool::new(false);
     if !ENDING.swap(true, Ordering::SeqCst) {
         // Where each window was, kept before the quick exit below skips the usual teardown.
-        {
-            use tauri_plugin_window_state::AppHandleExt;
-            app.save_window_state(window_state_kept()).ok();
-        }
+        save_window_places(app);
         first_show::settle_all();
         for w in app.webview_windows().values() {
             w.hide().ok();
         }
         cpu::stop();
         mount::release_within(Duration::from_secs(3));
+    }
+}
+
+/// Where each window is, written down for the next run: on the main thread, as restoring is
+/// (#83), and for the same reason (tauri-apps/plugins-workspace#3594). `save_window_state` holds
+/// the plugin's cache lock while it asks each window for its size, place and maximised state;
+/// from another thread each of those asks waits for the main thread, and a main thread in the
+/// middle of a resize or move is in the plugin's own handler waiting for that same lock: a Quit,
+/// a signal or an update's restart (all off the main thread) during a resize could hang for
+/// good. On the main thread the asks are answered directly; called there already, it runs at
+/// once (Tauri runs a main-thread task inline when it is asked from the main thread). Waited for
+/// a short while only: a main thread that never gets to it costs the places, never the quit.
+fn save_window_places(app: &tauri::AppHandle) {
+    let (done, saved) = std::sync::mpsc::sync_channel(1);
+    let a = app.clone();
+    let queued = app.run_on_main_thread(move || {
+        use tauri_plugin_window_state::AppHandleExt;
+        if let Err(e) = a.save_window_state(window_state_kept()) {
+            quiet!("where the windows were could not be kept: {e}");
+        }
+        done.send(()).ok();
+    });
+    if queued.is_ok() && saved.recv_timeout(Duration::from_secs(2)).is_err() {
+        quiet!("where the windows were was not kept in time");
     }
 }
 
@@ -7091,7 +7222,7 @@ fn main() {
             timing::mark("handed a launch");
             // A file opened with Skykeep, or a quick capture (`--new reminder`): handled
             // here, in the one already running.
-            if intake::arrived(app, &args, std::path::Path::new(&cwd)) {
+            if intake::arrived(app, &args, std::path::Path::new(&cwd), false) {
                 return;
             }
             // `--app notes` from a launcher entry: that app's window, in this same process.
@@ -7171,7 +7302,11 @@ fn main() {
                         }
                     }
                 })
-                .on_webview_ready(|webview| app_cache(&webview))
+                .on_webview_ready(|webview| {
+                    app_cache(&webview);
+                    // A page whose process dies is loaded again, not left blank (recover.rs).
+                    recover::watch(&webview);
+                })
                 .build(),
         )
         // Closing the window hides it rather than quitting, so reminders still ring. Quit is
@@ -7196,6 +7331,7 @@ fn main() {
             // Coming back to a window is when a change made elsewhere is looked for at once.
             if let tauri::WindowEvent::Focused(true) = event {
                 push::wake();
+                dav::focused(window.label());
             }
             // The whole-library window is put away, as the engine keeps running behind the
             // tray. An app's own window is put away too, so opening it again is instant rather
@@ -7512,7 +7648,15 @@ fn main() {
                 });
                 let before = std::panic::take_hook();
                 std::panic::set_hook(Box::new(move |info| {
-                    mount::release();
+                    // Only a panic that ends Skykeep lets the folders go: one on the main
+                    // thread. Elsewhere it ends its own thread or is caught — a Drive folder
+                    // request (fuse.rs `guarded`), a command, a library change rolled back —
+                    // and Skykeep goes on; the hook runs before any catch, and unmounted both
+                    // folders for each of those, the very request the catch was there to
+                    // survive included.
+                    if std::thread::current().name() == Some("main") {
+                        mount::release();
+                    }
                     before(info);
                 }));
             }
@@ -7560,7 +7704,7 @@ fn main() {
             let launched: Vec<String> = std::env::args().collect();
             let here = std::env::current_dir().unwrap_or_default();
             // Started to open a file, or for a quick capture: that window is what shows.
-            if intake::arrived(app.handle(), &launched, &here) {
+            if intake::arrived(app.handle(), &launched, &here, true) {
                 LAUNCHED_AS_APP.store(true, Ordering::SeqCst);
             } else if let Some(key) = apps::asked(&launched) {
                 LAUNCHED_AS_APP.store(true, Ordering::SeqCst);
@@ -7852,6 +7996,78 @@ fn main() {
 
 #[cfg(test)]
 mod tests {
+
+    /// #49: a reminder asked for with no list goes where the last one went; a list that has gone
+    /// or is out of use is never chosen; a list named must be one in use.
+    #[test]
+    fn a_reminder_asked_for_goes_in_the_right_list() {
+        use quince_core::reminders::ReminderList;
+        let list = |guid: &str, enabled: bool| ReminderList {
+            guid: guid.into(),
+            title: guid.into(),
+            enabled,
+            ..Default::default()
+        };
+        let lists = [list("off", false), list("a", true), list("b", true)];
+        assert_eq!(super::list_for(&lists, Some("b"), Some("a")).unwrap(), "b");
+        assert!(super::list_for(&lists, Some("off"), None).is_err());
+        assert!(super::list_for(&lists, Some("gone"), None).is_err());
+        assert_eq!(super::list_for(&lists, None, Some("b")).unwrap(), "b");
+        assert_eq!(super::list_for(&lists, None, Some("gone")).unwrap(), "a");
+        assert_eq!(super::list_for(&lists, None, Some("off")).unwrap(), "a");
+        assert_eq!(super::list_for(&lists, None, None).unwrap(), "a");
+        assert!(super::list_for(&[list("off", false)], None, None).is_err());
+    }
+
+    /// A note asked for with no folder goes in Notes' default folder; a folder named must be one
+    /// the library holds, and never Recently Deleted.
+    #[test]
+    fn a_note_asked_for_goes_in_the_right_folder() {
+        use quince_core::notes::{NoteFolder, TRASH_FOLDER};
+        let folder = |guid: &str| NoteFolder {
+            guid: guid.into(),
+            title: guid.into(),
+            sort_order: 0,
+            parent_guid: None,
+        };
+        let folders = [folder("work"), folder(TRASH_FOLDER)];
+        assert_eq!(super::note_folder_for(&folders, None).unwrap(), None);
+        assert_eq!(
+            super::note_folder_for(&folders, Some("DefaultFolder-CloudKit")).unwrap(),
+            None
+        );
+        assert_eq!(
+            super::note_folder_for(&folders, Some("work"))
+                .unwrap()
+                .as_deref(),
+            Some("work")
+        );
+        assert!(super::note_folder_for(&folders, Some(TRASH_FOLDER)).is_err());
+        assert!(super::note_folder_for(&folders, Some("gone")).is_err());
+    }
+
+    /// rfd 0.16.0 (and 0.17.x up to at least 0.17.2) hands a message dialog's text to GTK as a
+    /// printf format, so a `%s` or `%n` in it garbles or crashes the dialog. Both Skykeep's
+    /// dialogs carry text that isn't ours: the library path in `cannot_start`, and a file name in
+    /// Send to iPhone's question (through tauri-plugin-dialog). 0.16.1 passes it through `"%s"`
+    /// (PolyMeilex/rfd#353). Any other rfd fails here until its GTK message dialog is checked.
+    /// By hand: Send to iPhone a big file named `100%s%n.jpg`; the question shows the name as is.
+    #[test]
+    fn rfd_passes_dialog_text_as_text_not_a_format() {
+        let lock = include_str!("../../Cargo.lock").replace("\r\n", "\n");
+        let rfds: Vec<&str> = lock
+            .split("[[package]]")
+            .filter(|p| p.contains("\nname = \"rfd\"\n"))
+            .collect();
+        assert!(!rfds.is_empty(), "rfd in Cargo.lock");
+        for entry in rfds {
+            assert!(
+                entry.contains("\nversion = \"0.16.1\"\n"),
+                "rfd moved: check its gtk3 message_dialog.rs formats the text with \"%s\" \
+                 (PolyMeilex/rfd#353), then allow the version here"
+            );
+        }
+    }
 
     /// A render node and nothing saying otherwise is a GPU; no render node, or Mesa told to
     /// answer on the processor, is not — and only then does the page paint on the processor.

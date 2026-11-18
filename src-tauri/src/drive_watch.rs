@@ -16,7 +16,7 @@
 //! read when it starts. The first run reads each zone through to now once — identifiers only,
 //! a few hundred bytes a record — before it can tell what is new.
 
-use crate::push::{poll_every, presence, sleep_or_wake, WAKE};
+use crate::push::{poll_every, presence_for, sleep_or_wake, DRIVE_WINDOWS, WAKE};
 use crate::Data;
 use quince_auth::Client;
 use quince_icloud::drive_changes::{self, Changed};
@@ -104,7 +104,7 @@ pub async fn watch(app: tauri::AppHandle, client: Arc<Mutex<Client>>) {
                 Some(next)
             }
         };
-        let wait = backoff.unwrap_or_else(|| poll_every(presence(&app)));
+        let wait = backoff.unwrap_or_else(|| poll_every(presence_for(&app, DRIVE_WINDOWS)));
         sleep_or_wake(wait, &mut woken).await;
     }
 }

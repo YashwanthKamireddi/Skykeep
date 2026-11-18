@@ -472,7 +472,10 @@ async fn a_partial_services_list_is_merged_key_by_key() {
         client.session().service_url("ckdatabasews").as_deref(),
         Some(CK)
     );
-    assert_eq!(client.session().service_url("drivews").as_deref(), Some(drive));
+    assert_eq!(
+        client.session().service_url("drivews").as_deref(),
+        Some(drive)
+    );
 
     // Apple moving a service to another partition: the new address is the one used.
     let moved = "https://p42-ckdatabasews.test.invalid:443";
@@ -487,5 +490,8 @@ async fn a_partial_services_list_is_merged_key_by_key() {
         client.session().service_url("ckdatabasews").as_deref(),
         Some(moved)
     );
-    assert_eq!(client.session().service_url("drivews").as_deref(), Some(drive));
+    assert_eq!(
+        client.session().service_url("drivews").as_deref(),
+        Some(drive)
+    );
 }

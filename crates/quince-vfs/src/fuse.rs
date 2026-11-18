@@ -1100,6 +1100,23 @@ impl Inner {
         Ok(())
     }
 
+    /// A folder made in iCloud Drive. A trash folder at the top is refused: allowed, "Move to
+    /// Trash" in GNOME Files would make a hidden folder in iCloud Drive and move the file into
+    /// it. Refused, GIO finds no trash here and Files offers to delete the file instead, which
+    /// sends it to Recently Deleted, where a deleted file belongs.
+    fn mkdir(&self, parent: u64, name: &OsStr) -> Result<(u64, DriveItem), Errno> {
+        let folder = self.item(parent).ok_or(Errno::ENOENT)?;
+        let name = name.to_str().ok_or(Errno::EINVAL)?;
+        if parent == 1 && writes::is_trash_folder(name) {
+            return Err(Errno::EACCES);
+        }
+        if self.child(parent, OsStr::new(name)).is_ok() {
+            return Err(Errno::EEXIST);
+        }
+        self.change(self.remote.mkdir(&folder, name), &[&folder])?;
+        self.child(parent, OsStr::new(name))
+    }
+
     fn rename(
         me: &Arc<Self>,
         parent: u64,
@@ -1113,6 +1130,10 @@ impl Inner {
         );
         let (ino, item) = me.child(parent, name)?;
         let newname = newname.to_str().ok_or(Errno::EINVAL)?;
+        // Nor is one made by renaming a folder to it.
+        if newparent == 1 && writes::is_trash_folder(newname) {
+            return Err(Errno::EACCES);
+        }
         let target = me.child(newparent, OsStr::new(newname)).ok();
         if let Some((tino, titem)) = &target {
             if *tino == ino {
@@ -1758,21 +1779,8 @@ impl Filesystem for DriveFs {
             if self.0.read_only || self.0.add_only {
                 return reply.error(Errno::EROFS);
             }
-            let inner = &self.0;
-            let Some(folder) = inner.item(parent.0) else {
-                return reply.error(Errno::ENOENT);
-            };
-            let Some(name) = name.to_str() else {
-                return reply.error(Errno::EINVAL);
-            };
-            if inner.child(parent.0, OsStr::new(name)).is_ok() {
-                return reply.error(Errno::EEXIST);
-            }
-            match inner.change(inner.remote.mkdir(&folder, name), &[&folder]) {
-                Ok(_) => match inner.child(parent.0, OsStr::new(name)) {
-                    Ok((ino, item)) => reply.entry(&TTL, &inner.attr(ino, &item), Generation(0)),
-                    Err(e) => reply.error(e),
-                },
+            match self.0.mkdir(parent.0, name) {
+                Ok((ino, item)) => reply.entry(&TTL, &self.0.attr(ino, &item), Generation(0)),
                 Err(e) => reply.error(e),
             }
         })
@@ -2170,6 +2178,67 @@ mod listing_tests {
             *remote.deleted.lock().unwrap(),
             vec!["FOLDER::Old".to_string()]
         );
+    }
+
+    /// GNOME Files' "Move to Trash" makes `.Trash-<uid>` at the top of the mount: refused, so
+    /// no hidden folder is made in iCloud Drive and Files deletes the file instead. Folders
+    /// that only look like it are made as ever.
+    #[test]
+    fn no_trash_folder_is_made_at_the_top() {
+        struct Folders(Mutex<Vec<String>>);
+        impl Remote for Folders {
+            fn list(&self, _folder: &str) -> Fut<Vec<DriveItem>> {
+                Box::pin(async { Ok(Vec::new()) })
+            }
+            fn read(&self, _item: &DriveItem, _offset: u64, _len: u64) -> Fut<Vec<u8>> {
+                Box::pin(async { Ok(Vec::new()) })
+            }
+            fn mkdir(&self, parent: &DriveItem, name: &str) -> Fut<DriveItem> {
+                self.0.lock().unwrap().push(name.to_string());
+                let made = DriveItem {
+                    drivewsid: format!("FOLDER::{name}"),
+                    parent_id: Some(parent.drivewsid.clone()),
+                    name: name.into(),
+                    extension: None,
+                    kind: "FOLDER".into(),
+                    size: None,
+                    child_count: Some(0),
+                    created_at: None,
+                    modified_at: None,
+                    etag: Some("f1".into()),
+                };
+                Box::pin(async move { Ok(made) })
+            }
+        }
+        let rt = tokio::runtime::Runtime::new().unwrap();
+        let cache = tempfile::tempdir().unwrap();
+        let remote = Arc::new(Folders(Mutex::new(Vec::new())));
+        let library = Arc::new(Library {
+            items: Mutex::new(Vec::new()),
+            reads: AtomicUsize::new(0),
+            version: AtomicU64::new(1),
+        });
+        let fs = DriveFs::new(
+            Arc::clone(&remote) as Arc<dyn Remote>,
+            library as Arc<dyn Store>,
+            Arc::new(Cache::new(cache.path()).unwrap()),
+            rt.handle().clone(),
+        );
+        for name in [".Trash-1000", ".Trash"] {
+            assert!(matches!(
+                fs.0.mkdir(1, OsStr::new(name)),
+                Err(Errno::EACCES)
+            ));
+        }
+        assert!(remote.0.lock().unwrap().is_empty(), "nothing made at Apple");
+        let _ = fs.0.mkdir(1, OsStr::new("Trash-notes"));
+        let _ = fs.0.mkdir(1, OsStr::new(".Trash-x"));
+        assert_eq!(
+            *remote.0.lock().unwrap(),
+            vec!["Trash-notes".to_string(), ".Trash-x".to_string()]
+        );
+        assert!(crate::writes::is_trash_folder(".Trash-1000"));
+        assert!(!crate::writes::is_trash_folder(".Trash-"));
     }
 
     /// Without a version to go by, every look reads the library, as it always did.

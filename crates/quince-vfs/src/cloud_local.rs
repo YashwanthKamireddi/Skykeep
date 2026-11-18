@@ -298,7 +298,14 @@ async fn sync_path(
     let _ = std::fs::remove_dir_all(&dir);
     let sent = sent?;
     if stamp(path) != Some(before) {
-        // Changed while it was being sent: it goes again, as it is now.
+        // Changed while it was being sent: it goes again, as it is now — over the version just
+        // sent, which is ours. Left naming the version before it, the next send found Apple's
+        // file "changed elsewhere" (it was this send) and put a conflicted copy beside it: an
+        // app saving every few seconds (Obsidian, #169) made a new copy each time a save landed
+        // during an upload. So the file now names what was sent, and stays waiting.
+        if !sent.conflicted && !add_only {
+            remember_sent(path, &sent.item, state.is_some()).map_err(|e| e.to_string())?;
+        }
         return Err("changed while sending; sending again".into());
     }
     let mut here = path.to_path_buf();
@@ -424,6 +431,38 @@ fn convert(path: &Path, item: Option<&DriveItem>) -> windows::core::Result<()> {
             None,
             None,
         )
+    }
+}
+
+/// `path` named as `item` (the version just sent from it) but left waiting, not in sync: it
+/// changed again while that version went, so it goes again — over `item`, which is ours.
+/// A file new to the folder becomes a placeholder here; one already one has its identity moved.
+fn remember_sent(path: &Path, item: &DriveItem, placeholder: bool) -> windows::core::Result<()> {
+    let handle = open_for_update(path)?;
+    let identity = serde_json::to_vec(item).unwrap_or_default();
+    // SAFETY: as in convert.
+    unsafe {
+        if placeholder {
+            CfUpdatePlaceholder(
+                handle.0,
+                None,
+                Some(identity.as_ptr().cast()),
+                identity.len() as u32,
+                None,
+                CF_UPDATE_FLAG_CLEAR_IN_SYNC,
+                None,
+                None,
+            )
+        } else {
+            CfConvertToPlaceholder(
+                handle.0,
+                Some(identity.as_ptr().cast()),
+                identity.len() as u32,
+                CF_CONVERT_FLAG_NONE,
+                None,
+                None,
+            )
+        }
     }
 }
 

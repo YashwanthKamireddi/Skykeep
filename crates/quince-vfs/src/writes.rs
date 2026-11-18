@@ -81,6 +81,19 @@ pub fn stays_local(name: &str) -> bool {
         || (name.starts_with('#') && name.ends_with('#'))
 }
 
+/// The trash folders the freedesktop.org Trash spec puts at the top of a mount: `.Trash`,
+/// shared, and `.Trash-<uid>`, one person's. GIO (GNOME Files' "Move to Trash") makes
+/// `.Trash-<uid>` there for any file on a mount other than the home folder's — every file in
+/// this one — and moves the file into it: here that is a hidden folder in iCloud Drive, on
+/// every device, the file kept in it rather than in Recently Deleted.
+#[must_use]
+pub fn is_trash_folder(name: &str) -> bool {
+    name == ".Trash"
+        || name
+            .strip_prefix(".Trash-")
+            .is_some_and(|uid| !uid.is_empty() && uid.bytes().all(|b| b.is_ascii_digit()))
+}
+
 /// A conflicted copy's name, as Dropbox and OneDrive name theirs: "Report (conflicted copy
 /// 2026-10-20 18:40).docx" — beside the other device's version, never over it.
 #[must_use]

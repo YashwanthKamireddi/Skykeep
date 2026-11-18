@@ -103,6 +103,12 @@
     <color type="primary" scheme_preference="dark">#0B2A4A</color>
   </branding>
   <releases>
+    <release version="0.1.30" date="2026-11-18">
+      <description>
+        <p>Photos now opens on your newest photos at the bottom every time, and stays there when you make the window bigger, full screen or smaller again. Before, it could open at your oldest photos or land in the middle of the library depending on the window's size. Scrolled up to older photos, resizing the window keeps the same photos in view, and a jump to a month lands exactly on it.</p>
+        <p>On Linux, Skykeep no longer stays invisible at start when the system keyring is locked and its unlock prompt doesn't appear: after a minute it opens and says the keyring is locked. In the Snap, Open at Login now starts Skykeep, and the Drive and Photos folders, which the Snap can't provide, are no longer offered. Where the system's fusermount3 is missing, the Drive folder now says to install fuse3 instead of showing an unexplained error.</p>
+      </description>
+    </release>
     <release version="0.1.29" date="2026-11-17">
       <description>
         <p>Photos opens as it does on a Mac and an iPhone: oldest at the top, newest at the bottom, and on your newest photos. Newest First is still in the sort menu, and a sort you chose before is kept. A month of thousands of photos, such as a large Screenshots library, shows at once instead of a blank block. Clicking a year now opens Months on that year, where on some Linux setups it landed a few rows away, and switching to Months no longer downloads pictures it doesn't show. Drive's window updates when you open it or come back to it, instead of waiting up to five minutes.</p>
