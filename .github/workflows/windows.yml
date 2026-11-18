@@ -86,10 +86,16 @@ jobs:
         # In release mode, with the build's flags, so both jobs share one cache; tests only (the
         # probe examples are live tools for Linux, not tests). nextest, with the ci-windows
         # profile (.config/nextest.toml): every core, hung tests stopped, the slow named; the
-        # scale tests run on Linux and the Explorer test in its own step above.
+        # scale tests run on Linux and the Explorer test in its own step above. The phone's engine
+        # (quince-mobile), its Kotlin bindings writer (uniffi-bindgen) and the Linux probe never
+        # run on Windows and nothing on the desktop builds on them: they were about 6 of this
+        # step's minutes, the slowest part of every release, and Linux CI tests them on every
+        # push to main.
         env:
           RUSTFLAGS: --remap-path-prefix=${{ github.workspace }}=skykeep -C target-feature=+crt-static
-        run: cargo nextest run --release --workspace --lib --bins --tests --locked --profile ci-windows
+        run: >-
+          cargo nextest run --release --workspace --exclude quince-mobile --exclude uniffi-bindgen
+          --exclude quince-probe --lib --bins --tests --locked --profile ci-windows
 
   build:
     runs-on: windows-latest

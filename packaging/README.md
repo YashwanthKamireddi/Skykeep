@@ -14,6 +14,7 @@ Everything that turns a build into something people install.
 | `*.desktop.in`, `*.metainfo.xml` | The main launcher entry and the AppStream data software centres show. |
 | `*.search-provider.ini`, `*.SearchProvider.service`, `*.krunner.desktop` | Results in GNOME Shell and KRunner search. |
 | `icons/` | The app, tray and notification icons. |
+| `linux/iphone-camera-setup`, `linux/*.iphone-camera.policy` | The iPhone camera's webcam setup, run as root through pkexec, and the polkit action whose message the admin prompt shows. Installed by the `.deb`, `.rpm`, Arch, AUR and COPR packages as `/usr/lib/skykeep/iphone-camera-setup`; without them (Snap, AppImage) the app runs the same script through `pkexec /bin/sh -c`. |
 | `windows/msix/` | The Microsoft Store's MSIX package: its manifest and `pack.ps1`. |
 | `linux-compat/` | `check.sh`: installs a package in a clean distribution container and checks it runs. |
 

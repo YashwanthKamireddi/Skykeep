@@ -61,6 +61,7 @@ mod poster {
     }
 }
 mod push;
+mod recover;
 mod refresh;
 mod reminders_cmds;
 mod saving;
@@ -7192,7 +7193,11 @@ fn main() {
                         }
                     }
                 })
-                .on_webview_ready(|webview| app_cache(&webview))
+                .on_webview_ready(|webview| {
+                    app_cache(&webview);
+                    // A page whose process dies is loaded again, not left blank (recover.rs).
+                    recover::watch(&webview);
+                })
                 .build(),
         )
         // Closing the window hides it rather than quitting, so reminders still ring. Quit is
@@ -7873,6 +7878,29 @@ fn main() {
 
 #[cfg(test)]
 mod tests {
+
+    /// rfd 0.16.0 (and 0.17.x up to at least 0.17.2) hands a message dialog's text to GTK as a
+    /// printf format, so a `%s` or `%n` in it garbles or crashes the dialog. Both Skykeep's
+    /// dialogs carry text that isn't ours: the library path in `cannot_start`, and a file name in
+    /// Send to iPhone's question (through tauri-plugin-dialog). 0.16.1 passes it through `"%s"`
+    /// (PolyMeilex/rfd#353). Any other rfd fails here until its GTK message dialog is checked.
+    /// By hand: Send to iPhone a big file named `100%s%n.jpg`; the question shows the name as is.
+    #[test]
+    fn rfd_passes_dialog_text_as_text_not_a_format() {
+        let lock = include_str!("../../Cargo.lock").replace("\r\n", "\n");
+        let rfds: Vec<&str> = lock
+            .split("[[package]]")
+            .filter(|p| p.contains("\nname = \"rfd\"\n"))
+            .collect();
+        assert!(!rfds.is_empty(), "rfd in Cargo.lock");
+        for entry in rfds {
+            assert!(
+                entry.contains("\nversion = \"0.16.1\"\n"),
+                "rfd moved: check its gtk3 message_dialog.rs formats the text with \"%s\" \
+                 (PolyMeilex/rfd#353), then allow the version here"
+            );
+        }
+    }
 
     /// A render node and nothing saying otherwise is a GPU; no render node, or Mesa told to
     /// answer on the processor, is not — and only then does the page paint on the processor.

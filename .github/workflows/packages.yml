@@ -35,9 +35,14 @@ on:
         default: true
   workflow_call:
     inputs:
+      # Empty for a commit not released yet (linux-compat.yml): the COPR build then checks the
+      # version src-tauri/tauri.conf.json gives, as COPR's own make_srpm reads it. Read here, not
+      # in a job of the caller's first: every job behind such a job was queued only after the
+      # release commit's other twenty had taken every runner, and COPR's waited 7 minutes
+      # (0.1.29). The Windows packages need it given.
       version:
         type: string
-        required: true
+        default: ""
       publish:
         type: boolean
         default: false
@@ -265,8 +270,10 @@ jobs:
           make -f .copr/Makefile srpm outdir="$PWD/srpm" spec=
           ls -l srpm
           rpm -qp --qf '%{NAME}-%{VERSION}-%{RELEASE}\n' srpm/*.src.rpm
-          rpm -qp --qf '%{VERSION}\n' srpm/*.src.rpm | grep -qx "$VERSION" \
-            || { echo "the source RPM is not version $VERSION"; exit 1; }
+          want=${VERSION:-$(sed -n 's/^  "version": "\([^"]*\)",$/\1/p' src-tauri/tauri.conf.json)}
+          test -n "$want" || { echo "no version given and none in src-tauri/tauri.conf.json"; exit 1; }
+          rpm -qp --qf '%{VERSION}\n' srpm/*.src.rpm | grep -qx "$want" \
+            || { echo "the source RPM is not version $want"; exit 1; }
       - name: Build dependencies, from the spec
         run: dnf -y builddep srpm/*.src.rpm
       - name: rpmbuild

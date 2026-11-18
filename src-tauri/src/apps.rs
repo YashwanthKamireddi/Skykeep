@@ -665,7 +665,7 @@ mod tests {
             .find(|p| p.contains("\nname = \"wry\"\n"))
             .expect("wry in Cargo.lock");
         assert!(
-            entry.contains("version = \"0.57.0\""),
+            entry.contains("version = \"0.57.2\""),
             "wry moved on: check tauri-apps/wry#1871 in it (third_party/README.md)"
         );
         assert!(

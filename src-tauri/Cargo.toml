@@ -67,6 +67,9 @@ tauri = { version = "2", features = ["tray-icon"] }
 # File Explorer's thumbnails for the iCloud Photos folder: the pipe both sides speak (thumbs.rs).
 quince-thumbs = { path = "../crates/quince-thumbs" }
 tauri-winrt-notification = "0.8"
+# A window's page process that crashed heard of, to load the page again (recover.rs): the same
+# build of WebView2's bindings wry already compiles.
+webview2-com = "0.39"
 # The asynchronous operations the windows crate's WinRT calls answer with (hello.rs waits on
 # Windows Hello's): the same 0.3 the windows crate itself is built on.
 windows-future = "0.3"
