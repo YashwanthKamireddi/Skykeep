@@ -93,6 +93,28 @@ jobs:
         env:
           RUSTFLAGS: --remap-path-prefix=${{ github.workspace }}=skykeep -C target-feature=+crt-static
         run: cargo nextest run --cargo-profile ci-test --workspace --lib --bins --tests --locked --profile ci-windows
+      # Measurement only (never merged): what rust-cache leaves after a restore is every
+      # dependency compiled and no workspace crate, so the workspace crates are cleaned and the
+      # same test binaries compiled again; that compile is the steady-state, cached cost.
+      - name: Steady-state compile, measured
+        shell: bash
+        env:
+          RUSTFLAGS: --remap-path-prefix=${{ github.workspace }}=skykeep -C target-feature=+crt-static
+          SKYKEEP_THUMBS_DLL: ${{ github.workspace }}\target\ci-test\quince_thumbs.dll
+        run: |
+          members="quince-probe quince-mobile quince-auth quince-core quince-icloud quince-media quince-vfs quince-thumbs quince-sync quince-link uniffi-bindgen quince-app"
+          for m in $members; do cargo clean --profile ci-test -p "$m"; done
+          du -sh target/ci-test
+          start=$SECONDS
+          cargo build --profile ci-test -p quince-thumbs --locked
+          cargo test --profile ci-test -p quince-vfs --test cloud_windows --locked --no-run
+          echo "explorer step compile: $((SECONDS - start)) s"
+          start=$SECONDS
+          cargo nextest run --cargo-profile ci-test --workspace --lib --bins --tests --locked --profile ci-windows --no-run
+          echo "test step compile: $((SECONDS - start)) s"
+          start=$SECONDS
+          cargo nextest run --cargo-profile ci-test --workspace --lib --bins --tests --locked --profile ci-windows
+          echo "test step run: $((SECONDS - start)) s"
 
   build:
     runs-on: windows-latest
