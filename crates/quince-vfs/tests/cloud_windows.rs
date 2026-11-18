@@ -1213,3 +1213,306 @@ fn a_folder_off_a_local_ntfs_drive_is_refused_plainly() {
         "{why}"
     );
 }
+
+/// A file past 4 GiB, as a long video is: what Apple's own iCloud for Windows marks in sync
+/// while it is cut short. A byte of it, told apart from a byte at any other place: each
+/// 8-byte word holds its own offset, so a piece put at an offset cut to 32 bits, or sent twice,
+/// or left out, shows as a wrong byte, not just a wrong length.
+fn far_byte(i: u64) -> u8 {
+    ((i & !7) ^ 0x9E37_79B9_7F4A_7C15).to_le_bytes()[(i & 7) as usize]
+}
+
+/// Past 4 GiB, and not on a 4 KB block: across 2 GiB (i32) and 4 GiB (u32).
+const FAR: u64 = (1 << 32) + 5 * 4096 + 123;
+
+/// Where a file past 4 GiB is checked byte for byte: either side of 2 GiB, 4 GiB and the end.
+const MARKS: [u64; 5] = [0, (1 << 31) - 3, (1 << 32) - 5, (1 << 32) + 4093, FAR - 11];
+
+/// A cheap sum of every byte and its place: equal only for the same bytes in the same order.
+fn sum_of(mut r: impl std::io::Read) -> (u64, u64) {
+    let (mut len, mut sum) = (0u64, 0xcbf2_9ce4_8422_2325u64);
+    let mut buf = vec![0u8; 8 << 20];
+    loop {
+        let n = r.read(&mut buf).unwrap();
+        if n == 0 {
+            return (len, sum);
+        }
+        for &b in &buf[..n] {
+            sum = (sum ^ u64::from(b)).wrapping_mul(0x100_0000_01b3);
+        }
+        len += n as u64;
+    }
+}
+
+/// Apple for a file past 4 GiB: its bytes made as they are asked for, never stored (the
+/// runner's disk holds the hydrated file, not a second copy), and what is sent measured as it
+/// is received.
+struct Far(
+    HashMap<String, Vec<DriveItem>>,
+    Arc<std::sync::Mutex<Vec<String>>>,
+);
+
+impl Remote for Far {
+    fn list(&self, folder: &str) -> Fut<Vec<DriveItem>> {
+        let items = self.0.get(folder).cloned().unwrap_or_default();
+        Box::pin(async move { Ok(items) })
+    }
+    fn read(&self, item: &DriveItem, offset: u64, len: u64) -> Fut<Vec<u8>> {
+        let size = u64::try_from(item.size.unwrap_or(0)).unwrap();
+        let end = offset.saturating_add(len).min(size);
+        Box::pin(async move { Ok((offset..end).map(far_byte).collect()) })
+    }
+    fn upload(&self, folder: &DriveItem, path: &Path) -> Fut<DriveItem> {
+        use std::io::{Read, Seek, SeekFrom};
+        let name = path.file_name().unwrap().to_string_lossy().to_string();
+        // Read here, while the staged copy is still there: its length, its sum, and the bytes
+        // at the marks.
+        let (len, sum) = sum_of(std::fs::File::open(path).unwrap());
+        let mut f = std::fs::File::open(path).unwrap();
+        let marks: Vec<u8> = MARKS
+            .iter()
+            .map(|&at| {
+                f.seek(SeekFrom::Start(at)).unwrap();
+                let mut b = [0u8];
+                f.read_exact(&mut b).unwrap();
+                b[0]
+            })
+            .collect();
+        self.1
+            .lock()
+            .unwrap()
+            .push(format!("upload {name} {len} {sum:x} {marks:?}"));
+        let (stem, ext) = name.rsplit_once('.').unwrap_or((&name, ""));
+        let mut sent = file(
+            &format!("up-{name}"),
+            stem,
+            ext,
+            i64::try_from(len).unwrap(),
+        );
+        sent.parent_id = Some(folder.drivewsid.clone());
+        Box::pin(async move { Ok(sent) })
+    }
+}
+
+/// A file past 4 GiB opened by another program arrives whole, every byte where it belongs, and
+/// one past 4 GiB saved into the folder reaches Apple whole: the sizes that broke Apple's own
+/// client (0x80070184 / 0x80070185 on videos over a gigabyte, the file left cut short and shown
+/// in sync). Its bytes are made as they are asked for, so the runner never holds a copy.
+#[test]
+fn a_file_past_4_gib_arrives_whole_and_is_sent_whole() {
+    let tree: HashMap<String, Vec<DriveItem>> = [(
+        ROOT.to_string(),
+        vec![file("far", "far", "bin", i64::try_from(FAR).unwrap())],
+    )]
+    .into();
+    let rt = tokio::runtime::Runtime::new().unwrap();
+    let base = PathBuf::from(std::env::var("USERPROFILE").unwrap());
+    let place = base.join(format!("Skykeep far {}", std::process::id()));
+    let out = std::env::temp_dir().join(format!("skykeep-far-out-{}", std::process::id()));
+    std::fs::create_dir_all(&out).unwrap();
+    let log = Arc::new(std::sync::Mutex::new(Vec::<String>::new()));
+    let id = cloud::sync_root_id(&format!("far{}", std::process::id())).unwrap();
+    let shown = Shown {
+        id: &id,
+        name: "Skykeep far test",
+        icon: "%SystemRoot%\\system32\\imageres.dll,-1043",
+    };
+    let up = cloud::start(
+        &place,
+        &shown,
+        Provider::new(
+            Arc::new(Far(tree.clone(), Arc::clone(&log))),
+            Arc::new(Library(Arc::new(std::sync::Mutex::new(tree)))),
+            rt.handle().clone(),
+            out.join("sending"),
+        ),
+    )
+    .expect("the cloud folder registers and connects");
+
+    use std::os::windows::fs::MetadataExt;
+    let far = place.join("far.bin");
+    assert_eq!(
+        std::fs::metadata(&far).unwrap().len(),
+        FAR,
+        "its size, whole"
+    );
+    let not_all_here =
+        |p: &Path| std::fs::metadata(p).unwrap().file_attributes() & 0x0040_0000 != 0;
+    assert!(not_all_here(&far));
+
+    // Read to its end by another program: copied to NUL, so nothing is written but the file.
+    let started = std::time::Instant::now();
+    let ok = Command::new("cmd")
+        .args(["/c", "copy", "/b", "/y"])
+        .arg(&far)
+        .arg("NUL")
+        .status()
+        .unwrap()
+        .success();
+    assert!(ok, "reading far.bin to its end failed");
+    println!("far.bin read in {:?}", started.elapsed());
+    assert!(!not_all_here(&far), "every byte of it is here");
+    assert_eq!(std::fs::metadata(&far).unwrap().len(), FAR);
+    // Every byte in its place, read back from the disk (the file is all here now).
+    {
+        use std::io::Read;
+        let mut f = std::fs::File::open(&far).unwrap();
+        let mut buf = vec![0u8; 8 << 20];
+        let mut at = 0u64;
+        loop {
+            let n = f.read(&mut buf).unwrap();
+            if n == 0 {
+                break;
+            }
+            if let Some(i) = (0..n).find(|&i| buf[i] != far_byte(at + i as u64)) {
+                panic!("far.bin is wrong at byte {}", at + i as u64);
+            }
+            at += n as u64;
+        }
+        assert_eq!(at, FAR, "far.bin ends where it should");
+    }
+    // Its bytes let go again, so the runner's disk has room for what is sent next.
+    let freed = Command::new("cmd")
+        .args(["/c", "attrib", "+U", "-P"])
+        .arg(&far)
+        .status()
+        .unwrap()
+        .success();
+    assert!(freed);
+    for _ in 0..600 {
+        if not_all_here(&far) {
+            break;
+        }
+        std::thread::sleep(std::time::Duration::from_millis(200));
+    }
+    assert!(not_all_here(&far), "far.bin's bytes were let go");
+
+    // One past 4 GiB saved in: made beside the folder (sparse, so it costs no disk but its
+    // marks) and moved in whole, as a finished download or a copy from another drive arrives.
+    let made = out.join("sent.bin");
+    std::fs::File::create(&made).unwrap();
+    assert!(Command::new("fsutil")
+        .args(["sparse", "setflag"])
+        .arg(&made)
+        .status()
+        .unwrap()
+        .success());
+    {
+        use std::io::{Seek, SeekFrom, Write};
+        let mut f = std::fs::OpenOptions::new().write(true).open(&made).unwrap();
+        f.set_len(FAR).unwrap();
+        for &at in &MARKS {
+            f.seek(SeekFrom::Start(at)).unwrap();
+            f.write_all(&[far_byte(at) | 1]).unwrap();
+        }
+    }
+    let want = sum_of(std::fs::File::open(&made).unwrap());
+    assert_eq!(want.0, FAR);
+    let sent = place.join("sent.bin");
+    std::fs::rename(&made, &sent).unwrap();
+    let mut heard = None;
+    for _ in 0..3000 {
+        heard = log
+            .lock()
+            .unwrap()
+            .iter()
+            .find(|l| l.starts_with("upload sent.bin"))
+            .cloned();
+        if heard.is_some() && cloud::identity_of(&sent).is_some() {
+            break;
+        }
+        std::thread::sleep(std::time::Duration::from_millis(200));
+    }
+    let marks: Vec<u8> = MARKS.iter().map(|&at| far_byte(at) | 1).collect();
+    assert_eq!(
+        heard.as_deref(),
+        Some(format!("upload sent.bin {} {:x} {marks:?}", want.0, want.1).as_str()),
+        "sent whole: {FAR} bytes, the same bytes"
+    );
+    assert!(
+        cloud::identity_of(&sent).is_some(),
+        "and marked in sync once it was"
+    );
+    assert_eq!(std::fs::metadata(&sent).unwrap().len(), FAR);
+
+    drop(up);
+    cloud::unregister(&place, &id);
+    let _ = std::fs::remove_dir_all(&place);
+    let _ = std::fs::remove_dir_all(&out);
+}
+
+/// Apple for a photo kept whole by the app: fetched into the app's cache before a byte of it
+/// goes to Windows, and that takes longer than a minute, as a long video does on a slow line.
+struct SlowWhole(HashMap<String, Vec<DriveItem>>, PathBuf);
+
+impl Remote for SlowWhole {
+    fn list(&self, folder: &str) -> Fut<Vec<DriveItem>> {
+        let items = self.0.get(folder).cloned().unwrap_or_default();
+        Box::pin(async move { Ok(items) })
+    }
+    fn read(&self, _: &DriveItem, _: u64, _: u64) -> Fut<Vec<u8>> {
+        Box::pin(async { Err("read through the photo cache".to_string()) })
+    }
+    fn file(&self, _: &DriveItem) -> Option<Fut<PathBuf>> {
+        let path = self.1.clone();
+        Some(Box::pin(async move {
+            tokio::time::sleep(std::time::Duration::from_secs(80)).await;
+            Ok(path)
+        }))
+    }
+}
+
+/// Windows fails a file request it hears nothing about for 60 seconds. A video fetched whole
+/// into the photo cache first took longer than that on a slow line and never opened: the
+/// request is kept waiting until the file is here, then answered whole.
+#[test]
+fn a_photo_fetched_whole_for_over_a_minute_still_opens() {
+    let bytes: Vec<u8> = (0..300_000u64).map(byte).collect();
+    let tree: HashMap<String, Vec<DriveItem>> = [(
+        ROOT.to_string(),
+        vec![file("slow", "IMG_0001", "MOV", bytes.len() as i64)],
+    )]
+    .into();
+    let rt = tokio::runtime::Runtime::new().unwrap();
+    let base = PathBuf::from(std::env::var("USERPROFILE").unwrap());
+    let place = base.join(format!("Skykeep slow {}", std::process::id()));
+    let out = std::env::temp_dir().join(format!("skykeep-slow-out-{}", std::process::id()));
+    std::fs::create_dir_all(&out).unwrap();
+    let cached = out.join("cached.mov");
+    std::fs::write(&cached, &bytes).unwrap();
+    let id = cloud::sync_root_id(&format!("slow{}", std::process::id())).unwrap();
+    let shown = Shown {
+        id: &id,
+        name: "Skykeep slow test",
+        icon: "%SystemRoot%\\system32\\imageres.dll,-1043",
+    };
+    let up = cloud::start(
+        &place,
+        &shown,
+        Provider::new(
+            Arc::new(SlowWhole(tree.clone(), cached)),
+            Arc::new(Library(Arc::new(std::sync::Mutex::new(tree)))),
+            rt.handle().clone(),
+            out.join("sending"),
+        ),
+    )
+    .expect("the cloud folder registers and connects");
+
+    let copy = out.join("copied.mov");
+    let started = std::time::Instant::now();
+    let ok = Command::new("cmd")
+        .args(["/c", "copy", "/b", "/y"])
+        .arg(place.join("IMG_0001.MOV"))
+        .arg(&copy)
+        .status()
+        .unwrap()
+        .success();
+    println!("opened after {:?}", started.elapsed());
+    assert!(ok, "the video never opened: Windows gave up waiting on it");
+    assert_eq!(std::fs::read(&copy).unwrap(), bytes, "and arrived whole");
+
+    drop(up);
+    cloud::unregister(&place, &id);
+    let _ = std::fs::remove_dir_all(&place);
+    let _ = std::fs::remove_dir_all(&out);
+}
