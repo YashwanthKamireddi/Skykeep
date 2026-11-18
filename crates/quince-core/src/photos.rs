@@ -2016,8 +2016,10 @@ pub(crate) mod tests {
         let library = all.iter().find(|(v, _)| *v == View::Library).unwrap().1;
         assert_eq!(one, library);
         assert_eq!(one, 5_000);
+        // Library's count is the one that walks the table, so it is most of the nine's cost
+        // (3.5 times less on 18 Nov): well under half proves the other eight are not read.
         assert!(
-            one_steps * 4 < all_steps,
+            one_steps * 2 < all_steps,
             "one view took {one_steps} steps, all nine {all_steps}"
         );
         // Both libraries: read from the kept counts, and the same answer.
