@@ -569,6 +569,19 @@ function sameMonth(a: MonthProps, b: MonthProps): boolean {
 }
 
 /** Where a month's photos lie — its grid and whatever of it is still to be built — on screen. */
+/**
+ * The gap between a month's rows, as its stylesheet sets it (photos.css): the built grid's own
+ * row gap, or the `--gap` its rows still to be built are drawn with. Read, never repeated here, so
+ * the place keeper's arithmetic can't drift from what is drawn.
+ */
+function rowGap(sec: HTMLElement): number {
+  const first = sec.querySelector<HTMLElement>(":scope > .px-grid, :scope > .px-later");
+  if (!first) return 0;
+  const style = getComputedStyle(first);
+  const gap = first.classList.contains("px-grid") ? style.rowGap : style.getPropertyValue("--gap");
+  return parseFloat(gap) || 0;
+}
+
 function photosArea(sec: HTMLElement): { top: number; height: number } {
   const first = sec.querySelector<HTMLElement>(":scope > .px-grid, :scope > .px-later") ?? sec;
   const top = first.getBoundingClientRect().top;
@@ -2906,10 +2919,8 @@ export function PhotosView() {
    * read as at the top was that far from its tile, and the view nudged by it as soon as anything
    * changed size after a scroll (photos-place-still).
    */
-  const rowPitch = (sec: HTMLElement, count: number) => {
-    const gap = fit ? 14 : 2;
-    return (photosArea(sec).height + gap) / Math.ceil(count / across);
-  };
+  const rowPitch = (sec: HTMLElement, count: number) =>
+    (photosArea(sec).height + rowGap(sec)) / Math.ceil(count / across);
   /** The tile at an index brought to the top of the grid, under the bar. */
   const goToPhoto = (index: number) => {
     const el = scroller.current;
