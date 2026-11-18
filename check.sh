@@ -173,6 +173,8 @@ pooled "webkit: photos memory" env ENGINE=webkit node .uiverify/photos-memory.mj
 pooled "photos scrolling"  node .uiverify/photos-scroll.mjs
 pooled "webkit: photos scrolling" env ENGINE=webkit node .uiverify/photos-scroll.mjs
 pooled "photos paging"     node .uiverify/photos-paging.mjs
+pooled "photos open on newest" node .uiverify/photos-open-on-newest.mjs
+pooled "webkit: photos open on newest" env ENGINE=webkit node .uiverify/photos-open-on-newest.mjs
 pooled "photos dense months" node .uiverify/photos-dense-months.mjs
 pooled "webkit: dense months" env ENGINE=webkit node .uiverify/photos-dense-months.mjs
 pooled "photos levels"     env ENGINE=webkit node .uiverify/photos-levels-scale.mjs

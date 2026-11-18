@@ -1138,12 +1138,17 @@ export function PhotosView() {
     const index = api.photosIndex(source, order);
     let indexed = false;
     // Another place chosen: its first screen from its first page, which is small and comes at
-    // once, painted before the whole index (a large library's takes a moment) is here.
+    // once, painted before the whole index (a large library's takes a moment) is here. Always
+    // the newest photos, the ones the view opens on: oldest first, the view opens at its foot,
+    // and a first page read in its own order was the oldest, shown until the index came and the
+    // view went to the newest (discussion #167). Read newest first, drawn in the view's order.
     if (!again) {
-      api.photosPage(source, order, null, PAGE).then(
+      const first = order?.oldest ? { ...order, oldest: false } : order;
+      api.photosPage(source, first, null, PAGE).then(
         (page) => {
           if (indexed || mine !== reads.current) return;
-          setPhotos(PhotoList.of(page, store, (p) => sortKey(p, order?.by ?? "taken")));
+          const shown = order?.oldest ? [...page].reverse() : page;
+          setPhotos(PhotoList.of(shown, store, (p) => sortKey(p, order?.by ?? "taken")));
           setDrawn({ view, album, query: searching });
         },
         () => {},
