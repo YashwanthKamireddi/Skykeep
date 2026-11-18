@@ -702,7 +702,6 @@ async fn poll_cloudkit(
             }
         }
         seeded = true;
-        every = false;
         backoff = match failed {
             None => None,
             Some(e) => {
