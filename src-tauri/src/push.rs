@@ -149,7 +149,7 @@ async fn watch_contacts(
     let mut backoff = Duration::from_secs(5);
     let mut woken = WAKE.subscribe();
     loop {
-        sleep_or_wake(look_every(presence(&app)), &mut woken).await;
+        sleep_or_wake(look_every(presence_for(&app, CONTACTS_WINDOWS)), &mut woken).await;
         let session = {
             let guard = client.lock().await;
             let s = guard.session();
@@ -202,12 +202,41 @@ pub(crate) enum Presence {
 /// Every window counts — the whole-library one and each app's own. A minimized window is
 /// still "visible" to Windows (and to Tauri there), so it is counted as hidden.
 pub(crate) fn presence(app: &tauri::AppHandle) -> Presence {
+    presence_for(app, EVERY_WINDOW)
+}
+
+/// Any window at all: for what every window shows.
+const EVERY_WINDOW: &[&str] = &[];
+
+/// The windows that draw Calendar's events: its own, and the whole-library one (its launcher
+/// counts today's events).
+pub(crate) const CALENDAR_WINDOWS: &[&str] = &["app-calendar", "main"];
+/// The windows that draw contacts: their own, Calendar (birthdays are made from the cards) and
+/// the whole-library one.
+pub(crate) const CONTACTS_WINDOWS: &[&str] = &["app-contacts", "app-calendar", "main"];
+/// The windows that draw Drive: its own, and the whole-library one.
+pub(crate) const DRIVE_WINDOWS: &[&str] = &["app-drivews", "main"];
+
+/// [`presence`], for a watch whose changes only some windows draw: focused only while one of
+/// those has the focus. With Notes in front, Calendar, Contacts and Drive were each asked at
+/// the focused pace — some forty requests a minute for changes no window in front showed.
+/// Switching to one of them asks at once all the same ([`wake`] on focus), so the slower pace
+/// in between is never seen.
+pub(crate) fn presence_for(app: &tauri::AppHandle, shows: &[&str]) -> Presence {
+    reckon(
+        app.webview_windows()
+            .values()
+            .filter(|w| w.is_visible().unwrap_or(false) && !w.is_minimized().unwrap_or(false))
+            .map(|w| (w.label().to_string(), w.is_focused().unwrap_or(false))),
+        shows,
+    )
+}
+
+/// The presence the windows on screen make, each by its label and whether it has the focus.
+fn reckon(on_screen: impl IntoIterator<Item = (String, bool)>, shows: &[&str]) -> Presence {
     let mut open = false;
-    for w in app.webview_windows().values() {
-        if !w.is_visible().unwrap_or(false) || w.is_minimized().unwrap_or(false) {
-            continue;
-        }
-        if w.is_focused().unwrap_or(false) {
+    for (label, focused) in on_screen {
+        if focused && (shows.is_empty() || shows.contains(&label.as_str())) {
             return Presence::Focused;
         }
         open = true;
@@ -254,7 +283,7 @@ async fn watch_calendar(
     let mut backoff = Duration::from_secs(5);
     let mut woken = WAKE.subscribe();
     loop {
-        sleep_or_wake(look_every(presence(&app)), &mut woken).await;
+        sleep_or_wake(look_every(presence_for(&app, CALENDAR_WINDOWS)), &mut woken).await;
         let session = {
             let guard = client.lock().await;
             let s = guard.session();
@@ -766,6 +795,52 @@ mod tests {
         assert!(f <= Duration::from_secs(5), "changes show within seconds");
         assert!(f < o && o < h);
         assert!(h <= Duration::from_secs(60));
+    }
+
+    fn on_screen(windows: &[(&str, bool)]) -> Vec<(String, bool)> {
+        windows
+            .iter()
+            .map(|(l, f)| ((*l).to_string(), *f))
+            .collect()
+    }
+
+    #[test]
+    fn a_watch_is_focused_only_while_a_window_that_draws_it_is() {
+        // Notes in front, Calendar behind it: Calendar's changes are on screen, not in front.
+        let notes = on_screen(&[("app-notes", true), ("app-calendar", false)]);
+        assert_eq!(reckon(notes.clone(), CALENDAR_WINDOWS), Presence::Open);
+        assert_eq!(reckon(notes.clone(), CONTACTS_WINDOWS), Presence::Open);
+        assert_eq!(reckon(notes.clone(), DRIVE_WINDOWS), Presence::Open);
+        assert_eq!(reckon(notes, EVERY_WINDOW), Presence::Focused);
+        // Calendar in front draws its events and the birthdays made from the cards.
+        let calendar = on_screen(&[("app-calendar", true)]);
+        assert_eq!(
+            reckon(calendar.clone(), CALENDAR_WINDOWS),
+            Presence::Focused
+        );
+        assert_eq!(
+            reckon(calendar.clone(), CONTACTS_WINDOWS),
+            Presence::Focused
+        );
+        assert_eq!(reckon(calendar, DRIVE_WINDOWS), Presence::Open);
+        // The whole-library window's launcher counts every app.
+        let main = on_screen(&[("main", true)]);
+        for shows in [CALENDAR_WINDOWS, CONTACTS_WINDOWS, DRIVE_WINDOWS] {
+            assert_eq!(reckon(main.clone(), shows), Presence::Focused);
+        }
+        assert_eq!(reckon(Vec::new(), CALENDAR_WINDOWS), Presence::Hidden);
+    }
+
+    #[test]
+    fn with_notes_in_front_the_watches_for_other_apps_ask_a_few_times_a_minute() {
+        // Requests a minute to Apple from the Calendar, Contacts and Drive watches, on mains
+        // power, with only Notes in front. It was 42 when any focused window set their pace.
+        let per_minute = |d: Duration| 60 / d.as_secs();
+        let notes = on_screen(&[("app-notes", true)]);
+        let asked = per_minute(look_every(reckon(notes.clone(), CALENDAR_WINDOWS)))
+            + per_minute(look_every(reckon(notes.clone(), CONTACTS_WINDOWS)))
+            + per_minute(poll_every(reckon(notes, DRIVE_WINDOWS)));
+        assert!(asked <= 12, "{asked} a minute");
     }
 
     #[test]

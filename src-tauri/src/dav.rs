@@ -390,7 +390,7 @@ pub fn spawn(app: AppHandle) {
                     let _ = pass_and_record(&app, a).await;
                 }
             }
-            let wait = match crate::push::presence(&app) {
+            let wait = match crate::push::presence_for(&app, crate::push::CALENDAR_WINDOWS) {
                 crate::push::Presence::Focused => Duration::from_secs(30),
                 crate::push::Presence::Open => Duration::from_secs(60),
                 crate::push::Presence::Hidden => Duration::from_secs(300),
