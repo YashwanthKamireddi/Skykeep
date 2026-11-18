@@ -103,6 +103,11 @@
     <color type="primary" scheme_preference="dark">#0B2A4A</color>
   </branding>
   <releases>
+    <release version="0.1.31" date="2026-11-18">
+      <description>
+        <p>Other programs can now use Skykeep. Launchers, status bars and scripts can add reminders, events and notes with the skykeep command, and read today's reminders, upcoming events, notes and contacts as JSON in a fraction of a second, without opening a window. See docs/cli.md. Notes, Reminders and Contacts now reopen on the list, folder and item you left them on. Title bars follow the appearance chosen in Settings. Typing in a long note is faster. In Windows' iCloud Drive folder, an editor that saves every few seconds, such as Obsidian, no longer leaves conflicted copies of your notes. On Linux, Move to Trash in the Drive folder no longer makes a hidden .Trash folder in iCloud Drive. Skykeep now stays signed in when Apple sends a one-off unexpected answer or an empty list of services, and when iCloud asks it to wait it waits as long as asked. An interrupted backup no longer stops later backups, quitting during a window resize no longer hangs, and the Drive and Photos folders stay mounted through an error Skykeep recovers from. Skykeep also checks iCloud less often for apps whose windows aren't in front.</p>
+      </description>
+    </release>
     <release version="0.1.30" date="2026-11-18">
       <description>
         <p>Photos now opens on your newest photos at the bottom every time, and stays there when you make the window bigger, full screen or smaller again. Before, it could open at your oldest photos or land in the middle of the library depending on the window's size. Scrolled up to older photos, resizing the window keeps the same photos in view, and a jump to a month lands exactly on it.</p>
