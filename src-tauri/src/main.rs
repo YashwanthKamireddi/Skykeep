@@ -16,6 +16,7 @@ mod alerts;
 mod appearance;
 mod apps;
 mod backup;
+mod cli;
 mod clipboard;
 mod contacts_cmds;
 mod contacts_merge;
@@ -7259,6 +7260,11 @@ fn main() {
     // First, before any thread: how freed memory goes back to the system (#11).
     return_freed_memory();
     enough_open_files();
+    // Another program reading Reminders, Calendar or Notes (`--reminders-today`, cli.rs): the
+    // answer from the library on disk, and this launch ends before anything else starts.
+    if let Some(code) = cli::answer(&std::env::args().collect::<Vec<_>>()) {
+        std::process::exit(code);
+    }
     // The uninstaller's last word (packaging/windows/installer-hooks.nsh): iCloud Drive no
     // longer a cloud folder in File Explorer. Nothing else is started.
     #[cfg(windows)]
