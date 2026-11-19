@@ -202,6 +202,10 @@ jobs:
       - name: Build dependencies
         run: |
           mkdir -p ~/apt-debs/partial
+          # Azure's mirror first (GitHub's runners sit on Azure), then Ubuntu's own; the runner's
+          # list put a mirror first that crawled at ~300 kB/s for hours (19 Nov).
+          printf '%s\tpriority:1\n%s\tpriority:2\n' http://azure.archive.ubuntu.com/ubuntu/ http://archive.ubuntu.com/ubuntu/ \
+            | sudo tee /etc/apt/apt-mirrors.txt >/dev/null
           sudo apt-get -o Acquire::Retries=5 -o Acquire::http::Timeout=30 -o Acquire::https::Timeout=30 update
           sudo apt-get -o Acquire::Retries=5 -o Acquire::http::Timeout=30 -o Acquire::https::Timeout=30 \
             -o Dir::Cache::Archives="$HOME/apt-debs" install -y --no-install-recommends \
