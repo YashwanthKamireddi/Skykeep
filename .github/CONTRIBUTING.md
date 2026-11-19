@@ -355,8 +355,11 @@ Skykeep follows the look and keys of Apple's own apps.
 - Glass only on chrome: sidebars, toolbars, menus and sheets. Content is never translucent.
 - Keyboard first: the keys of Apple's matching app, with Ctrl for ⌘.
 - Copy is short and true, never implies Apple affiliation, and uses no fruit imagery.
-- Formats (week start, 12/24-hour time, dates) follow the system. Translations aren't planned,
-  so please don't open pull requests adding them.
+- Formats (week start, 12/24-hour time, dates) follow the system. A translation comes in as a
+  whole language: open an issue first, then one `src/locales/<code>.json` with every key of
+  `en.json` (the same placeholders and bold parts), checked on every screen in Chromium and
+  WebKit, light and dark, as `.uiverify/german.mjs` checks German. Its translator keeps it in
+  step when `en.json` changes.
 
 ## Where to start
 
