@@ -103,6 +103,11 @@
     <color type="primary" scheme_preference="dark">#0B2A4A</color>
   </branding>
   <releases>
+    <release version="0.1.34" date="2026-11-19">
+      <description>
+        <p>Large uploads to iCloud Drive and Photos no longer stop after a minute, and one cut short by a dropped connection is sent again by itself. Photo and video downloads are checked to the last byte and carry on where they stopped. In File Explorer, photos and videos open while they download, iCloud Drive files open on slow connections, a folder cut short while listing is listed again, names with accents show as typed, and when the disk runs low, iCloud files you haven't used recently are freed (pinned and open files stay). A backup to a network drive that isn't mounted now waits for it instead of filling your disk. On Android, pictures and PDFs in notes show and open. A duplicated photo with one copy edited shows each copy as it is, Photos' sort menu says where the newest photos are, and clicking the tray icon closes the window when it's in front.</p>
+      </description>
+    </release>
     <release version="0.1.33" date="2026-11-19">
       <description>
         <p>Photos opens on your newest photos at once in a large library, in either sort order: it no longer loads your oldest months first, and scrolling while a view loads keeps you among the newest photos.</p>
