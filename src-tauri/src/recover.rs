@@ -200,17 +200,30 @@ pub fn watch(webview: &tauri::Webview) {
     let (app, label) = (webview.app_handle().clone(), webview.label().to_string());
     let done = webview.with_webview(move |platform| {
         use webview2_com::Microsoft::Web::WebView2::Win32::{
-            COREWEBVIEW2_PROCESS_FAILED_KIND,
+            ICoreWebView2ProcessFailedEventArgs2, COREWEBVIEW2_PROCESS_FAILED_KIND,
             COREWEBVIEW2_PROCESS_FAILED_KIND_BROWSER_PROCESS_EXITED,
             COREWEBVIEW2_PROCESS_FAILED_KIND_RENDER_PROCESS_EXITED,
+            COREWEBVIEW2_PROCESS_FAILED_REASON, COREWEBVIEW2_PROCESS_FAILED_REASON_OUT_OF_MEMORY,
         };
         use webview2_com::ProcessFailedEventHandler;
+        use windows::core::Interface;
         let handler = ProcessFailedEventHandler::create(Box::new(move |_, args| {
             let mut kind = COREWEBVIEW2_PROCESS_FAILED_KIND::default();
+            // Why it ended, where the runtime is new enough to say (ProcessFailedEventArgs2), as
+            // WebKit says it on Linux.
+            let mut reason = COREWEBVIEW2_PROCESS_FAILED_REASON::default();
             if let Some(args) = args {
                 unsafe { args.ProcessFailedKind(&mut kind)? };
+                if let Ok(args) = args.cast::<ICoreWebView2ProcessFailedEventArgs2>() {
+                    let _ = unsafe { args.Reason(&mut reason) };
+                }
             }
             let why = match kind {
+                COREWEBVIEW2_PROCESS_FAILED_KIND_RENDER_PROCESS_EXITED
+                    if reason == COREWEBVIEW2_PROCESS_FAILED_REASON_OUT_OF_MEMORY =>
+                {
+                    Why::OutOfMemory
+                }
                 COREWEBVIEW2_PROCESS_FAILED_KIND_RENDER_PROCESS_EXITED => Why::Crashed,
                 COREWEBVIEW2_PROCESS_FAILED_KIND_BROWSER_PROCESS_EXITED => Why::Gone,
                 // An unresponsive renderer recovers by itself or exits, which is heard of then;
