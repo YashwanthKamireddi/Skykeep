@@ -23,6 +23,8 @@ import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.ui.draw.clip
+import androidx.compose.foundation.layout.aspectRatio
 import androidx.compose.foundation.layout.imePadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
@@ -55,6 +57,7 @@ import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.SolidColor
+import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.text.SpanStyle
@@ -81,8 +84,10 @@ import kotlinx.coroutines.withContext
 import uniffi.quince_mobile.Account
 import uniffi.quince_mobile.AccountInterface
 import uniffi.quince_mobile.NDoc
+import uniffi.quince_mobile.NAttachment
 import uniffi.quince_mobile.NFolder
 import uniffi.quince_mobile.NItem
+import uniffi.quince_mobile.NPart
 import uniffi.quince_mobile.NSpan
 
 /** Apple's id for Recently Deleted (quince-core's TRASH_FOLDER). */
@@ -466,6 +471,8 @@ private fun NoteScreen(engine: AccountInterface, opened: String?, folderGuid: St
         LaunchedEffect(Unit) { focus.requestFocus() }
         BasicTextField(
           text, { text = it },
+          // An attachment shows as 📎, not the font's dotted "OBJ" box (discussion #199).
+          visualTransformation = AttachmentMarks,
           textStyle = MaterialTheme.typography.bodyLarge.copy(color = MaterialTheme.colorScheme.onSurface),
           cursorBrush = SolidColor(NotesYellow),
           modifier = Modifier.fillMaxSize().imePadding().padding(horizontal = 24.dp, vertical = 8.dp).focusRequester(focus),
@@ -473,6 +480,7 @@ private fun NoteScreen(engine: AccountInterface, opened: String?, folderGuid: St
       }
       else -> RichNote(
         d,
+        engine,
         Modifier.fillMaxSize().clickable(enabled = d.editable && d.folderGuid != TRASH) { text = d.text; saved = d.text; editing = true },
       ) { at, checked ->
         val g = guid ?: return@RichNote
@@ -548,16 +556,23 @@ private fun lay(d: NDoc): List<NoteLine> {
  * lines composed only as they scroll into view.
  */
 @Composable
-private fun RichNote(d: NDoc, modifier: Modifier, onCheck: (UInt, Boolean) -> Unit) {
+private fun RichNote(d: NDoc, engine: AccountInterface, modifier: Modifier, onCheck: (UInt, Boolean) -> Unit) {
   val lines = remember(d) { lay(d) }
   LazyColumn(modifier, contentPadding = PaddingValues(horizontal = 24.dp, vertical = 8.dp), verticalArrangement = Arrangement.spacedBy(2.dp)) {
-    items(lines.size) { i -> NoteLineView(lines[i], onCheck) }
+    items(lines.size) { i -> NoteLineView(lines[i], engine, onCheck) }
   }
 }
 
 @Composable
-private fun NoteLineView(l: NoteLine, onCheck: (UInt, Boolean) -> Unit) {
+private fun NoteLineView(l: NoteLine, engine: AccountInterface, onCheck: (UInt, Boolean) -> Unit) {
   val para = l.para
+  // The attachments on this line, in order: each U+FFFC is one, named by the span over it.
+  val attachments = remember(l) {
+    l.text.indices.filter { l.text[it] == '\uFFFC' }.mapNotNull { i ->
+      val at = l.start + i
+      l.spans.firstOrNull { it.attachment != null && at >= it.start.toInt() && at < (it.start + it.length).toInt() }?.attachment
+    }
+  }
   val style = when (para?.style?.toInt()) {
     0 -> MaterialTheme.typography.headlineMedium.copy(fontWeight = FontWeight.Bold)
     1 -> MaterialTheme.typography.titleLarge.copy(fontWeight = FontWeight.Bold)
@@ -567,7 +582,9 @@ private fun NoteLineView(l: NoteLine, onCheck: (UInt, Boolean) -> Unit) {
   }
   val link = MaterialTheme.colorScheme.primary
   val styled = buildAnnotatedString {
-    append(l.text.replace("\uFFFC", "[attachment]"))
+    // Each attachment's character kept as one that draws nothing, so every style after it stays
+    // on its own words; the attachment itself is drawn below the line's words.
+    append(l.text.replace('\uFFFC', '\u200B'))
     // Character formatting, stretch by stretch, clipped to this line.
     for (s in l.spans) {
       val from = maxOf(s.start.toInt(), l.start) - l.start
@@ -609,6 +626,163 @@ private fun NoteLineView(l: NoteLine, onCheck: (UInt, Boolean) -> Unit) {
       102 -> Text("${l.number}.  ", style = style)
     }
     if (para?.quote == true) Box(Modifier.padding(end = 10.dp).size(3.dp, 22.dp).background(MaterialTheme.colorScheme.outline))
-    Text(styled, style = style.copy(lineHeight = (style.fontSize.value * 1.35f).sp))
+    // A line that is only its attachments shows them alone, without an empty line of text.
+    if (attachments.isEmpty() || l.text.any { it != '\uFFFC' && !it.isWhitespace() }) {
+      Text(styled, style = style.copy(lineHeight = (style.fontSize.value * 1.35f).sp))
+    }
+  }
+  for (id in attachments) NoteAttachmentView(id, engine)
+}
+
+/**
+ * One attachment in a note, as Notes shows it: a picture or drawing drawn in the note, a tag
+ * or mention as its words, anything else (a PDF, a scan, a file) a card that opens in the app
+ * the phone uses for it. Its kind is read once and kept by the engine; the picture is fetched
+ * once into the cache.
+ */
+@Composable
+private fun NoteAttachmentView(id: String, engine: AccountInterface) {
+  val context = LocalContext.current
+  val scope = rememberCoroutineScope()
+  var info by remember(id) { mutableStateOf<NAttachment?>(null) }
+  var picture by remember(id) { mutableStateOf<androidx.compose.ui.graphics.ImageBitmap?>(null) }
+  var problem by remember(id) { mutableStateOf<String?>(null) }
+  val key = id.filter { it.isLetterOrDigit() }
+  LaunchedEffect(id) {
+    runCatching { withContext(Dispatchers.IO) { engine.noteAttachment(id) } }
+      .onSuccess { a ->
+        info = a
+        if (a.kind == "image" || a.kind == "drawing" || a.hasPreview) {
+          picture = runCatching {
+            withContext(Dispatchers.IO) {
+              val file = java.io.File(context.cacheDir, "note-pictures/$key")
+              // Apple's picture of it; a photo just added has none yet (Apple makes it later),
+              // and a photo's own file is its picture.
+              val got = runCatching { engine.noteAttachmentFile(id, NPart.PICTURE, file.path) }
+              if (got.isFailure && a.kind == "image") engine.noteAttachmentFile(id, NPart.FILE, file.path)
+              else got.getOrThrow()
+              decodeScaled(file, 1600)
+            }
+          }.getOrNull()
+        }
+      }
+      .onFailure { problem = "This attachment couldn't be read from iCloud." }
+  }
+  fun open(a: NAttachment) = scope.launch {
+    runCatching {
+      withContext(Dispatchers.IO) {
+        // In the cache's share/ folder: the one place the app hands files to other apps from.
+        val file = java.io.File(context.cacheDir, "share/note-files/$key/${a.name}")
+        engine.noteAttachmentFile(id, NPart.FILE, file.path)
+        file
+      }
+    }.onSuccess { file ->
+      val uri = androidx.core.content.FileProvider.getUriForFile(context, "${context.packageName}.share", file)
+      val type = android.webkit.MimeTypeMap.getSingleton()
+        .getMimeTypeFromExtension(a.name.substringAfterLast('.', "").lowercase()) ?: "application/octet-stream"
+      val view = android.content.Intent(android.content.Intent.ACTION_VIEW).setDataAndType(uri, type)
+        .addFlags(android.content.Intent.FLAG_GRANT_READ_URI_PERMISSION)
+      try {
+        context.startActivity(android.content.Intent.createChooser(view, a.name).addFlags(android.content.Intent.FLAG_ACTIVITY_NEW_TASK))
+      } catch (_: android.content.ActivityNotFoundException) {
+        problem = "No app on this phone opens ${a.name.substringAfterLast('.', "this kind of")} files."
+      }
+    }.onFailure { problem = "This attachment couldn't be downloaded from iCloud." }
+  }
+  val a = info
+  val shape = RoundedCornerShape(12.dp)
+  Column(Modifier.fillMaxWidth().padding(vertical = 6.dp)) {
+    when {
+      a == null && problem == null -> Box(Modifier.fillMaxWidth().size(height = 56.dp, width = 0.dp).background(MaterialTheme.colorScheme.surfaceVariant, shape))
+      a == null -> {}
+      a.kind == "inline" -> Text(a.title ?: "", style = MaterialTheme.typography.bodyLarge, color = MaterialTheme.colorScheme.primary)
+      (a.kind == "image" || a.kind == "drawing") && picture != null -> {
+        val p = picture!!
+        androidx.compose.foundation.Image(
+          p, contentDescription = a.name,
+          modifier = Modifier.fillMaxWidth().aspectRatio(p.width.toFloat() / p.height.coerceAtLeast(1))
+            .clip(shape).clickable { open(a) },
+          contentScale = androidx.compose.ui.layout.ContentScale.Fit,
+        )
+      }
+      else -> Row(
+        Modifier.fillMaxWidth().clip(shape).background(MaterialTheme.colorScheme.surfaceVariant)
+          .clickable(enabled = a.kind != "table") { open(a) }.padding(12.dp),
+        verticalAlignment = Alignment.CenterVertically,
+      ) {
+        val p = picture
+        if (p != null) androidx.compose.foundation.Image(
+          p, contentDescription = null,
+          modifier = Modifier.size(44.dp).clip(RoundedCornerShape(6.dp)),
+          contentScale = androidx.compose.ui.layout.ContentScale.Crop,
+        ) else Icon(
+          painterResource(attachmentIcon(a)), contentDescription = null,
+          tint = MaterialTheme.colorScheme.primary, modifier = Modifier.size(28.dp),
+        )
+        Spacer(Modifier.width(12.dp))
+        Column(Modifier.weight(1f)) {
+          Text(if (a.kind == "table") "Table" else a.name, style = MaterialTheme.typography.bodyLarge, maxLines = 1, overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis)
+          val under = when {
+            a.kind == "table" -> "Opens in Notes on an iPhone, iPad or Mac"
+            else -> a.size?.let { android.text.format.Formatter.formatShortFileSize(context, it) }
+          }
+          if (under != null) Text(under, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+        }
+      }
+    }
+    problem?.let { Text(it, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.error, modifier = Modifier.padding(top = 4.dp)) }
+  }
+}
+
+/** The icon a file's card shows for what kind of file it is. */
+private fun attachmentIcon(a: NAttachment): Int = when {
+  a.kind == "audio" -> R.drawable.ic_file_audio
+  a.kind == "video" -> R.drawable.ic_file_video
+  a.kind == "image" || a.kind == "drawing" -> R.drawable.ic_file_image
+  a.uti.contains("pdf") || a.kind == "document" -> R.drawable.ic_file_text
+  a.uti.contains("spreadsheet") || a.uti.contains("numbers") -> R.drawable.ic_file_sheet
+  a.uti.contains("presentation") || a.uti.contains("keynote") -> R.drawable.ic_file_slides
+  else -> R.drawable.ic_file
+}
+
+/** A picture read at no more than `most` pixels a side, so a 48-megapixel photo never fills memory. */
+private fun decodeScaled(file: java.io.File, most: Int): androidx.compose.ui.graphics.ImageBitmap? {
+  val bounds = android.graphics.BitmapFactory.Options().apply { inJustDecodeBounds = true }
+  android.graphics.BitmapFactory.decodeFile(file.path, bounds)
+  var sample = 1
+  while (bounds.outWidth / (sample * 2) >= most || bounds.outHeight / (sample * 2) >= most) sample *= 2
+  val opts = android.graphics.BitmapFactory.Options().apply { inSampleSize = sample }
+  return android.graphics.BitmapFactory.decodeFile(file.path, opts)?.asImageBitmap()
+}
+
+/**
+ * The editor's view of a note's text: each attachment's character (U+FFFC, drawn by most fonts
+ * as a dotted "OBJ" box) shown as 📎, two characters for one, with every cursor position mapped
+ * across, so what is typed and saved is the note's own text, attachments in place.
+ */
+internal object AttachmentMarks : androidx.compose.ui.text.input.VisualTransformation {
+  private const val MARK = "\uD83D\uDCCE"
+  override fun filter(text: androidx.compose.ui.text.AnnotatedString): androidx.compose.ui.text.input.TransformedText {
+    val raw = text.text
+    if ('\uFFFC' !in raw) return androidx.compose.ui.text.input.TransformedText(text, androidx.compose.ui.text.input.OffsetMapping.Identity)
+    val marks = raw.indices.filter { raw[it] == '\uFFFC' }
+    val shown = raw.replace("\uFFFC", MARK)
+    val mapping = object : androidx.compose.ui.text.input.OffsetMapping {
+      override fun originalToTransformed(offset: Int) = offset + marks.count { it < offset }
+      override fun transformedToOriginal(offset: Int): Int {
+        var extra = 0
+        for ((k, m) in marks.withIndex()) {
+          // The k-th mark is shown from m + k, two places wide; a place inside it is before it.
+          val shownAt = m + k
+          when {
+            offset >= shownAt + 2 -> extra++
+            offset == shownAt + 1 -> return m
+            else -> break
+          }
+        }
+        return (offset - extra).coerceIn(0, raw.length)
+      }
+    }
+    return androidx.compose.ui.text.input.TransformedText(androidx.compose.ui.text.AnnotatedString(shown), mapping)
   }
 }

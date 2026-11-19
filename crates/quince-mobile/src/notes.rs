@@ -181,8 +181,102 @@ fn gone() -> quince_core::Error {
     ))
 }
 
+/// An attachment in a note, as the phone shows it: a picture drawn in the note, anything else
+/// (a PDF, a scan, a file) a card that opens in the app the phone uses for it.
+#[derive(uniffi::Record)]
+pub struct NAttachment {
+    pub id: String,
+    /// `image`, `drawing`, `table`, `document`, `audio`, `video`, `inline` or `file`.
+    pub kind: String,
+    /// Its own name, made a plain file name (never a path); one from its id when it has none.
+    pub name: String,
+    /// Apple's type identifier (`com.adobe.pdf`), for the app that opens it.
+    pub uti: String,
+    pub size: Option<i64>,
+    /// Whether Apple keeps a picture of it to draw in its place.
+    pub has_preview: bool,
+    /// A tag or a mention: the words it stands for, drawn as text.
+    pub title: Option<String>,
+}
+
+/// Which of an attachment's files is wanted.
+#[derive(uniffi::Enum, Clone, Copy, PartialEq, Eq)]
+pub enum NPart {
+    /// The file itself, to open.
+    File,
+    /// Apple's picture of it, to draw in the note (a drawing: its rendering).
+    Picture,
+}
+
 #[uniffi::export]
 impl Account {
+    /// What the attachment `id` in a note is. Kept in the library once known: an attachment
+    /// never changes under its id, so a note opens on its pictures and cards at once, offline
+    /// too, as the desktop's do.
+    pub fn note_attachment(&self, id: String) -> Result<NAttachment, EngineError> {
+        let key = format!("notes.attachment.{id}");
+        let kept = self.with_notes(|l| l.state(&key))?;
+        // As the desktop keeps it: Apple's answer as JSON (note_media::AttachmentInfo).
+        let info: serde_json::Value = match kept.and_then(|k| serde_json::from_str(&k).ok()) {
+            Some(info) => info,
+            None => {
+                let (http, root, params) = self.notes_context()?;
+                let info = runtime()
+                    .block_on(quince_icloud::note_media::info(&http, &root, params, &id))
+                    .map_err(failed)?;
+                let info = serde_json::to_value(&info).map_err(failed)?;
+                let _ = self.with_notes(|l| l.set_state(&key, &info.to_string()));
+                info
+            }
+        };
+        let text = |k: &str| info.get(k).and_then(serde_json::Value::as_str);
+        Ok(NAttachment {
+            name: attachment_name(text("filename"), &id),
+            kind: text("kind").unwrap_or("file").to_string(),
+            uti: text("uti").unwrap_or_default().to_string(),
+            size: info.get("size").and_then(serde_json::Value::as_i64),
+            has_preview: info
+                .get("hasPreview")
+                .and_then(serde_json::Value::as_bool)
+                .unwrap_or(false),
+            title: text("title").map(str::to_string),
+            id,
+        })
+    }
+
+    /// An attachment's file or picture fetched to `path` (the app's cache), once: a path that
+    /// has it already is left as it is.
+    pub fn note_attachment_file(
+        &self,
+        id: String,
+        part: NPart,
+        path: String,
+    ) -> Result<(), EngineError> {
+        let target = std::path::PathBuf::from(&path);
+        if target.exists() {
+            return Ok(());
+        }
+        let kind = self.note_attachment(id.clone())?.kind;
+        let part = match part {
+            NPart::File => quince_icloud::note_media::Part::File,
+            NPart::Picture if kind == "drawing" => quince_icloud::note_media::Part::Drawing,
+            NPart::Picture => quince_icloud::note_media::Part::Preview,
+        };
+        let (http, root, params) = self.notes_context()?;
+        let bytes = runtime()
+            .block_on(quince_icloud::note_media::bytes(
+                &http, &root, params, &id, part,
+            ))
+            .map_err(failed)?;
+        if let Some(parent) = target.parent() {
+            std::fs::create_dir_all(parent).map_err(failed)?;
+        }
+        // Written beside it and moved into place whole, so a half-written file is never read.
+        let partial = target.with_extension("part");
+        std::fs::write(&partial, &bytes).map_err(failed)?;
+        std::fs::rename(&partial, &target).map_err(failed)
+    }
+
     /// The folders, in Apple's order, each with how many notes it holds.
     pub fn note_folders(&self) -> Result<Vec<NFolder>, EngineError> {
         self.with_notes(|l| {
@@ -407,6 +501,27 @@ impl Account {
     }
 }
 
+/// A plain file name for an attachment: its own name with anything a path could be made of
+/// taken out, or one made from its id. Whoever shared the note chose the name.
+fn attachment_name(name: Option<&str>, id: &str) -> String {
+    let clean: String = name
+        .unwrap_or_default()
+        .chars()
+        .filter(|c| !matches!(c, '/' | '\\' | '\0') && !c.is_control())
+        .collect();
+    let clean = clean.trim().trim_start_matches('.').to_string();
+    if clean.is_empty() {
+        format!(
+            "attachment-{}",
+            id.chars()
+                .filter(char::is_ascii_alphanumeric)
+                .collect::<String>()
+        )
+    } else {
+        clean
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -435,5 +550,19 @@ mod tests {
             ticked.iter().map(|r| r.checked).collect::<Vec<_>>(),
             vec![Some(true), Some(true), Some(true), Some(false)]
         );
+    }
+
+    /// An attachment's name is made one plain file name: never a path, never hidden, and named
+    /// from its id when nothing is left.
+    #[test]
+    fn an_attachment_name_is_one_plain_file_name() {
+        assert_eq!(attachment_name(Some("Trip.pdf"), "A1"), "Trip.pdf");
+        assert_eq!(
+            attachment_name(Some("../../cookies.json"), "A1"),
+            "cookies.json"
+        );
+        assert_eq!(attachment_name(Some("a/b\\c"), "A1"), "abc");
+        assert_eq!(attachment_name(None, "AB-12"), "attachment-AB12");
+        assert_eq!(attachment_name(Some(".."), "X"), "attachment-X");
     }
 }

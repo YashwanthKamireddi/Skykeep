@@ -1,6 +1,7 @@
 //! Live, throwaway note only: files of each kind added to a new note one after another, as a
 //! drop of several files adds them, each outcome printed; the note then sent to Recently
-//! Deleted. Args: the files.
+//! Deleted. Args: the files. KEEP=1 leaves the note (to look at it on a phone) and prints its
+//! id; `DELETE=<id>` with no files sends that note to Recently Deleted.
 use anyhow::{anyhow, Result};
 #[tokio::main]
 async fn main() -> Result<()> {
@@ -15,20 +16,25 @@ async fn main() -> Result<()> {
         .service_url("ckdatabasews")
         .ok_or_else(|| anyhow!("no ckdatabasews"))?;
     let (http, p) = (client.http().clone(), client.service_params());
-    let guid = quince_icloud::notes::create_cloudkit(
-        &http,
-        &root,
-        p.clone(),
-        None,
-        "Skykeep attach test\nsafe to delete",
-        None,
-    )
-    .await?;
+    let uploads = client.uploads().clone();
+    let guid = if let Ok(guid) = std::env::var("DELETE") {
+        guid
+    } else {
+        quince_icloud::notes::create_cloudkit(
+            &http,
+            &root,
+            p.clone(),
+            None,
+            "Skykeep attach test\nsafe to delete",
+            None,
+        )
+        .await?
+    };
     println!("note {guid}");
     for f in &files {
         let r = quince_icloud::notes::attach::attach_file_cloudkit(
             &http,
-            &http,
+            &uploads,
             &root,
             p.clone(),
             &guid,
@@ -41,6 +47,10 @@ async fn main() -> Result<()> {
             Ok(a) => println!("{f}: ok {} uti {}", a.attachment, a.uti),
             Err(e) => println!("{f}: FAILED {e}"),
         }
+    }
+    if std::env::var("KEEP").is_ok() {
+        println!("kept: DELETE={guid} to send it to Recently Deleted");
+        return Ok(());
     }
     let zc = quince_icloud::cloudkit::ZoneClient::new(&http, &root, "com.apple.notes", p.clone());
     let rec = zc
