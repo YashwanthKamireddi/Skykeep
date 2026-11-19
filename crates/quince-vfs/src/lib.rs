@@ -416,7 +416,11 @@ pub fn named(items: &[DriveItem]) -> Vec<(String, DriveItem)> {
 /// file in it unreachable until a restart.
 #[must_use]
 pub fn shown_name(name: &str, on: Names) -> String {
-    let mut base: String = name
+    // Composed (NFC), as Linux and Windows programs write "é": a Mac stores names decomposed
+    // ("e" and an accent), and shown that way a typed `cd Café` found nothing, and a file saved
+    // here under the same name sat beside it as a second, identical-looking one (rclone
+    // d15f114). A downloaded folder composes its names the same way (folder_download).
+    let mut base: String = quince_core::fold::composed(name)
         .chars()
         .map(|c| match (on, c) {
             (Names::Linux, '/') => '∕',
@@ -1588,5 +1592,23 @@ mod tests {
         broken.land(&bytes[..100]);
         broken.end(false);
         assert_eq!(read_landing(&broken, 0, 4096).await, None);
+    }
+
+    /// A name a Mac stored decomposed is shown composed, as it is typed here, on both systems,
+    /// and two that differ only so are told apart like any two the same.
+    #[test]
+    fn names_are_shown_composed() {
+        let decomposed = "Cafe\u{301}";
+        assert_eq!(shown_name(decomposed, Names::Linux), "Caf\u{e9}");
+        assert_eq!(shown_name(decomposed, Names::Windows), "Caf\u{e9}");
+        let named = named_on(
+            &[
+                item("mac", "Cafe\u{301}", None, "FOLDER", 0, "e"),
+                item("pc", "Caf\u{e9}", None, "FOLDER", 0, "e"),
+            ],
+            Names::Linux,
+        );
+        let names: Vec<&str> = named.iter().map(|(n, _)| n.as_str()).collect();
+        assert_eq!(names, ["Caf\u{e9}", "Caf\u{e9} (2)"]);
     }
 }
