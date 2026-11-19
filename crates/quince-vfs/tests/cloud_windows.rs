@@ -1750,3 +1750,107 @@ fn a_file_opens_on_a_slow_line() {
     let _ = std::fs::remove_dir_all(&place);
     let _ = std::fs::remove_dir_all(&out);
 }
+
+/// Room made on a low disk: a downloaded file is given back to iCloud and stays listed (and
+/// opens again whole); one kept on the device by choice, and one open in a program, are left.
+#[test]
+fn room_is_made_from_files_not_kept_or_open() {
+    let bytes: Vec<u8> = (0..300_000u64).map(byte).collect();
+    let tree: HashMap<String, Vec<DriveItem>> = [(
+        ROOT.to_string(),
+        vec![
+            file("roomfree", "free", "bin", bytes.len() as i64),
+            file("roomkept", "kept", "bin", bytes.len() as i64),
+            file("roomopen", "open", "bin", bytes.len() as i64),
+        ],
+    )]
+    .into();
+    let rt = tokio::runtime::Runtime::new().unwrap();
+    let base = PathBuf::from(std::env::var("USERPROFILE").unwrap());
+    let place = base.join(format!("Skykeep room {}", std::process::id()));
+    let out = std::env::temp_dir().join(format!("skykeep-room-out-{}", std::process::id()));
+    std::fs::create_dir_all(&out).unwrap();
+    let id = cloud::sync_root_id(&format!("room{}", std::process::id())).unwrap();
+    let shown = Shown {
+        id: &id,
+        name: "Skykeep room test",
+        icon: "%SystemRoot%\\system32\\imageres.dll,-1043",
+    };
+    let up = cloud::start(
+        &place,
+        &shown,
+        Provider::new(
+            Arc::new(Apple(
+                tree.clone(),
+                Arc::new(std::sync::Mutex::new(Vec::new())),
+            )),
+            Arc::new(Library(Arc::new(std::sync::Mutex::new(tree)))),
+            rt.handle().clone(),
+            out.join("sending"),
+        ),
+    )
+    .expect("the cloud folder registers and connects");
+
+    use std::os::windows::fs::MetadataExt;
+    let here = |p: &Path| std::fs::metadata(p).unwrap().file_attributes() & 0x0040_0000 == 0;
+    let (free, kept, open) = (
+        place.join("free.bin"),
+        place.join("kept.bin"),
+        place.join("open.bin"),
+    );
+    // Listed and read by another program, as a person's would be: Windows asks nothing of a
+    // folder's own provider for its own reads (this test is the provider).
+    let names = dir(&place);
+    let read_out = |f: &Path, to: &str| -> Vec<u8> {
+        let copy = out.join(to);
+        assert!(Command::new("cmd")
+            .args(["/c", "copy", "/b", "/y"])
+            .arg(f)
+            .arg(&copy)
+            .status()
+            .unwrap()
+            .success());
+        std::fs::read(&copy).unwrap()
+    };
+    for (f, to) in [(&free, "a"), (&kept, "b"), (&open, "c")] {
+        assert!(
+            names.iter().any(|n| f.ends_with(n)),
+            "{} listed: {names:?}",
+            f.display()
+        );
+        assert_eq!(read_out(f, to), bytes, "{} downloads whole", f.display());
+        assert!(here(f));
+    }
+    // Kept on this device by choice ("Always keep on this device").
+    assert!(Command::new("cmd")
+        .args(["/c", "attrib", "+P"])
+        .arg(&kept)
+        .status()
+        .unwrap()
+        .success());
+    // Wait for every file to be marked in sync again after the reads.
+    std::thread::sleep(std::time::Duration::from_secs(2));
+    let held = std::fs::File::open(&open).unwrap();
+
+    let given = quince_vfs::room::make_room_sparing(
+        std::slice::from_ref(&place),
+        0,
+        u64::MAX,
+        std::time::Duration::ZERO,
+    );
+    drop(held);
+    assert!(!here(&free), "the downloaded file was given back");
+    assert!(here(&kept), "the file kept on this device stayed");
+    assert!(here(&open), "the file open in a program stayed");
+    assert_eq!(given, bytes.len() as u64);
+    assert!(
+        dir(&place).contains(&"free.bin".to_string()),
+        "still listed"
+    );
+    assert_eq!(read_out(&free, "again"), bytes, "and opens again whole");
+
+    drop(up);
+    cloud::unregister(&place, &id);
+    let _ = std::fs::remove_dir_all(&place);
+    let _ = std::fs::remove_dir_all(&out);
+}

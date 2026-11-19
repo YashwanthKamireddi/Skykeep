@@ -95,6 +95,8 @@ pub struct CloudFolder {
     pub shell: bool,
     /// The watcher sending what changes here, and how to stop it.
     watcher: Option<std::thread::JoinHandle<()>>,
+    /// The guard keeping room on the disk (crate::room), stopped with the watcher.
+    room: Option<std::thread::JoinHandle<()>>,
     stop: Arc<std::sync::atomic::AtomicBool>,
 }
 
@@ -116,6 +118,9 @@ impl Drop for CloudFolder {
                 );
             }
             let _ = watcher.join();
+        }
+        if let Some(room) = self.room.take() {
+            let _ = room.join();
         }
         // SAFETY: the key is this folder's; once disconnected no callback holds the provider.
         unsafe {
@@ -436,6 +441,7 @@ pub fn start(root: &Path, shown: &Shown, provider: Provider) -> Result<CloudFold
         .unwrap_or_else(std::sync::PoisonError::into_inner)
         .insert(ROOT.to_string(), root.to_path_buf());
     let listed = Arc::clone(&provider.listed);
+    let looked_in = Arc::clone(&provider.listed);
     let mut folder = connect(root, provider)?;
     // The folders Explorer listed in an earlier run, known again: Windows never asks for a
     // folder it has whole, so without this every folder opened before a restart was never
@@ -462,6 +468,20 @@ pub fn start(root: &Path, shown: &Shown, provider: Provider) -> Result<CloudFold
         rt,
         Arc::clone(&folder.stop),
         add_only,
+    );
+    // Files brought down here given back when the disk runs low, from the folders Windows has
+    // listed only (crate::room).
+    folder.room = crate::room::guard(
+        root.to_path_buf(),
+        move || {
+            looked_in
+                .lock()
+                .unwrap_or_else(std::sync::PoisonError::into_inner)
+                .values()
+                .cloned()
+                .collect()
+        },
+        Arc::clone(&folder.stop),
     );
     Ok(folder)
 }
@@ -615,6 +635,7 @@ fn connect(root: &Path, provider: Provider) -> Result<CloudFolder, String> {
             root: root.to_path_buf(),
             shell: false,
             watcher: None,
+            room: None,
             stop: Arc::new(std::sync::atomic::AtomicBool::new(false)),
         }),
         Err(e) => {

@@ -540,14 +540,12 @@ async fn keep_or_free(path: &Path) {
                 &path.display().to_string(),
             );
         }
-    } else if attrs & UNPINNED != 0 && here {
-        if let Err(e) = dehydrate(path) {
-            // Open in a program now: freed once it is closed and touched again.
-            crate::note_about(
-                &format!("freeing a file\u{2019}s space: {e}"),
-                &path.display().to_string(),
-            );
-        }
+    } else if attrs & UNPINNED != 0 && here && !crate::room::give_back(path) {
+        // Open in a program now: freed once it is closed and touched again.
+        crate::note_about(
+            "freeing a file\u{2019}s space: it is open in a program",
+            &path.display().to_string(),
+        );
     }
 }
 
@@ -555,24 +553,4 @@ fn hydrate(path: &Path) -> windows::core::Result<()> {
     let handle = crate::cloud::open_attributes(path)?;
     // SAFETY: our handle; the whole file (length -1).
     unsafe { CfHydratePlaceholder(handle.0, 0, -1, CF_HYDRATE_FLAG_NONE, None) }
-}
-
-/// The file's bytes let go, never under a program that has it open (opened alone).
-fn dehydrate(path: &Path) -> windows::core::Result<()> {
-    use windows::Win32::Foundation::GENERIC_ACCESS_RIGHTS;
-    use windows::Win32::Storage::FileSystem::*;
-    // SAFETY: a path string alive for the call; the handle is closed when dropped.
-    let handle = crate::cloud::Handle(unsafe {
-        CreateFileW(
-            &crate::cloud::long_path(path),
-            (FILE_READ_ATTRIBUTES | FILE_WRITE_ATTRIBUTES).0 | GENERIC_ACCESS_RIGHTS(0x4000_0000).0,
-            FILE_SHARE_NONE,
-            None,
-            OPEN_EXISTING,
-            FILE_FLAG_BACKUP_SEMANTICS,
-            None,
-        )
-    }?);
-    // SAFETY: our handle; the whole file.
-    unsafe { CfDehydratePlaceholder(handle.0, 0, -1, CF_DEHYDRATE_FLAG_NONE, None) }
 }

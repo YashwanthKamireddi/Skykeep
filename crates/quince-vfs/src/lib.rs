@@ -10,6 +10,8 @@
 pub mod cloud;
 #[cfg(windows)]
 mod cloud_local;
+#[cfg(windows)]
+pub mod room;
 // Used by the Windows folder; tested everywhere.
 #[cfg_attr(not(windows), allow(dead_code))]
 mod downloads;
