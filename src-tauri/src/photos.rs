@@ -1476,7 +1476,14 @@ pub async fn film(app: &AppHandle, id: &str, size: Size) -> Result<Film, String>
         }
         drop(out);
         ok = ok && g.have.load(Ordering::SeqCst) == g.total;
-        let whole = ok && tokio::fs::rename(&g.part, &path).await.is_ok();
+        // Waiting while Windows holds the file just written (a virus scan of a new file):
+        // a plain rename failed then, and the whole download was thrown away.
+        let whole = ok && {
+            let (from, to) = (g.part.clone(), path.clone());
+            tokio::task::spawn_blocking(move || quince_core::files::rename(&from, &to))
+                .await
+                .is_ok_and(|moved| moved.is_ok())
+        };
         if whole {
             // Still being played from: held, and the cap checked once it is whole.
             crate::photo_cache::hold(&path);
