@@ -201,8 +201,8 @@ def main():
                 print(f"FAIL {name}: asked for with others, never shown")
                 failures += 1
         # Every window closed: once they are let go (apps::KEPT, a minute), their web processes
-        # end too. Until wry was patched (third_party/README.md) each closed window's stayed,
-        # about 100 MB apiece, until Skykeep quit.
+        # end too. Before wry 0.57.3 (tauri-apps/wry#1939) each closed window's stayed, about
+        # 100 MB apiece, until Skykeep quit.
         if app is not None and os.environ.get("QUICK") != "1":
             for w in [find(d, NAMES[k]) for k in NAMES]:
                 if w is not None and mapped(w):

@@ -60,9 +60,8 @@ async function crates() {
     const list = [];
     for (const l of about.licenses) {
       // Skykeep's own crates (path dependencies, with no source) are the app itself, under its
-      // own GPL-3.0, not third-party work. A crate kept in third_party/ with a fix of ours is
-      // still its authors' work, under its own licence (third_party/README.md).
-      const theirs = (u) => u.crate.source != null || /[\\/]third_party[\\/]/.test(u.crate.manifest_path ?? "");
+      // own GPL-3.0, not third-party work.
+      const theirs = (u) => u.crate.source != null;
       const users = l.used_by.filter(theirs).map((u) => `${u.crate.name} ${u.crate.version}`);
       if (users.length > 0) list.push({ id: l.id, name: l.name, text: l.text, users });
     }

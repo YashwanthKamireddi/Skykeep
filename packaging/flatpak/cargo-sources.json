@@ -9375,14 +9375,14 @@
     {
         "type": "archive",
         "archive-type": "tar-gzip",
-        "url": "https://static.crates.io/crates/wry/wry-0.57.0.crate",
-        "sha256": "a819957a01b3119af85e638a38d242af76dbc87d130dca67bfd0441072e21ff0",
-        "dest": "cargo/vendor/wry-0.57.0"
+        "url": "https://static.crates.io/crates/wry/wry-0.57.3.crate",
+        "sha256": "ceb43f824178e8110e3181bfd478359c43b041452a9560d321bd8d121e468f86",
+        "dest": "cargo/vendor/wry-0.57.3"
     },
     {
         "type": "inline",
-        "contents": "{\"package\": \"a819957a01b3119af85e638a38d242af76dbc87d130dca67bfd0441072e21ff0\", \"files\": {}}",
-        "dest": "cargo/vendor/wry-0.57.0",
+        "contents": "{\"package\": \"ceb43f824178e8110e3181bfd478359c43b041452a9560d321bd8d121e468f86\", \"files\": {}}",
+        "dest": "cargo/vendor/wry-0.57.3",
         "dest-filename": ".cargo-checksum.json"
     },
     {

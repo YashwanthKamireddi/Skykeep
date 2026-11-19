@@ -853,28 +853,32 @@ mod tests {
         );
     }
 
-    /// A closed window's web view, and its web process, are freed on Linux only with the wry kept
-    /// in third_party (tauri-apps/wry#1871). The lock names wry from there, at the version the
-    /// fix was made on: an upgrade fails here until the fix is checked in the new release (and
-    /// the copy dropped, if upstream has it — third_party/README.md).
+    /// A closed window's web view, and its web process, are freed on Linux only from wry 0.57.3,
+    /// the first release that holds the view weakly in its IPC handler (tauri-apps/wry#1939, ours;
+    /// it was kept patched in third_party until then). Before it, every app window opened and
+    /// closed left a web process of 80-125 MB running until Skykeep quit. Older fails here, so a
+    /// downgrade can't bring the leak back.
     #[test]
-    fn wry_is_the_patched_release() {
+    fn wry_frees_closed_windows() {
         // Read as lines: a Windows checkout ends them with \r\n.
         let lock = include_str!("../../Cargo.lock").replace("\r\n", "\n");
         let entry = lock
             .split("[[package]]")
             .find(|p| p.contains("\nname = \"wry\"\n"))
             .expect("wry in Cargo.lock");
+        let version: Vec<u64> = entry
+            .lines()
+            .find_map(|l| l.strip_prefix("version = \""))
+            .and_then(|v| v.strip_suffix('"'))
+            .expect("wry's version")
+            .split('.')
+            .map(|n| n.parse().unwrap_or(0))
+            .collect();
         assert!(
-            entry.contains("version = \"0.57.2\""),
-            "wry moved on: check tauri-apps/wry#1871 in it (third_party/README.md)"
+            version >= vec![0, 57, 3],
+            "wry {version:?} keeps closed windows' web processes alive"
         );
-        assert!(
-            !entry.contains("source = "),
-            "wry comes from crates.io, without the fix in third_party/wry"
-        );
-        let patched = include_str!("../../third_party/wry/src/webkitgtk/mod.rs");
-        assert!(patched.contains("let webview = webview.downgrade();"));
+        assert!(entry.contains("source = \"registry+"), "wry from crates.io");
     }
 
     #[test]

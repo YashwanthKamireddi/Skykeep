@@ -1,8 +1,6 @@
 [workspace]
 resolver = "2"
 members = ["probe", "crates/quince-mobile", "crates/quince-auth", "crates/quince-core", "crates/quince-icloud", "crates/quince-media", "crates/quince-vfs", "crates/quince-thumbs", "crates/quince-sync", "crates/quince-link", "crates/uniffi-bindgen", "src-tauri"]
-# A dependency kept here with one fix of ours (third_party/README.md), not a crate of Skykeep's.
-exclude = ["third_party/wry"]
 
 [workspace.package]
 edition = "2021"
@@ -54,7 +52,3 @@ codegen-units = 1
 strip = "symbols"
 panic = "unwind"
 
-# wry 0.57.0 with one change: on Linux a closed window's web view, and its web process, are
-# freed (tauri-apps/wry#1871). Remove once a wry release has it; see third_party/README.md.
-[patch.crates-io]
-wry = { path = "third_party/wry" }
