@@ -542,6 +542,8 @@
     "dateAdded": "Hinzufügedatum",
     "newestFirst": "Neueste zuerst",
     "oldestFirst": "Älteste zuerst",
+    "newestAtTop": "Neueste oben",
+    "newestAtBottom": "Neueste unten",
     "bothLibraries": "Beide Mediatheken",
     "personalLibrary": "Persönliche Mediathek",
     "sharedLibrary": "Geteilte Mediathek",

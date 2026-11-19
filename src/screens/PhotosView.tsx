@@ -3823,8 +3823,10 @@ export function PhotosView() {
                       { label: t("photos.dateCaptured"), checked: sort.by === "taken", run: () => chooseSort({ ...sort, by: "taken" }) },
                       { label: t("photos.dateAdded"), checked: sort.by === "added", run: () => chooseSort({ ...sort, by: "added" }) },
                       null,
-                      { label: t("photos.newestFirst"), checked: !sort.oldest, run: () => chooseSort({ ...sort, oldest: false }) },
-                      { label: t("photos.oldestFirst"), checked: sort.oldest, run: () => chooseSort({ ...sort, oldest: true }) },
+                      // Both open on the newest photos: the second line says which end they are at,
+                      // as the names alone read like what is shown first (#187).
+                      { label: t("photos.newestFirst"), detail: t("photos.newestAtTop"), checked: !sort.oldest, run: () => chooseSort({ ...sort, oldest: false }) },
+                      { label: t("photos.oldestFirst"), detail: t("photos.newestAtBottom"), checked: sort.oldest, run: () => chooseSort({ ...sort, oldest: true }) },
                     ],
                   });
                 }}

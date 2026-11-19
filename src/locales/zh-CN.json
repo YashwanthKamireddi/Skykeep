@@ -542,6 +542,8 @@
     "dateAdded": "添加日期",
     "newestFirst": "最新的在前",
     "oldestFirst": "最早的在前",
+    "newestAtTop": "最新的在顶部",
+    "newestAtBottom": "最新的在底部",
     "bothLibraries": "两个图库",
     "personalLibrary": "个人图库",
     "sharedLibrary": "共享图库",

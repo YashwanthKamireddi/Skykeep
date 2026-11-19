@@ -16,6 +16,9 @@ export type MenuEntry =
       submenu?: MenuEntry[];
       /** A choice that is on or off: a check beside it when on, as a Mac menu marks one. */
       checked?: boolean;
+      /** A short second line under the name, smaller and quieter: what the choice does,
+       *  where its name alone could be read two ways. */
+      detail?: string;
     }
   | null;
 
@@ -324,7 +327,14 @@ function Panel({
                   {entry.checked ? "✓" : ""}
                 </span>
               )}
-              <span className="row-menu-label">{entry.label}</span>
+              {entry.detail ? (
+                <span className="row-menu-label row-menu-two">
+                  <span>{entry.label}</span>
+                  <span className="row-menu-detail">{entry.detail}</span>
+                </span>
+              ) : (
+                <span className="row-menu-label">{entry.label}</span>
+              )}
               {entry.submenu && <span className="row-menu-chevron" aria-hidden="true">›</span>}
             </button>
           );

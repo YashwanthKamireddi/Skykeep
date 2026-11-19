@@ -542,6 +542,8 @@
     "dateAdded": "Date Added",
     "newestFirst": "Newest First",
     "oldestFirst": "Oldest First",
+    "newestAtTop": "Newest at the top",
+    "newestAtBottom": "Newest at the bottom",
     "bothLibraries": "Both Libraries",
     "personalLibrary": "Personal Library",
     "sharedLibrary": "Shared Library",
