@@ -549,7 +549,7 @@ function sameMonth(a: MonthProps, b: MonthProps): boolean {
   // same (its items kept, see PhotosView's months) draws the same from it: each read once drew
   // every built month again, for a change somewhere else or none at all.
   if (a.list !== b.list && (a.items !== b.items || a.list.store !== b.list.store)) return false;
-  if (a.label !== b.label || a.view !== b.view || a.month !== b.month || a.items !== b.items || a.deleted !== b.deleted || a.eager !== b.eager || a.across !== b.across
+  if (a.label !== b.label || a.view !== b.view || a.month !== b.month || a.items !== b.items || a.deleted !== b.deleted || a.eager !== b.eager || a.fromEnd !== b.fromEnd || a.across !== b.across
     || a.fit !== b.fit || a.cell !== b.cell || a.act !== b.act) return false;
   if (a.chosen !== b.chosen) {
     // Only the photos whose selection changed are looked at (worked out once per change, not
@@ -621,6 +621,9 @@ type MonthProps = {
   anchor: number | null;
   deleted: boolean;
   eager: boolean;
+  /** Seen first from its end (oldest first, the view opens at the foot): its last rows are built
+   *  and shown first. Any other month is built from the side the view meets it. */
+  fromEnd: boolean;
   across: number;
   fit: boolean;
   cell: number;
@@ -637,6 +640,7 @@ const Month = memo(function Month({
   anchor,
   deleted,
   eager,
+  fromEnd,
   across,
   fit,
   cell,
@@ -651,6 +655,9 @@ const Month = memo(function Month({
   anchor: number | null;
   deleted: boolean;
   eager: boolean;
+  /** Seen first from its end (oldest first, the view opens at the foot): its last rows are built
+   *  and shown first. Any other month is built from the side the view meets it. */
+  fromEnd: boolean;
   across: number;
   fit: boolean;
   cell: number;
@@ -662,6 +669,17 @@ const Month = memo(function Month({
   // hundred and fifty photos was one task of 50–110 ms — a frame dropped every time a fast
   // scroll reached the next month.
   const [builtTo, setBuilt] = useState(eager ? items.length : 0);
+  // The side it is built from: where the view meets it. A month the view opens on (eager) starts
+  // from the end it opens at; any other, from the side it is when it first comes near — scrolled
+  // up into from below, its last rows; down into, or jumped to its top, its first. Built from its
+  // start, a month at the foot showed its newest rows last, and only once every photo from its
+  // start was here (#186).
+  const [metFromBelow, setTail] = useState(eager && fromEnd);
+  // A month the view opens on follows the end it opens at, whatever the order was when it was
+  // made (the sort turned while it stayed on screen); any other, the side it was met from.
+  const tail = eager ? fromEnd : metFromBelow;
+  const tailNow = useRef(tail);
+  tailNow.current = tail;
   // Once built whole, it stays whole as it grows: a photo arriving in it is drawn with the rest,
   // where its last row used to go back to the placeholder. Whole for the view it was built in —
   // another view's month of the same name builds a few rows a frame, as a new month does.
@@ -687,10 +705,13 @@ const Month = memo(function Month({
     if (seen.current.version === store.version && seen.current.items === items) return seen.current.sig;
     // How many from its start are here, how many in all, and each one's change count: a photo
     // read again or changed here (a heart) draws its tile again, and nothing else does.
+    // Ready: how many are here in a row from the end it is seen from.
     let ready = 0;
     let here = 0;
     let turns = 0;
-    for (const { id } of items) {
+    const n = items.length;
+    for (let k = 0; k < n; k++) {
+      const { id } = items[tail ? n - 1 - k : k];
       if (!store.get(id)) continue;
       if (here === ready) ready++;
       here++;
@@ -729,7 +750,18 @@ const Month = memo(function Month({
       drawing = true;
       buildSoon(() => {
         if (gone || !pics.current) return (drawing = false), true;
-        const waiting = el.querySelectorAll<HTMLImageElement>("img[data-src]:not([src])");
+        const waiting = [...el.querySelectorAll<HTMLImageElement>("img[data-src]:not([src])")];
+        // The ones on screen first: a month at the foot of the view shows its last rows, which
+        // drawn top-down came last — a large month's on-screen pictures waited behind the rest.
+        const view = waiting.length > BUILD_TILES ? root?.getBoundingClientRect() : undefined;
+        if (view) {
+          const shown = (im: HTMLImageElement) => {
+            const r = im.getBoundingClientRect();
+            return r.bottom > view.top && r.top < view.bottom ? 0 : 1;
+          };
+          const order = new Map(waiting.map((im) => [im, shown(im)]));
+          waiting.sort((a, b) => order.get(a)! - order.get(b)!);
+        }
         for (let i = 0; i < Math.min(BUILD_TILES, waiting.length); i++) waiting[i].src = waiting[i].dataset.src!;
         if (waiting.length > BUILD_TILES) return false;
         drawing = false;
@@ -830,10 +862,20 @@ const Month = memo(function Month({
         gone = true;
       };
     }
-    const stop = watchNear(el, el.closest(".px-scroll"), "4000px 0px", (on) => {
+    const root = el.closest(".px-scroll");
+    const stop = watchNear(el, root, "4000px 0px", (on) => {
       close.current = on;
       holdNow.current();
       if (!on) return;
+      // Not begun yet: built from the side the view is on. Its top above the view's top, the
+      // view is at (or coming up from) its lower part.
+      if (builtNow.current === 0 && root) {
+        const side = el.getBoundingClientRect().top < root.getBoundingClientRect().top;
+        if (side !== tailNow.current) {
+          tailNow.current = side;
+          setTail(side);
+        }
+      }
       setNear(true);
       const now = itemsNow.current;
       if (now.length) void listNow.current.need(now[0].index, now[now.length - 1].index);
@@ -866,15 +908,36 @@ const Month = memo(function Month({
   // of 4,000 screenshots waited for all of them in order, a blank block, for longer than the
   // store could hold them (photos-dense-months). Those not here yet are plain boxes, as below.
   const upTo = (showing.current || items.length > KEEP) && here > 0 ? built : Math.min(built, ready);
-  const shownCount = upTo >= items.length ? items.length : Math.floor(upTo / across) * across;
+  // On whole rows of the finished grid: from its start, whole rows; from its end, everything
+  // after the first whole row boundary that leaves `upTo` shown, so no tile moves when the rest
+  // is built in above it.
+  const shownCount =
+    upTo >= items.length
+      ? items.length
+      : tail
+      ? items.length - Math.ceil((items.length - upTo) / across) * across
+      : Math.floor(upTo / across) * across;
   const live = shownCount > 0;
+  const shownItems = shownCount >= items.length ? items : tail ? items.slice(items.length - shownCount) : items.slice(0, shownCount);
+  const rest =
+    shownCount < items.length ? (
+      // Not built yet (far from the screen): one block as tall as its rows will be, its tiles
+      // painted on it as plain boxes, so a fast scroll shows photos on their way — never an
+      // empty page. One element, not one a photo: a box each was 20,000 on a large library,
+      // and every focus and every frame paid for them (photos-scale). Above the rows built when
+      // the month is seen from its end.
+      <div className="px-later" aria-hidden="true" style={{ "--n": items.length - shownCount } as React.CSSProperties}>
+        <i className="px-later-in" />
+      </div>
+    ) : null;
   showing.current = live;
   return (
     <section ref={ref} className="px-month" aria-label={label || undefined} data-month={month || undefined}>
       {label && <h2 className="px-month-title">{label}</h2>}
+      {tail && rest}
       {live && (
         <div className="px-grid" role="listbox" aria-multiselectable="true" aria-label={label || "Photos"}>
-          {(shownCount < items.length ? items.slice(0, shownCount) : items).map(({ id, index }) => {
+          {shownItems.map(({ id, index }) => {
             const photo = list.store.get(id);
             if (!photo) return <div key={id} className="px-ph" aria-hidden="true" />;
             const t = deleted ? timeLeft(photo, true) : null;
@@ -896,15 +959,7 @@ const Month = memo(function Month({
           })}
         </div>
       )}
-      {shownCount < items.length && (
-        // Not built yet (far from the screen): one block as tall as its rows will be, its tiles
-        // painted on it as plain boxes, so a fast scroll shows photos on their way — never an
-        // empty page. One element, not one a photo: a box each was 20,000 on a large library,
-        // and every focus and every frame paid for them (photos-scale).
-        <div className="px-later" aria-hidden="true" style={{ "--n": items.length - shownCount } as React.CSSProperties}>
-          <i className="px-later-in" />
-        </div>
-      )}
+      {!tail && rest}
     </section>
   );
 }, sameMonth);
@@ -1164,7 +1219,9 @@ export function PhotosView() {
       // before the list with them is drawn, so each lands as its tile with its photo — drawn
       // first, its month showed its placeholder where its photos had been until they came.
       const fresh = next.ids.filter((id) => before.indexOf(id) < 0);
-      await store.take(fresh.slice(0, 2 * PAGE));
+      // From the end the view shows first: after a first page, "new" is the rest of the
+      // library, and its start is the oldest when oldest come first (#186).
+      await store.take(order?.oldest ? fresh.slice(-2 * PAGE) : fresh.slice(0, 2 * PAGE));
       if (mine !== reads.current) return;
       // A few arriving where the grid was already drawn from a whole read fade in, each alone;
       // a batch, the person's own, or anything over a partial first page simply appears.
@@ -1193,7 +1250,13 @@ export function PhotosView() {
     readList.current = before && next.same(before) ? before : next;
     setPhotos((was) => (next.same(was) ? was : next));
     // What the screen shows fetched again (it is held, see photos/list); another place, its first screen.
-    void (again ? store.renew() : next.need(0, PAGE));
+    // Another place, its first screen: the photos at the end it opens on (the foot when oldest
+    // come first). From the list's start, Oldest First fetched the oldest 240 first (#186).
+    void (again
+      ? store.renew()
+      : order?.oldest
+      ? next.need(Math.max(0, next.length - PAGE), next.length - 1)
+      : next.need(0, PAGE));
     // The same view read again is the same view drawn: a new object here built every month
     // afresh and faded the grid in again at each landing.
     setDrawn((was) => (was.view === view && was.album === album && was.query === searching ? was : { view, album, query: searching }));
@@ -3180,6 +3243,24 @@ export function PhotosView() {
     if (firstDraw.current) firstDraw.current = false;
     else fadeIn(scroller.current, { from: 0.35, duration: 160 });
   }, [drawn, sort?.oldest, sort?.by]); // eslint-disable-line react-hooks/exhaustive-deps
+  /**
+   * The months built whole at once, their photos fetched and pictures drawn: the ones at the end
+   * the view opens on — its foot when oldest come first, its top otherwise — up to three, and no
+   * more than a first screen or two of photos (one month, if that one fills them). They were the
+   * list's first three whatever the order: with Oldest First, the three oldest months, built and
+   * fetched on every open while the screen showed the newest — on a dense library thousands of
+   * tiles, past what the store holds, so the newest on screen were let go and came in last (#186).
+   */
+  const eagerMonths = useMemo(() => {
+    const keys = new Set<string>();
+    let photos = 0;
+    for (const m of sort?.oldest ? [...months].reverse() : months) {
+      if (keys.size === 3 || (keys.size > 0 && photos >= PAGE)) break;
+      keys.add(m.key);
+      photos += m.items.length;
+    }
+    return keys;
+  }, [months, sort?.oldest]);
   const across = ACROSS[zoom];
   // Put back in the same commit that changed the grid (photos landing, another month, the
   // columns), before any frame can see it moved; what changes outside React — the window's size,
@@ -3886,7 +3967,7 @@ export function PhotosView() {
               </div>
             </div>
           )}
-          {!waiting && months.map((m, k) => (
+          {!waiting && months.map((m) => (
             <Month
               // By its name, never its place: a new month at the top moved every month's place,
               // and each was made again from nothing — every tile and every picture.
@@ -3899,7 +3980,8 @@ export function PhotosView() {
               chosen={chosen}
               anchor={anchor.current}
               deleted={drawn.view === "recentlyDeleted" && !drawn.album}
-              eager={k < 3}
+              eager={eagerMonths.has(m.key)}
+              fromEnd={sort?.oldest ?? false}
               across={across}
               fit={fit}
               cell={cell}
