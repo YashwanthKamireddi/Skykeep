@@ -872,15 +872,6 @@ impl Library {
             .optional()?)
     }
 
-    /// Finished uploads forgotten once their batch is: what the tray no longer shows.
-    pub fn forget_finished_uploads(&self) -> Result<()> {
-        self.conn.execute(
-            "DELETE FROM photo_uploads WHERE state IN ('done', 'failed', 'cancelled')",
-            [],
-        )?;
-        Ok(())
-    }
-
     /// The albums, replaced by `albums`.
     pub fn replace_albums(&mut self, albums: &[Album]) -> Result<()> {
         let tx = self.conn.savepoint()?;
@@ -928,12 +919,6 @@ impl Library {
         }
         tx.commit()?;
         Ok(())
-    }
-
-    /// Every album's photos, replaced: a full pass.
-    pub fn replace_album_items(&mut self, items: &[(String, String, i64)]) -> Result<()> {
-        self.conn.execute("DELETE FROM photo_album_items", [])?;
-        self.put_album_items(items)
     }
 
     /// An album's photos, in the album's order; none deleted or hidden.

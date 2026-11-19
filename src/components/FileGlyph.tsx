@@ -57,10 +57,6 @@ export function familyOf(kind: string, extension: string | null): FileFamily {
   return BY_EXTENSION[(extension ?? "").toLowerCase()] ?? "other";
 }
 
-export function tintOf(family: FileFamily): string {
-  return TINT[family];
-}
-
 /** A closed folder, the way a file browser draws one. */
 const FOLDER = (
   <path

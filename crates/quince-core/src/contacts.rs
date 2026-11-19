@@ -490,14 +490,6 @@ impl Library {
         })
     }
 
-    /// The rest of one card's name and work.
-    pub fn contact_details(&self, guid: &str) -> Result<ContactDetails> {
-        Ok(self
-            .details_by_guid(Some(guid))?
-            .remove(guid)
-            .unwrap_or_default())
-    }
-
     fn details_by_guid(
         &self,
         guid: Option<&str>,

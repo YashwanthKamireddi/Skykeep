@@ -103,6 +103,11 @@
     <color type="primary" scheme_preference="dark">#0B2A4A</color>
   </branding>
   <releases>
+    <release version="0.1.33" date="2026-11-19">
+      <description>
+        <p>Photos opens on your newest photos at once in a large library, in either sort order: it no longer loads your oldest months first, and scrolling while a view loads keeps you among the newest photos.</p>
+      </description>
+    </release>
     <release version="0.1.32" date="2026-11-18">
       <description>
         <p>Photos now opens straight on your newest photos even in a very large library, instead of showing your oldest photos for a moment first and then moving.</p>

@@ -1136,41 +1136,6 @@ pub fn out_of_section(
         .ok_or_else(unreadable)
 }
 
-/// Remove a section from its list, as a phone removes one (measured on his account: a
-/// section deleted on an iPhone keeps its record with `Deleted` 1 and no `List`, and only
-/// the `list` token advanced). Its reminders are taken out of it first, so none is left in a
-/// section that is gone; they stay in the list.
-pub async fn delete_section_cloudkit(
-    http: &reqwest::Client,
-    root: &str,
-    params: Vec<(String, String)>,
-    list_guid: &str,
-    section_guid: &str,
-) -> Result<()> {
-    writes()?;
-    let zc = client(http, root, params.clone());
-    match zc.lookup_record(ZONE, section_guid).await? {
-        Some(s) if !deleted(&s) && field::reference(&s, "List").as_deref() == Some(list_guid) => {}
-        _ => return Err(Error::Refused("That section isn't in this list.".into())),
-    }
-    edit_memberships(http, root, &params, list_guid, |current, now| {
-        out_of_section(current, section_guid, now)
-    })
-    .await?;
-    zc.edit_record(ZONE, section_guid, "ListSection", |s| {
-        if deleted(s) {
-            return None;
-        }
-        Some(json!({
-            "Deleted": { "type": "NUMBER_INT64", "value": 1 },
-            "List": { "type": "REFERENCE", "value": null },
-            "ResolutionTokenMap": stamp_only(s, &["list"], apple_now()),
-        }))
-    })
-    .await?;
-    Ok(())
-}
-
 /// Rewrite a list's membership file: `edit` gets the file as Apple holds it now (or none)
 /// and answers the new one, or `None` for no change. Uploaded and written onto the list over
 /// exactly the version read; another device's write meanwhile is read again and kept.

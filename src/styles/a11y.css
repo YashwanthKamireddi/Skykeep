@@ -207,7 +207,6 @@
 
   /* Glyphs drawn in an app's or a calendar's colour take the text colour. Colours that are
      the content — a swatch to choose, a calendar's dot — keep theirs, with an edge. */
-  .app-icon svg { stroke: CanvasText; }
   svg.lucide { stroke: currentColor; }
   :is(.cx-dot, .rx-info-colours > *, .fp-colour, .cx-cal-swatch, .rx-tile-glyph, .rx-list-mark) {
     forced-color-adjust: none;
