@@ -701,6 +701,55 @@ pub fn open_skykeep(app: &AppHandle) {
     crate::show_window(app);
 }
 
+/// When the whole-library window last lost the focus (`main_focused`).
+static MAIN_LEFT: std::sync::Mutex<Option<std::time::Instant>> = std::sync::Mutex::new(None);
+
+/// How recently the window may have lost the focus and still count as in front for a click on
+/// the tray: the click itself moves the focus to the panel first (the taskbar on Windows, some
+/// bars on Linux), a few milliseconds before the click is heard.
+const CLICK_TOOK_FOCUS: std::time::Duration = std::time::Duration::from_millis(400);
+
+/// The whole-library window gained or lost the focus.
+pub fn main_focused(focused: bool) {
+    let mut left = MAIN_LEFT
+        .lock()
+        .unwrap_or_else(std::sync::PoisonError::into_inner);
+    *left = (!focused).then(std::time::Instant::now);
+}
+
+/// Whether a window counts as in front for a click on the tray: on screen, not minimized, and
+/// focused, or focused until the click itself took the focus away.
+fn in_front(
+    visible: bool,
+    minimized: bool,
+    focused: bool,
+    lost: Option<std::time::Duration>,
+) -> bool {
+    visible && !minimized && (focused || lost.is_some_and(|ago| ago <= CLICK_TOOK_FOCUS))
+}
+
+/// A click on the tray's icon: Skykeep's window closes when it is in front, as a menu bar
+/// app's does on a Mac; otherwise it is opened, or brought forward from behind other windows,
+/// as a taskbar button does.
+pub fn toggle_skykeep(app: &AppHandle) {
+    if let Some(window) = app.get_webview_window("main") {
+        let lost = *MAIN_LEFT
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner);
+        if in_front(
+            window.is_visible().unwrap_or(false),
+            window.is_minimized().unwrap_or(false),
+            window.is_focused().unwrap_or(false),
+            lost.map(|at| at.elapsed()),
+        ) {
+            // Closed as its own close button closes it (put away behind the tray).
+            window.close().ok();
+            return;
+        }
+    }
+    open_skykeep(app);
+}
+
 /// The event that asks a page to write down what is still being typed (`src/lib/flush.ts`).
 const FLUSH: &str = "quince://flush";
 
@@ -811,6 +860,7 @@ mod tests {
             "capture(",
             "new_event(",
             "open_skykeep(",
+            "toggle_skykeep(",
         ];
         let sources = [
             ("apps.rs", include_str!("apps.rs")),
@@ -1225,5 +1275,26 @@ mod tests {
             ]
         );
         assert!(files_asked(&args(&["skykeep", "--app", "x.ics"]), cwd).is_empty());
+    }
+
+    /// A click on the tray closes Skykeep's window only when it is in front: focused, or
+    /// focused until the click took the focus to the panel. Behind other windows, minimized or
+    /// hidden, the click brings it forward instead.
+    #[test]
+    fn a_tray_click_closes_only_a_window_in_front() {
+        use std::time::Duration;
+        let ms = |n| Some(Duration::from_millis(n));
+        assert!(in_front(true, false, true, None));
+        assert!(
+            in_front(true, false, false, ms(30)),
+            "the click took the focus"
+        );
+        assert!(
+            !in_front(true, false, false, ms(5000)),
+            "behind other windows"
+        );
+        assert!(!in_front(true, false, false, None));
+        assert!(!in_front(true, true, true, None), "minimized");
+        assert!(!in_front(false, false, true, None), "hidden");
     }
 }

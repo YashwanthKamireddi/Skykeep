@@ -7064,10 +7064,10 @@ mod linux_tray {
                 ..Default::default()
             }
         }
-        // The left click.
+        // The left click: opens Skykeep's window, or closes it when it is in front.
         fn activate(&mut self, _x: i32, _y: i32) {
             self.on_main(|app| {
-                crate::apps::open_skykeep(app);
+                crate::apps::toggle_skykeep(app);
             });
         }
         fn menu(&self) -> Vec<ksni::MenuItem<Self>> {
@@ -7239,7 +7239,7 @@ fn build_tray(app: &tauri::App) -> tauri::Result<()> {
             } = event
             {
                 if !cfg!(target_os = "macos") {
-                    apps::open_skykeep(tray.app_handle());
+                    apps::toggle_skykeep(tray.app_handle());
                 }
             }
         });
@@ -7433,6 +7433,12 @@ fn main() {
             if let tauri::WindowEvent::Focused(true) = event {
                 push::wake();
                 dav::focused(window.label());
+            }
+            // Heard by a click on the tray, which closes the window only when it is in front.
+            if let tauri::WindowEvent::Focused(focused) = event {
+                if window.label() == "main" {
+                    apps::main_focused(*focused);
+                }
             }
             // The whole-library window is put away, as the engine keeps running behind the
             // tray. An app's own window is put away too, so opening it again is instant rather
