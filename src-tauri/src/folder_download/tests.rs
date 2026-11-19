@@ -1721,3 +1721,67 @@ async fn a_backup_keeps_the_version_it_had_and_its_own_folder() {
         "no second folder: {names:?}"
     );
 }
+
+/// iCloud hands a package (an app, a playground, an epub kept as a folder) down as a zip, while
+/// its listing gives the package's own size. Judged by size, the zip was never "whole here": a
+/// backup moved it to Earlier versions and fetched it again on every pass, so Earlier versions
+/// grew by a copy of every unchanged package each time. The date still tells a changed package.
+#[test]
+fn a_package_saved_as_its_zip_is_whole_here_until_its_date_changes() {
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join("Untitled.app");
+    let mut zip = b"PK\x03\x04".to_vec();
+    zip.extend_from_slice(&[0u8; 96]);
+    std::fs::write(&path, &zip).unwrap();
+    let when = std::time::UNIX_EPOCH + std::time::Duration::from_secs(1_766_732_062);
+    std::fs::File::options()
+        .write(true)
+        .open(&path)
+        .unwrap()
+        .set_modified(when)
+        .unwrap();
+    let mut package = DriveItem {
+        drivewsid: "FILE::com.apple.CloudDocs::pkg".into(),
+        parent_id: None,
+        name: "Untitled".into(),
+        extension: Some("app".into()),
+        kind: "FILE".into(),
+        // The package's own size, not the zip's.
+        size: Some(3_293_462),
+        child_count: None,
+        created_at: None,
+        modified_at: Some(1_766_732_062),
+        etag: None,
+    };
+    assert!(
+        whole_here(&path, &package),
+        "the zip of an unchanged package is kept"
+    );
+
+    package.modified_at = Some(1_766_732_062 + 3_600);
+    assert!(
+        !whole_here(&path, &package),
+        "changed in iCloud since: fetched again"
+    );
+
+    // A plain file of the wrong size is still not whole, zip or not.
+    let plain = dir.path().join("Report.pdf");
+    std::fs::write(&plain, b"%PDF-1.7 short").unwrap();
+    std::fs::File::options()
+        .write(true)
+        .open(&plain)
+        .unwrap()
+        .set_modified(when)
+        .unwrap();
+    let mut pdf = package.clone();
+    pdf.name = "Report".into();
+    pdf.extension = Some("pdf".into());
+    pdf.modified_at = Some(1_766_732_062);
+    assert!(!whole_here(&plain, &pdf));
+    // A real .zip of the wrong size is a broken download, not a package.
+    std::fs::rename(&path, dir.path().join("Archive.zip")).unwrap();
+    let mut archive = pdf.clone();
+    archive.name = "Archive".into();
+    archive.extension = Some("zip".into());
+    assert!(!whole_here(&dir.path().join("Archive.zip"), &archive));
+}
