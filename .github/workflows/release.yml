@@ -168,7 +168,9 @@ jobs:
           mv "$found" "dist/flatpak-release/$name"
           (cd dist/flatpak-release && sha256sum "$name" > SHA256SUMS-flatpak.txt && cat SHA256SUMS-flatpak.txt)
       # The first run makes the draft; a re-run (a platform added later) adds its files to the
-      # same release and replaces latest.json and the checksum lists, which now name it too.
+      # same release and replaces latest.json and the checksum lists, which now name it too. A
+      # re-run that brings the APK also adds its Android section to the notes: the first run had
+      # no APK to read it from, and verify refuses notes without it (0.1.34).
       - name: The release, with every file that passed
         env:
           GH_TOKEN: ${{ github.token }}
@@ -178,20 +180,30 @@ jobs:
             find dist -type f \( -name '*.deb' -o -name '*.rpm' -o -name '*.AppImage' -o -name '*.flatpak' -o -name '*.msi' -o -name '*-setup.exe' -o -name '*-android.apk' -o -name 'SHA256SUMS*' \
               -o -name '*.AppImage.sig' -o -name '*.msi.sig' -o -name '*-setup.exe.sig' -o -name 'latest.json' \) -print0
             find "$RUNNER_TEMP/oneclick" -type f -print0)
+          # Where the APK is and its signing key's fingerprint, read from the APK itself.
+          apk=$(find dist -type f -name '*-android.apk' | head -n1)
+          android() {
+            fingerprint=$(keytool -printcert -jarfile "$apk" | awk '/SHA256:/ {print $2; exit}')
+            printf '\n## Android\n\nDownload **Skykeep-android.apk** below (Android 10 or newer, 64-bit ARM). Its signing certificate'"'"'s SHA-256 fingerprint:\n\n```\n%s\n```\n' "$fingerprint"
+          }
           if gh release view "$GITHUB_REF_NAME" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
             gh release upload "$GITHUB_REF_NAME" --repo "$GITHUB_REPOSITORY" --clobber "${files[@]}"
+            body="$RUNNER_TEMP/body.md"
+            gh release view "$GITHUB_REF_NAME" --repo "$GITHUB_REPOSITORY" --json body -q .body > "$body"
+            if [ -n "$apk" ] && ! grep -q '^## Android$' "$body"; then
+              # Before the Full Changelog line, where the first run puts it.
+              notes="$RUNNER_TEMP/notes.md"
+              awk -v section="$(android)" 'BEGIN { sub(/^\n/, "", section) } /^\*\*Full Changelog\*\*/ && !done { print section; print ""; done = 1 } { print } END { if (!done) { print ""; print section } }' "$body" > "$notes"
+              gh release edit "$GITHUB_REF_NAME" --repo "$GITHUB_REPOSITORY" --notes-file "$notes"
+            fi
           else
             # The page's notes: the tag's message without its "Skykeep x.y.z" line (the title
-            # says it), then where the APK is and its signing key's fingerprint, read from the
-            # APK itself, then what changed since the last published release.
+            # says it), then the Android section, then what changed since the last published
+            # release.
             notes="$RUNNER_TEMP/notes.md"
             tail -n +2 "$RUNNER_TEMP/notes-full" \
               | sed -e '/-----BEGIN PGP SIGNATURE-----/,$d' | sed -e '/./,$!d' > "$notes"
-            apk=$(find dist -type f -name '*-android.apk' | head -n1)
-            if [ -n "$apk" ]; then
-              fingerprint=$(keytool -printcert -jarfile "$apk" | awk '/SHA256:/ {print $2; exit}')
-              printf '\n## Android\n\nDownload **Skykeep-android.apk** below (Android 10 or newer, 64-bit ARM). Its signing certificate'"'"'s SHA-256 fingerprint:\n\n```\n%s\n```\n' "$fingerprint" >> "$notes"
-            fi
+            if [ -n "$apk" ]; then android >> "$notes"; fi
             previous=$(gh release view --repo "$GITHUB_REPOSITORY" --json tagName -q .tagName 2>/dev/null || true)
             if [ -n "$previous" ]; then
               printf '\n**Full Changelog**: https://github.com/%s/compare/%s...%s\n' "$GITHUB_REPOSITORY" "$previous" "$GITHUB_REF_NAME" >> "$notes"
