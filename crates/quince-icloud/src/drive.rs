@@ -3382,7 +3382,11 @@ pub async fn upload(
     progress: Progress,
 ) -> Result<DriveItem> {
     // A busy Drive at any step is met again from the start — a new slot, the bytes again —
-    // so a file half sent is never filed, and a moment's overload costs nothing.
+    // so a file half sent is never filed, and a moment's overload costs nothing. So is a
+    // connection that dropped or stalled part way: a sending of a thousand files over a
+    // wavering Wi-Fi lost a few to a moment's drop, each reported as failed and sent again by
+    // hand. Safe to send again: an upload is filed whole or not at all, and a filing whose
+    // answer was lost is found by its id before anything goes twice (`upload_once`).
     let mut attempt = 0;
     loop {
         attempt += 1;
@@ -3399,6 +3403,9 @@ pub async fn upload(
         .await;
         match result {
             Err(Error::Refused(ref m)) if m == BUSY && attempt < 3 => {
+                tokio::time::sleep(std::time::Duration::from_secs(3 * attempt)).await;
+            }
+            Err(Error::Network(_) | Error::Stalled) if attempt < 3 => {
                 tokio::time::sleep(std::time::Duration::from_secs(3 * attempt)).await;
             }
             other => return other,
@@ -4174,6 +4181,91 @@ mod replace_tests {
 #[cfg(test)]
 mod app_library_tests {
     use super::*;
+
+    /// A connection that drops while a file's bytes are on their way is met as a busy Drive
+    /// is: the file is sent again from a new slot, once, and filed; a sending of many files over
+    /// a wavering line no longer reports a moment's drop as a file that failed.
+    #[tokio::test]
+    async fn an_upload_whose_connection_dropped_is_sent_again() {
+        use wiremock::matchers::{method, path};
+        use wiremock::{Mock, MockServer, ResponseTemplate};
+        let server = MockServer::start().await;
+        let mut sum = AppleChecksum::default();
+        sum.update(b"# notes");
+        let sum = sum.finish();
+        Mock::given(method("POST"))
+            .and(path(format!("/ws/{DOCUMENTS_ZONE}/upload/web")))
+            .respond_with(ResponseTemplate::new(200).set_body_json(serde_json::json!([
+                { "url": format!("{}/content", server.uri()), "document_id": "D1" }
+            ])))
+            .mount(&server)
+            .await;
+        // The first sending hangs past the client's patience: a connection gone.
+        Mock::given(method("POST"))
+            .and(path("/content"))
+            .respond_with(ResponseTemplate::new(200).set_delay(std::time::Duration::from_secs(5)))
+            .up_to_n_times(1)
+            .with_priority(1)
+            .mount(&server)
+            .await;
+        Mock::given(method("POST"))
+            .and(path("/content"))
+            .respond_with(ResponseTemplate::new(200).set_body_json(serde_json::json!({
+                "singleFile": { "fileChecksum": sum, "size": 7, "receipt": "r" }
+            })))
+            .mount(&server)
+            .await;
+        Mock::given(method("POST"))
+            .and(path(format!("/ws/{DOCUMENTS_ZONE}/update/documents")))
+            .respond_with(ResponseTemplate::new(200).set_body_json(serde_json::json!({
+                "results": [{ "document": {
+                    "document_id": "D1", "size": 7,
+                    "status": { "status_code": 0 }, "data": { "signature": sum }
+                } }]
+            })))
+            .mount(&server)
+            .await;
+        Mock::given(method("POST"))
+            .and(path("/retrieveItemDetails"))
+            .respond_with(
+                ResponseTemplate::new(200).set_body_json(serde_json::json!({ "items": [{
+                    "drivewsid": format!("FILE::{DOCUMENTS_ZONE}::D1"),
+                    "parentId": format!("FOLDER::{DOCUMENTS_ZONE}::root"),
+                    "name": "Notes", "extension": "md", "type": "FILE", "size": 7, "status": "OK"
+                }]})),
+            )
+            .mount(&server)
+            .await;
+        let file = std::env::temp_dir().join(format!("quince-dropped-{}.md", std::process::id()));
+        std::fs::write(&file, b"# notes").unwrap();
+        let patient = reqwest::Client::new();
+        let impatient = reqwest::Client::builder()
+            .timeout(std::time::Duration::from_secs(1))
+            .build()
+            .unwrap();
+        let item = upload(
+            &patient,
+            &impatient,
+            &server.uri(),
+            &server.uri(),
+            vec![],
+            &format!("FOLDER::{DOCUMENTS_ZONE}::root"),
+            &file,
+            std::sync::Arc::new(|_, _| {}),
+        )
+        .await
+        .expect("sent again, and filed");
+        std::fs::remove_file(&file).ok();
+        assert_eq!(item.drivewsid, format!("FILE::{DOCUMENTS_ZONE}::D1"));
+        let slots = server
+            .received_requests()
+            .await
+            .unwrap()
+            .iter()
+            .filter(|r| r.url.path().ends_with("/upload/web"))
+            .count();
+        assert_eq!(slots, 2, "a new slot for the second sending");
+    }
 
     /// A file put in an app's library — Obsidian's vault, Shortcuts' — is asked a slot of and
     /// filed in that library's own zone, under the folder's id there, and comes back with an id
