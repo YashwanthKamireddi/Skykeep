@@ -3237,8 +3237,10 @@ struct SentBytes {
 
 /// Somewhere to put the bytes asked for, the bytes sent, and Apple's receipt checked against
 /// what was sent: never filed unless Apple received exactly the file.
+#[allow(clippy::too_many_arguments)]
 async fn send_bytes(
     http: &reqwest::Client,
+    uploads: &reqwest::Client,
     docws: &str,
     zone: &str,
     params: &[(String, String)],
@@ -3310,13 +3312,12 @@ async fn send_bytes(
             .map_err(|e| {
                 Error::Protocol(format!("{name} has a content type Apple refused: {e}"))
             })?;
-    let response = http
+    // Through the uploads client, watched while it goes (crate::upload): a file that takes
+    // longer than a minute to send was cut off by the read timeout part way.
+    let request = uploads
         .post(url)
-        .multipart(reqwest::multipart::Form::new().part("files", part))
-        .send()
-        .await?;
-    let status = response.status();
-    let text = response.text().await.unwrap_or_default();
+        .multipart(reqwest::multipart::Form::new().part("files", part));
+    let (status, text) = crate::upload::send(request, &sent, size).await?;
     if matches!(status.as_u16(), 429 | 500..=599) {
         return Err(Error::Refused(BUSY.into()));
     }
@@ -3366,8 +3367,13 @@ async fn send_bytes(
 /// renamed on the way in because the name was taken ("photo 2.jpg") is found by id too, where
 /// matching by name reported it missing, and an older file of the same name could stand in
 /// for a failed one.
+///
+/// `http` is the session's client, `uploads` its client for a file's bytes
+/// (`quince_auth::Client::uploads`): the bytes go through that one, watched (crate::upload).
+#[allow(clippy::too_many_arguments)]
 pub async fn upload(
     http: &reqwest::Client,
+    uploads: &reqwest::Client,
     docws_root: &str,
     drivews_root: &str,
     params: Vec<(String, String)>,
@@ -3382,6 +3388,7 @@ pub async fn upload(
         attempt += 1;
         let result = upload_once(
             http,
+            uploads,
             docws_root,
             drivews_root,
             params.clone(),
@@ -3402,8 +3409,10 @@ pub async fn upload(
 /// What a busy Drive is said to be, in one place so a retry can know it.
 const BUSY: &str = "iCloud Drive is busy right now — try this one again in a minute.";
 
+#[allow(clippy::too_many_arguments)]
 async fn upload_once(
     http: &reqwest::Client,
+    uploads: &reqwest::Client,
     docws_root: &str,
     drivews_root: &str,
     params: Vec<(String, String)>,
@@ -3432,7 +3441,7 @@ async fn upload_once(
         local,
         size,
         meta,
-    } = send_bytes(http, docws, zone, &params, &name, path, progress).await?;
+    } = send_bytes(http, uploads, docws, zone, &params, &name, path, progress).await?;
     let of = |key: &str| single.get(key).cloned().unwrap_or(Value::Null);
 
     // 3. File it under a name, with the file's own dates — as Finder keeps them — rather than
@@ -3551,8 +3560,10 @@ async fn upload_once(
 /// look first and a write after left a moment between them. Measured on a real account (probe
 /// `drive_modify_in_place`): the same id, the new bytes, nothing in Recently Deleted; a stale
 /// version refused with 409 `OP_LOCK_FAILURE` and the newer bytes kept.
+#[allow(clippy::too_many_arguments)]
 pub async fn replace_contents(
     http: &reqwest::Client,
+    uploads: &reqwest::Client,
     docws_root: &str,
     drivews_root: &str,
     params: Vec<(String, String)>,
@@ -3566,6 +3577,7 @@ pub async fn replace_contents(
         attempt += 1;
         let result = replace_once(
             http,
+            uploads,
             docws_root,
             drivews_root,
             params.clone(),
@@ -3583,8 +3595,10 @@ pub async fn replace_contents(
     }
 }
 
+#[allow(clippy::too_many_arguments)]
 async fn replace_once(
     http: &reqwest::Client,
+    uploads: &reqwest::Client,
     docws_root: &str,
     drivews_root: &str,
     params: Vec<(String, String)>,
@@ -3606,7 +3620,7 @@ async fn replace_once(
     let zone = zone_of(&item.drivewsid).unwrap_or(DOCUMENTS_ZONE);
     let document_id = docwsid_of(&item.drivewsid);
     let docws = docws_root.trim_end_matches('/');
-    let sent = send_bytes(http, docws, zone, &params, &name, path, progress).await?;
+    let sent = send_bytes(http, uploads, docws, zone, &params, &name, path, progress).await?;
     let of = |key: &str| sent.single.get(key).cloned().unwrap_or(Value::Null);
     let modified = millis(sent.meta.modified())
         .unwrap_or_else(|| millis(Ok(std::time::SystemTime::now())).unwrap_or(0));
@@ -4015,6 +4029,7 @@ mod replace_tests {
     async fn replace(server: &MockServer, file: &std::path::Path) -> Result<DriveItem> {
         replace_contents(
             &reqwest::Client::new(),
+            &reqwest::Client::new(),
             &server.uri(),
             &server.uri(),
             vec![],
@@ -4138,6 +4153,7 @@ mod replace_tests {
                 .unwrap();
             let got = replace_contents(
                 &impatient,
+                &impatient,
                 &server.uri(),
                 &server.uri(),
                 vec![],
@@ -4211,6 +4227,7 @@ mod app_library_tests {
         std::fs::write(&file, b"# vault").unwrap();
         let item = upload(
             &reqwest::Client::new(),
+            &reqwest::Client::new(),
             &server.uri(),
             &server.uri(),
             vec![],
@@ -4258,6 +4275,7 @@ mod app_library_tests {
         let file = std::env::temp_dir().join("quince-busy-test.txt");
         std::fs::write(&file, b"hello").unwrap();
         let err = upload(
+            &reqwest::Client::new(),
             &reqwest::Client::new(),
             &server.uri(),
             &server.uri(),
@@ -4333,6 +4351,7 @@ mod app_library_tests {
         std::fs::write(&file, b"hello").unwrap();
         let item = upload(
             &reqwest::Client::new(),
+            &reqwest::Client::new(),
             &server.uri(),
             &server.uri(),
             vec![],
@@ -4360,6 +4379,7 @@ mod app_library_tests {
         let file = std::env::temp_dir().join("quince-zone-ok.txt");
         std::fs::write(&file, b"x").unwrap();
         let err = upload(
+            &reqwest::Client::new(),
             &reqwest::Client::new(),
             "http://127.0.0.1:1",
             "http://127.0.0.1:1",

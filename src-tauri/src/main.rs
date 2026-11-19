@@ -5364,6 +5364,7 @@ async fn drive_upload(
         grants::take_read(path)?;
     }
     let (http, root, params) = drive_context(&auth).await?;
+    let uploads = auth.client.lock().await.uploads().clone();
     let docws = {
         let client = auth.client.lock().await;
         client
@@ -5408,9 +5409,10 @@ async fn drive_upload(
     let prepared: Vec<_> = jobs
         .into_iter()
         .map(|job| {
-            let (app, http, docws, root, params) = (
+            let (app, http, uploads, docws, root, params) = (
                 app.clone(),
                 http.clone(),
+                uploads.clone(),
                 docws.clone(),
                 root.clone(),
                 params.clone(),
@@ -5468,6 +5470,7 @@ async fn drive_upload(
                 };
                 let outcome = quince_icloud::drive::upload(
                     &http,
+                    &uploads,
                     &docws,
                     &root,
                     params,

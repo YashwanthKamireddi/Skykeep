@@ -455,11 +455,12 @@ impl Account {
     ) -> Result<PBackup, EngineError> {
         use quince_icloud::photos_upload::{self as up, Refusal, Sending, Stage};
         let (lock, _) = self.library()?;
-        let (http, ck, params, upload_root) = {
+        let (http, uploads, ck, params, upload_root) = {
             let c = self.client();
             let s = c.session();
             (
                 c.http().clone(),
+                c.uploads().clone(),
                 s.service_url("ckdatabasews")
                     .ok_or_else(|| failed("Apple hasn't offered Photos for this account."))?,
                 c.service_params(),
@@ -552,6 +553,7 @@ impl Account {
                 });
             let sent = up::send(
                 &http,
+                &uploads,
                 &upload_root,
                 &dsid,
                 &zone,

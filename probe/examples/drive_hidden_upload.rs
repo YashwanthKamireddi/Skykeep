@@ -39,6 +39,7 @@ async fn main() -> Result<()> {
     std::fs::write(&local, "Quince hidden-file test - safe to delete\n")?;
     let file = quince_icloud::drive::upload(
         &http,
+        &http,
         &docws,
         &drivews,
         params.clone(),

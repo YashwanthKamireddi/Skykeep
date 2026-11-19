@@ -31,19 +31,19 @@ async fn main() -> Result<()> {
     let file = work.join(NAME);
     let result = async {
         std::fs::write(&file, "version one\n")?;
-        let first = quince_icloud::drive::upload(&http, &docws, &drivews, params.clone(), ROOT, &file, quiet()).await?;
+        let first = quince_icloud::drive::upload(&http, &http, &docws, &drivews, params.clone(), ROOT, &file, quiet()).await?;
         println!("v1: size={:?} etag={:?}", first.size, first.etag);
         let trash_before = quince_icloud::drive::trash(&http, &drivews, params.clone()).await?.len();
 
         let v2 = "version two, longer than the first\n".repeat(3);
         std::fs::write(&file, &v2)?;
-        let second = quince_icloud::drive::replace_contents(&http, &docws, &drivews, params.clone(), &first, &file, quiet()).await?;
+        let second = quince_icloud::drive::replace_contents(&http, &http, &docws, &drivews, params.clone(), &first, &file, quiet()).await?;
         println!("v2: same id={} size={:?} etag={:?}", second.drivewsid == first.drivewsid, second.size, second.etag);
         let link = quince_icloud::drive::download_url(&http, &docws, params.clone(), &second).await?;
         println!("v2 bytes at Apple match: {}", http.get(&link).send().await?.text().await? == v2);
 
         std::fs::write(&file, "version three, from a stale read\n")?;
-        let stale = quince_icloud::drive::replace_contents(&http, &docws, &drivews, params.clone(), &first, &file, quiet()).await;
+        let stale = quince_icloud::drive::replace_contents(&http, &http, &docws, &drivews, params.clone(), &first, &file, quiet()).await;
         println!("stale write: {}", match &stale { Err(quince_icloud::Error::Conflict) => "refused as a conflict".to_string(), other => format!("UNEXPECTED {other:?}") });
         let link = quince_icloud::drive::download_url(&http, &docws, params.clone(), &second).await?;
         println!("v2 still what Apple holds: {}", http.get(&link).send().await?.text().await? == v2);

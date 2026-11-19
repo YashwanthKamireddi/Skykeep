@@ -26,9 +26,29 @@ async fn main() -> Result<()> {
     std::fs::create_dir_all(&tmp)?;
     let f = tmp.join("same.txt");
     std::fs::write(&f, b"one")?;
-    let there = drive::upload(&http, &docws, &dws, p.clone(), &dest.drivewsid, &f, none()).await?;
+    let there = drive::upload(
+        &http,
+        &http,
+        &docws,
+        &dws,
+        p.clone(),
+        &dest.drivewsid,
+        &f,
+        none(),
+    )
+    .await?;
     std::fs::write(&f, b"two!")?;
-    let moving = drive::upload(&http, &docws, &dws, p.clone(), &top.drivewsid, &f, none()).await?;
+    let moving = drive::upload(
+        &http,
+        &http,
+        &docws,
+        &dws,
+        p.clone(),
+        &top.drivewsid,
+        &f,
+        none(),
+    )
+    .await?;
     println!(
         "in dest: {} ({:?}), moving: {} ({:?})",
         there.name, there.size, moving.name, moving.size

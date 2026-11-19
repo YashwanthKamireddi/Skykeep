@@ -90,6 +90,7 @@ impl Remote for Photos {
                 .await;
             let outcome = quince_icloud::photos_upload::upload(
                 &c.http,
+                &c.http,
                 &c.up,
                 &c.dsid,
                 &library,

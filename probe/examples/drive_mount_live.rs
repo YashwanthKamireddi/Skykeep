@@ -87,9 +87,11 @@ impl Remote for Apple {
         );
         Box::pin(async move {
             let progress: quince_icloud::drive::Progress = Arc::new(|_, _| {});
-            quince_icloud::drive::upload(&http, &docws, &drivews, p, &folder, &path, progress)
-                .await
-                .map_err(|e| e.to_string())
+            quince_icloud::drive::upload(
+                &http, &http, &docws, &drivews, p, &folder, &path, progress,
+            )
+            .await
+            .map_err(|e| e.to_string())
         })
     }
     fn delete(&self, item: &DriveItem) -> Fut<()> {

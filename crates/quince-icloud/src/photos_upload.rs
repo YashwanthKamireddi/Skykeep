@@ -175,6 +175,7 @@ pub enum Sending {
 #[allow(clippy::too_many_arguments)]
 pub async fn upload(
     http: &reqwest::Client,
+    uploads: &reqwest::Client,
     photosupload_root: &str,
     dsid: &str,
     library: &str,
@@ -188,6 +189,7 @@ pub async fn upload(
 ) -> Result<Outcome> {
     let sent = match send(
         http,
+        uploads,
         photosupload_root,
         dsid,
         library,
@@ -297,6 +299,7 @@ pub async fn job_states(
 #[allow(clippy::too_many_arguments)]
 pub async fn send(
     http: &reqwest::Client,
+    uploads: &reqwest::Client,
     photosupload_root: &str,
     dsid: &str,
     library: &str,
@@ -346,7 +349,7 @@ pub async fn send(
         .map_err(|e| Error::Protocol(format!("could not open {name}: {e}")))?;
     let counted = std::sync::Arc::new(std::sync::atomic::AtomicU64::new(0));
     let stream = futures_util::stream::try_unfold(
-        (file, counted, progress.clone()),
+        (file, counted.clone(), progress.clone()),
         move |(mut file, counted, progress)| async move {
             use tokio::io::AsyncReadExt;
             let mut buf = vec![0u8; 256 * 1024];
@@ -361,15 +364,14 @@ pub async fn send(
             Ok(Some((buf, (file, counted, progress))))
         },
     );
-    let sent = http
+    // Through the uploads client, watched while it goes (crate::upload): a video that takes
+    // longer than a minute to send was cut off by the read timeout part way.
+    let request = uploads
         .post(&url)
         .header("content-type", "text/plain")
         .header("content-length", size)
-        .body(reqwest::Body::wrap_stream(stream))
-        .send()
-        .await?;
-    let sent_status = sent.status();
-    let text = sent.text().await.unwrap_or_default();
+        .body(reqwest::Body::wrap_stream(stream));
+    let (sent_status, text) = crate::upload::send(request, &counted, size).await?;
     if text.contains("QUOTA_EXCEEDED") {
         return Ok(Sending::Refused(Refusal::OverQuota));
     }

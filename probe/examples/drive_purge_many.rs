@@ -28,6 +28,7 @@ async fn main() -> Result<()> {
         std::fs::write(&f, format!("safe to delete {n}"))?;
         let up = drive::upload(
             &http,
+            &http,
             &docws,
             &dws,
             p.clone(),

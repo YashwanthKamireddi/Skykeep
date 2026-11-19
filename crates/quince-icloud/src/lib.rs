@@ -59,6 +59,7 @@ pub mod shared_collections;
 pub mod sync;
 pub mod table;
 pub mod topotext;
+pub mod upload;
 pub mod zones;
 
 #[derive(Debug, thiserror::Error)]
@@ -98,6 +99,10 @@ pub enum Error {
     /// over, so this should never reach a person.
     #[error("iCloud no longer recognises where we had got to")]
     StaleCursor,
+    /// A file's bytes stopped going to Apple part way, or Apple had them all and never
+    /// answered (see [`upload`]): the line went. Nothing was filed; it is sent again.
+    #[error("The connection to iCloud stopped part way through sending. Nothing was saved there — Skykeep sends it again.")]
+    Stalled,
     #[error(transparent)]
     Storage(#[from] quince_core::Error),
     #[error("couldn't write the file: {0}")]

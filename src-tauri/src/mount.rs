@@ -51,6 +51,11 @@ async fn context(
     Ok((client.http().clone(), root, client.service_params()))
 }
 
+/// The session's client for a file's bytes (`quince_auth::Client::uploads`).
+pub(crate) async fn uploads(app: &AppHandle) -> reqwest::Client {
+    app.state::<Auth>().client.lock().await.uploads().clone()
+}
+
 /// iCloud Drive as the folders on this computer reach it: for Send to iPhone (send.rs) too.
 pub fn drive_remote(app: &AppHandle) -> Arc<dyn Remote> {
     Arc::new(AppRemote {
@@ -136,9 +141,12 @@ impl Remote for AppRemote {
                 }
             }
             let progress: quince_icloud::drive::Progress = Arc::new(|_, _| {});
-            quince_icloud::drive::upload(&http, &docws, &drivews, params, &folder, &path, progress)
-                .await
-                .map_err(|e| e.to_string())
+            let uploads = uploads(&app).await;
+            quince_icloud::drive::upload(
+                &http, &uploads, &docws, &drivews, params, &folder, &path, progress,
+            )
+            .await
+            .map_err(|e| e.to_string())
         })
     }
 
@@ -168,8 +176,9 @@ impl Remote for AppRemote {
                 }
             }
             let progress: quince_icloud::drive::Progress = Arc::new(|_, _| {});
+            let uploads = uploads(&app).await;
             match quince_icloud::drive::replace_contents(
-                &http, &docws, &drivews, params, &item, &path, progress,
+                &http, &uploads, &docws, &drivews, params, &item, &path, progress,
             )
             .await
             {

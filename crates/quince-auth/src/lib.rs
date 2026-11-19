@@ -619,6 +619,8 @@ fn with_srp_origin(mut h: HeaderMap, auth_root: &str) -> HeaderMap {
 
 pub struct Client {
     http: HttpClient,
+    /// The same, for sending a file's bytes: see [`Client::uploads`].
+    uploads: HttpClient,
     jar: Arc<CookieStoreMutex>,
     store: Store,
     session: Session,
@@ -758,6 +760,26 @@ fn hash_of(bytes: &[u8]) -> u64 {
 /// setup.icloud.com and the service endpoints expect; the idmsa sign-in calls name their own),
 /// the cookie jar the session keeps, and the rest every connection to Apple gets.
 fn apple_client(endpoints: &Endpoints, jar: &Arc<CookieStoreMutex>) -> Result<HttpClient> {
+    apple_builder(endpoints, jar)
+        // A read that brings nothing for a minute is given up (a long download keeps going as
+        // long as bytes arrive).
+        .read_timeout(std::time::Duration::from_secs(60))
+        .build()
+        .map_err(Error::from)
+}
+
+/// [`apple_client`] without its read timeout, for sending a file's bytes. reqwest's read
+/// timeout runs while a request's body is still being sent ("the timeout always applies,
+/// regardless of writing any request body": seanmonstar/reqwest#2784), and over HTTP/1.1 Apple
+/// says nothing until the last byte is in, so every upload taking longer than the minute was
+/// cut off part way. What is sent through it is watched instead (quince-icloud's `upload`
+/// module): given up when Apple takes no bytes for a minute, or does not answer once it has
+/// them all.
+fn apple_uploads(endpoints: &Endpoints, jar: &Arc<CookieStoreMutex>) -> Result<HttpClient> {
+    apple_builder(endpoints, jar).build().map_err(Error::from)
+}
+
+fn apple_builder(endpoints: &Endpoints, jar: &Arc<CookieStoreMutex>) -> reqwest::ClientBuilder {
     // The account's web origin — what setup and the service endpoints expect. The idmsa SRP
     // endpoints want their own origin and override it per request.
     let mut defaults = HeaderMap::new();
@@ -775,9 +797,8 @@ fn apple_client(endpoints: &Endpoints, jar: &Arc<CookieStoreMutex>) -> Result<Ht
     // Never waits for ever. After a sleep or a change of network a pooled connection can
     // be dead without saying so, and a request on it hung until the kernel gave up — a
     // quarter of an hour or more — holding the sign-in lock, so every screen waited too.
-    // A read that brings nothing for a minute is given up (a long download keeps going as
-    // long as bytes arrive); idle connections are let go of before they can go stale; and
-    // keep-alives notice a dead one.
+    // Idle connections are let go of before they can go stale, and keep-alives notice a dead
+    // one; reads are given up in apple_client, uploads watched in apple_uploads.
     apple_only()
         // The jar itself, telling diagnostics (when the person turned them on) which
         // cookies go out and come back, by name.
@@ -785,11 +806,8 @@ fn apple_client(endpoints: &Endpoints, jar: &Arc<CookieStoreMutex>) -> Result<Ht
         .user_agent(UA)
         .default_headers(defaults)
         .connect_timeout(std::time::Duration::from_secs(15))
-        .read_timeout(std::time::Duration::from_secs(60))
         .pool_idle_timeout(std::time::Duration::from_secs(50))
         .tcp_keepalive(std::time::Duration::from_secs(30))
-        .build()
-        .map_err(Error::from)
 }
 
 impl Client {
@@ -817,6 +835,7 @@ impl Client {
         };
         open_regional(endpoints == Endpoints::for_domain(Some(REGIONAL_DOMAIN)));
         let http = apple_client(&endpoints, &jar)?;
+        let uploads = apple_uploads(&endpoints, &jar)?;
 
         // Where switch_servers goes: a test's mock for both, unless it names another for the
         // regional servers; Apple's own otherwise.
@@ -832,6 +851,7 @@ impl Client {
         };
         Ok(Self {
             http,
+            uploads,
             jar,
             store,
             session,
@@ -2012,6 +2032,7 @@ impl Client {
         };
         if endpoints != self.endpoints {
             self.http = apple_client(&endpoints, &self.jar)?;
+            self.uploads = apple_uploads(&endpoints, &self.jar)?;
             self.endpoints = endpoints;
         }
         open_regional(regional);
@@ -2149,6 +2170,12 @@ impl Client {
     /// Shared HTTP client, for the service crates that ride this session.
     pub fn http(&self) -> &HttpClient {
         &self.http
+    }
+
+    /// The same session's client for sending a file's bytes, with no read timeout (see
+    /// `apple_uploads`): only ever for a body sent through quince-icloud's watched upload.
+    pub fn uploads(&self) -> &HttpClient {
+        &self.uploads
     }
 }
 

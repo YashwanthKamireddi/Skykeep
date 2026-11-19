@@ -33,5 +33,5 @@ p256 = { version = "0.14", default-features = false, features = ["ecdsa", "std"]
 rand_core = { version = "0.6", features = ["getrandom"] }
 
 [dev-dependencies]
-tokio = { workspace = true }
+tokio = { workspace = true, features = ["test-util"] }
 wiremock = "0.6"

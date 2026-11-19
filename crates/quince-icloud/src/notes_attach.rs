@@ -372,6 +372,7 @@ fn database(root: &str, op: &str) -> String {
 /// name exactly the bytes sent. Answers the ASSETID value a record carries.
 async fn upload_asset(
     http: &reqwest::Client,
+    uploads: &reqwest::Client,
     root: &str,
     params: &[(String, String)],
     media: &str,
@@ -396,14 +397,15 @@ async fn upload_asset(
     let mut sum = crate::drive::AppleChecksum::default();
     sum.update(&bytes);
     let local = sum.finish();
-    let sent = http
+    // Through the uploads client, watched while it goes (crate::upload): a film attached to a
+    // note can take longer than a minute to send.
+    let counted = std::sync::Arc::new(std::sync::atomic::AtomicU64::new(0));
+    let request = uploads
         .post(&url)
         .header("content-type", "application/octet-stream")
-        .body(bytes)
-        .send()
-        .await?;
-    let status = sent.status();
-    let text = sent.text().await.unwrap_or_default();
+        .header("content-length", size)
+        .body(crate::upload::counted(bytes, counted.clone()));
+    let (status, text) = crate::upload::send(request, &counted, size).await?;
     if !status.is_success() {
         return Err(Error::Protocol(format!("the upload answered {status}")));
     }
@@ -431,8 +433,10 @@ async fn upload_asset(
 }
 
 /// Add the file at `path` to note `guid` at UTF-16 offset `at` of `base` (or of Apple's text).
+#[allow(clippy::too_many_arguments)]
 pub async fn attach_file_cloudkit(
     http: &reqwest::Client,
+    uploads: &reqwest::Client,
     ckdatabasews_root: &str,
     params: Vec<(String, String)>,
     guid: &str,
@@ -445,11 +449,23 @@ pub async fn attach_file_cloudkit(
             "Adding files to notes isn’t switched on yet. Nothing was changed.".into(),
         ));
     }
-    attach_file_unguarded(http, ckdatabasews_root, params, guid, path, base, at).await
+    attach_file_unguarded(
+        http,
+        uploads,
+        ckdatabasews_root,
+        params,
+        guid,
+        path,
+        base,
+        at,
+    )
+    .await
 }
 
+#[allow(clippy::too_many_arguments)]
 async fn attach_file_unguarded(
     http: &reqwest::Client,
+    uploads: &reqwest::Client,
     root: &str,
     params: Vec<(String, String)>,
     guid: &str,
@@ -500,7 +516,7 @@ async fn attach_file_unguarded(
     // part of any note, and the loop below looks the note up again before writing.
     let (there, asset) = tokio::join!(
         client.lookup_record(ZONE, guid),
-        upload_asset(http, root, &params, &media, bytes)
+        upload_asset(http, uploads, root, &params, &media, bytes)
     );
     if there?.is_none() {
         return Err(Error::Refused("Apple no longer has that note.".into()));
@@ -940,9 +956,18 @@ mod tests {
             .await;
 
         let http = reqwest::Client::new();
-        let done = attach_file_unguarded(&http, &server.uri(), vec![], "N", &file, Some("a\nb"), 2)
-            .await
-            .unwrap();
+        let done = attach_file_unguarded(
+            &http,
+            &http,
+            &server.uri(),
+            vec![],
+            "N",
+            &file,
+            Some("a\nb"),
+            2,
+        )
+        .await
+        .unwrap();
         assert_eq!(done.body, "zz\na\n\u{FFFC}\nb");
         assert_eq!(done.offset, 5);
 
@@ -985,6 +1010,7 @@ mod tests {
         let server = MockServer::start().await;
         let http = reqwest::Client::new();
         let refused = attach_file_cloudkit(
+            &http,
             &http,
             &server.uri(),
             vec![],

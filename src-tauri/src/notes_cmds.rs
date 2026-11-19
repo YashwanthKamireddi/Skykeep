@@ -158,8 +158,10 @@ pub async fn note_attach_file(
         return Err(format!("{name} is a system file, so it wasn’t added."));
     }
     let (http, root, params) = crate::cloudkit_context(&auth).await?;
+    let uploads = auth.client.lock().await.uploads().clone();
     let attached = quince_icloud::notes::attach::attach_file_cloudkit(
         &http,
+        &uploads,
         &root,
         params.clone(),
         &guid,

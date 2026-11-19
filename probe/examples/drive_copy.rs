@@ -22,6 +22,7 @@ async fn main() -> Result<()> {
     std::fs::write(&tmp, b"Quince duplicate test. Safe to delete.")?;
     let item = quince_icloud::drive::upload(
         &http,
+        &http,
         &docws,
         &drivews,
         p.clone(),

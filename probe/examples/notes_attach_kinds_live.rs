@@ -28,6 +28,7 @@ async fn main() -> Result<()> {
     for f in &files {
         let r = quince_icloud::notes::attach::attach_file_cloudkit(
             &http,
+            &http,
             &root,
             p.clone(),
             &guid,

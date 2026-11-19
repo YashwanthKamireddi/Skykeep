@@ -43,6 +43,7 @@ async fn main() -> Result<()> {
     .await;
     let outcome = quince_icloud::photos_upload::upload(
         &http,
+        &http,
         &up,
         &dsid,
         &library,

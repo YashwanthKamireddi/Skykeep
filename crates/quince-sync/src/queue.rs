@@ -32,6 +32,7 @@ pub const PROTOCOL_TRIES: i64 = 5;
 pub fn transient(e: &Error, tries: i64) -> bool {
     match e {
         Error::Network(_)
+        | Error::Stalled
         | Error::ReauthRequired
         | Error::StaleCursor
         | Error::Busy(_)

@@ -46,6 +46,7 @@ async fn main() -> Result<()> {
             .await;
         match quince_icloud::photos_upload::upload(
             &http,
+            &http,
             &up,
             &dsid,
             &library,

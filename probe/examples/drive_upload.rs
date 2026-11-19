@@ -19,6 +19,7 @@ async fn main() -> Result<()> {
         .service_url("drivews")
         .ok_or_else(|| anyhow!("no drivews"))?;
     let http = client.http().clone();
+    let uploads = client.uploads().clone();
     let params = client.service_params();
 
     // A file big enough that streaming rather than slurping actually matters.
@@ -30,6 +31,7 @@ async fn main() -> Result<()> {
     // Into the root.
     let landed = quince_icloud::drive::upload(
         &http,
+        &uploads,
         &docws,
         &drivews,
         params.clone(),
@@ -70,6 +72,7 @@ async fn main() -> Result<()> {
 
     let inner = quince_icloud::drive::upload(
         &http,
+        &uploads,
         &docws,
         &drivews,
         params.clone(),

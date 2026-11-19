@@ -52,6 +52,8 @@ struct PhoneRemote(Arc<Session>);
 /// What every call to Apple needs, shared by the futures the file tree keeps.
 struct Session {
     http: reqwest::Client,
+    /// For a file's bytes (`quince_auth::Client::uploads`).
+    uploads: reqwest::Client,
     drivews: String,
     docws: String,
     setup: String,
@@ -173,6 +175,7 @@ impl Remote for PhoneRemote {
             let progress: quince_icloud::drive::Progress = Arc::new(|_, _| {});
             quince_icloud::drive::upload(
                 &me.http,
+                &me.uploads,
                 &me.docws,
                 &me.drivews,
                 me.params.clone(),
@@ -195,6 +198,7 @@ impl Remote for PhoneRemote {
             let progress: quince_icloud::drive::Progress = Arc::new(|_, _| {});
             match quince_icloud::drive::replace_contents(
                 &me.http,
+                &me.uploads,
                 &me.docws,
                 &me.drivews,
                 me.params.clone(),
@@ -247,6 +251,7 @@ impl Account {
             docws: need("docws")?,
             setup: c.setup_url().to_string(),
             http: c.http().clone(),
+            uploads: c.uploads().clone(),
             params: c.service_params(),
             library,
             links: Arc::clone(&self.drive_links),
