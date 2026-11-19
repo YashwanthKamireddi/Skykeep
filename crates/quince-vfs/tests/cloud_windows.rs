@@ -1530,3 +1530,142 @@ fn a_photo_downloading_for_over_a_minute_still_opens() {
     let _ = std::fs::remove_dir_all(&place);
     let _ = std::fs::remove_dir_all(&out);
 }
+
+/// Apple whose first listing of a folder is held until the test lets it go: the moment a folder
+/// is being listed, made to last.
+struct Held {
+    tree: HashMap<String, Vec<DriveItem>>,
+    /// Set once the first listing has been asked for.
+    asked: Arc<std::sync::atomic::AtomicBool>,
+    /// Lets the first listing go.
+    go: Arc<tokio::sync::Notify>,
+    /// Set once the first listing has been answered.
+    answered: Arc<std::sync::atomic::AtomicBool>,
+}
+
+impl Remote for Held {
+    fn list(&self, folder: &str) -> Fut<Vec<DriveItem>> {
+        use std::sync::atomic::Ordering;
+        let items = self.tree.get(folder).cloned().unwrap_or_default();
+        let first = !self.asked.swap(true, Ordering::SeqCst);
+        let (go, answered) = (Arc::clone(&self.go), Arc::clone(&self.answered));
+        Box::pin(async move {
+            if first {
+                go.notified().await;
+                answered.store(true, Ordering::SeqCst);
+            }
+            Ok(items)
+        })
+    }
+    fn read(&self, _: &DriveItem, _: u64, _: u64) -> Fut<Vec<u8>> {
+        Box::pin(async { Ok(Vec::new()) })
+    }
+}
+
+/// A folder being listed when Skykeep stops (quit, or restarted for an update) opens whole the
+/// next time. Windows takes such a listing back, and it was marked whole all the same with what
+/// had arrived: the folder was never asked for again and showed some of its files for good.
+#[test]
+fn a_listing_taken_back_part_way_is_listed_again() {
+    use std::sync::atomic::{AtomicBool, Ordering};
+    let mut sub = DriveItem {
+        drivewsid: "FOLDER::com.apple.CloudDocs::held".into(),
+        kind: "FOLDER".into(),
+        name: "Held".into(),
+        extension: None,
+        size: None,
+        ..file("x", "x", "x", 0)
+    };
+    sub.parent_id = Some(ROOT.into());
+    let root = vec![sub.clone()];
+    let inner: Vec<DriveItem> = (0..600)
+        .map(|n| {
+            let mut f = file(&format!("held{n}"), &format!("held {n}"), "bin", 10);
+            f.parent_id = Some(sub.drivewsid.clone());
+            f
+        })
+        .collect();
+    let tree: HashMap<String, Vec<DriveItem>> = [
+        (ROOT.to_string(), root.clone()),
+        (sub.drivewsid.clone(), inner),
+    ]
+    .into();
+    let library = Arc::new(std::sync::Mutex::new(HashMap::from([(
+        ROOT.to_string(),
+        root,
+    )])));
+    let (asked, answered) = (
+        Arc::new(AtomicBool::new(false)),
+        Arc::new(AtomicBool::new(false)),
+    );
+    let go = Arc::new(tokio::sync::Notify::new());
+    let rt = tokio::runtime::Runtime::new().unwrap();
+    let base = PathBuf::from(std::env::var("USERPROFILE").unwrap());
+    let place = base.join(format!("Skykeep held {}", std::process::id()));
+    let out = std::env::temp_dir().join(format!("skykeep-held-out-{}", std::process::id()));
+    std::fs::create_dir_all(&out).unwrap();
+    let id = cloud::sync_root_id(&format!("held{}", std::process::id())).unwrap();
+    let shown = Shown {
+        id: &id,
+        name: "Skykeep held test",
+        icon: "%SystemRoot%\\system32\\imageres.dll,-1043",
+    };
+    let provider = || {
+        Provider::new(
+            Arc::new(Held {
+                tree: tree.clone(),
+                asked: Arc::clone(&asked),
+                go: Arc::clone(&go),
+                answered: Arc::clone(&answered),
+            }),
+            Arc::new(Library(Arc::clone(&library))),
+            rt.handle().clone(),
+            out.join("sending"),
+        )
+    };
+    let first = cloud::start(&place, &shown, provider()).expect("the folder registers");
+    assert!(dir(&place).contains(&"Held".to_string()));
+
+    // Listed by another program, and Skykeep stopping while Apple's answer is on its way.
+    let mut lister = Command::new("cmd")
+        .args(["/c", "dir", "/b"])
+        .arg(place.join("Held"))
+        .stdout(std::process::Stdio::null())
+        .spawn()
+        .unwrap();
+    for _ in 0..300 {
+        if asked.load(Ordering::SeqCst) {
+            break;
+        }
+        std::thread::sleep(std::time::Duration::from_millis(100));
+    }
+    assert!(
+        asked.load(Ordering::SeqCst),
+        "the folder's listing was asked for"
+    );
+    drop(first);
+    // Apple answers after all: what is sent for the listing now goes nowhere.
+    go.notify_one();
+    for _ in 0..300 {
+        if answered.load(Ordering::SeqCst) {
+            break;
+        }
+        std::thread::sleep(std::time::Duration::from_millis(100));
+    }
+    let _ = lister.wait();
+    // The listing's own work after its answer: placeholders, and the folder marked or not.
+    std::thread::sleep(std::time::Duration::from_secs(2));
+
+    let second = cloud::start(&place, &shown, provider()).expect("the next run takes it up");
+    let listed = dir(&place.join("Held"));
+    assert_eq!(
+        listed.len(),
+        600,
+        "the folder opens whole after the listing was taken back: {} of 600",
+        listed.len()
+    );
+    drop(second);
+    cloud::unregister(&place, &id);
+    let _ = std::fs::remove_dir_all(&place);
+    let _ = std::fs::remove_dir_all(&out);
+}

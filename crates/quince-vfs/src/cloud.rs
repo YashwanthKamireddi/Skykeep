@@ -28,7 +28,8 @@ use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use windows::core::{HSTRING, PCWSTR};
 use windows::Win32::Foundation::{
-    NTSTATUS, STATUS_CLOUD_FILE_NETWORK_UNAVAILABLE, STATUS_CLOUD_FILE_UNSUCCESSFUL, STATUS_SUCCESS,
+    ERROR_CLOUD_FILE_REQUEST_CANCELED, NTSTATUS, STATUS_CLOUD_FILE_NETWORK_UNAVAILABLE,
+    STATUS_CLOUD_FILE_UNSUCCESSFUL, STATUS_SUCCESS,
 };
 use windows::Win32::Storage::CloudFilters::*;
 use windows::Win32::Storage::FileSystem::{
@@ -53,6 +54,9 @@ pub struct Provider {
     /// What each listed folder last showed, as a fingerprint: a folder whose items at Apple are
     /// the same is not looked at again, so one new photo touches its month and nothing else.
     shown: std::sync::Mutex<HashMap<String, u64>>,
+    /// Cleared just before the folder disconnects (Skykeep quitting, or restarting for an
+    /// update): an answer still on its way then is for a connection that is gone.
+    connected: Arc<std::sync::atomic::AtomicBool>,
 }
 
 impl Provider {
@@ -77,6 +81,7 @@ impl Provider {
             listed: Arc::default(),
             add_only: false,
             shown: std::sync::Mutex::default(),
+            connected: Arc::new(std::sync::atomic::AtomicBool::new(true)),
         }
     }
 }
@@ -114,6 +119,10 @@ impl Drop for CloudFolder {
         }
         // SAFETY: the key is this folder's; once disconnected no callback holds the provider.
         unsafe {
+            // Said first, so an answer still on its way knows its connection is going.
+            (*self.provider)
+                .connected
+                .store(false, std::sync::atomic::Ordering::SeqCst);
             let _ = CfDisconnectSyncRoot(self.key);
             drop(Box::from_raw(self.provider.cast_mut()));
         }
@@ -676,6 +685,15 @@ struct Request {
     size: u64,
     /// The file's full path now ("C:\\Users\\…"), from the volume and Windows' path for it.
     path: PathBuf,
+    /// Whether the folder is still connected (`Provider::connected`).
+    connected: Arc<std::sync::atomic::AtomicBool>,
+}
+
+impl Request {
+    /// Whether Windows can still take an answer to it: the folder still connected.
+    fn live(&self) -> bool {
+        self.connected.load(std::sync::atomic::Ordering::SeqCst)
+    }
 }
 
 // SAFETY: plain values; the connection key is usable from any thread.
@@ -706,6 +724,7 @@ unsafe fn request(info: *const CF_CALLBACK_INFO) -> Option<(Request, &'static Pr
             size: u64::try_from(info.FileSize).unwrap_or(0),
             // SAFETY: Windows' strings, valid for this call (copied here).
             path: unsafe { full_path(info.VolumeDosName, info.NormalizedPath) },
+            connected: Arc::clone(&provider.connected),
         },
         provider,
     ))
@@ -1085,30 +1104,37 @@ async fn fetch_placeholders(remote: &dyn Remote, store: &dyn Store, req: Request
         .partition(|(_, i)| !served_size_differs(i));
     const BATCH: usize = 256;
     let batches = plain.chunks(BATCH).count();
+    let last_batch = |b: usize| packages.is_empty() && b + 1 == batches;
     for (b, chunk) in plain.chunks(BATCH).enumerate() {
         let made: Vec<Placeholder> = chunk
             .iter()
             .map(|(name, item)| Placeholder::of(name, item, listed_size(item)))
             .collect();
-        send(
-            &req,
-            &made,
-            &mut done,
-            packages.is_empty() && b + 1 == batches,
-            &folder,
-        );
+        if send(&req, &made, &mut done, last_batch(b), &folder).is_err() {
+            return;
+        }
     }
     let last = packages.len().saturating_sub(1);
     for (i, (name, item)) in packages.into_iter().enumerate() {
         let size = placeholder_size(remote, &item).await;
-        send(
-            &req,
-            &[Placeholder::of(&name, &item, size)],
-            &mut done,
-            i == last,
-            &folder,
-        );
+        let one = [Placeholder::of(&name, &item, size)];
+        if send(&req, &one, &mut done, i == last, &folder).is_err() {
+            return;
+        }
     }
+}
+
+/// Windows took a request back: the program listing the folder went away, or the folder was
+/// disconnected (Skykeep quitting, or restarting for an update) part way through its listing.
+#[derive(Debug)]
+struct Cancelled;
+
+/// Whether a refusal means the request is gone: Windows took it back ("canceled by user"), or
+/// the folder disconnected, after which every answer is refused as "the parameter is
+/// incorrect" — the same words as a refusal the folder recovers from (#44), so the connection
+/// is asked, not the words.
+fn taken_back(req: &Request, e: &windows::core::Error) -> bool {
+    e.code() == ERROR_CLOUD_FILE_REQUEST_CANCELED.to_hresult() || !req.live()
 }
 
 /// Some of a folder's placeholders handed to Windows, `last` saying the folder is whole. One
@@ -1121,7 +1147,13 @@ async fn fetch_placeholders(remote: &dyn Remote, store: &dyn Store, req: Request
 /// (CF_OPERATION_TRANSFER_PLACEHOLDERS_FLAGS); said at the full count after a refusal, the call
 /// was refused as an invalid request, the request was left open, and File Explorer said "The
 /// cloud operation is invalid" for that folder every time it was opened (#44).
-fn send(req: &Request, made: &[Placeholder], done: &mut i64, last: bool, folder: &str) {
+fn send(
+    req: &Request,
+    made: &[Placeholder],
+    done: &mut i64,
+    last: bool,
+    folder: &str,
+) -> Result<(), Cancelled> {
     // Counted as Windows counts them (each call's EntriesProcessed, taken or refused): the
     // total its rule is checked against.
     let mut infos: Vec<CF_PLACEHOLDER_CREATE_INFO> = made.iter().map(Placeholder::info).collect();
@@ -1129,10 +1161,13 @@ fn send(req: &Request, made: &[Placeholder], done: &mut i64, last: bool, folder:
     match transfer_placeholders(req, &mut infos, all, last, STATUS_SUCCESS) {
         Ok(processed) => {
             *done += i64::from(processed);
-            return;
+            return Ok(());
         }
         Err((e, processed)) => {
             *done += i64::from(processed);
+            if taken_back(req, &e) {
+                return Err(gone(folder));
+            }
             crate::note_about(
                 &format!("a batch was refused, sent one by one: {e}"),
                 folder,
@@ -1147,6 +1182,9 @@ fn send(req: &Request, made: &[Placeholder], done: &mut i64, last: bool, folder:
             };
         *done += i64::from(processed);
         if let Some(e) = said {
+            if taken_back(req, &e) {
+                return Err(gone(folder));
+            }
             crate::note_about(
                 &format!("an item Windows refused was left out: {e}"),
                 &format!("{} in {folder}", p.name()),
@@ -1156,16 +1194,37 @@ fn send(req: &Request, made: &[Placeholder], done: &mut i64, last: bool, folder:
     if last {
         mark_whole(req, *done, folder);
     }
+    Ok(())
+}
+
+/// Said once, as a listing taken back stops: nothing more is sent for it, and the folder is
+/// never marked whole, so its next open lists it again.
+fn gone(folder: &str) -> Cancelled {
+    crate::note_about(
+        "a folder's listing was taken back part way; it is listed again when next opened",
+        folder,
+    );
+    Cancelled
 }
 
 /// The request answered with the folder marked whole at `total` (what Windows took for it).
-/// Refused (Microsoft Q&A: an empty answer with the flag can be refused as invalid), the folder
-/// is marked whole on the folder itself instead, and the request answered without the flag:
-/// never left open, which File Explorer reports as "The cloud operation is invalid" (#44).
+/// Refused (Microsoft Q&A: an empty answer with the flag can be
+/// refused as invalid), the folder is marked whole on the folder itself instead, and the
+/// request answered without the flag: never left open, which File Explorer reports as "The
+/// cloud operation is invalid" (#44).
+///
+/// Never for a listing Windows took back. One taken back part way (Skykeep
+/// quitting or restarting for an update while File Explorer or the search indexer was listing
+/// the folder) was marked whole on the folder all the same, with what had arrived: the folder
+/// was never asked for again and showed some of its files for good (596 of 600, Windows runner).
 fn mark_whole(req: &Request, total: i64, folder: &str) {
     let Err((e, _)) = transfer_placeholders(req, &mut [], total, true, STATUS_SUCCESS) else {
         return;
     };
+    if taken_back(req, &e) {
+        let _ = gone(folder);
+        return;
+    }
     crate::note_about(&format!("a folder could not be marked whole: {e}"), folder);
     if let Err(e) = disable_population(&req.path) {
         crate::note_about(
