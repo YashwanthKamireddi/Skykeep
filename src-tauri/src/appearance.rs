@@ -93,14 +93,15 @@ pub fn watch(app: tauri::AppHandle) {
 
 /// The appearance chosen in Settings, as the window's own title bar and frame are drawn: the
 /// page's `data-theme` darkens only the page, so Dark on a light desktop left a light system
-/// title bar over a dark window (Windows, GNOME, KDE). "auto" is the system's: on Windows and
-/// macOS `None` hands it back to the system; on Linux the theme is GTK's, app-wide, and `None`
-/// there means "not dark", so it is put back to what GTK said before the app first changed it.
-fn native(chosen: &str, system_dark: bool) -> Option<tauri::Theme> {
+/// title bar over a dark window (Windows, GNOME, KDE). "auto" is the system's, handed back
+/// (`None`) on every system. On Linux `None` used to mean "not dark" (tao before 0.37.3), so
+/// GTK's own setting was read once at the start and put back: "auto" then kept the start's
+/// theme for as long as Skykeep ran. tao now reads the desktop's colour scheme for `None` (the
+/// settings portal) and follows it as it changes.
+fn native(chosen: &str) -> Option<tauri::Theme> {
     match chosen {
         "dark" => Some(tauri::Theme::Dark),
         "light" => Some(tauri::Theme::Light),
-        _ if system_dark => Some(tauri::Theme::Dark),
         _ => None,
     }
 }
@@ -109,40 +110,12 @@ fn native(chosen: &str, system_dark: bool) -> Option<tauri::Theme> {
 /// says it: a window made before then is left to the system, as it would be anyway.
 static CHOSEN: std::sync::Mutex<Option<Option<tauri::Theme>>> = std::sync::Mutex::new(None);
 
-/// Whether GTK preferred dark before the app first set it: read once, on the main thread GTK
-/// is touched from, before any window's theme is changed.
-#[cfg(target_os = "linux")]
-static GTK_DARK: tokio::sync::OnceCell<bool> = tokio::sync::OnceCell::const_new();
-
-#[cfg(target_os = "linux")]
-async fn system_dark(app: &tauri::AppHandle) -> bool {
-    *GTK_DARK
-        .get_or_init(|| async {
-            let (tx, rx) = tokio::sync::oneshot::channel();
-            let asked = app.run_on_main_thread(move || {
-                use gtk::prelude::GtkSettingsExt;
-                let dark = gtk::Settings::default()
-                    .is_some_and(|s| s.is_gtk_application_prefer_dark_theme());
-                let _ = tx.send(dark);
-            });
-            if asked.is_err() {
-                return false;
-            }
-            rx.await.unwrap_or(false)
-        })
-        .await
-}
-
 /// Every window, now and made later, drawn in the appearance chosen: "auto", "light" or
 /// "dark", as theme.ts stores it. Each page says it as it starts and again when it changes.
 #[tauri::command]
 pub async fn window_theme(app: tauri::AppHandle, theme: String) {
     use tauri::Manager;
-    #[cfg(target_os = "linux")]
-    let system = system_dark(&app).await;
-    #[cfg(not(target_os = "linux"))]
-    let system = false;
-    let native = native(&theme, system);
+    let native = native(&theme);
     if let Ok(mut chosen) = CHOSEN.lock() {
         *chosen = Some(native);
     }
@@ -194,14 +167,11 @@ mod tests {
     #[test]
     fn the_chosen_appearance_is_the_windows_own() {
         use tauri::Theme::{Dark, Light};
-        assert_eq!(super::native("dark", false), Some(Dark));
-        assert_eq!(super::native("light", false), Some(Light));
-        // Chosen over a dark GTK: Light is still light.
-        assert_eq!(super::native("light", true), Some(Light));
-        // The system's: handed back, or on Linux GTK's own dark put back.
-        assert_eq!(super::native("auto", false), None);
-        assert_eq!(super::native("auto", true), Some(Dark));
-        assert_eq!(super::native("anything else", false), None);
+        assert_eq!(super::native("dark"), Some(Dark));
+        assert_eq!(super::native("light"), Some(Light));
+        // The system's, handed back on every system, followed as it changes.
+        assert_eq!(super::native("auto"), None);
+        assert_eq!(super::native("anything else"), None);
     }
 
     #[test]
