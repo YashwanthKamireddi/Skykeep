@@ -16,13 +16,12 @@
 //! file put in the library, or in an album, goes up to iCloud Photos (and into the album); a
 //! file deleted goes to Recently Deleted, or out of the album it was deleted from.
 
-use crate::photos::{cache_path, cached, Size};
+use crate::photos::{cache_path, cached, film, Film, Size};
 use crate::Data;
 use quince_core::drive::DriveItem;
 use quince_core::photos::{Photo, View};
-use quince_vfs::{Fut, Remote, Store, ROOT};
+use quince_vfs::{Arriving, Fut, Remote, Store, ROOT};
 use std::collections::HashMap;
-use std::path::PathBuf;
 use tauri::{AppHandle, Manager};
 
 const LIBRARY: &str = "PH::library";
@@ -370,14 +369,22 @@ impl Remote for PhotosRemote {
         Box::pin(async { Err("read through the photo cache".to_string()) })
     }
 
-    fn file(&self, item: &DriveItem) -> Option<Fut<PathBuf>> {
+    /// The photo's original (a Live Photo's film), from the photo cache: kept, or fetched once
+    /// and read as it lands (a long video on a slow line took longer than the minute Windows
+    /// waits for its first bytes). One download, shared with the player when it asks too.
+    fn arriving(&self, item: &DriveItem) -> Option<Fut<Arriving>> {
         let (id, live) = photo_of(item)?;
         let (id, size) = (
             id.to_string(),
             if live { Size::Live } else { Size::Original },
         );
         let app = self.0.clone();
-        Some(Box::pin(async move { cached(&app, &id, size).await }))
+        Some(Box::pin(async move {
+            Ok(match film(&app, &id, size).await? {
+                Film::Whole(path) => Arriving::Whole(path),
+                Film::Growing(growth) => Arriving::Landing(growth),
+            })
+        }))
     }
 
     fn is_local(&self, item: &DriveItem) -> bool {

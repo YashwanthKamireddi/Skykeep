@@ -7,7 +7,7 @@
 
 use quince_core::drive::DriveItem;
 use quince_vfs::cloud::{self, Provider, Shown};
-use quince_vfs::{Fut, Remote, Store, ROOT};
+use quince_vfs::{Arriving, Fut, Landing, Remote, Store, ROOT};
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 use std::process::Command;
@@ -375,13 +375,13 @@ impl Remote for Photos {
     fn read(&self, _: &DriveItem, _: u64, _: u64) -> Fut<Vec<u8>> {
         Box::pin(async { Err("read through the photo cache".to_string()) })
     }
-    fn file(&self, item: &DriveItem) -> Option<Fut<PathBuf>> {
+    fn arriving(&self, item: &DriveItem) -> Option<Fut<Arriving>> {
         self.0
             .lock()
             .unwrap()
             .push(format!("fetch {}", item.display_name()));
         let path = self.1.clone();
-        Some(Box::pin(async move { Ok(path) }))
+        Some(Box::pin(async move { Ok(Arriving::Whole(path)) }))
     }
     fn accepts(&self, folder: &DriveItem) -> bool {
         folder.drivewsid == "PH::library"
@@ -1366,6 +1366,166 @@ fn a_save_during_an_upload_makes_no_conflicted_copy() {
     assert_eq!(at_apple[0].size, Some(6), "Apple has the latest save");
 
     drop(folder);
+    cloud::unregister(&place, &id);
+    let _ = std::fs::remove_dir_all(&place);
+    let _ = std::fs::remove_dir_all(&out);
+}
+
+/// A file landing as a slow download writes it: a piece every two seconds for 80 seconds, then
+/// moved into place, as the app's photo cache downloads a long video on a slow line.
+struct Slow {
+    part: PathBuf,
+    kept: PathBuf,
+    total: u64,
+    have: std::sync::atomic::AtomicU64,
+    done: std::sync::atomic::AtomicBool,
+    more: tokio::sync::Notify,
+}
+
+impl Landing for Slow {
+    fn total(&self) -> u64 {
+        self.total
+    }
+    fn wait_for(
+        &self,
+        upto: u64,
+    ) -> std::pin::Pin<Box<dyn std::future::Future<Output = Option<u64>> + Send + '_>> {
+        use std::sync::atomic::Ordering;
+        Box::pin(async move {
+            loop {
+                let wake = self.more.notified();
+                let have = self.have.load(Ordering::SeqCst);
+                if self.done.load(Ordering::SeqCst) || (upto < self.total && have >= upto) {
+                    return Some(have);
+                }
+                let _ = tokio::time::timeout(std::time::Duration::from_secs(1), wake).await;
+            }
+        })
+    }
+    fn path(&self) -> PathBuf {
+        if self.done.load(std::sync::atomic::Ordering::SeqCst) {
+            self.kept.clone()
+        } else {
+            self.part.clone()
+        }
+    }
+}
+
+/// Apple for a photo kept by the app, its download taking longer than a minute.
+struct SlowPhotos(
+    HashMap<String, Vec<DriveItem>>,
+    Vec<u8>,
+    PathBuf,
+    std::sync::Mutex<Option<Arc<Slow>>>,
+);
+
+impl Remote for SlowPhotos {
+    fn list(&self, folder: &str) -> Fut<Vec<DriveItem>> {
+        let items = self.0.get(folder).cloned().unwrap_or_default();
+        Box::pin(async move { Ok(items) })
+    }
+    fn read(&self, _: &DriveItem, _: u64, _: u64) -> Fut<Vec<u8>> {
+        Box::pin(async { Err("read through the photo cache".to_string()) })
+    }
+    fn arriving(&self, _: &DriveItem) -> Option<Fut<Arriving>> {
+        let mut started = self.3.lock().unwrap();
+        let slow = started
+            .get_or_insert_with(|| {
+                let slow = Arc::new(Slow {
+                    part: self.2.join("film.part"),
+                    kept: self.2.join("film.mov"),
+                    total: self.1.len() as u64,
+                    have: 0.into(),
+                    done: false.into(),
+                    more: tokio::sync::Notify::new(),
+                });
+                std::fs::write(&slow.part, b"").unwrap();
+                let (s, bytes) = (Arc::clone(&slow), self.1.clone());
+                tokio::spawn(async move {
+                    use std::io::Write;
+                    use std::sync::atomic::Ordering;
+                    let mut out = std::fs::OpenOptions::new()
+                        .append(true)
+                        .open(&s.part)
+                        .unwrap();
+                    // Pieces that are not whole 4 KB blocks, as a network delivers them.
+                    for piece in bytes.chunks(bytes.len().div_ceil(40)) {
+                        tokio::time::sleep(std::time::Duration::from_secs(2)).await;
+                        out.write_all(piece).unwrap();
+                        out.flush().unwrap();
+                        s.have.fetch_add(piece.len() as u64, Ordering::SeqCst);
+                        s.more.notify_waiters();
+                    }
+                    drop(out);
+                    std::fs::rename(&s.part, &s.kept).unwrap();
+                    s.done.store(true, Ordering::SeqCst);
+                    s.more.notify_waiters();
+                });
+                slow
+            })
+            .clone();
+        Some(Box::pin(async move { Ok(Arriving::Landing(slow)) }))
+    }
+}
+
+/// Windows fails a file request it hears nothing about for 60 seconds, and only a transfer
+/// counts. A video fetched whole into the photo cache before its first byte was sent took
+/// longer than that on a slow line and never opened: its bytes now go to Windows as they land.
+#[test]
+fn a_photo_downloading_for_over_a_minute_still_opens() {
+    let bytes: Vec<u8> = (0..300_000u64).map(byte).collect();
+    let tree: HashMap<String, Vec<DriveItem>> = [(
+        ROOT.to_string(),
+        vec![file("slow", "IMG_0001", "MOV", bytes.len() as i64)],
+    )]
+    .into();
+    let rt = tokio::runtime::Runtime::new().unwrap();
+    let base = PathBuf::from(std::env::var("USERPROFILE").unwrap());
+    let place = base.join(format!("Skykeep slow {}", std::process::id()));
+    let out = std::env::temp_dir().join(format!("skykeep-slow-out-{}", std::process::id()));
+    std::fs::create_dir_all(&out).unwrap();
+    let id = cloud::sync_root_id(&format!("slow{}", std::process::id())).unwrap();
+    let shown = Shown {
+        id: &id,
+        name: "Skykeep slow test",
+        icon: "%SystemRoot%\\system32\\imageres.dll,-1043",
+    };
+    let up = cloud::start(
+        &place,
+        &shown,
+        Provider::new(
+            Arc::new(SlowPhotos(
+                tree.clone(),
+                bytes.clone(),
+                out.clone(),
+                std::sync::Mutex::new(None),
+            )),
+            Arc::new(Library(Arc::new(std::sync::Mutex::new(tree)))),
+            rt.handle().clone(),
+            out.join("sending"),
+        ),
+    )
+    .expect("the cloud folder registers and connects");
+
+    let copy = out.join("copied.mov");
+    let started = std::time::Instant::now();
+    let ok = Command::new("cmd")
+        .args(["/c", "copy", "/b", "/y"])
+        .arg(place.join("IMG_0001.MOV"))
+        .arg(&copy)
+        .status()
+        .unwrap()
+        .success();
+    let took = started.elapsed();
+    println!("opened after {took:?}");
+    assert!(ok, "the video never opened: Windows gave up waiting on it");
+    assert!(
+        took.as_secs() >= 70,
+        "its download really took over a minute"
+    );
+    assert_eq!(std::fs::read(&copy).unwrap(), bytes, "and arrived whole");
+
+    drop(up);
     cloud::unregister(&place, &id);
     let _ = std::fs::remove_dir_all(&place);
     let _ = std::fs::remove_dir_all(&out);

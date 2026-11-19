@@ -18,7 +18,9 @@
 //! - Population is FULL (never PARTIAL, which Microsoft says is not supported), and a folder
 //!   already listed is brought up to date when the library changes, never left stale (#10871).
 
-use crate::{named_on, served_size_differs, transfer, Names, Remote, Store, CHUNK, ROOT};
+use crate::{
+    named_on, served_size_differs, transfer, Arriving, Landing, Names, Remote, Store, CHUNK, ROOT,
+};
 use quince_core::drive::DriveItem;
 use std::collections::HashMap;
 use std::ffi::c_void;
@@ -777,12 +779,16 @@ async fn fetch_data(remote: &dyn Remote, req: Request, offset: u64, len: u64) {
         return;
     };
     let end = pieces.last().map_or(start, |&(at, n)| at + n);
-    // Kept whole by the app already (a photo in its photo cache): read from there, fetched
-    // once if need be, never through Apple in pieces.
-    if let Some(whole) = remote.file(&item) {
+    // Kept whole by the app (a photo in its photo cache): read from there, fetched once if
+    // need be, never through Apple in pieces.
+    if let Some(arriving) = remote.arriving(&item) {
         report(&req, end - start, 0);
-        let path = match whole.await {
-            Ok(path) => path,
+        let path = match arriving.await {
+            Ok(Arriving::Whole(path)) => path,
+            Ok(Arriving::Landing(landing)) => {
+                send_landing(&req, &item, landing.as_ref(), start, end).await;
+                return;
+            }
             Err(e) => {
                 crate::note_about(&format!("fetching a file: {e}"), &item.drivewsid);
                 fail_data(
@@ -838,6 +844,83 @@ async fn fetch_data(remote: &dyn Remote, req: Request, offset: u64, len: u64) {
             // is sent for it.
             crate::note_about(&format!("handing a file to Windows: {e}"), &item.drivewsid);
             return;
+        }
+    }
+}
+
+/// The bytes from `start` to `end` of a file still downloading, sent to Windows as they land.
+///
+/// Windows fails a request it hears nothing about for 60 seconds, and only a transfer counts:
+/// "A valid operation on any pending requests from the sync provider resets the timers"
+/// (CfExecute); progress reports don't. A long video fetched whole before its first byte was
+/// sent never opened on a slow line. So every stretch that lands goes to Windows at once, in
+/// whole 4 KB blocks (the last one may end at the file's end), from the file's start: bytes
+/// before `start` are more than was asked for, which Windows takes ("It is also OK for a sync
+/// provider to return more data than requested", CF_OPERATION_PARAMETERS), and they keep the
+/// request alive while the download reaches `start`. Skipped once `start` has landed.
+async fn send_landing(
+    req: &Request,
+    item: &DriveItem,
+    landing: &dyn Landing,
+    start: u64,
+    end: u64,
+) {
+    let total = landing.total();
+    if end == 0 {
+        // An empty file: done with no bytes, as the whole-file path answers it.
+        let _ = transfer_data(req, 0, &[], STATUS_SUCCESS);
+        return;
+    }
+    // A failure fails what is left of the range asked for, never the bytes sent ahead of it.
+    let fail = |sent: u64, status| {
+        let from = sent.max(start);
+        fail_data(req, from, end - from, status);
+    };
+    let mut sent = 0;
+    while sent < end {
+        let Some(have) = landing.wait_for((sent + transfer::BLOCK).min(total)).await else {
+            crate::note_about("fetching a file: the download broke off", &item.drivewsid);
+            fail(sent, STATUS_CLOUD_FILE_NETWORK_UNAVAILABLE);
+            return;
+        };
+        // Whole blocks only, but for the file's last bytes.
+        let ready = if have >= total {
+            total
+        } else {
+            have / transfer::BLOCK * transfer::BLOCK
+        };
+        if ready <= sent {
+            if have >= total {
+                // Whole, and still short of what was asked: Apple's size was wrong.
+                crate::note_about(
+                    &format!("the file ended at {total} bytes, before {end}"),
+                    &item.drivewsid,
+                );
+                fail(sent, STATUS_CLOUD_FILE_UNSUCCESSFUL);
+                return;
+            }
+            continue;
+        }
+        if sent < start && ready >= start {
+            sent = start;
+        }
+        let until = ready.min(end);
+        report(req, end - start, sent.saturating_sub(start));
+        while sent < until {
+            let n = (until - sent).min(CHUNK);
+            let bytes = match crate::read_landing(landing, sent, n).await {
+                Some(bytes) if bytes.len() as u64 == n => bytes,
+                _ => {
+                    fail(sent, STATUS_CLOUD_FILE_UNSUCCESSFUL);
+                    return;
+                }
+            };
+            if let Err(e) = transfer_data(req, sent, &bytes, STATUS_SUCCESS) {
+                // Windows took the request back (the reader closed it): nothing more is sent.
+                crate::note_about(&format!("handing a file to Windows: {e}"), &item.drivewsid);
+                return;
+            }
+            sent += n;
         }
     }
 }

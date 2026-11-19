@@ -90,6 +90,50 @@ pub(crate) fn note_about(public: &str, private: &str) {
 /// A future the engine waits on, as the app's own async code gives it.
 pub type Fut<T> = Pin<Box<dyn Future<Output = Result<T, String>> + Send>>;
 
+/// A file the app keeps whole, as asked for: here already, or on its way ([`Remote::arriving`]).
+pub enum Arriving {
+    Whole(PathBuf),
+    Landing(Arc<dyn Landing>),
+}
+
+/// A file being downloaded front to back into a file on this computer, readable as it lands.
+pub trait Landing: Send + Sync {
+    /// How long it is once whole.
+    fn total(&self) -> u64;
+    /// Waits until at least `upto` bytes of it can be read (at most [`Landing::total`]: then
+    /// only once it is whole and in place), or until its download ended; answers how many can
+    /// be read, or `None` when the download failed.
+    fn wait_for(&self, upto: u64) -> Pin<Box<dyn Future<Output = Option<u64>> + Send + '_>>;
+    /// Where what has landed is read from now: the file being written, or once whole the
+    /// place it is kept (it moves there when it is done, so a read that finds it gone waits
+    /// for the whole and reads it there).
+    fn path(&self) -> PathBuf;
+}
+
+/// Up to `n` bytes of a landing file from `at`, once they have landed (fewer only at its
+/// end); `None` when its download failed or the bytes can't be read. Read from the file
+/// being written, or, when it has just moved into place, from there once it is whole.
+pub async fn read_landing(landing: &dyn Landing, at: u64, n: u64) -> Option<Vec<u8>> {
+    let end = at.saturating_add(n).min(landing.total());
+    let want = end.saturating_sub(at);
+    if want > 0 {
+        landing.wait_for(end).await?;
+    }
+    let read = |path: PathBuf| -> Option<Vec<u8>> {
+        use std::io::{Read, Seek, SeekFrom};
+        let mut f = std::fs::File::open(path).ok()?;
+        f.seek(SeekFrom::Start(at)).ok()?;
+        let mut buf = Vec::with_capacity(usize::try_from(want).ok()?);
+        f.take(want).read_to_end(&mut buf).ok()?;
+        (buf.len() as u64 == want).then_some(buf)
+    };
+    if let Some(bytes) = read(landing.path()) {
+        return Some(bytes);
+    }
+    landing.wait_for(landing.total()).await?;
+    read(landing.path())
+}
+
 /// Part of a file as Apple sent it, and how long Apple says the whole file is, where it said.
 #[derive(Debug, Clone, Default)]
 pub struct Part {
@@ -162,10 +206,11 @@ pub trait Remote: Send + Sync + 'static {
     fn delete(&self, _item: &DriveItem) -> Fut<()> {
         Box::pin(async { Err("read-only".to_string()) })
     }
-    /// Where a file's whole bytes are already kept on this computer by the app (fetched once if
-    /// need be): read from there, not copied into the folder's own cache. `None`: no such
-    /// place, the cache is used.
-    fn file(&self, _item: &DriveItem) -> Option<Fut<PathBuf>> {
+    /// Where a file's whole bytes are kept on this computer by the app, read from there, not
+    /// copied into the folder's own cache: here already, or landing as its download goes (see
+    /// [`Landing`]), so a reader is given its first bytes while the rest is on its way. `None`:
+    /// no such place, the cache is used.
+    fn arriving(&self, _item: &DriveItem) -> Option<Fut<Arriving>> {
         None
     }
     /// Whether a file's bytes are on this computer already, without fetching them.
@@ -1434,5 +1479,114 @@ mod tests {
             "a viewer opening a picture"
         );
         assert!(!is_thumbnailer("libreoffice", ""));
+    }
+
+    /// A file landing as a download writes it, moved into place once whole: driven by hand.
+    struct Down {
+        part: PathBuf,
+        kept: PathBuf,
+        total: u64,
+        state: Mutex<(u64, bool, bool)>, // landed, whole, failed
+        more: tokio::sync::Notify,
+    }
+
+    impl Down {
+        fn land(&self, bytes: &[u8]) {
+            use std::io::Write;
+            let mut f = std::fs::OpenOptions::new()
+                .append(true)
+                .open(&self.part)
+                .unwrap();
+            f.write_all(bytes).unwrap();
+            self.state.lock().unwrap().0 += bytes.len() as u64;
+            self.more.notify_waiters();
+        }
+        fn end(&self, whole: bool) {
+            let mut s = self.state.lock().unwrap();
+            if whole {
+                s.1 = true;
+            } else {
+                s.2 = true;
+            }
+            drop(s);
+            self.more.notify_waiters();
+        }
+    }
+
+    impl Landing for Down {
+        fn total(&self) -> u64 {
+            self.total
+        }
+        fn wait_for(&self, upto: u64) -> Pin<Box<dyn Future<Output = Option<u64>> + Send + '_>> {
+            Box::pin(async move {
+                loop {
+                    let wake = self.more.notified();
+                    let (have, whole, failed) = *self.state.lock().unwrap();
+                    if failed {
+                        return None;
+                    }
+                    if whole || (upto < self.total && have >= upto) {
+                        return Some(have);
+                    }
+                    wake.await;
+                }
+            })
+        }
+        fn path(&self) -> PathBuf {
+            if self.state.lock().unwrap().1 {
+                self.kept.clone()
+            } else {
+                self.part.clone()
+            }
+        }
+    }
+
+    /// A read of a file still downloading waits for its own bytes only, is answered from the
+    /// file being written, and across the moment it moves into place from where it is kept;
+    /// a read at the end is cut at the end, and a broken download is said, never waited out.
+    #[tokio::test]
+    async fn a_landing_file_is_read_as_its_bytes_arrive() {
+        let dir = tempfile::tempdir().unwrap();
+        let bytes: Vec<u8> = (0..10_000u32).map(|i| (i % 251) as u8).collect();
+        let down = Down {
+            part: dir.path().join("f.part"),
+            kept: dir.path().join("f"),
+            total: bytes.len() as u64,
+            state: Mutex::new((0, false, false)),
+            more: tokio::sync::Notify::new(),
+        };
+        std::fs::write(&down.part, b"").unwrap();
+        down.land(&bytes[..5000]);
+        // Landed already: answered at once.
+        assert_eq!(read_landing(&down, 0, 4096).await.unwrap(), &bytes[..4096]);
+        // Not yet landed: waits (polled first, on this task), then reads the bytes once here.
+        let (later, ()) = tokio::join!(read_landing(&down, 6000, 3000), async {
+            down.land(&bytes[5000..8000]);
+            down.land(&bytes[8000..9500]);
+        });
+        assert_eq!(later.unwrap(), &bytes[6000..9000]);
+        // Moved into place before it is said to be whole: the read finds the file gone and
+        // waits for the whole, then reads it where it is kept.
+        down.land(&bytes[9500..]);
+        std::fs::rename(&down.part, &down.kept).unwrap();
+        let (across, ()) = tokio::join!(read_landing(&down, 100, 200), async { down.end(true) });
+        assert_eq!(across.unwrap(), &bytes[100..300]);
+        // At the end: what there is.
+        assert_eq!(
+            read_landing(&down, 9990, 100).await.unwrap(),
+            &bytes[9990..]
+        );
+
+        let broken = Down {
+            part: dir.path().join("g.part"),
+            kept: dir.path().join("g"),
+            total: 10_000,
+            state: Mutex::new((0, false, false)),
+            more: tokio::sync::Notify::new(),
+        };
+        std::fs::write(&broken.part, b"").unwrap();
+        broken.land(&bytes[..100]);
+        broken.end(false);
+        assert_eq!(read_landing(&broken, 0, 4096).await, None);
     }
 }

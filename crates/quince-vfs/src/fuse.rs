@@ -1629,20 +1629,30 @@ impl Filesystem for DriveFs {
             let Some(item) = inner.item(ino.0) else {
                 return reply.error(Errno::ENOENT);
             };
-            // Kept whole by the app already (a photo's original): read from there, no second copy.
-            if let Some(path) = inner.remote.file(&item) {
+            // Kept whole by the app (a photo's original): read from there, no second copy. One
+            // still downloading is read as it lands: each read waits for its own bytes only,
+            // so a video opened from the folder starts playing long before it is all here.
+            if let Some(arriving) = inner.remote.arriving(&item) {
                 inner.rt.spawn(async move {
-                    let bytes = path.await.and_then(|p| {
-                        let mut buf = vec![0u8; size as usize];
-                        let n = std::fs::File::open(p)
-                            .and_then(|f| f.read_at(&mut buf, offset))
-                            .map_err(|e| e.to_string())?;
-                        buf.truncate(n);
-                        Ok(buf)
-                    });
+                    let bytes = match arriving.await {
+                        Ok(crate::Arriving::Whole(p)) => {
+                            let mut buf = vec![0u8; size as usize];
+                            std::fs::File::open(p)
+                                .and_then(|f| f.read_at(&mut buf, offset))
+                                .ok()
+                                .map(|n| {
+                                    buf.truncate(n);
+                                    buf
+                                })
+                        }
+                        Ok(crate::Arriving::Landing(landing)) => {
+                            crate::read_landing(landing.as_ref(), offset, u64::from(size)).await
+                        }
+                        Err(_) => None,
+                    };
                     match bytes {
-                        Ok(b) => reply.data(&b),
-                        Err(_) => reply.error(Errno::EIO),
+                        Some(b) => reply.data(&b),
+                        None => reply.error(Errno::EIO),
                     }
                 });
                 return;

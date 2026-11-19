@@ -1376,6 +1376,27 @@ impl Growth {
     }
 }
 
+/// A film landing, as the Windows Photos folder reads it (`quince_vfs::Landing`): its bytes
+/// go to Windows as they land, never only once the whole film is here.
+impl quince_vfs::Landing for Growth {
+    fn total(&self) -> u64 {
+        self.total
+    }
+    fn wait_for(
+        &self,
+        upto: u64,
+    ) -> std::pin::Pin<Box<dyn std::future::Future<Output = Option<u64>> + Send + '_>> {
+        Box::pin(Growth::wait_for(self, upto))
+    }
+    fn path(&self) -> PathBuf {
+        if self.done.load(std::sync::atomic::Ordering::SeqCst) {
+            self.kept.clone()
+        } else {
+            self.part.clone()
+        }
+    }
+}
+
 /// Films being fetched now, by where they will be kept: one download each, however many ask.
 static GROWING: Mutex<Option<HashMap<PathBuf, std::sync::Arc<Growth>>>> = Mutex::new(None);
 
@@ -1396,6 +1417,13 @@ pub async fn film(app: &AppHandle, id: &str, size: Size) -> Result<Film, String>
             .unwrap_or(false)
     };
     if found {
+        // Seen now: the last to go when the cache is trimmed, as `cached` keeps it.
+        let touched = path.clone();
+        tokio::task::spawn_blocking(move || {
+            if let Ok(f) = std::fs::File::open(&touched) {
+                let _ = f.set_modified(std::time::SystemTime::now());
+            }
+        });
         return Ok(Film::Whole(path));
     }
     if let Some(g) = GROWING
