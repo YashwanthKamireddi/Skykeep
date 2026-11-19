@@ -835,9 +835,14 @@ async fn fetch_data(remote: &dyn Remote, req: Request, offset: u64, len: u64) {
         }
         return;
     }
-    for (at, n) in pieces {
-        // Each piece read takes seconds on a slow line: progress keeps Windows' 60 s limit off.
+    // Read from Apple in pieces sized to the line (transfer::next_piece): each one handed to
+    // Windows resets the minute it waits, which a progress report does not.
+    let mut step = transfer::FIRST_PIECE.min(CHUNK);
+    let mut at = start;
+    loop {
+        let n = (end - at).min(step);
         report(&req, end - start, at - start);
+        let began = std::time::Instant::now();
         let bytes = if n == 0 {
             Vec::new()
         } else {
@@ -864,6 +869,11 @@ async fn fetch_data(remote: &dyn Remote, req: Request, offset: u64, len: u64) {
             crate::note_about(&format!("handing a file to Windows: {e}"), &item.drivewsid);
             return;
         }
+        at += n;
+        if at >= end {
+            return;
+        }
+        step = transfer::next_piece(step, began.elapsed(), CHUNK);
     }
 }
 

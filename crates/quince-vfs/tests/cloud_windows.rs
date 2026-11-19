@@ -1669,3 +1669,84 @@ fn a_listing_taken_back_part_way_is_listed_again() {
     let _ = std::fs::remove_dir_all(&place);
     let _ = std::fs::remove_dir_all(&out);
 }
+
+/// Apple on a slow line: every read takes as long as its bytes would at 20 KB a second.
+struct SlowLine(HashMap<String, Vec<DriveItem>>);
+
+impl Remote for SlowLine {
+    fn list(&self, folder: &str) -> Fut<Vec<DriveItem>> {
+        let items = self.0.get(folder).cloned().unwrap_or_default();
+        Box::pin(async move { Ok(items) })
+    }
+    fn read(&self, item: &DriveItem, offset: u64, len: u64) -> Fut<Vec<u8>> {
+        let size = u64::try_from(item.size.unwrap_or(0)).unwrap();
+        let end = offset.saturating_add(len).min(size);
+        Box::pin(async move {
+            let ms = (end - offset) * 1000 / (20 * 1024);
+            tokio::time::sleep(std::time::Duration::from_millis(ms)).await;
+            Ok((offset..end).map(byte).collect())
+        })
+    }
+}
+
+/// A file in iCloud Drive opens on a slow line. Windows fails a request that receives nothing
+/// for a minute, and the file was read from Apple in fixed 4 MB pieces: at 20 KB a second one
+/// piece took longer than that, and the file never opened. Pieces now follow the line.
+#[test]
+fn a_file_opens_on_a_slow_line() {
+    // One and a half megabytes: one piece of 77 seconds before, a few seconds each now.
+    let size = 1536 * 1024u64;
+    let tree: HashMap<String, Vec<DriveItem>> = [(
+        ROOT.to_string(),
+        vec![file("slowline", "slow line", "bin", size as i64)],
+    )]
+    .into();
+    let rt = tokio::runtime::Runtime::new().unwrap();
+    let base = PathBuf::from(std::env::var("USERPROFILE").unwrap());
+    let place = base.join(format!("Skykeep slow line {}", std::process::id()));
+    let out = std::env::temp_dir().join(format!("skykeep-slowline-out-{}", std::process::id()));
+    std::fs::create_dir_all(&out).unwrap();
+    let id = cloud::sync_root_id(&format!("slowline{}", std::process::id())).unwrap();
+    let shown = Shown {
+        id: &id,
+        name: "Skykeep slow line test",
+        icon: "%SystemRoot%\\system32\\imageres.dll,-1043",
+    };
+    let up = cloud::start(
+        &place,
+        &shown,
+        Provider::new(
+            Arc::new(SlowLine(tree.clone())),
+            Arc::new(Library(Arc::new(std::sync::Mutex::new(tree)))),
+            rt.handle().clone(),
+            out.join("sending"),
+        ),
+    )
+    .expect("the cloud folder registers and connects");
+
+    let copy = out.join("copied.bin");
+    let started = std::time::Instant::now();
+    let ok = Command::new("cmd")
+        .args(["/c", "copy", "/b", "/y"])
+        .arg(place.join("slow line.bin"))
+        .arg(&copy)
+        .status()
+        .unwrap()
+        .success();
+    println!("opened after {:?}", started.elapsed());
+    assert!(
+        ok,
+        "the file never opened: Windows gave up waiting on a piece"
+    );
+    let got = std::fs::read(&copy).unwrap();
+    assert_eq!(got.len() as u64, size);
+    assert!(
+        got.iter().enumerate().all(|(i, &b)| b == byte(i as u64)),
+        "and every byte is the file's"
+    );
+
+    drop(up);
+    cloud::unregister(&place, &id);
+    let _ = std::fs::remove_dir_all(&place);
+    let _ = std::fs::remove_dir_all(&out);
+}
