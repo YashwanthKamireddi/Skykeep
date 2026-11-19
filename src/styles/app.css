@@ -334,25 +334,6 @@
   gap: 4px;
 }
 
-/* Each app's mark: one symbol in the app's colour (AppIcon), as a Mac sidebar draws its places.
-   The tints are the system's own hues, a shade deeper in light mode so they hold on white —
-   3:1 or better on the sidebar and on its selected row (WCAG 1.4.11), since folded to icons
-   the glyph is all that names the app. */
-.app-icon { display: inline-grid; place-items: center; flex: none; }
-:root {
-  --app-notes: #a06c00; --app-reminders: #c94a08; --app-calendar: #e0313f;
-  --app-contacts: #6e7480; --app-drive: #1f7ae0; --app-photos: #b34fd6;
-}
-@media (prefers-color-scheme: dark) {
-  :root:not([data-theme="light"]) {
-    --app-notes: #ffd23f; --app-reminders: #ff8a4c; --app-calendar: #ff5a5f;
-    --app-contacts: #aab1bd; --app-drive: #5ab0ff; --app-photos: #d38bff;
-  }
-}
-:root[data-theme="dark"] {
-  --app-notes: #ffd23f; --app-reminders: #ff8a4c; --app-calendar: #ff5a5f;
-  --app-contacts: #aab1bd; --app-drive: #5ab0ff; --app-photos: #d38bff;
-}
 /* Folded: the icons alone, centred, names gone; the foot keeps only its status dot. */
 @media (prefers-reduced-motion: reduce) { .content { transition: none; } }
 /* Pressed: a shade deeper at once, as a Mac sidebar row darkens under the click. */

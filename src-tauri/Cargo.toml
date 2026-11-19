@@ -33,7 +33,6 @@ serde_json.workspace = true
 # "sync": a folder download hands files from the reading to the fetching through a bounded
 # queue (folder_download.rs).
 tokio = { workspace = true, features = ["signal", "sync", "net", "io-util"] }
-anyhow.workspace = true
 jiff = "0.2.37"
 uuid.workspace = true
 base64 = "0.22"

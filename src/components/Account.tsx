@@ -3,10 +3,6 @@ import { RotateCw } from "lucide-react";
 import { Face } from "./Face";
 import { api, contactPhotoSrc, type AccountInfo } from "../lib/ipc";
 
-/** Said where the session is held in memory only: what it means, and what fixes it. */
-export const NOT_KEPT =
-  "Signed in until Skykeep closes: start a system keyring (GNOME Keyring or KWallet) to stay signed in.";
-
 /**
  * Whether the session lasts only as long as Skykeep runs — no keyring would keep it. Asked
  * again after every update, which is when the session is written again.

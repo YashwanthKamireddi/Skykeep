@@ -4435,7 +4435,6 @@ dependencies = [
 name = "quince-app"
 version = "0.1.32"
 dependencies = [
- "anyhow",
  "base64 0.22.1",
  "fuser",
  "futures-util",
@@ -4487,7 +4486,6 @@ name = "quince-auth"
 version = "0.1.32"
 dependencies = [
  "aes-gcm",
- "anyhow",
  "base64 0.22.1",
  "cookie_store 0.21.1",
  "dbus-secret-service",
@@ -4601,7 +4599,6 @@ dependencies = [
  "thiserror 2.0.20",
  "tokio",
  "uniffi",
- "uuid",
 ]
 
 [[package]]
@@ -4626,7 +4623,6 @@ dependencies = [
  "rpassword",
  "rusqlite",
  "serde_json",
- "sha1",
  "sha2 0.10.9",
  "tokio",
  "uuid",

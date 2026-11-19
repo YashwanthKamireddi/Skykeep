@@ -1831,36 +1831,6 @@ pub(crate) fn debug_writers(original: &str) -> usize {
         .map_or(0, |t| t.writer_clocks().len())
 }
 
-/// What a document says about the note it belongs to: whether it names a writer, and whether
-/// it still carries a record of which stretch of text came from where.
-#[doc(hidden)]
-#[must_use]
-pub fn debug_note_fields(original: &str) -> (bool, bool) {
-    let Ok(raw) = B64.decode(original.trim()) else {
-        return (false, false);
-    };
-    let Some(plain) = inflate(&raw) else {
-        return (false, false);
-    };
-    let Some(note) = field_at(&plain, &TEXT_PATH[..2]) else {
-        return (false, false);
-    };
-    let (mut history, mut writer) = (false, false);
-    let mut reader = Reader::new(note);
-    while !reader.done() {
-        let Some(key) = reader.varint() else { break };
-        match key >> 3 {
-            PROVENANCE => history = true,
-            4 => writer = true,
-            _ => {}
-        }
-        if reader.skip(key & 7).is_none() {
-            break;
-        }
-    }
-    (writer, history)
-}
-
 /// A document borrowed from another note, with that note's history taken out.
 ///
 /// The records at [`PROVENANCE`] say which writer produced which stretch of text, and their

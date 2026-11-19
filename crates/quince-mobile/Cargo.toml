@@ -22,7 +22,6 @@ quince-sync = { path = "../quince-sync" }
 # FUSE or Explorer layers, which are Linux- and Windows-only.
 quince-vfs = { path = "../quince-vfs" }
 serde_json.workspace = true
-uuid = { workspace = true }
 uniffi = "0.32"
 jiff = "0.2.37"
 reqwest.workspace = true

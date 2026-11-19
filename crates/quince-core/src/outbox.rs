@@ -283,18 +283,6 @@ impl Library {
         Ok(())
     }
 
-    /// The list a reminder is in, if it is in the library.
-    pub fn reminder_list_of(&self, guid: &str) -> Result<Option<String>> {
-        Ok(self
-            .conn
-            .query_row(
-                "SELECT list_guid FROM reminders WHERE guid = ?1",
-                params![guid],
-                |r| r.get(0),
-            )
-            .optional()?)
-    }
-
     /// A reminder ticked or unticked here, before Apple hears of it.
     pub fn set_reminder_completed(&mut self, guid: &str, at: Option<i64>) -> Result<()> {
         self.conn.execute(

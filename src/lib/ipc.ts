@@ -159,8 +159,6 @@ export type UpdateStatus = {
 export const SYNCED = "quince://synced";
 /** Skykeep is about to quit, sign out or close this window: save what is typed, then answer. */
 export const FLUSH = "quince://flush";
-/** An alert was clicked: open Reminders, where that reminder is. */
-export const OPEN_REMINDER = "quince://open-reminder";
 /** A lapsed session signed itself back in only as far as Apple's code. */
 export const NEEDS_CODE = "quince://needs-code";
 /** Apple signed the session out and wants the password again. */
