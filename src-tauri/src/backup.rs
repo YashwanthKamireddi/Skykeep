@@ -318,7 +318,7 @@ pub fn kick(app: &AppHandle) {
     });
 }
 
-/// One pass: Photos, then iCloud Drive when it is due.
+/// One pass: Photos, then iCloud Drive when it is due, only into the backup's own folder.
 async fn pass(app: &AppHandle) -> Result<(), String> {
     let Settings {
         folder: Some(folder),
@@ -328,6 +328,15 @@ async fn pass(app: &AppHandle) -> Result<(), String> {
     else {
         return Ok(());
     };
+    let recorded = {
+        let data = app.state::<Data>();
+        let library = data.0.lock().await;
+        library.backup_files().map_err(|e| e.to_string())?
+    };
+    let at = folder.clone();
+    tokio::task::spawn_blocking(move || ready(&at, &recorded))
+        .await
+        .map_err(|e| e.to_string())??;
     photos_pass(app, &folder, hidden).await?;
     if drive && DRIVE_DUE.swap(false, Ordering::SeqCst) {
         if let Err(e) = drive_pass(app, &folder).await {
@@ -453,16 +462,50 @@ async fn drive_pass(app: &AppHandle, folder: &Path) -> Result<(), String> {
     Ok(())
 }
 
+/// The file that says a folder is the backup: made when the backup is first written there.
+const MARKER: &str = ".skykeep-backup";
+
+/// Whether `folder` is the backup the library records (`recorded`), there to be written to.
+///
+/// A network drive or a disk mounted at a fixed folder (`/mnt/nas`) leaves that folder in place,
+/// empty, when it is not mounted. Taken for the backup, every file the record names was missing:
+/// the record was forgotten and the whole library downloaded again into the computer's own
+/// disk, filling it, and copied a second time once the drive was back. As restic, borg and
+/// Time Machine know their own folder, the backup marks its folder, and writes only where the
+/// mark is. A folder with no mark is the backup when it holds a file the record names (one set
+/// up before the mark), or when nothing has been backed up yet; marked then. An empty folder
+/// the record says was written to is a drive not there: nothing is forgotten or written, and
+/// the pass after next (two minutes on) carries on once it is.
+fn ready(folder: &Path, recorded: &[quince_core::backup::Copied]) -> Result<(), String> {
+    let away = || {
+        format!(
+            "The backup folder isn't there: {}. Connect its drive and it carries on.",
+            folder.display()
+        )
+    };
+    if !folder.is_dir() {
+        return Err(away());
+    }
+    let marker = folder.join(MARKER);
+    if marker.is_file() {
+        return Ok(());
+    }
+    let holds_backup = recorded
+        .iter()
+        .any(|c| std::fs::metadata(folder.join(&c.path)).is_ok_and(|m| m.len() as i64 == c.size));
+    if !recorded.is_empty() && !holds_backup {
+        return Err(away());
+    }
+    std::fs::write(
+        &marker,
+        "Skykeep backs up iCloud to this folder. It copies here only while this file is here.\n",
+    )
+    .map_err(|e| format!("The backup folder can't be written to: {e}"))
+}
+
 /// Photos' pass: check the folder against the record (once), then copy everything not copied.
 async fn photos_pass(app: &AppHandle, folder: &Path, hidden: bool) -> Result<(), String> {
     let folder = folder.to_path_buf();
-    // An external drive unplugged is not an empty backup: nothing is forgotten, it waits.
-    if !folder.is_dir() {
-        return Err(format!(
-            "The backup folder isn't there: {}. Connect its drive and it carries on.",
-            folder.display()
-        ));
-    }
     if !CHECKED.swap(true, Ordering::SeqCst) {
         check(app, &folder).await?;
     }
@@ -928,6 +971,54 @@ async fn dated(path: &Path, taken_at: i64) {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// A backup writes only into its own folder: a new one, or one made before the mark, is
+    /// marked; a mount point left empty by a drive not mounted is refused, with nothing written
+    /// and the record kept.
+    #[test]
+    fn a_backup_writes_only_into_its_own_folder() {
+        let base = std::env::temp_dir().join(format!("skykeep-marker-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&base);
+        let copied = |path: &str, size: i64| quince_core::backup::Copied {
+            source: "photos".into(),
+            item: path.into(),
+            part: "original".into(),
+            path: path.into(),
+            size,
+            version: None,
+        };
+        // New: nothing recorded yet, so the folder is marked and written to.
+        let new = base.join("new");
+        std::fs::create_dir_all(&new).unwrap();
+        assert!(ready(&new, &[]).is_ok());
+        assert!(new.join(MARKER).is_file());
+
+        // Made before the mark: it holds a recorded file, so it is marked.
+        let old = base.join("old");
+        std::fs::create_dir_all(old.join("Photos/2026/11")).unwrap();
+        std::fs::write(old.join("Photos/2026/11/IMG_1.JPG"), b"12345").unwrap();
+        let record = [
+            copied("Photos/2026/11/IMG_1.JPG", 5),
+            copied("Photos/2026/11/IMG_2.JPG", 9),
+        ];
+        assert!(ready(&old, &record).is_ok());
+        assert!(old.join(MARKER).is_file());
+
+        // A mount point the drive is not mounted on: empty, though the record names files.
+        let unmounted = base.join("nas");
+        std::fs::create_dir_all(&unmounted).unwrap();
+        assert!(ready(&unmounted, &record).is_err());
+        assert_eq!(
+            std::fs::read_dir(&unmounted).unwrap().count(),
+            0,
+            "nothing written"
+        );
+
+        // Marked: written to, whatever the record says.
+        std::fs::write(unmounted.join(MARKER), b"").unwrap();
+        assert!(ready(&unmounted, &record).is_ok());
+        let _ = std::fs::remove_dir_all(&base);
+    }
 
     #[test]
     fn names_never_collide_on_disk_or_between_copies() {
