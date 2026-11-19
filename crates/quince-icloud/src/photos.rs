@@ -619,8 +619,8 @@ fn another_asset_of(other: &Photo, id: &str, asset: &Value) -> Photo {
 /// A pass over what changed is only that. A whole read (one from the start, or one carrying
 /// on from exactly where the last pass of it stopped) also notes what it saw, and when it
 /// reaches the end lets go of whatever it never saw: nothing is pruned on a read that has not
-/// finished. Answers how many photos changed, and every master's links seen, for the app to
-/// keep.
+/// finished. Answers how many photos changed, and the links of every photo seen (by the
+/// photo's id), for the app to keep.
 pub fn apply(
     library: &mut quince_core::Library,
     fetched: PhotosFetch,
@@ -739,18 +739,19 @@ fn apply_whole(
             _ => {}
         }
     }
-    let mut links: HashMap<String, Links> = masters
-        .iter()
-        .map(|(k, m)| (k.clone(), links_of(m)))
-        .collect();
-    // An asset's edit, laid over its master's links.
+    // Each photo's links, by the photo's own id: its edit laid over its master's. Kept by
+    // master, two photos of one master (a photo duplicated in Photos, one copy edited) shared
+    // one entry, and whichever came last in the pass stood for both: the plain copy showed the
+    // edit, or the edited one the original.
+    let mut links: HashMap<String, Links> = HashMap::new();
     for a in &assets {
-        if let Some((name, m)) = a
-            .pointer("/fields/masterRef/value/recordName")
-            .and_then(Value::as_str)
-            .and_then(|n| masters.get(n).map(|m| (n, m)))
-        {
-            links.insert(name.to_string(), links_with_edit(Some(*a), m));
+        if let (Some(id), Some(m)) = (
+            field::record_name(a),
+            a.pointer("/fields/masterRef/value/recordName")
+                .and_then(Value::as_str)
+                .and_then(|n| masters.get(n)),
+        ) {
+            links.insert(id, links_with_edit(Some(*a), m));
         }
     }
     let mut photos = Vec::new();
@@ -1570,6 +1571,33 @@ mod tests {
             l.original.as_deref(),
             Some("https://cvws.example/orig/original")
         );
+    }
+
+    /// Two photos of one master (a photo duplicated in Photos), one copy edited: each keeps
+    /// its own pictures. Kept by master, the last asset's stood for both.
+    #[test]
+    fn two_photos_of_one_master_keep_their_own_pictures() {
+        let mut lib = quince_core::Library::in_memory().unwrap();
+        let plain = asset(json!({}));
+        let mut edited = asset(json!({
+            "resJPEGFullRes": {"downloadURL": "https://cvws.example/edit-full/${f}"}
+        }));
+        edited["recordName"] = json!("A2");
+        let pass = PhotosFetch {
+            records: vec![master(), plain, edited],
+            token: Some("T1".into()),
+            from: None,
+            incremental: false,
+            complete: true,
+            zone: None,
+        };
+        let (_, links) = apply(&mut lib, pass).unwrap();
+        assert_eq!(
+            links["A2"].full.as_deref(),
+            Some("https://cvws.example/edit-full/full.jpg")
+        );
+        assert_eq!(links["A1"].full, links_of(&master()).full);
+        assert_ne!(links["A1"].full, links["A2"].full);
     }
 
     /// A photo edited on an iPhone or a Mac shows edited: its asset's pictures over the

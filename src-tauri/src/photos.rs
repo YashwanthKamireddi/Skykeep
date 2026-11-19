@@ -17,7 +17,7 @@ use tauri::{AppHandle, Manager, State};
 /// How long a download link from Apple is trusted before it is asked for again.
 const LINK_LIFE: Duration = Duration::from_secs(45 * 60);
 
-/// Every master's links seen this run, and when.
+/// Every photo's links seen this run, by the photo's id, and when.
 static LINKS: Mutex<Option<HashMap<String, (Links, Instant)>>> = Mutex::new(None);
 
 /// Every link let go of: they were the last account's. Hidden locks with them.
@@ -153,8 +153,8 @@ pub fn remember(links: HashMap<String, Links>) {
     // Links past their life are of no use (each is asked of Apple again), so they go: kept,
     // every photo's six signed links stayed in memory for as long as the app ran.
     keep_fresh(map);
-    for (master, l) in links {
-        map.insert(master, (l, now));
+    for (photo, l) in links {
+        map.insert(photo, (l, now));
     }
 }
 
@@ -168,12 +168,14 @@ fn keep_fresh<T>(map: &mut HashMap<String, (T, Instant)>) {
     }
 }
 
-fn fresh_links(master: &str) -> Option<Links> {
+/// A photo's links, by its own id (a photo duplicated from another shares its master, not its
+/// pictures: see quince_icloud::photos::apply).
+fn fresh_links(photo: &str) -> Option<Links> {
     let kept = LINKS
         .lock()
         .unwrap_or_else(std::sync::PoisonError::into_inner);
     kept.as_ref()?
-        .get(master)
+        .get(photo)
         .filter(|(_, at)| at.elapsed() < LINK_LIFE)
         .map(|(l, _)| l.clone())
 }
@@ -657,7 +659,7 @@ async fn from_apple(
                 .map_err(|e| e.to_string())
         }
     };
-    let done = match fresh_links(&photo.master).and_then(|l| size.pick(&l)) {
+    let done = match fresh_links(&photo.id).and_then(|l| size.pick(&l)) {
         Some(url) => fetch(url).await.unwrap_or(false),
         None => false,
     };
@@ -1276,7 +1278,7 @@ async fn new_link(
     }
     .map_err(|e| e.to_string())?
     .ok_or("Apple no longer has that photo.")?;
-    remember(HashMap::from([(photo.master.clone(), links.clone())]));
+    remember(HashMap::from([(photo.id.clone(), links.clone())]));
     size.pick(&links)
         .ok_or_else(|| "That photo has no picture of that size.".into())
 }
@@ -1447,7 +1449,7 @@ pub async fn film(app: &AppHandle, id: &str, size: Size) -> Result<Film, String>
         Ok(Opened::Sending(d)) => Some(d),
         _ => None,
     };
-    let mut download = match fresh_links(&photo.master).and_then(|l| size.pick(&l)) {
+    let mut download = match fresh_links(&photo.id).and_then(|l| size.pick(&l)) {
         Some(url) => sending(open(&http, &url).await),
         None => None,
     };

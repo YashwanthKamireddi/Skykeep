@@ -135,7 +135,7 @@ pub fn label(service: &str) -> &'static str {
 /// phone keeps download links and takes back an approval Apple let go of; the desktop also
 /// looks at a library Apple is preparing again later.
 pub trait Hooks: Sync {
-    /// Download links Apple sent with the photos, by master id: good for a while.
+    /// Download links Apple sent with the photos, by photo id: good for a while.
     fn links(&self, _links: HashMap<String, Links>) {}
     /// Apple is still preparing the photo library: looked at again later.
     fn preparing(&self) {}

@@ -13,7 +13,8 @@ use std::time::{Duration, Instant};
 /// How long Apple's download link is trusted before it is asked for again (as the desktop's).
 const LINK_LIFE: Duration = Duration::from_secs(45 * 60);
 
-/// Apple's download links by master id, with when they came.
+/// Apple's download links by photo id, with when they came: two photos of one master (one
+/// duplicated from the other) each have their own.
 static LINKS: Mutex<Option<HashMap<String, (Links, Instant)>>> = Mutex::new(None);
 
 pub(crate) fn remember(links: HashMap<String, Links>) {
@@ -23,17 +24,17 @@ pub(crate) fn remember(links: HashMap<String, Links>) {
     let map = held.get_or_insert_with(HashMap::new);
     let now = Instant::now();
     map.retain(|_, (_, at)| at.elapsed() < LINK_LIFE);
-    for (master, l) in links {
-        map.insert(master, (l, now));
+    for (photo, l) in links {
+        map.insert(photo, (l, now));
     }
 }
 
-fn fresh(master: &str) -> Option<Links> {
+fn fresh(photo: &str) -> Option<Links> {
     let held = LINKS
         .lock()
         .unwrap_or_else(std::sync::PoisonError::into_inner);
     held.as_ref()?
-        .get(master)
+        .get(photo)
         .filter(|(_, at)| at.elapsed() < LINK_LIFE)
         .map(|(l, _)| l.clone())
 }
@@ -630,7 +631,7 @@ impl Account {
         runtime().block_on(async {
             // A link kept from the pass first; a fresh one from Apple when there is none or it
             // is refused.
-            if let Some(url) = fresh(&photo.master).as_ref().and_then(pick) {
+            if let Some(url) = fresh(&photo.id).as_ref().and_then(pick) {
                 if quince_icloud::photos::fetch_to_file(&http, &url, &part)
                     .await
                     .unwrap_or(false)
@@ -668,7 +669,7 @@ impl Account {
             }
             .map_err(failed)?
             .ok_or_else(|| failed("Apple no longer has that photo."))?;
-            remember(HashMap::from([(photo.master.clone(), links.clone())]));
+            remember(HashMap::from([(photo.id.clone(), links.clone())]));
             let Some(url) = pick(&links) else {
                 return Ok(false);
             };
