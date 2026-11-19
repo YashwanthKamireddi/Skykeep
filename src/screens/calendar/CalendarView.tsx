@@ -87,11 +87,12 @@ const DAY_CODES = ["MO", "TU", "WE", "TH", "FR", "SA", "SU"];
 const dayName = (code: string, width: "long" | "short") =>
   dateText(new Date(2026, 0, 5 + Math.max(0, DAY_CODES.indexOf(code))), { weekday: width });
 const monthName = (m: number) => dateText(new Date(2026, m - 1, 1), { month: "long" });
-/** "2nd", "2.", "2日": a day of the month as the reader's language counts it. */
+/** "2nd", "2.", "2日", "2": a day of the month as the reader's language counts it (Indonesian
+ *  puts its "ke-" in the locale string, so the number stands alone). */
 const ordinal = (n: number) =>
   activeLanguage() === "en"
     ? `${n}${n % 10 === 1 && n !== 11 ? "st" : n % 10 === 2 && n !== 12 ? "nd" : n % 10 === 3 && n !== 13 ? "rd" : "th"}`
-    : activeLanguage() === "de" ? `${n}.` : `${n} 日`;
+    : activeLanguage() === "de" ? `${n}.` : activeLanguage() === "id" ? `${n}` : `${n} 日`;
 /** "Tue and Thu", "周二和周四": a list as the language joins one. */
 const listed = (items: string[]) => new Intl.ListFormat(activeLanguage(), { style: "long", type: "conjunction" }).format(items);
 /** Apple's position ("2nd", "-1", "last") as the reader's language says it before a weekday. */

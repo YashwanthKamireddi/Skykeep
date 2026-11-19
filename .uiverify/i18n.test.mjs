@@ -37,6 +37,29 @@ test("a key translates to German when de is active", () => {
   assert.equal(appName("reminders"), "Erinnerungen");
 });
 
+test("a key translates to Indonesian when id is active", () => {
+  setLanguage("id");
+  assert.equal(activeLanguage(), "id");
+  assert.equal(t("common.cancel"), "Batalkan");
+  assert.equal(t("settings.title"), "Pengaturan");
+  assert.equal(t("sync.updatedMinAgo", { count: 5 }), "Diperbarui 5 mnt lalu");
+  assert.equal(appName("drivews"), "Drive");
+  assert.equal(appName("reminders"), "Pengingat");
+});
+
+test("Indonesian from Indonesia is Indonesian", () => {
+  const real = Object.getOwnPropertyDescriptor(globalThis, "navigator");
+  try {
+    for (const tag of ["id", "id-ID"]) {
+      Object.defineProperty(globalThis, "navigator", { value: { languages: [tag, "en-US"], language: tag }, configurable: true });
+      assert.equal(systemLanguage(), "id", tag);
+    }
+  } finally {
+    if (real) Object.defineProperty(globalThis, "navigator", real);
+    else delete globalThis.navigator;
+  }
+});
+
 test("German from Germany, Austria or Switzerland is German, and a language not offered is English", () => {
   const real = Object.getOwnPropertyDescriptor(globalThis, "navigator");
   const prefer = (...languages) =>
@@ -79,6 +102,7 @@ test("language name helper returns readable name", () => {
   assert.equal(languageName("en"), "English");
   assert.equal(languageName("zh-CN"), "简体中文");
   assert.equal(languageName("de"), "Deutsch");
+  assert.equal(languageName("id"), "Bahasa Indonesia");
 });
 
 test("an app's name comes from its screen key or its service, and nothing else is an app", () => {
