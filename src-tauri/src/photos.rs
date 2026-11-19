@@ -1439,23 +1439,29 @@ pub async fn film(app: &AppHandle, id: &str, size: Size) -> Result<Film, String>
         .ok_or("That photo is no longer in the library.")?;
     let auth = app.state::<Auth>();
     let (http, root, params) = crate::cloudkit_context(&auth).await?;
-    let ask = |url: String| {
-        let http = http.clone();
-        async move { http.get(url).send().await.map_err(|e| e.to_string()) }
+    // Every byte Apple said it has, carried on from where it stopped if the connection drops
+    // or iCloud sends it in parts (quince_icloud::download); never written from the start
+    // again, as the player and the folders read it while it lands.
+    use quince_icloud::download::{open, Opened};
+    let sending = |opened: Result<Opened, quince_icloud::Error>| match opened {
+        Ok(Opened::Sending(d)) => Some(d),
+        _ => None,
     };
-    let mut response = match fresh_links(&photo.master).and_then(|l| size.pick(&l)) {
-        Some(url) => ask(url).await.ok().filter(|r| r.status().is_success()),
+    let mut download = match fresh_links(&photo.master).and_then(|l| size.pick(&l)) {
+        Some(url) => sending(open(&http, &url).await),
         None => None,
     };
-    if response.is_none() {
+    if download.is_none() {
         let url = new_link(&http, &root, params, &photo, shared.as_ref(), size).await?;
-        response = Some(ask(url).await?).filter(|r| r.status().is_success());
+        download = sending(open(&http, &url).await);
     }
-    let response = response.ok_or("Apple did not send that film.")?;
-    let total = response.content_length().unwrap_or(0);
+    let download = download
+        .ok_or("Apple did not send that film.")?
+        .only_onward();
+    let total = download.total().unwrap_or(0);
     if total == 0 {
         // No length said: fetched whole first, as any other picture.
-        drop(response);
+        drop(download);
         return cached(app, id, size).await.map(Film::Whole);
     }
     if let Some(dir) = path.parent() {
@@ -1464,9 +1470,6 @@ pub async fn film(app: &AppHandle, id: &str, size: Size) -> Result<Film, String>
             .map_err(|e| e.to_string())?;
     }
     let part = path.with_extension(format!("{}.part", uuid::Uuid::new_v4().simple()));
-    let file = tokio::fs::File::create(&part)
-        .await
-        .map_err(|e| e.to_string())?;
     let growth = std::sync::Arc::new(Growth::new(part.clone(), path.clone(), total));
     // Two asking at once: the first one's download is the one kept.
     {
@@ -1483,27 +1486,10 @@ pub async fn film(app: &AppHandle, id: &str, size: Size) -> Result<Film, String>
     let g = growth.clone();
     let app = app.clone();
     tauri::async_runtime::spawn(async move {
-        use futures_util::StreamExt;
         use std::sync::atomic::Ordering;
-        use tokio::io::AsyncWriteExt;
-        let mut out = file;
-        let mut body = response.bytes_stream();
-        let mut ok = true;
-        while let Some(chunk) = body.next().await {
-            let Ok(chunk) = chunk else {
-                ok = false;
-                break;
-            };
-            if out.write_all(&chunk).await.is_err() {
-                ok = false;
-                break;
-            }
-            // Flushed as it lands, so a reader of the file finds what is counted here.
-            let _ = out.flush().await;
-            g.landed(chunk.len() as u64);
-        }
-        drop(out);
-        ok = ok && g.have.load(Ordering::SeqCst) == g.total;
+        // Each piece told of once it is written and flushed, so a reader finds it there.
+        let saved = download.save(&g.part, |n| g.landed(n)).await;
+        let ok = saved.is_ok() && g.have.load(Ordering::SeqCst) == g.total;
         // Waiting while Windows holds the file just written (a virus scan of a new file):
         // a plain rename failed then, and the whole download was thrown away.
         let whole = ok && {
@@ -2677,48 +2663,40 @@ pub(crate) async fn stream_to_new_file(
     url: &str,
     path: &std::path::Path,
 ) -> Result<u64, Fetch> {
-    use futures_util::StreamExt;
-    use tokio::io::AsyncWriteExt;
+    use quince_icloud::download::{open, Opened};
     let part = part_of(path);
-    let response = http.get(url).send().await.map_err(|e| Fetch {
-        status: e.status().map(|s| s.as_u16()),
-        disk: None,
-        message: format!("iCloud did not send the file: {e}"),
-    })?;
-    if let Err(e) = response.error_for_status_ref() {
-        return Err(Fetch {
-            status: e.status().map(|s| s.as_u16()),
+    let failed = |e: quince_icloud::Error| match e {
+        quince_icloud::Error::Io(io) => disk(&io),
+        quince_icloud::Error::Network(n) => Fetch {
+            status: n.status().map(|s| s.as_u16()),
             disk: None,
-            message: format!("iCloud did not send the file: {e}"),
-        });
-    }
-    // A file of its own, never one already there (nor a link left in its place).
-    let mut out = tokio::fs::OpenOptions::new()
-        .write(true)
-        .create_new(true)
-        .open(&part)
-        .await
-        .map_err(|e| disk(&e))?;
-    let mut body = response.bytes_stream();
-    let mut len = 0u64;
-    let written: Result<(), Fetch> = async {
-        while let Some(chunk) = body.next().await {
-            let chunk = chunk.map_err(|e| Fetch {
-                status: None,
+            message: format!("The download broke off: {n}"),
+        },
+        other => Fetch {
+            status: None,
+            disk: None,
+            message: other.to_string(),
+        },
+    };
+    // Every byte Apple said it has, carried on from where it stopped if the connection drops
+    // or iCloud sends it in parts (quince_icloud::download).
+    let download = match open(http, url).await.map_err(failed)? {
+        Opened::Sending(d) => d,
+        Opened::Refused(status) => {
+            return Err(Fetch {
+                status: Some(status),
                 disk: None,
-                message: format!("The download broke off: {e}"),
-            })?;
-            len += chunk.len() as u64;
-            out.write_all(&chunk).await.map_err(|e| disk(&e))?;
+                message: format!("iCloud did not send the file ({status})"),
+            });
         }
-        out.flush().await.map_err(|e| disk(&e))
-    }
-    .await;
-    if let Err(e) = written {
-        tokio::fs::remove_file(&part).await.ok();
-        return Err(e);
-    }
-    drop(out);
+    };
+    let len = match download.save(&part, |_| {}).await {
+        Ok(len) => len,
+        Err(e) => {
+            tokio::fs::remove_file(&part).await.ok();
+            return Err(failed(e));
+        }
+    };
     crate::move_into_place(&part, path)
         .await
         .map_err(|e| disk(&e))?;

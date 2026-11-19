@@ -28,6 +28,7 @@ async fn main() -> Result<()> {
         .service_url("ckdatabasews")
         .ok_or_else(|| anyhow!("no ck"))?;
     let (http, p) = (client.http().clone(), client.service_params());
+    let uploads = client.uploads().clone();
     let dsid = p
         .iter()
         .find(|(k, _)| k == "dsid")
@@ -64,7 +65,7 @@ async fn main() -> Result<()> {
     .await;
     let outcome = quince_icloud::photos_upload::upload(
         &http,
-        &http,
+        &uploads,
         &up,
         &dsid,
         &library,
@@ -76,7 +77,9 @@ async fn main() -> Result<()> {
         &uuid::Uuid::new_v4().to_string(),
         progress,
     )
-    .await?;
+    .await;
+    println!("upload ended after {:.1}s", t.elapsed().as_secs_f64());
+    let outcome = outcome?;
     let Outcome::Uploaded(u) = outcome else {
         return Err(anyhow!("not uploaded: {outcome:?}"));
     };
@@ -92,13 +95,14 @@ async fn main() -> Result<()> {
         .ok_or_else(|| anyhow!("master missing"))?;
     let (url, back_name) = download_choice(&asset, &master, Want::Originals, true)
         .ok_or_else(|| anyhow!("no original"))?;
-    let bytes = http
-        .get(&url)
-        .send()
-        .await?
-        .error_for_status()?
-        .bytes()
-        .await?;
+    // Through the app's own verified download (quince_icloud::download): every byte, resumed
+    // where it stopped if the connection drops.
+    let back = std::env::temp_dir().join(format!("quince-heavy-back-{}", std::process::id()));
+    if !quince_icloud::photos::fetch_to_file(&http, &url, &back).await? {
+        return Err(anyhow!("Apple refused the original's link"));
+    }
+    let bytes = std::fs::read(&back)?;
+    std::fs::remove_file(&back).ok();
     let remote = format!("{:x}", Sha256::digest(&bytes));
     println!(
         "uploaded in {:.1}s; original back as {back_name}, {} bytes",

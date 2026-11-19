@@ -39,6 +39,7 @@ pub mod ckdocument;
 pub mod cloudkit;
 pub mod contacts;
 pub mod courier;
+pub mod download;
 pub mod drive;
 pub mod drive_changes;
 pub mod drive_parts;
