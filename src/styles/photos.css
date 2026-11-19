@@ -152,8 +152,11 @@
     0 0 / calc(100% / var(--across, 7)) calc(100% / var(--rows));
 }
 .px-scroll[data-fit] .px-later { --gap: 14px; --pad: 14px; }
-/* The rest of a month being built, under the rows already built: one gap between, as in the grid. */
+/* The rest of a month being built, under the rows already built: one gap between, as in the grid.
+   Seen from its end (oldest first), the rest is above the rows built: the same one gap. */
 .px-grid + .px-later { margin-top: var(--gap); }
+.px-later + .px-grid { margin-top: 2px; }
+.px-scroll[data-fit] .px-later + .px-grid { margin-top: 14px; }
 .px-month-title {
   margin: 0;
   padding: 12px 16px 8px;
