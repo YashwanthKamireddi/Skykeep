@@ -176,6 +176,8 @@ pooled "photos paging"     node .uiverify/photos-paging.mjs
 pooled "photos open on newest" node .uiverify/photos-open-on-newest.mjs
 pooled "webkit: photos open on newest" env ENGINE=webkit node .uiverify/photos-open-on-newest.mjs
 pooled "photos sort hints" node .uiverify/photos-sort-hints.mjs
+pooled "photos sweep whole" node .uiverify/photos-sweep-whole.mjs
+pooled "webkit: photos sweep whole" env ENGINE=webkit node .uiverify/photos-sweep-whole.mjs
 pooled "webkit: photos sort hints" env ENGINE=webkit node .uiverify/photos-sort-hints.mjs
 pooled "photos dense months" node .uiverify/photos-dense-months.mjs
 pooled "webkit: dense months" env ENGINE=webkit node .uiverify/photos-dense-months.mjs

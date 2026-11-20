@@ -2424,10 +2424,18 @@ export function PhotosView() {
           const r2 = Math.min(rows - 1, Math.floor((y2 - g.top) / rowH));
           for (let r = r1; r <= r2; r++) {
             for (let c = c1; c <= c2; c++) {
-              // Only the photo itself, not the hairline gap after it.
-              if (x2 < left0 + c * pitch || x1 > left0 + c * pitch + pitch - gap) continue;
               const it = items[r * across + c];
-              if (it) next.add(it.id);
+              if (!it) continue;
+              // Only the photo itself: not the gap after its cell, and in Whole photos not the
+              // room around it in its cell either, but its own frame there (#225).
+              let [fx, fy, fw, fh] = [left0 + c * pitch, g.top + r * rowH, pitch - gap, pitch - gap];
+              const p = fit ? store.get(it.id) : undefined;
+              if (p?.width && p.height) {
+                const [w, h] = p.width >= p.height ? [fw, (fw * p.height) / p.width] : [(fh * p.width) / p.height, fh];
+                [fx, fy, fw, fh] = [fx + (fw - w) / 2, fy + (fh - h) / 2, w, h];
+              }
+              if (x2 < fx || x1 > fx + fw || (fit && (y2 < fy || y1 > fy + fh))) continue;
+              next.add(it.id);
             }
           }
         }

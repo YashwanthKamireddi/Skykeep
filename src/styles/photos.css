@@ -192,6 +192,11 @@
 .px-scroll[data-fit] .px-grid { gap: 14px; padding: 0 14px; }
 .px-scroll[data-fit] .px-tile { background: transparent; overflow: visible; }
 .px-scroll[data-fit] .px-pic { background: color-mix(in srgb, var(--text) 7%, transparent); }
+/* Only the photo is the photo, as on icloud.com: the room around it in its cell is the grid's,
+   so a sweep starts there as it does between cells, and a click there chooses nothing. The
+   photo's own events reach its tile, which it sits in (#225). */
+.px-scroll[data-fit] .px-tile { pointer-events: none; }
+.px-scroll[data-fit] .px-pic { pointer-events: auto; }
 /* Selected, as Photos marks it: an accent frame drawn inside the photo, over the picture. */
 .px-pic::after {
   content: "";
