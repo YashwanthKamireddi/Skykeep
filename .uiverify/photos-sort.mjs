@@ -21,7 +21,8 @@ ok((await order()) === "p5,p4,p3,p2,p1", `Library starts oldest taken first  ${a
 const firstMonth = (await months())[0];
 await page.getByRole("button", { name: "Sort" }).click();
 const checked = await page.locator('.row-menu [aria-checked="true"]').allInnerTexts();
-ok(checked.map((t) => t.replace("✓", "").trim()).join() === "Date Captured,Oldest First", `the menu checks what is chosen  ${JSON.stringify(checked)}`);
+// Each row's label, without its hint line under it ("Newest at the bottom", #206).
+ok(checked.map((t) => t.replace("✓", "").trim().split("\n")[0]).join() === "Date Captured,Oldest First", `the menu checks what is chosen  ${JSON.stringify(checked)}`);
 await page.locator(".row-menu").getByText("Newest First").click();
 await page.waitForTimeout(200);
 ok((await order()) === "p1,p2,p3,p4,p5", `Newest First turns it round  ${await order()}`);

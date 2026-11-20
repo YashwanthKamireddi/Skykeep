@@ -12,6 +12,7 @@
 // A library shaped like #186's (37,765 photos, ~1,080 a month), every read slow as on a busy
 // Windows machine. Checked in both orders, with and without a wheel scroll during the load:
 // every frame shows only the newest photos, and nothing of the oldest months is fetched first.
+// The same once the view is read whole and the other order is chosen from its sort menu (#224).
 //
 //   URL=http://localhost:4173 node .uiverify/photos-open-on-newest.mjs   (ENGINE=webkit for WebKit)
 import { engine } from "./engine.mjs";
@@ -23,7 +24,7 @@ const b = await engine.launch();
 let failures = 0;
 const ok = (p, m) => { console.log(`${p ? "PASS" : "FAIL"} ${m}`); if (!p) failures++; };
 
-async function open({ newestFirst, scroll }) {
+async function open({ newestFirst, scroll, resort }) {
   const ctx = await b.newContext({ viewport: { width: 1280, height: 800 }, reducedMotion: "no-preference" });
   await ctx.addInitScript(installStub, { screen: "library", services: SERVICES, twoFactor: null, photosNewestFirst: newestFirst });
   await ctx.addInitScript((count) => {
@@ -78,6 +79,27 @@ async function open({ newestFirst, scroll }) {
     }
   }
   await page.waitForTimeout(5000);
+  if (resort) {
+    // Read whole and settled, then the other order chosen from the sort menu: the view is read
+    // again in that order, and it is opened again as it was (#224: the old photos showed).
+    await page.evaluate(() => {
+      window.__asked = [];
+      window.__frames = [];
+      const s = document.querySelector(".px-scroll");
+      const tick = () => {
+        const box = s.getBoundingClientRect();
+        const ids = [...s.querySelectorAll(".px-tile[data-id]")]
+          .filter((t) => { const r = t.getBoundingClientRect(); return r.bottom > box.top && r.top < box.bottom; })
+          .map((t) => Number(t.dataset.id.slice(1)));
+        if (ids.length) window.__frames.push(Math.max(...ids));
+        if (window.__frames.length < 360) requestAnimationFrame(tick);
+      };
+      requestAnimationFrame(tick);
+    });
+    await page.getByRole("button", { name: "Sort" }).click();
+    await page.locator(".row-menu").getByText(newestFirst ? "Oldest First" : "Newest First").click();
+    await page.waitForTimeout(5000);
+  }
   const r = await page.evaluate((count) => ({
     frames: window.__frames,
     asked: window.__asked,
@@ -88,10 +110,16 @@ async function open({ newestFirst, scroll }) {
   return r;
 }
 
-for (const newestFirst of [false, true]) {
-  for (const scroll of [false, true]) {
-    const how = `${newestFirst ? "Newest First" : "Oldest First"}${scroll ? ", scrolled during the load" : ""}`;
-    const { frames, asked, builtOld } = await open({ newestFirst, scroll });
+const cases = [false, true].flatMap((newestFirst) => [
+  { newestFirst, scroll: false },
+  { newestFirst, scroll: true },
+  // Read whole, then the order changed: the same view, opened again in the other order.
+  { newestFirst, scroll: false, resort: true },
+]);
+for (const { newestFirst, scroll, resort } of cases) {
+  {
+    const how = `${newestFirst ? "Newest First" : "Oldest First"}${scroll ? ", scrolled during the load" : ""}${resort ? `, then ${newestFirst ? "Oldest" : "Newest"} First chosen` : ""}`;
+    const { frames, asked, builtOld } = await open({ newestFirst, scroll, resort });
     // Opened unscrolled, every frame is the first screen's newest; scrolled, a few screens of
     // the newest. Anything older than a month back is the view on the wrong photos.
     const limit = scroll ? 1080 : 200;

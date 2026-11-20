@@ -143,6 +143,11 @@ const SORTS_KEY = "quince.photos.sort";
  * oldest photos and scrolled to the end every time (17 Nov).
  */
 const defaultSort = (view: PhotoView): Sort => ({ by: view === "recents" ? "added" : "taken", oldest: true });
+/** The order a view is read in: its own sort, chosen or by default. A search, an album, Recently
+ *  Deleted and the rated view keep their own order, and have none to choose. */
+const orderOf = (view: PhotoView, album: PhotoAlbum | null, query: string, sorts: Partial<Record<PhotoView, Sort>>): Sort | null =>
+  !query && !album && view !== "recentlyDeleted" && view !== "rated" ? (sorts[view] ?? defaultSort(view)) : null;
+const sameOrder = (a: Sort | null, b: Sort | null) => a?.by === b?.by && a?.oldest === b?.oldest;
 const sortKey = (p: Photo, by: Sort["by"]) => (by === "added" ? (p.addedAt ?? p.takenAt) : p.takenAt);
 const readSorts = (): Partial<Record<PhotoView, Sort>> => {
   try {
@@ -1110,8 +1115,16 @@ export function PhotosView() {
   // The view the photos on screen belong to. A view chosen changes the title, the months and
   // the order only when its photos arrive, all with them — not a frame before, over the last
   // view's photos.
-  const [drawn, setDrawn] = useState<{ view: PhotoView; album: PhotoAlbum | null; query: string }>({ view, album, query: "" });
-  const drawnKey = `${drawn.view}/${drawn.album?.id ?? ""}/${drawn.query}`;
+  // Its order is part of it: another order chosen is the view opened again in that order, from
+  // the end it opens on, as a view chosen is (#224: read as the same view again after a sync,
+  // the old photos showed while the reordered list came).
+  const [drawn, setDrawn] = useState<{ view: PhotoView; album: PhotoAlbum | null; query: string; order: Sort | null }>(() => ({
+    view,
+    album,
+    query: "",
+    order: orderOf(view, album, "", readSorts()),
+  }));
+  const drawnKey = `${drawn.view}/${drawn.album?.id ?? ""}/${drawn.query}/${drawn.order ? `${drawn.order.by}-${drawn.order.oldest}` : ""}`;
   // What is typed in the search field, and — a moment after the typing stops — what is searched.
   const [query, setQuery] = useState("");
   const [searching, setSearching] = useState("");
@@ -1137,8 +1150,11 @@ export function PhotosView() {
    * memory only).
    */
   const [hiddenOpen, setHiddenOpen] = useState(false);
-  const sortable = !drawn.query && !drawn.album && drawn.view !== "recentlyDeleted" && drawn.view !== "rated";
-  const sort = sortable ? (sorts[drawn.view] ?? defaultSort(drawn.view)) : null;
+  /** The sort the menu shows: the one chosen for the view on screen, checked at once. */
+  const sort = orderOf(drawn.view, drawn.album, drawn.query, sorts);
+  /** The order the photos on screen were read in: the grid is laid out by it, so it turns round
+   *  with the photos of the new order, not a frame before them. */
+  const readIn = drawn.order;
   const chooseSort = (next: Sort) => {
     setSorts((all) => {
       const was = { ...all, [drawn.view]: next };
@@ -1152,8 +1168,7 @@ export function PhotosView() {
   };
   // The order asked of the library for what is being chosen now (the backend sorts: a view is
   // sorted where it is kept, and its index and pages come in that order).
-  const wantSortable = !searching && !album && view !== "recentlyDeleted" && view !== "rated";
-  const want = wantSortable ? (sorts[view] ?? defaultSort(view)) : null;
+  const want = orderOf(view, album, searching, sorts);
 
   // Reads can pass each other: a sync's read of one view can land after another view was
   // chosen. Only the newest read may draw, or a view shows another's photos under its title.
@@ -1181,13 +1196,13 @@ export function PhotosView() {
     // Hidden, locked: nothing of it is read, so nothing of it can be drawn.
     if (view === "hidden" && !album && !searching && !hiddenOpen) {
       setPhotos(new PhotoList({ ids: [], keys: [], marks: [], first: null, last: null }, store));
-      setDrawn({ view, album, query: searching });
+      setDrawn({ view, album, query: searching, order: want });
       return;
     }
     const source: PhotoSource = searching ? { query: searching } : album?.shared ? { shared: album.shared } : album ? { album: album.id } : { view };
     const order: PhotoOrder | null = want;
     const d = drawnNow.current;
-    const again = photosNow.current !== null && d.view === view && d.album?.id === album?.id && d.query === searching;
+    const again = photosNow.current !== null && d.view === view && d.album?.id === album?.id && d.query === searching && sameOrder(d.order, order);
     // Another place: photos being received into the last one are not this one's to speak of.
     if (!again) setReceiving(null);
     const index = api.photosIndex(source, order);
@@ -1204,7 +1219,7 @@ export function PhotosView() {
           if (indexed || mine !== reads.current) return;
           const shown = order?.oldest ? [...page].reverse() : page;
           setPhotos(PhotoList.of(shown, store, (p) => sortKey(p, order?.by ?? "taken")));
-          setDrawn({ view, album, query: searching });
+          setDrawn({ view, album, query: searching, order });
         },
         () => {},
       );
@@ -1259,7 +1274,7 @@ export function PhotosView() {
       : next.need(0, PAGE));
     // The same view read again is the same view drawn: a new object here built every month
     // afresh and faded the grid in again at each landing.
-    setDrawn((was) => (was.view === view && was.album === album && was.query === searching ? was : { view, album, query: searching }));
+    setDrawn((was) => (was.view === view && was.album === album && was.query === searching && sameOrder(was.order, order) ? was : { view, album, query: searching, order }));
     // The sidebar's counts and albums, drawn again only when one of them changed.
     const counted = Object.fromEntries(c);
     setCounts((was) => (same(was, counted) ? was : counted));
@@ -3112,7 +3127,7 @@ export function PhotosView() {
   const gridPlace = (): Place | null => {
     // Sorted by Date Added the grid's months are when photos came in; Years and Months are by
     // when they were taken, so the place is the month the photo at the top was taken in.
-    if (sort?.by === "added" && photos) {
+    if (readIn?.by === "added" && photos) {
       const el = scroller.current;
       const box = el?.getBoundingClientRect();
       const pad = el ? parseFloat(getComputedStyle(el).scrollPaddingTop) || 0 : 0;
@@ -3163,9 +3178,9 @@ export function PhotosView() {
     if (!to) return;
     // Sorted by Date Added, a month taken is spread through the months photos came in: All
     // Photos opens at the photo that stands for it in Months.
-    if (sort?.by === "added") {
+    if (readIn?.by === "added") {
       const of = (periodMonths ?? []).filter((m) => m.year === to.year && (to.month === undefined || m.month === to.month));
-      const key = (sort.oldest ? of[of.length - 1] : of[0])?.key;
+      const key = (readIn.oldest ? of[of.length - 1] : of[0])?.key;
       const index = key && photos ? photos.indexOf(key) : -1;
       if (index >= 0) goToPhoto(index);
       return;
@@ -3203,14 +3218,14 @@ export function PhotosView() {
   // two and nothing in between is shown; when the app is busy and they take longer, the new
   // view's title is up at once with its tiles as plain boxes — never the last view lingering
   // under the new choice, which read as the app not having heard the click.
-  const switching = drawn.view !== view || (drawn.album?.id ?? null) !== (album?.id ?? null) || drawn.query !== searching;
+  const switching = drawn.view !== view || (drawn.album?.id ?? null) !== (album?.id ?? null) || drawn.query !== searching || !sameOrder(drawn.order, want);
   const [slow, setSlow] = useState(false);
   useEffect(() => {
     setSlow(false);
     if (!switching) return undefined;
     const t = window.setTimeout(() => setSlow(true), 120);
     return () => window.clearTimeout(t);
-  }, [switching, view, album?.id, searching]);
+  }, [switching, view, album?.id, searching, want?.by, want?.oldest]);
   /**
    * An album opened from the Albums or Shared Albums page. The view the grid last drew was out
    * of sight behind that page, so keeping it up while the album comes (as a switch between
@@ -3239,10 +3254,10 @@ export function PhotosView() {
   useLayoutEffect(() => {
     // On the newest: anchored at the foot when oldest come first, at the top otherwise, and kept
     // there as the photos arrive and the months take their height (photos/place).
-    placeKeeper.current?.set({ kind: sort?.oldest ? "foot" : "top" });
+    placeKeeper.current?.set({ kind: readIn?.oldest ? "foot" : "top" });
     if (firstDraw.current) firstDraw.current = false;
     else fadeIn(scroller.current, { from: 0.35, duration: 160 });
-  }, [drawn, sort?.oldest, sort?.by]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [drawn, readIn?.oldest, readIn?.by]); // eslint-disable-line react-hooks/exhaustive-deps
   /**
    * The months built whole at once, their photos fetched and pictures drawn: the ones at the end
    * the view opens on — its foot when oldest come first, its top otherwise — up to three, and no
@@ -3254,13 +3269,13 @@ export function PhotosView() {
   const eagerMonths = useMemo(() => {
     const keys = new Set<string>();
     let photos = 0;
-    for (const m of sort?.oldest ? [...months].reverse() : months) {
+    for (const m of readIn?.oldest ? [...months].reverse() : months) {
       if (keys.size === 3 || (keys.size > 0 && photos >= PAGE)) break;
       keys.add(m.key);
       photos += m.items.length;
     }
     return keys;
-  }, [months, sort?.oldest]);
+  }, [months, readIn?.oldest]);
   const across = ACROSS[zoom];
   // Put back in the same commit that changed the grid (photos landing, another month, the
   // columns), before any frame can see it moved; what changes outside React — the window's size,
@@ -3983,7 +3998,7 @@ export function PhotosView() {
               anchor={anchor.current}
               deleted={drawn.view === "recentlyDeleted" && !drawn.album}
               eager={eagerMonths.has(m.key)}
-              fromEnd={sort?.oldest ?? false}
+              fromEnd={readIn?.oldest ?? false}
               across={across}
               fit={fit}
               cell={cell}
@@ -3997,7 +4012,7 @@ export function PhotosView() {
           <Periods
             level={level as "years" | "months"}
             months={periodMonths}
-            oldest={sort?.oldest ?? false}
+            oldest={readIn?.oldest ?? false}
             land={landAt}
             at={periodAt}
             onYear={(year) => goLevel("months", { year })}
