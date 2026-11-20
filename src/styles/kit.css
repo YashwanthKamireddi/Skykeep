@@ -28,6 +28,7 @@
   font-size: var(--t-13);
   font-weight: 510;
   white-space: nowrap;
+  text-decoration: none;
   cursor: pointer;
 }
 /*

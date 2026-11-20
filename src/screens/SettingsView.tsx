@@ -1085,6 +1085,16 @@ export function SettingsView({ onSignOut }: { onSignOut: (keep: boolean) => Prom
                   {t("common.save")}
                 </button>
               </div>
+              {/* Where Skykeep is made, in the open: most who install it from a store never see it. */}
+              <div className="settings-row">
+                <span className="settings-label settings-stack">
+                  {t("settings.githubRepo")}
+                  <span className="settings-hint">{t("settings.githubRepoHint")}</span>
+                </span>
+                <a className="quiet" href="https://github.com/YashwanthKamireddi/Skykeep" target="_blank" rel="noreferrer">
+                  {t("common.open")}
+                </a>
+              </div>
               <div className="settings-row">
                 <span className="settings-label">{t("settings.openSourceLicences")}</span>
                 <button className="quiet" onClick={() => setLicences(true)}>

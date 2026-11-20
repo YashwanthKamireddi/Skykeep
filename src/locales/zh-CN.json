@@ -173,6 +173,8 @@
     "githubUpdatesReachDesc": "GitHub Releases 服务器，用于检查新版本并下载。绝不会发送您的任何个人信息。",
     "saveDiagnosticReport": "存储诊断报告",
     "openSourceLicences": "开源许可",
+    "githubRepo": "GitHub 上的 Skykeep",
+    "githubRepoHint": "源代码、问题与讨论",
     "licence": "自由软件，依据 GPL-3.0 发布，不提供任何担保。与 Apple 无关。",
     "signOutTitle": "要在此电脑上保留 iCloud 数据的副本吗？",
     "signOutBody": "保留副本可在您重新登录时直接使用备忘录、照片、文件等所有内容。无论选择哪种方式，iCloud 中的内容都不会被删除。",

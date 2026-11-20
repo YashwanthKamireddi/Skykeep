@@ -173,6 +173,8 @@
     "githubUpdatesReachDesc": "Server rilis GitHub digunakan untuk memeriksa dan mengunduh versi baru Skykeep. Tidak ada informasi tentang Anda yang dikirim.",
     "saveDiagnosticReport": "Simpan Laporan Diagnostik",
     "openSourceLicences": "Lisensi Sumber Terbuka",
+    "githubRepo": "Skykeep di GitHub",
+    "githubRepoHint": "Kode sumber, laporan masalah, dan diskusi",
     "licence": "Perangkat lunak bebas berlisensi GPL-3.0, tanpa jaminan. Tidak berafiliasi dengan Apple.",
     "signOutTitle": "Simpan salinan data iCloud Anda di komputer ini?",
     "signOutBody": "Dengan menyimpan salinan, catatan, foto, file, dan semua data lainnya akan tetap ada di komputer ini dan siap digunakan saat Anda masuk kembali. Apa pun pilihan Anda, data di iCloud tidak akan dihapus.",

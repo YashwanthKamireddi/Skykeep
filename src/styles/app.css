@@ -2053,7 +2053,7 @@
 @container settings-page (max-width: 700px) { .prefs-main .launcher-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
 .prefs-main .launch-tile { border-radius: var(--r-plateau); }
 /* A row's button: one width for all of them, so a column of Save, Show, Clear lines up. */
-.prefs-pane .settings-row > button.quiet { min-width: 84px; justify-content: center; }
+.prefs-pane .settings-row > :is(button, a).quiet { min-width: 84px; justify-content: center; }
 .prefs-app-icon { width: 24px; height: 24px; flex: none; }
 /* What the iPhone is doing, part by part: a light and a word, as it changes. */
 .prefs-state { display: inline-flex; align-items: center; gap: 8px; color: var(--text-2); font-size: var(--t-13); font-variant-numeric: tabular-nums; white-space: nowrap; }
