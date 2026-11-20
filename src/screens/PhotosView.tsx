@@ -2381,7 +2381,12 @@ export function PhotosView() {
     if (e.clientX >= el.getBoundingClientRect().left + el.clientWidth) return;
     const box0 = el.getBoundingClientRect();
     const start = { x: e.clientX - box0.left, y: e.clientY - box0.top + el.scrollTop };
-    const base = e.ctrlKey || e.metaKey || e.shiftKey ? new Set(chosen) : new Set<string>();
+    // As Finder's icon view and File Explorer have it: Shift adds what the sweep touches to what
+    // was chosen; Ctrl (⌘ on a Mac) turns each photo it touches over, so a chosen one is let go
+    // (#226). Measured against the choice as the sweep began, so a sweep pulled back gives
+    // those photos back as they were. Neither starts a new choice.
+    const turn = e.ctrlKey || e.metaKey;
+    const base = turn || e.shiftKey ? new Set(chosen) : new Set<string>();
     let pointer = { x: e.clientX, y: e.clientY };
     let moved = false;
     let tick = 0;
@@ -2435,7 +2440,8 @@ export function PhotosView() {
                 [fx, fy, fw, fh] = [fx + (fw - w) / 2, fy + (fh - h) / 2, w, h];
               }
               if (x2 < fx || x1 > fx + fw || (fit && (y2 < fy || y1 > fy + fh))) continue;
-              next.add(it.id);
+              if (turn && base.has(it.id)) next.delete(it.id);
+              else next.add(it.id);
             }
           }
         }
