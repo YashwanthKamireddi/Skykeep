@@ -1100,9 +1100,12 @@ fn whole_here(path: &Path, item: &DriveItem) -> bool {
     let Ok(meta) = std::fs::symlink_metadata(path) else {
         return false;
     };
+    let changed_at = quince_icloud::drive::changed_at(item);
+    // A package's zip goes by its date alone, so only when Apple gave one: without it nothing
+    // would ever tell a changed package, and it is fetched again (the copy here kept earlier).
     let same_size = size_of(item).is_some_and(|size| meta.is_file() && meta.len() == size)
-        || (meta.is_file() && package_zip(path, item));
-    let same_version = match (quince_icloud::drive::changed_at(item), meta.modified()) {
+        || (meta.is_file() && changed_at.is_some() && package_zip(path, item));
+    let same_version = match (changed_at, meta.modified()) {
         (Some(changed), Ok(on_disk)) => {
             let apart = changed
                 .duration_since(on_disk)

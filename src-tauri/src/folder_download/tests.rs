@@ -1764,6 +1764,14 @@ fn a_package_saved_as_its_zip_is_whole_here_until_its_date_changes() {
         "changed in iCloud since: fetched again"
     );
 
+    // No date from Apple: nothing would tell a changed package, so it is fetched again.
+    package.modified_at = None;
+    assert!(
+        !whole_here(&path, &package),
+        "no date to go by: fetched again"
+    );
+    package.modified_at = Some(1_766_732_062);
+
     // A plain file of the wrong size is still not whole, zip or not.
     let plain = dir.path().join("Report.pdf");
     std::fs::write(&plain, b"%PDF-1.7 short").unwrap();
