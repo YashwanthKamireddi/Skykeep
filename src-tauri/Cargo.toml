@@ -26,6 +26,7 @@ quince-auth = { path = "../crates/quince-auth" }
 quince-core = { path = "../crates/quince-core" }
 quince-media = { workspace = true }
 quince-sync = { path = "../crates/quince-sync" }
+quince-backup = { path = "../crates/quince-backup" }
 quince-icloud = { path = "../crates/quince-icloud" }
 reqwest.workspace = true
 serde.workspace = true
@@ -54,9 +55,6 @@ semver = "1"
 # A merged card's picture made small enough for Apple (contacts_merge.rs): the same build of
 # the crate quince-media already uses, so nothing new is compiled.
 image = { version = "0.25", default-features = false, features = ["png", "jpeg"] }
-# Names from a Mac saved composed (NFC), and compared so, in a folder download (folder_download.rs):
-# the build reqwest's URL parsing already compiles, through idna, so nothing new is built.
-icu_normalizer = { version = "2.3", default-features = false, features = ["compiled_data"] }
 
 [target.'cfg(not(target_os = "linux"))'.dependencies]
 tauri = { version = "2", features = ["tray-icon"] }

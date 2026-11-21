@@ -6,12 +6,12 @@
 
 use std::path::{Component, Path, PathBuf};
 
-/// Where `given` is saved in `dir`: a plain name (see [`crate::attachment_name`]), `fallback`
+/// Where `given` is saved in `dir`: a plain name (see [`crate::names::attachment_name`]), `fallback`
 /// when nothing is left of it, with a number on the end rather than over a file already there.
 /// Refused — never a path elsewhere — when the result would not sit directly in `dir`.
-pub(crate) fn save_path(dir: &Path, given: &str, fallback: &str) -> Result<PathBuf, String> {
-    let name = crate::export::file_name(given, fallback);
-    let path = crate::free_path(dir, &name);
+pub fn save_path(dir: &Path, given: &str, fallback: &str) -> Result<PathBuf, String> {
+    let name = crate::names::file_name(given, fallback);
+    let path = crate::names::free_path(dir, &name);
     if !directly_in(dir, &path) {
         return Err("That file's name can't be saved here.".into());
     }
@@ -20,7 +20,7 @@ pub(crate) fn save_path(dir: &Path, given: &str, fallback: &str) -> Result<PathB
 
 /// Whether `path` is one plain name directly inside `dir`: no folder on the way, no `..`, no
 /// drive or root that would set `dir` aside, no stream (`name:stream`) on Windows.
-pub(crate) fn directly_in(dir: &Path, path: &Path) -> bool {
+pub fn directly_in(dir: &Path, path: &Path) -> bool {
     let Ok(rest) = path.strip_prefix(dir) else {
         return false;
     };
@@ -35,13 +35,13 @@ pub(crate) fn directly_in(dir: &Path, path: &Path) -> bool {
 /// The stream Windows reads to know a file came from the internet: zone 3, as a browser writes.
 // Read only where Windows writes it (and in tests).
 #[cfg_attr(not(windows), allow(dead_code))]
-pub(crate) const ZONE_IDENTIFIER: &str = "[ZoneTransfer]\r\nZoneId=3\r\nHostUrl=about:internet\r\n";
+pub const ZONE_IDENTIFIER: &str = "[ZoneTransfer]\r\nZoneId=3\r\nHostUrl=about:internet\r\n";
 
 /// Mark a file saved from iCloud as come from the internet (Mark of the Web). Without it a
 /// document from a stranger's shared folder opened straight into Office with its macros, and
 /// a program ran without SmartScreen asking. Nothing to do elsewhere: no other system reads it.
 /// Best effort — a drive that keeps no streams (FAT, a network share) simply has none.
-pub(crate) fn mark_from_internet(path: &Path) {
+pub fn mark_from_internet(path: &Path) {
     #[cfg(windows)]
     {
         // Writing the stream counts as writing the file: Windows moved its last-modified date to

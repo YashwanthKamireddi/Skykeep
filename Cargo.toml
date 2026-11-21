@@ -1,6 +1,6 @@
 [workspace]
 resolver = "2"
-members = ["probe", "crates/quince-mobile", "crates/quince-auth", "crates/quince-core", "crates/quince-icloud", "crates/quince-media", "crates/quince-vfs", "crates/quince-thumbs", "crates/quince-sync", "crates/quince-link", "crates/uniffi-bindgen", "src-tauri"]
+members = ["probe", "crates/quince-mobile", "crates/quince-auth", "crates/quince-core", "crates/quince-icloud", "crates/quince-media", "crates/quince-vfs", "crates/quince-thumbs", "crates/quince-sync", "crates/quince-link", "crates/quince-backup", "crates/uniffi-bindgen", "src-tauri"]
 
 [workspace.package]
 edition = "2021"

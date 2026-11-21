@@ -254,17 +254,7 @@ pub(crate) fn check_dest(
 
 // ── Names ──────────────────────────────────────────────────────────────────────────────────
 
-/// A name made safe to be one file name on every system (see [`crate::attachment_name`]): no
-/// path in it, nothing hidden, nothing reversed; `fallback` when nothing is left.
-pub(crate) fn file_name(given: &str, fallback: &str) -> String {
-    let cleaned = crate::attachment_name(Some(given), "");
-    // `attachment_name` names an empty one after the id, and the id given was empty.
-    if cleaned == "Attachment " {
-        return fallback.to_string();
-    }
-    // Cut short at its length limit, it can end in a space, which Windows will not keep.
-    cleaned.trim_end_matches(['.', ' ']).to_string()
-}
+pub(crate) use quince_backup::names::file_name;
 
 /// Names taken so far, folder by folder, ignoring case — Windows and macOS do.
 #[derive(Default)]
