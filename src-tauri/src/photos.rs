@@ -482,24 +482,7 @@ pub(crate) fn cache_path(app: &AppHandle, id: &str, size: Size) -> PathBuf {
         .join(&*cache_name(id))
 }
 
-/// A record id as one name in a folder. Ids come from CloudKit and the window, and are checked
-/// where a request comes in (`requested`) — and here too, where one becomes a path, so no other
-/// way in can make one reach elsewhere. A record name is letters, digits, `-` and `_`, kept as
-/// it is; anything else is spelled out in hex behind a `~` no record name has.
-pub(crate) fn cache_name(id: &str) -> std::borrow::Cow<'_, str> {
-    if !id.is_empty()
-        && id
-            .chars()
-            .all(|c| c.is_ascii_alphanumeric() || c == '-' || c == '_')
-    {
-        return id.into();
-    }
-    let mut out = String::from("~");
-    for b in id.bytes() {
-        out.push_str(&format!("{b:02x}"));
-    }
-    out.into()
-}
+pub(crate) use quince_backup::names::cache_name;
 
 /// One picture of a photo: from the disk cache, or fetched from Apple once and kept.
 pub async fn picture(app: &AppHandle, id: &str, size: Size) -> Result<Vec<u8>, String> {
@@ -2622,88 +2605,7 @@ pub async fn photo_download(
     Ok(path.display().to_string())
 }
 
-/// Why a file from iCloud didn't arrive: Apple's answer when it gave one, or the disk's
-/// trouble, so a caller can tell one photo's problem from an outage.
-#[derive(Debug)]
-pub(crate) struct Fetch {
-    /// The HTTP status Apple answered with; `None` when the connection broke or never formed.
-    pub status: Option<u16>,
-    /// The disk refused the write (full, gone, not ours to write).
-    pub disk: Option<std::io::ErrorKind>,
-    pub message: String,
-}
-
-impl From<Fetch> for String {
-    fn from(f: Fetch) -> String {
-        f.message
-    }
-}
-
-fn disk(e: &std::io::Error) -> Fetch {
-    Fetch {
-        status: None,
-        disk: Some(e.kind()),
-        message: e.to_string(),
-    }
-}
-
-/// Where [`stream_to_new_file`] writes `path` until it is whole: `IMG_1.JPG.part`.
-pub(crate) fn part_of(path: &std::path::Path) -> std::path::PathBuf {
-    path.with_extension(format!(
-        "{}.part",
-        path.extension()
-            .map(|e| e.to_string_lossy().into_owned())
-            .unwrap_or_default()
-    ))
-}
-
-/// A file from iCloud written to `path`, which must not exist: streamed into a `.part` beside
-/// it (a large video never sits in memory) and named only once whole, so a broken download
-/// leaves no half file under the real name. Answers how many bytes it holds.
-pub(crate) async fn stream_to_new_file(
-    http: &reqwest::Client,
-    url: &str,
-    path: &std::path::Path,
-) -> Result<u64, Fetch> {
-    use quince_icloud::download::{open, Opened};
-    let part = part_of(path);
-    let failed = |e: quince_icloud::Error| match e {
-        quince_icloud::Error::Io(io) => disk(&io),
-        quince_icloud::Error::Network(n) => Fetch {
-            status: n.status().map(|s| s.as_u16()),
-            disk: None,
-            message: format!("The download broke off: {n}"),
-        },
-        other => Fetch {
-            status: None,
-            disk: None,
-            message: other.to_string(),
-        },
-    };
-    // Every byte Apple said it has, carried on from where it stopped if the connection drops
-    // or iCloud sends it in parts (quince_icloud::download).
-    let download = match open(http, url).await.map_err(failed)? {
-        Opened::Sending(d) => d,
-        Opened::Refused(status) => {
-            return Err(Fetch {
-                status: Some(status),
-                disk: None,
-                message: format!("iCloud did not send the file ({status})"),
-            });
-        }
-    };
-    let len = match download.save(&part, |_| {}).await {
-        Ok(len) => len,
-        Err(e) => {
-            tokio::fs::remove_file(&part).await.ok();
-            return Err(failed(e));
-        }
-    };
-    crate::move_into_place(&part, path)
-        .await
-        .map_err(|e| disk(&e))?;
-    Ok(len)
-}
+pub(crate) use quince_backup::fetch::stream_to_new_file;
 
 /// Where Photos uploads tell the window how they are going: the same shape Drive's tray reads.
 pub const PHOTO_UPLOAD: &str = "quince://photo-upload";

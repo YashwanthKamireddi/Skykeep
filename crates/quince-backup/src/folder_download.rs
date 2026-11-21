@@ -3,7 +3,7 @@
 //! thousand files, a tree hundreds of folders deep.
 //!
 //! - **Where it goes.** Every name in the tree is whoever shared the folder's to choose, so each
-//!   is made one plain name before it touches a path ([`crate::export::file_name`]: no `..`, no
+//!   is made one plain name before it touches a path ([`crate::names::file_name`]: no `..`, no
 //!   separator, no drive, no stream, no Windows device name, no trailing dot or space), and the
 //!   path it makes is checked to sit directly in the folder it was made for
 //!   ([`crate::saving::directly_in`]). Nothing is written outside the folder made for the
@@ -55,17 +55,17 @@ use quince_icloud::drive::Placing;
 use quince_icloud::Error;
 
 /// Where a download's progress is announced.
-pub(crate) const DOWNLOAD: &str = "quince://download";
+pub const DOWNLOAD: &str = "quince://download";
 
 /// How many folders are read, and how many files fetched, at once.
-pub(crate) const AT_ONCE: usize = 4;
+pub const AT_ONCE: usize = 4;
 
 /// How many files found may wait for their turn: how far the reading gets ahead of the fetching.
-pub(crate) const AHEAD: usize = 256;
+pub const AHEAD: usize = 256;
 
 /// Folders deeper than this are not gone into: far past any real tree, and a guard against a
 /// listing that names a folder inside itself under a new id.
-pub(crate) const DEEPEST: usize = 256;
+pub const DEEPEST: usize = 256;
 
 /// How many failures are named one by one; past this they are counted.
 const NAMED_FAILURES: usize = 200;
@@ -77,7 +77,7 @@ const LARGE: u64 = 1 << 20;
 const FOUND_EVERY: Duration = Duration::from_millis(100);
 
 /// How often the disk's free space is looked at again while files arrive, in the app.
-pub(crate) const ROOM_EVERY: Duration = Duration::from_secs(2);
+pub const ROOM_EVERY: Duration = Duration::from_secs(2);
 
 /// How many files in a row may fail on a dropped connection before the connection counts as
 /// lost and the download pauses, rather than marking every file after them as failed.
@@ -86,7 +86,7 @@ const LOST_AFTER: usize = 8;
 /// One step of a download, as the window hears it — the same fields as an upload's.
 #[derive(serde::Serialize, Clone, Debug, PartialEq, Eq)]
 #[serde(rename_all = "camelCase")]
-pub(crate) struct DownloadEvent {
+pub struct DownloadEvent {
     /// Unique within the batch the window started.
     pub id: String,
     pub batch: String,
@@ -107,7 +107,7 @@ pub(crate) struct DownloadEvent {
 /// What a download came to.
 #[derive(serde::Serialize, Debug, Default, PartialEq, Eq)]
 #[serde(rename_all = "camelCase")]
-pub(crate) struct DownloadReport {
+pub struct DownloadReport {
     /// What it is known by in the journal (see [`Journal::key`]).
     pub key: String,
     /// What is now in Downloads: one path for each thing chosen that is there, whole or in part.
@@ -128,10 +128,10 @@ pub(crate) struct DownloadReport {
 }
 
 /// How events reach the window.
-pub(crate) type Emit = Arc<dyn Fn(DownloadEvent) + Send + Sync>;
+pub type Emit = Arc<dyn Fn(DownloadEvent) + Send + Sync>;
 
 /// Drive, as one download asks it, and the computer it saves to.
-pub(crate) struct Drive {
+pub struct Drive {
     pub http: reqwest::Client,
     /// `drivews`: the listings.
     pub drivews: String,
@@ -147,7 +147,7 @@ pub(crate) struct Drive {
 }
 
 /// One download asked for.
-pub(crate) struct Request<'a> {
+pub struct Request<'a> {
     pub batch: &'a str,
     /// What the window calls it — a folder's name, "3 items" — kept for resuming it later.
     pub title: &'a str,
@@ -164,7 +164,7 @@ pub(crate) struct Request<'a> {
 
 /// Where a backup keeps iCloud Drive: `top`, the folder its whole tree lives in, and `earlier`,
 /// where a file replaced by a newer version goes, at the same place in the tree.
-pub(crate) struct Backup<'a> {
+pub struct Backup<'a> {
     pub top: &'a Path,
     pub earlier: &'a Path,
 }
@@ -174,7 +174,7 @@ pub(crate) struct Backup<'a> {
 /// A download's Cancel. Pressed once, everything still running is dropped and nothing more
 /// begins.
 #[derive(Clone, Default)]
-pub(crate) struct Stop(Arc<StopInner>);
+pub struct Stop(Arc<StopInner>);
 
 #[derive(Default)]
 struct StopInner {
@@ -229,14 +229,14 @@ impl Stop {
 /// Downloads not yet finished cleanly, one small file each in Skykeep's own data folder: what
 /// was chosen, and where in Downloads each part of it went. Read when the same is downloaded
 /// again, so it goes on where it was rather than starting over beside itself.
-pub(crate) struct Journal {
+pub struct Journal {
     dir: PathBuf,
 }
 
 /// An unfinished download, as the journal keeps it.
 #[derive(serde::Serialize, serde::Deserialize, Clone, Debug, PartialEq, Eq)]
 #[serde(rename_all = "camelCase")]
-pub(crate) struct Record {
+pub struct Record {
     pub key: String,
     pub title: String,
     pub items: Vec<DriveItem>,
@@ -247,7 +247,7 @@ pub(crate) struct Record {
 /// Where one thing chosen went.
 #[derive(serde::Serialize, serde::Deserialize, Clone, Debug, PartialEq, Eq)]
 #[serde(rename_all = "camelCase")]
-pub(crate) struct Placed {
+pub struct Placed {
     pub drivewsid: String,
     pub path: PathBuf,
     pub folder: bool,
@@ -331,7 +331,7 @@ fn composed(s: &str) -> String {
 /// Names given out in one folder of the copy, compared composed and with case ignored — as
 /// Windows, macOS and exFAT compare them.
 #[derive(Default)]
-pub(crate) struct Taken(HashSet<String>);
+pub struct Taken(HashSet<String>);
 
 impl Taken {
     /// Where `given` is saved in `dir`, a folder that was here before the download: one plain
@@ -364,12 +364,12 @@ impl Taken {
         disk: bool,
     ) -> std::io::Result<PathBuf> {
         let clean =
-            crate::export::file_name(&composed(given), if folder { "Folder" } else { "Download" });
+            crate::names::file_name(&composed(given), if folder { "Folder" } else { "Download" });
         // A folder's name is all stem: "v1.2" numbered is "v1.2 2", not "v1 2.2".
         let (stem, ext) = if folder {
             (clean.as_str(), "")
         } else {
-            crate::name_parts(&clean)
+            crate::names::name_parts(&clean)
         };
         for n in 1..=10_000u32 {
             let name = if n == 1 {
@@ -401,7 +401,7 @@ impl Taken {
 
 /// A new folder for `given` in `dir`, numbered past anything already there, and made — never
 /// one that was there before, so nothing of anyone else's is written into.
-pub(crate) fn make_folder(taken: &mut Taken, dir: &Path, given: &str) -> std::io::Result<PathBuf> {
+pub fn make_folder(taken: &mut Taken, dir: &Path, given: &str) -> std::io::Result<PathBuf> {
     loop {
         let path = taken.name(dir, given, true)?;
         match std::fs::create_dir(&path) {
@@ -438,7 +438,7 @@ fn is_real_dir(path: &Path) -> bool {
 
 /// Whether every folder from `top` down to `dir` is a real folder, not a link: what this
 /// download made, still as it made it.
-pub(crate) fn real_folders(top: &Path, dir: &Path) -> bool {
+pub fn real_folders(top: &Path, dir: &Path) -> bool {
     let Ok(below) = dir.strip_prefix(top) else {
         return false;
     };
@@ -516,7 +516,7 @@ fn disk_words(e: &std::io::Error) -> String {
 }
 
 /// How many bytes can still be written to the disk `dir` is on, by this user.
-pub(crate) fn free_space(dir: &Path) -> Option<u64> {
+pub fn free_space(dir: &Path) -> Option<u64> {
     #[cfg(unix)]
     {
         use std::os::unix::ffi::OsStrExt;
@@ -1195,7 +1195,7 @@ fn now_seconds() -> i64 {
 /// and not finished, on into what it saved then. Progress goes to `emit` as it happens; `stop`
 /// cancels. Fails as a whole only when Apple wants a fresh sign-in; anything else that did not
 /// arrive is in the report.
-pub(crate) async fn run(
+pub async fn run(
     drive: &Drive,
     request: Request<'_>,
     emit: Emit,

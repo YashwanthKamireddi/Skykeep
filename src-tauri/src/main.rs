@@ -28,7 +28,7 @@ mod drive_watch;
 mod export;
 mod fetching;
 mod first_show;
-mod folder_download;
+use quince_backup::folder_download;
 mod grants;
 mod hello;
 mod intake;
@@ -65,7 +65,7 @@ mod push;
 mod recover;
 mod refresh;
 mod reminders_cmds;
-mod saving;
+use quince_backup::saving;
 mod send;
 // Skykeep's results in GNOME's and KDE's own search, on the session bus.
 #[cfg(target_os = "linux")]
@@ -418,20 +418,6 @@ async fn reminder_image_shown(app: &tauri::AppHandle, attachment: &str) -> Resul
         let _ = tokio::fs::rename(&part, &shown).await;
     }
     Ok(bytes)
-}
-
-/// A note attachment's id as part of a file name in `note-media`: letters, digits and dashes,
-/// so an id from a request is never a path.
-fn media_file_id(id: &str) -> String {
-    id.chars()
-        .map(|c| {
-            if c.is_ascii_alphanumeric() || c == '-' {
-                c
-            } else {
-                '_'
-            }
-        })
-        .collect()
 }
 
 /// A note attachment's picture, from disk when it has been fetched before, from Apple when
@@ -868,87 +854,9 @@ async fn hand_over_attachment(app: &tauri::AppHandle, path: &std::path::Path) ->
         .map_err(|e| e.to_string())
 }
 
-/// A note attachment's file name as it is saved: Apple's name for it with anything that could
-/// make it a path (`/`, `\\`, `:`, `..`), hide it (a leading dot), or show it as something it
-/// is not (direction marks that turn `exe.pdf` around) taken out; a name Windows keeps for a
-/// device made harmless. Nothing left, and it is named after the attachment.
-pub(crate) fn attachment_name(given: Option<&str>, id: &str) -> String {
-    let cleaned: String = given
-        .unwrap_or_default()
-        .chars()
-        .filter(|c| {
-            !c.is_control()
-                && !matches!(
-                    c,
-                    '/' | '\\'
-                        | ':'
-                        | '*'
-                        | '?'
-                        | '"'
-                        | '<'
-                        | '>'
-                        | '|'
-                        | '\u{200E}'
-                        | '\u{200F}'
-                        | '\u{202A}'..='\u{202E}'
-                        | '\u{2066}'..='\u{2069}'
-                        | '\u{FEFF}'
-                )
-        })
-        .collect();
-    let trimmed = cleaned
-        .trim_start_matches(['.', ' '])
-        .trim_end_matches(['.', ' ']);
-    // Long enough for any real name, short enough for every file system — and, cut short, it
-    // still ends in neither a dot nor a space, which Windows drops (turning `a.pdf.` into
-    // another file than the one checked).
-    //
-    // Counted in bytes, as Linux counts a name (255 at most, with room left for " 2" and
-    // ".part"), and cut from the stem so the extension stays: 120 characters dropped ".pdf",
-    // and 120 CJK characters or emoji were over the limit and could not be saved at all.
-    const LONGEST: usize = 120;
-    let cut: String = if trimmed.len() <= LONGEST {
-        trimmed.to_string()
-    } else {
-        let (stem, ext) = name_parts(trimmed);
-        let room = LONGEST.saturating_sub(ext.len()).max(1);
-        let mut at = room.min(stem.len());
-        while !stem.is_char_boundary(at) {
-            at -= 1;
-        }
-        format!("{}{ext}", stem[..at].trim_end_matches(['.', ' ']))
-    };
-    let mut name = cut.trim_end_matches(['.', ' ']).to_string();
-    // Windows reads a device in the stem whatever follows it (`CON.txt`, `CON .txt`), and
-    // counts superscript digits as digits (`COM¹`).
-    let stem = name
-        .split('.')
-        .next()
-        .unwrap_or_default()
-        .trim_end_matches(' ')
-        .to_uppercase();
-    let numbered = |prefix: &str| {
-        stem.strip_prefix(prefix).is_some_and(|n| {
-            let mut n = n.chars();
-            matches!(
-                (n.next(), n.next()),
-                (Some('0'..='9' | '\u{b9}' | '\u{b2}' | '\u{b3}'), None)
-            )
-        })
-    };
-    let device = matches!(
-        stem.as_str(),
-        "CON" | "PRN" | "AUX" | "NUL" | "CONIN$" | "CONOUT$" | "CLOCK$"
-    ) || numbered("COM")
-        || numbered("LPT");
-    if device {
-        name.insert(0, '_');
-    }
-    if name.is_empty() {
-        name = format!("Attachment {}", id.chars().take(8).collect::<String>());
-    }
-    name
-}
+#[cfg(test)]
+use quince_backup::names::free_path;
+pub(crate) use quince_backup::names::{attachment_name, media_file_id};
 
 /// Whether opening this file would run it rather than show it: a program, a script, a
 /// launcher or an installer, by its name or by what its first bytes say it is.
@@ -4465,49 +4373,6 @@ async fn contact_delete(guid: String, data: State<'_, Data>) -> UiResult<()> {
     Ok(())
 }
 
-/// A path in `dir` for `name` that holds nothing yet: a number goes on the end rather than
-/// writing over a file already there — the rule a browser follows.
-fn free_path(dir: &std::path::Path, name: &str) -> std::path::PathBuf {
-    let (stem, ext) = name_parts(name);
-    let mut path = dir.join(name);
-    // "Report 2.pdf" for the second copy, as Finder and a folder download (folder_download's
-    // `Taken`) number it, so every save names a second copy the same way.
-    let mut suffix = 2;
-    // Anything at all under the name counts as taken — a link too, even one that leads
-    // nowhere: written through, it would put the file wherever the link points.
-    while path.symlink_metadata().is_ok() {
-        path = dir.join(format!("{stem} {suffix}{ext}"));
-        suffix += 1;
-    }
-    path
-}
-
-/// A file name as its stem and its extension (with the dot, or empty): the whole of a
-/// compressed tar's (".tar.gz"), and only something that reads as one — short, with no space —
-/// so "v1.2 notes" has none.
-pub(crate) fn name_parts(name: &str) -> (&str, &str) {
-    let lower = name.to_ascii_lowercase();
-    for double in [".tar.gz", ".tar.bz2", ".tar.xz", ".tar.zst"] {
-        if lower.len() > double.len() && lower.ends_with(double) {
-            let at = name.len() - double.len();
-            if name.is_char_boundary(at) {
-                return (&name[..at], &name[at..]);
-            }
-        }
-    }
-    match name.rfind('.') {
-        Some(at)
-            if at > 0
-                && name.len() - at - 1 <= 16
-                && !name[at..].contains(' ')
-                && at + 1 < name.len() =>
-        {
-            (&name[..at], &name[at..])
-        }
-        _ => (name, ""),
-    }
-}
-
 /// These people as a vCard file in Downloads, written by Apple. Returns where it went.
 #[tauri::command]
 async fn contacts_export(
@@ -6185,18 +6050,7 @@ pub(crate) fn photo_path(dir: &std::path::Path, guid: &str, signature: &str) -> 
     dir.join("faces").join(format!("{guid_safe}-{safe}"))
 }
 
-/// A file just written renamed to its own name, waiting while Windows holds it — the virus
-/// scanner looks at each new file as it is closed, and a rename meanwhile is refused
-/// (quince_core::files). Off the async threads: the wait is a sleep.
-pub(crate) async fn move_into_place(
-    from: &std::path::Path,
-    to: &std::path::Path,
-) -> std::io::Result<()> {
-    let (from, to) = (from.to_path_buf(), to.to_path_buf());
-    tokio::task::spawn_blocking(move || quince_core::files::rename(&from, &to))
-        .await
-        .map_err(std::io::Error::other)?
-}
+pub(crate) use quince_backup::fetch::move_into_place;
 
 /// Write `bytes` to `path` whole or not at all: to a file of its own beside it, then renamed
 /// over it. Written in place, a crash or a full disk part way left a cut-off picture that was

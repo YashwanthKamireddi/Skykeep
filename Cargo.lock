@@ -4442,13 +4442,13 @@ dependencies = [
  "glib 0.18.5",
  "gstreamer",
  "gtk",
- "icu_normalizer",
  "image",
  "jiff",
  "ksni",
  "libc",
  "notify-rust",
  "quince-auth",
+ "quince-backup",
  "quince-core",
  "quince-icloud",
  "quince-link",
@@ -4506,6 +4506,28 @@ dependencies = [
  "thiserror 2.0.20",
  "tokio",
  "uuid",
+ "wiremock",
+]
+
+[[package]]
+name = "quince-backup"
+version = "0.1.0"
+dependencies = [
+ "futures-util",
+ "icu_normalizer",
+ "jiff",
+ "libc",
+ "quince-core",
+ "quince-icloud",
+ "quince-sync",
+ "quince-vfs",
+ "reqwest 0.12.28",
+ "serde",
+ "serde_json",
+ "sha2 0.10.9",
+ "tempfile",
+ "tokio",
+ "windows 0.62.2",
  "wiremock",
 ]
 
