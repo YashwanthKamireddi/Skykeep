@@ -11,6 +11,7 @@ description = "Skykeep's backup and Export Everything, without a window: the eng
 quince-core = { path = "../quince-core" }
 quince-icloud = { path = "../quince-icloud" }
 quince-vfs = { path = "../quince-vfs" }
+quince-sync = { path = "../quince-sync" }
 # Names from a Mac saved composed (NFC), and compared so, in a folder download (folder_download.rs).
 icu_normalizer = { version = "2.3", default-features = false, features = ["compiled_data"] }
 futures-util = { version = "0.3", default-features = false, features = ["std"] }

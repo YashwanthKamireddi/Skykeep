@@ -2,8 +2,8 @@
 //! with the Mac app. This file keeps what belongs to the window: the event it hears, one export
 //! at a time, the folder grant, and Show in Folder.
 
-pub(crate) use quince_backup::export::*;
 use crate::{Data, UiResult};
+pub(crate) use quince_backup::export::*;
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicBool, Ordering};
 use tauri::{Emitter, State};
@@ -96,4 +96,3 @@ pub fn library_export_reveal(app: tauri::AppHandle) -> UiResult<()> {
         .reveal_item_in_dir(&path)
         .map_err(|e| e.to_string())
 }
-

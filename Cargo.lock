@@ -4519,6 +4519,7 @@ dependencies = [
  "libc",
  "quince-core",
  "quince-icloud",
+ "quince-sync",
  "quince-vfs",
  "reqwest 0.12.28",
  "serde",

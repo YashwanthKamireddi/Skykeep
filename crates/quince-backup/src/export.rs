@@ -37,7 +37,6 @@ const MARKER: &str = ".skykeep-export";
 /// is an export of hours thrown away at its very last step.
 const EXPORT_HELD_FOR: std::time::Duration = std::time::Duration::from_secs(30);
 
-
 /// Where an export is: which service (`step` of `steps`), and how far through it.
 #[derive(Debug, Clone, Serialize, PartialEq, Eq)]
 #[serde(rename_all = "camelCase")]
@@ -214,11 +213,7 @@ fn is_system(p: &Path) -> bool {
 /// Never inside the app's own data (an export there would be copied into the next export, and
 /// cleared with the caches), never in a folder that is iCloud itself (`synced`: the Drive and
 /// Photos folders, where every file written goes up), and never in a system folder.
-pub fn check_dest(
-    dest: &Path,
-    data_dir: &Path,
-    synced: &[PathBuf],
-) -> Result<PathBuf, String> {
+pub fn check_dest(dest: &Path, data_dir: &Path, synced: &[PathBuf]) -> Result<PathBuf, String> {
     if dest.as_os_str().is_empty() || !dest.is_absolute() {
         return Err("Choose a folder to export into.".into());
     }

@@ -2605,10 +2605,7 @@ pub async fn photo_download(
     Ok(path.display().to_string())
 }
 
-pub(crate) use quince_backup::fetch::{part_of, stream_to_new_file};
-
-
-
+pub(crate) use quince_backup::fetch::stream_to_new_file;
 
 /// Where Photos uploads tell the window how they are going: the same shape Drive's tray reads.
 pub const PHOTO_UPLOAD: &str = "quince://photo-upload";

@@ -420,7 +420,6 @@ async fn reminder_image_shown(app: &tauri::AppHandle, attachment: &str) -> Resul
     Ok(bytes)
 }
 
-
 /// A note attachment's picture, from disk when it has been fetched before, from Apple when
 /// not — kept, so a note opens on its pictures at once the next time.
 async fn note_media_cached(
@@ -855,9 +854,9 @@ async fn hand_over_attachment(app: &tauri::AppHandle, path: &std::path::Path) ->
         .map_err(|e| e.to_string())
 }
 
-pub(crate) use quince_backup::names::{attachment_name, media_file_id};
 #[cfg(test)]
 use quince_backup::names::free_path;
+pub(crate) use quince_backup::names::{attachment_name, media_file_id};
 
 /// Whether opening this file would run it rather than show it: a program, a script, a
 /// launcher or an installer, by its name or by what its first bytes say it is.
@@ -4373,8 +4372,6 @@ async fn contact_delete(guid: String, data: State<'_, Data>) -> UiResult<()> {
     outbox::kick();
     Ok(())
 }
-
-
 
 /// These people as a vCard file in Downloads, written by Apple. Returns where it went.
 #[tauri::command]

@@ -78,19 +78,14 @@ pub async fn stream_to_new_file(
             return Err(failed(e));
         }
     };
-    move_into_place(&part, path)
-        .await
-        .map_err(|e| disk(&e))?;
+    move_into_place(&part, path).await.map_err(|e| disk(&e))?;
     Ok(len)
 }
 
 /// A file just written renamed to its own name, waiting while Windows holds it — the virus
 /// scanner looks at each new file as it is closed, and a rename meanwhile is refused
 /// (quince_core::files). Off the async threads: the wait is a sleep.
-pub async fn move_into_place(
-    from: &std::path::Path,
-    to: &std::path::Path,
-) -> std::io::Result<()> {
+pub async fn move_into_place(from: &std::path::Path, to: &std::path::Path) -> std::io::Result<()> {
     let (from, to) = (from.to_path_buf(), to.to_path_buf());
     tokio::task::spawn_blocking(move || quince_core::files::rename(&from, &to))
         .await
