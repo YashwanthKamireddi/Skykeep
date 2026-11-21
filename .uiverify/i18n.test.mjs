@@ -70,8 +70,10 @@ test("German from Germany, Austria or Switzerland is German, and a language not 
       assert.equal(systemLanguage(), "de", tag);
     }
     prefer("fr-FR", "de-DE");
-    assert.equal(systemLanguage(), "de", "the first preference the interface speaks");
+    assert.equal(systemLanguage(), "fr", "the first preference the interface speaks");
     prefer("fr-FR");
+    assert.equal(systemLanguage(), "fr");
+    prefer("it-IT");
     assert.equal(systemLanguage(), "en");
   } finally {
     if (real) Object.defineProperty(globalThis, "navigator", real);
@@ -135,3 +137,10 @@ for (const lang of LANGUAGES.filter((l) => l !== "en")) {
     }
   });
 }
+
+test("French translates labels and keeps interpolation parameters", () => {
+  setLanguage("fr");
+  assert.equal(t("common.cancel"), "Annuler");
+  assert.equal(appName("reminders"), "Rappels");
+  assert.equal(t("sync.updatedMinAgo", { count: 5 }), "Mis à jour il y a 5 min");
+});
