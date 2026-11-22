@@ -1412,7 +1412,9 @@ impl Client {
         // Apple's answer not understood, said as that: read as this computer failing (`Json`),
         // it never counted toward the cooldown, and every resume after started a sign-in again.
         let init: Value = serde_json::from_str(&text).map_err(|_| {
-            Error::Protocol(format!("Apple's answer to starting sign-in wasn't readable ({status})"))
+            Error::Protocol(format!(
+                "Apple's answer to starting sign-in wasn't readable ({status})"
+            ))
         })?;
         let Challenge {
             salt,

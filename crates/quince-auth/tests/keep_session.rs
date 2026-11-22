@@ -521,5 +521,9 @@ async fn an_unreadable_signin_start_waits_before_the_next() {
         Err(quince_auth::Error::CoolingDown { .. })
     ));
     let reqs = server.received_requests().await.unwrap();
-    assert_eq!(requests_to(&reqs, "/signin/init").len(), 1, "one sign-in started");
+    assert_eq!(
+        requests_to(&reqs, "/signin/init").len(),
+        1,
+        "one sign-in started"
+    );
 }
