@@ -495,3 +495,31 @@ async fn a_partial_services_list_is_merged_key_by_key() {
         Some(drive)
     );
 }
+
+/// `/signin/init` answering 200 with a body that isn't JSON is Apple's answer not understood,
+/// and counts toward the sign-in's cooldown: the resume right after waits rather than starting
+/// a sign-in again. Read as this computer failing, it never counted, and every resume (each
+/// heartbeat, each sync) signed in again with no wait between (#242).
+#[tokio::test]
+async fn an_unreadable_signin_start_waits_before_the_next() {
+    let dir = tempfile::tempdir().unwrap();
+    signed_in(dir.path()).await;
+
+    let server = MockServer::start().await;
+    turned_away(&server).await;
+    Mock::given(method("POST"))
+        .and(path("/appleauth/auth/signin/init"))
+        .respond_with(ResponseTemplate::new(200).set_body_string("not json"))
+        .mount(&server)
+        .await;
+
+    let mut client = client_for(&server, dir.path());
+    assert!(client.resume().await.is_err());
+    assert!(client.session().password.is_some(), "the password is kept");
+    assert!(matches!(
+        client.resume().await,
+        Err(quince_auth::Error::CoolingDown { .. })
+    ));
+    let reqs = server.received_requests().await.unwrap();
+    assert_eq!(requests_to(&reqs, "/signin/init").len(), 1, "one sign-in started");
+}

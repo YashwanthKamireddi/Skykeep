@@ -1328,6 +1328,8 @@ impl Client {
             // Only Apple turning the attempt down counts. Not reaching Apple, or this computer
             // failing afterwards (a keyring that would not take the session), is no wrong
             // password: counted, it held a person back from trying again once it was fixed.
+            // Sent to Apple's regional servers and sent on again there, the one try over is
+            // counted: otherwise every resume made two sign-ins with no wait between them.
             Err(
                 Error::CoolingDown { .. }
                 | Error::Network(_)
@@ -1335,7 +1337,6 @@ impl Client {
                 | Error::Io(_)
                 | Error::Json(_)
                 | Error::RepairNeeded
-                | Error::Moved
                 | Error::CodeAgain,
             ) => {}
             Err(e) => {
@@ -1408,7 +1409,11 @@ impl Client {
         if !status.is_success() {
             return Err(apple_error("starting sign-in", status, &text));
         }
-        let init: Value = serde_json::from_str(&text)?;
+        // Apple's answer not understood, said as that: read as this computer failing (`Json`),
+        // it never counted toward the cooldown, and every resume after started a sign-in again.
+        let init: Value = serde_json::from_str(&text).map_err(|_| {
+            Error::Protocol(format!("Apple's answer to starting sign-in wasn't readable ({status})"))
+        })?;
         let Challenge {
             salt,
             b_pub,
