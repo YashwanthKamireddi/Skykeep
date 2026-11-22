@@ -115,14 +115,38 @@ fn within(event: &Event, from: i64, to: i64) -> bool {
 }
 
 /// How a contact is named on the day, as the phone writes it: "Zoya Ahuja’s Birthday".
-fn birthday_title(c: &Contact) -> Option<String> {
-    let name = [c.first_name.as_deref(), c.last_name.as_deref()]
+/// Whether `part` is written wholly in Chinese, Japanese or Korean script.
+fn cjk(part: &str) -> bool {
+    !part.is_empty()
+        && part.chars().all(|c| {
+            matches!(c as u32,
+                0x3400..=0x4DBF | 0x4E00..=0x9FFF | 0xF900..=0xFAFF | 0x20000..=0x3134F // Han
+                | 0x3040..=0x309F // Hiragana
+                | 0x30A0..=0x30FF | 0x31F0..=0x31FF // Katakana (ー and ・ among them)
+                | 0x1100..=0x11FF | 0x3130..=0x318F | 0xAC00..=0xD7AF // Hangul
+                | 0x3005 | 0x3006 // 々 〆
+            )
+        })
+}
+
+/// A person's name in the order its own language writes it, as the Contacts app shows it
+/// (src/lib/names.ts): wholly in Chinese, Japanese or Korean script, family name first with
+/// nothing between (王小明); otherwise given name first, a space between.
+fn person_name(given: Option<&str>, family: Option<&str>) -> String {
+    let given = given.map(str::trim).unwrap_or("");
+    let family = family.map(str::trim).unwrap_or("");
+    let named: Vec<&str> = [given, family]
         .into_iter()
-        .flatten()
-        .map(str::trim)
-        .filter(|s| !s.is_empty())
-        .collect::<Vec<_>>()
-        .join(" ");
+        .filter(|p| !p.is_empty())
+        .collect();
+    if !named.is_empty() && named.iter().all(|p| cjk(p)) {
+        return format!("{family}{given}");
+    }
+    named.join(" ")
+}
+
+fn birthday_title(c: &Contact) -> Option<String> {
+    let name = person_name(c.first_name.as_deref(), c.last_name.as_deref());
     let name = if name.is_empty() {
         c.company.as_deref()?.trim().to_string()
     } else {
@@ -472,6 +496,23 @@ mod tests {
             etag: None,
             methods: Vec::new(),
         }
+    }
+
+    /// A Chinese, Japanese or Korean name is titled family name first, nothing between, as
+    /// Contacts shows it; any other name, or one in mixed scripts, given name first (#232).
+    #[test]
+    fn a_birthday_is_titled_in_the_order_the_name_is_written() {
+        let named = |first: &str, last: &str| {
+            let mut c = contact("X", first, "1990-05-01");
+            c.last_name = Some(last.into());
+            birthday_title(&c).unwrap()
+        };
+        assert_eq!(named("小明", "王"), "王小明’s Birthday");
+        assert_eq!(named("駿", "宮崎"), "宮崎駿’s Birthday");
+        assert_eq!(named("민준", "김"), "김민준’s Birthday");
+        assert_eq!(named("Asha", "Rao"), "Asha Rao’s Birthday");
+        assert_eq!(named("Kevin", "王"), "Kevin 王’s Birthday");
+        assert_eq!(named("王", ""), "王’s Birthday");
     }
 
     fn day_of(t: i64) -> (i16, i8, i8) {

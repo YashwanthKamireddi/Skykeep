@@ -1,5 +1,6 @@
 import { Fragment, memo, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { t, useI18n, type Key } from "../lib/i18n";
+import { familyFirst, personName as ordered } from "../lib/names";
 import { AppFoot } from "../components/AppFoot";
 import { Face } from "../components/Face";
 import { Unsent, Waiting } from "../components/Unsent";
@@ -103,14 +104,14 @@ const ADDABLE = [
 /** The whole name, as the top of a card shows it: prefix and suffix included. */
 function fullName(c: Contact): string {
   if (c.isCompany && c.company?.trim()) return c.company.trim();
-  const name = [c.prefix, c.firstName, c.middleName, c.lastName].filter(Boolean).join(" ");
+  const name = [c.prefix, ordered(c.firstName, c.middleName, c.lastName)].filter(Boolean).join(" ");
   if (!name.trim()) return displayName(c);
   return c.suffix ? `${name}, ${c.suffix}` : name;
 }
 
 /** The person's own name on a card, prefix and suffix included; empty when it has none. */
 function personName(c: Contact): string {
-  const name = [c.prefix, c.firstName, c.middleName, c.lastName].filter(Boolean).join(" ").trim();
+  const name = [c.prefix, ordered(c.firstName, c.middleName, c.lastName)].filter(Boolean).join(" ").trim();
   return name && c.suffix ? `${name}, ${c.suffix}` : name;
 }
 
@@ -1916,6 +1917,16 @@ function RowName({ contact: c }: { contact: Contact }) {
   const company = c.company?.trim();
   const last = c.lastName?.trim();
   if (!(c.isCompany && company) && last) {
+    // 王小明: the family name first and in bold, nothing between, as Chinese, Japanese and
+    // Korean write it (lib/names).
+    if (familyFirst(c.firstName, c.middleName, c.lastName)) {
+      return (
+        <>
+          <b>{last}</b>
+          {[c.middleName, c.firstName].map((p) => p?.trim() ?? "").join("")}
+        </>
+      );
+    }
     const lead = [c.firstName, c.middleName].filter((p) => p?.trim()).join(" ");
     return (
       <>

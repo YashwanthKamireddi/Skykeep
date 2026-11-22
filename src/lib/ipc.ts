@@ -1,4 +1,5 @@
 import { convertFileSrc, invoke } from "@tauri-apps/api/core";
+import { personName } from "./names.ts";
 
 export type Status = {
   hasStoredSession: boolean;
@@ -1073,7 +1074,8 @@ export type SearchFound = { seq: number; groups: SearchGroup[] };
 export function displayName(c: Contact): string {
   // A company's card goes by the company, as Contacts shows it, whoever is named on it.
   if (c.isCompany && c.company?.trim()) return c.company.trim();
-  const full = [c.firstName, c.middleName, c.lastName].filter(Boolean).join(" ").trim();
+  // In the order the name's own language writes it: 王小明, not 小明 王 (lib/names).
+  const full = personName(c.firstName, c.middleName, c.lastName);
   if (full) return full;
   if (c.company?.trim()) return c.company;
   return c.methods[0]?.value ?? "No Name";
