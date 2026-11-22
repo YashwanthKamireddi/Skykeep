@@ -103,6 +103,11 @@
     <color type="primary" scheme_preference="dark">#0B2A4A</color>
   </branding>
   <releases>
+    <release version="0.1.37" date="2026-11-22">
+      <description>
+        <p>A new reminder keeps its due date and flag even when Apple turns that step away for a moment: the change waits and is sent again, and subtasks moved or deleted with their reminder go the same way. After an answer from Apple it couldn't read, sign-in now waits before trying again instead of starting over on every sync. Every answer from iCloud is read within a size limit, and a connection that drops part way through is retried as a dropped connection.</p>
+      </description>
+    </release>
     <release version="0.1.36" date="2026-11-22">
       <description>
         <p>Skykeep now reads in French, thanks to turbotiste. When Apple's iCloud session lapses, Skykeep renews it by itself instead of stopping with an error: on Android, iCloud Drive and syncing no longer stay stuck until you sign out and in again. In Settings, your account's name and storage stay readable on a narrow window.</p>
