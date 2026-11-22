@@ -35,13 +35,20 @@ fn reminder(guid: &str, parent: Option<&str>) -> Reminder {
     }
 }
 
-/// A pretend Apple that holds nothing, takes every create, and answers every other write
-/// with `writes` — a 503 while it is busy, a 200 once it is not.
-async fn apple(writes: u16) -> MockServer {
+/// A pretend Apple that takes every create and answers every other write with `writes`: a
+/// 500 while it fails, a 200 once it does not. `made` is whether it holds the reminder already.
+async fn apple(writes: u16, made: bool) -> MockServer {
     let server = MockServer::start().await;
+    let lookup = if made {
+        ResponseTemplate::new(200).set_body_json(json!({ "records": [{
+            "recordName": "x", "recordType": "Reminder", "recordChangeTag": "t2", "fields": {}
+        }] }))
+    } else {
+        ResponseTemplate::new(404)
+    };
     Mock::given(method("POST"))
         .and(path_regex(r".*/records/lookup$"))
-        .respond_with(ResponseTemplate::new(404))
+        .respond_with(lookup)
         .mount(&server)
         .await;
     Mock::given(method("POST"))
@@ -95,7 +102,7 @@ async fn writes(server: &MockServer) -> Vec<String> {
         .collect()
 }
 
-/// A new reminder's date and flag go in a second write after the create. Apple busy for that
+/// A new reminder's date and flag go in a second write after the create. Apple failing that
 /// one kept the change queued, and sent again it made nothing twice: the date reached Apple.
 /// Before, the change came off the queue as sent and the date was gone for good (#240).
 #[tokio::test]
@@ -114,23 +121,30 @@ async fn a_new_reminders_date_waits_until_apple_takes_it() {
     .unwrap();
     let lib = LibraryLock::new(l, None);
 
-    let busy = apple(503).await;
-    assert!(!send_all(&lib, &busy).await.is_clear());
+    let failing = apple(500, false).await;
+    assert!(!send_all(&lib, &failing).await.is_clear());
     assert_eq!(
         lib.lock().await.outbox_pending(REMINDERS).unwrap().len(),
         1,
         "the date not taken keeps the change queued"
     );
 
-    let free = apple(200).await;
+    assert_eq!(writes(&failing).await, ["create", "update"]);
+
+    // Sent again, to an Apple that holds the reminder now: only the date and flag go.
+    let free = apple(200, true).await;
     assert!(send_all(&lib, &free).await.is_clear());
     assert!(lib.lock().await.outbox_pending(REMINDERS).unwrap().is_empty());
+    assert!(
+        !writes(&free).await.iter().any(|w| w == "create"),
+        "made once, never twice"
+    );
     let sent = free.received_requests().await.unwrap();
     let date = sent
         .iter()
         .filter(|r| r.url.path().ends_with("/records/modify"))
         .filter_map(|r| serde_json::from_slice::<Value>(&r.body).ok())
-        .find(|b| b["operations"][0]["operationType"] == "update")
+        .find(|b| !b["operations"][0]["record"]["fields"]["DueDate"].is_null())
         .expect("the date was sent again");
     let fields = &date["operations"][0]["record"]["fields"];
     assert_eq!(fields["DueDate"]["value"], 1_800_000_000_000_i64);
@@ -171,7 +185,7 @@ async fn a_subtask_left_behind_keeps_the_change_queued() {
     .unwrap();
     let lib = LibraryLock::new(l, None);
 
-    // Apple takes the parent's move and is busy for its subtask's.
+    // Apple takes the parent’s move and fails its subtask’s.
     let server = MockServer::start().await;
     Mock::given(method("POST"))
         .and(path_regex(r".*/records/lookup$"))
@@ -181,7 +195,7 @@ async fn a_subtask_left_behind_keeps_the_change_queued() {
     Mock::given(method("POST"))
         .and(path_regex(r".*/records/modify$"))
         .and(body_string_contains("Reminder/C"))
-        .respond_with(ResponseTemplate::new(503))
+        .respond_with(ResponseTemplate::new(500))
         .with_priority(1)
         .mount(&server)
         .await;
