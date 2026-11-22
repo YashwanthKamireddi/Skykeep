@@ -287,6 +287,12 @@ impl Account {
     }
 }
 
+/// Whether an error's words are Apple's "the session lapsed" (`ReauthRequired`), however a
+/// layer worded around it: the Drive remote hands its errors on as text (`quince_vfs::Fut`).
+fn lapsed(said: &str) -> bool {
+    said.contains(&quince_icloud::Error::ReauthRequired.to_string())
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -338,10 +344,4 @@ mod tests {
         let e = settled(&r, "").unwrap_err();
         assert!(e.to_string().contains("busy"));
     }
-}
-
-/// Whether an error's words are Apple's "the session lapsed" (`ReauthRequired`), however a
-/// layer worded around it: the Drive remote hands its errors on as text (`quince_vfs::Fut`).
-fn lapsed(said: &str) -> bool {
-    said.contains(&quince_icloud::Error::ReauthRequired.to_string())
 }
