@@ -103,6 +103,11 @@
     <color type="primary" scheme_preference="dark">#0B2A4A</color>
   </branding>
   <releases>
+    <release version="0.1.36" date="2026-11-22">
+      <description>
+        <p>Skykeep now reads in French, thanks to turbotiste. When Apple's iCloud session lapses, Skykeep renews it by itself instead of stopping with an error: on Android, iCloud Drive and syncing no longer stay stuck until you sign out and in again. In Settings, your account's name and storage stay readable on a narrow window.</p>
+      </description>
+    </release>
     <release version="0.1.35" date="2026-11-20">
       <description>
         <p>Skykeep now reads in Bahasa Indonesia, thanks to x-edwart. A backup no longer moves apps and other packages from iCloud Drive into Earlier versions and fetches them again on every pass, thanks to szuszupaks. In Photos, choosing Newest First or Oldest First opens on the newest photos at once instead of showing old ones first. In Whole photos only the photo itself counts: a selection can start in the space beside a photo and takes a photo only once it reaches it. Dragging a selection with Ctrl (Cmd on a Mac) now selects and deselects photos, and with Shift adds them. Settings shows where Skykeep is made, on GitHub.</p>
