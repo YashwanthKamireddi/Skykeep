@@ -1009,7 +1009,7 @@ async fn upload_asset(
         .send()
         .await?;
     let status = asked.status();
-    if status.as_u16() == 450 {
+    if crate::session_lapsed(status) {
         return Err(Error::ReauthRequired);
     }
     let answer: Value =

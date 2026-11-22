@@ -127,7 +127,7 @@ pub async fn fetch_folder(
     let status = response.status();
     let text = response.text().await.unwrap_or_default();
 
-    if status.as_u16() == 450 {
+    if crate::session_lapsed(status) {
         return Err(Error::ReauthRequired);
     }
     if busy_status(status) {
@@ -202,7 +202,7 @@ async fn link(
     let status = response.status();
     let text = response.text().await.unwrap_or_default();
 
-    if status.as_u16() == 450 {
+    if crate::session_lapsed(status) {
         return Err(Error::ReauthRequired);
     }
     if busy_status(status) {
@@ -666,7 +666,7 @@ pub async fn create_folder(
     let response = http.post(url).query(&params).json(&body).send().await?;
     let status = response.status();
     let text = response.text().await.unwrap_or_default();
-    if status.as_u16() == 450 {
+    if crate::session_lapsed(status) {
         return Err(Error::ReauthRequired);
     }
     if !status.is_success() {
@@ -713,7 +713,7 @@ async fn raw_listing(
     let response = http.post(url).query(params).json(&body).send().await?;
     let status = response.status();
     let text = response.text().await.unwrap_or_default();
-    if status.as_u16() == 450 {
+    if crate::session_lapsed(status) {
         return Err(Error::ReauthRequired);
     }
     if !status.is_success() {
@@ -767,7 +767,7 @@ pub async fn rename(
 
     let response = http.post(url).query(&params).json(&body).send().await?;
     let status = response.status();
-    if status.as_u16() == 450 {
+    if crate::session_lapsed(status) {
         return Err(Error::ReauthRequired);
     }
     if !status.is_success() {
@@ -1087,7 +1087,7 @@ async fn ask_for_copy(
         .send()
         .await?;
     let status = response.status();
-    if status.as_u16() == 450 {
+    if crate::session_lapsed(status) {
         return Err(Error::ReauthRequired);
     }
     if !status.is_success() {
@@ -1171,7 +1171,7 @@ pub async fn thumbnails(
         docws_root.trim_end_matches('/')
     );
     let response = http.post(url).query(&params).json(&body).send().await?;
-    if response.status().as_u16() == 450 {
+    if crate::session_lapsed(response.status()) {
         return Err(Error::ReauthRequired);
     }
     if !response.status().is_success() {
@@ -1249,7 +1249,7 @@ pub async fn recents(
     );
     let response = http.get(url).query(&query).send().await?;
     let status = response.status();
-    if status.as_u16() == 450 {
+    if crate::session_lapsed(status) {
         return Err(Error::ReauthRequired);
     }
     let text = response.text().await.unwrap_or_default();
@@ -1312,7 +1312,7 @@ pub async fn trash_items(
     let body = json!([{ "drivewsid": TRASH, "partialData": false }]);
     let response = http.post(url).query(&params).json(&body).send().await?;
     let status = response.status();
-    if status.as_u16() == 450 {
+    if crate::session_lapsed(status) {
         return Err(Error::ReauthRequired);
     }
     let text = response.text().await.unwrap_or_default();
@@ -1602,7 +1602,7 @@ pub async fn move_to(
 
     let response = http.post(url).query(&params).json(&body).send().await?;
     let status = response.status();
-    if status.as_u16() == 450 {
+    if crate::session_lapsed(status) {
         return Err(Error::ReauthRequired);
     }
     if !status.is_success() {
@@ -2782,6 +2782,30 @@ mod write_tests {
         ));
     }
 
+    /// #234: Drive answered a folder's listing `421 {"reason":"Missing X-APPLE-WEBAUTH-TOKEN
+    /// cookie"}` and the phone showed "iCloud sent back something unexpected", renewing nothing:
+    /// the account stayed unable to sync. A 421 is a lapsed session, as a 450 is.
+    #[tokio::test]
+    async fn a_listing_answered_421_is_a_lapsed_session() {
+        let server = MockServer::start().await;
+        Mock::given(path_regex(r".*"))
+            .respond_with(
+                ResponseTemplate::new(421).set_body_string(
+                    r#"{"reason":"Missing X-APPLE-WEBAUTH-TOKEN cookie","error":1}"#,
+                ),
+            )
+            .mount(&server)
+            .await;
+        let got = fetch_folder(
+            &reqwest::Client::new(),
+            &server.uri(),
+            vec![],
+            quince_core::drive::ROOT,
+        )
+        .await;
+        assert!(matches!(got, Err(Error::ReauthRequired)), "{got:?}");
+    }
+
     #[tokio::test]
     async fn downloading_to_disk_writes_the_exact_bytes() {
         let server = MockServer::start().await;
@@ -3846,7 +3870,7 @@ async fn post_json(
             .unwrap_or(2 * tries);
         tokio::time::sleep(std::time::Duration::from_secs(asked.clamp(1, 30))).await;
     };
-    if status.as_u16() == 450 {
+    if crate::session_lapsed(status) {
         return Err(Error::ReauthRequired);
     }
     if !status.is_success() {
@@ -4638,7 +4662,7 @@ pub async fn storage(
     let url = format!("{}/storageUsageInfo", setup_root.trim_end_matches('/'));
     let response = http.post(url).query(&params).send().await?;
     let status = response.status();
-    if status.as_u16() == 450 || status.as_u16() == 421 {
+    if crate::session_lapsed(status) {
         return Err(Error::ReauthRequired);
     }
     if !status.is_success() {

@@ -121,7 +121,7 @@ impl<'a> RemindersClient<'a> {
         let status = response.status();
         let text = response.text().await.unwrap_or_default();
 
-        if status.as_u16() == 450 {
+        if crate::session_lapsed(status) {
             return Err(Error::ReauthRequired);
         }
         if !status.is_success() {
@@ -216,7 +216,7 @@ pub async fn set_completed(
     );
     let response = http.post(url).query(&query).json(&body).send().await?;
     let status = response.status();
-    if status.as_u16() == 450 {
+    if crate::session_lapsed(status) {
         return Err(Error::ReauthRequired);
     }
     if !status.is_success() {

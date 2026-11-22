@@ -412,7 +412,7 @@ impl<'a> ZoneClient<'a> {
         let (status, text) = self
             .post_json(url, &json!({ "zones": [zone_body] }))
             .await?;
-        if status.as_u16() == 450 {
+        if crate::session_lapsed(status) {
             return Err(Error::ReauthRequired);
         }
         if !status.is_success() {
@@ -1189,7 +1189,7 @@ impl ZoneClient<'_> {
         });
         let url = self.url("records/query");
         let (status, text) = self.post_json(&url, &body).await?;
-        if status.as_u16() == 450 {
+        if crate::session_lapsed(status) {
             return Err(Error::ReauthRequired);
         }
         if !status.is_success() {
@@ -1236,7 +1236,7 @@ impl ZoneClient<'_> {
         let url = self.url("records/modify");
         let (status, text) = self.post_json(&url, &body).await?;
 
-        if status.as_u16() == 450 {
+        if crate::session_lapsed(status) {
             return Err(Error::ReauthRequired);
         }
         if !status.is_success() {
@@ -1566,7 +1566,7 @@ impl ZoneClient<'_> {
         });
         let url = self.url("records/modify");
         let (status, text) = self.post_json(&url, &body).await?;
-        if status.as_u16() == 450 {
+        if crate::session_lapsed(status) {
             return Err(Error::ReauthRequired);
         }
         if !status.is_success() {
@@ -1632,7 +1632,7 @@ impl ZoneClient<'_> {
             "zoneID": self.zone_id(zone),
         });
         let (status, text) = self.post_json(&url, &body).await?;
-        if status.as_u16() == 450 {
+        if crate::session_lapsed(status) {
             return Err(Error::ReauthRequired);
         }
         if !status.is_success() {
@@ -1660,7 +1660,7 @@ impl ZoneClient<'_> {
     pub async fn zone_names(&self) -> Result<Vec<String>> {
         let url = self.url("zones/list");
         let (status, text) = self.post_json(&url, &json!({})).await?;
-        if status.as_u16() == 450 || status.as_u16() == 401 {
+        if crate::session_lapsed(status) || status.as_u16() == 401 {
             return Err(Error::ReauthRequired);
         }
         if !status.is_success() {
@@ -1684,7 +1684,7 @@ impl ZoneClient<'_> {
     /// shared database, where zones belong to other accounts — its owner.
     pub async fn zone_ids(&self) -> Result<Vec<(String, Option<String>)>> {
         let (status, text) = self.post_json(&self.url("zones/list"), &json!({})).await?;
-        if status.as_u16() == 450 || status.as_u16() == 401 {
+        if crate::session_lapsed(status) || status.as_u16() == 401 {
             return Err(Error::ReauthRequired);
         }
         if !status.is_success() {
@@ -1739,7 +1739,7 @@ impl ZoneClient<'_> {
             "zoneID": self.zone_id(zone),
         });
         let (status, text) = self.post_json(&url, &body).await?;
-        if status.as_u16() == 450 {
+        if crate::session_lapsed(status) {
             return Err(Error::ReauthRequired);
         }
         // Nothing there is an answer; a server that failed to say is not. A busy or broken
@@ -1778,7 +1778,7 @@ impl ZoneClient<'_> {
                 "zoneID": self.zone_id(zone),
             });
             let (status, text) = self.post_json(&url, &body).await?;
-            if status.as_u16() == 450 {
+            if crate::session_lapsed(status) {
                 return Err(Error::ReauthRequired);
             }
             if !status.is_success() {

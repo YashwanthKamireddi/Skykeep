@@ -166,6 +166,19 @@ pub(crate) fn told(context: &str, status: reqwest::StatusCode, body: &str) {
 /// [`Error::NeedsDeviceApproval`] for an answer [`locked_by_data_protection`] recognises.
 /// Every refusal passes through here on its way to an error, so it is also where one is told
 /// to diagnostics.
+/// Whether Apple answered that this session's web cookies have lapsed and it must be renewed:
+/// 450 ("re-authenticate for this service") or 421 ("Missing X-APPLE-WEBAUTH-TOKEN" or
+/// "-USER cookie", #14, #234). Every service call asks this one question, so no reader can
+/// answer it differently again: Drive's listings took only 450, and a 421 showed as an
+/// unexpected error that no renewal followed, leaving the account unable to sync.
+///
+/// Safe to ask before [`approval_needed`]: Advanced Data Protection refuses with 423 or 403
+/// (measured, see [`locked_by_data_protection`]), never 421 or 450. A 401 is not here; the
+/// readers that take it as lapsed say so where they read it.
+pub(crate) fn session_lapsed(status: impl Into<u16>) -> bool {
+    matches!(status.into(), 421 | 450)
+}
+
 pub(crate) fn approval_needed(status: reqwest::StatusCode, body: &str) -> Result<()> {
     told("refused", status, body);
     if locked_by_data_protection(body) {
@@ -191,6 +204,22 @@ fn network_words(e: &reqwest::Error) -> String {
 #[cfg(test)]
 mod approval_tests {
     use super::*;
+
+    /// 421 and 450 are Apple's lapsed session, in any reader (#14, #234). Advanced Data
+    /// Protection's refusals (403, 423) are not, or a renewal would run where an approval is
+    /// asked for; nor is a 401, which the readers that take it say where they read it.
+    #[test]
+    fn only_421_and_450_say_the_session_lapsed() {
+        for lapsed in [421u16, 450] {
+            assert!(session_lapsed(lapsed), "{lapsed}");
+            assert!(session_lapsed(
+                reqwest::StatusCode::from_u16(lapsed).unwrap()
+            ));
+        }
+        for not in [200u16, 401, 403, 404, 423, 429, 500, 503] {
+            assert!(!session_lapsed(not), "{not}");
+        }
+    }
 
     #[test]
     fn the_two_answers_advanced_data_protection_gives_are_recognised() {

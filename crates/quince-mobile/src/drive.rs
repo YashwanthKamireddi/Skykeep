@@ -301,7 +301,7 @@ impl Account {
             return Ok(kept.iter().map(ditem).collect());
         }
         let remote = self.drive()?;
-        let items = runtime().block_on(remote.list(&folder)).map_err(failed)?;
+        let items = self.renewing(|| runtime().block_on(remote.list(&folder)))?;
         Ok(items.iter().map(ditem).collect())
     }
 
@@ -331,15 +331,15 @@ impl Account {
         let item = self.known(&id)?;
         let remote = self.drive()?;
         let partial = format!("{path}.part");
-        runtime()
-            .block_on(quince_icloud::drive::download_to(
+        self.renewing(|| {
+            runtime().block_on(quince_icloud::drive::download_to(
                 &remote.http,
                 &remote.docws,
                 remote.params.clone(),
                 &item,
                 Path::new(&partial),
             ))
-            .map_err(failed)?;
+        })?;
         // Whole or not at all: an app never opens half a file.
         std::fs::rename(&partial, &path).map_err(failed)
     }
@@ -352,15 +352,15 @@ impl Account {
     pub fn drive_write_back(&self, folder: String, staged: String) -> Result<DItem, EngineError> {
         let remote = self.drive()?;
         let folder_item = self.known(&folder)?;
-        let sent = runtime()
-            .block_on(quince_vfs::writes::send(
+        let sent = self.renewing(|| {
+            runtime().block_on(quince_vfs::writes::send(
                 &remote,
                 &folder_item,
                 Path::new(&staged),
                 None,
                 None,
             ))
-            .map_err(failed)?;
+        })?;
         // Kept, so the Files app lists it at once.
         let _ = runtime().block_on(remote.list(&folder));
         Ok(ditem(&sent.item))
@@ -370,9 +370,7 @@ impl Account {
     pub fn drive_mkdir(&self, parent: String, name: String) -> Result<DItem, EngineError> {
         let remote = self.drive()?;
         let parent_item = self.known(&parent)?;
-        let made = runtime()
-            .block_on(remote.mkdir(&parent_item, &name))
-            .map_err(failed)?;
+        let made = self.renewing(|| runtime().block_on(remote.mkdir(&parent_item, &name)))?;
         let _ = runtime().block_on(remote.list(&parent));
         Ok(ditem(&made))
     }
@@ -381,9 +379,7 @@ impl Account {
     pub fn drive_rename(&self, id: String, name: String) -> Result<(), EngineError> {
         let remote = self.drive()?;
         let item = self.known(&id)?;
-        runtime()
-            .block_on(remote.rename(&item, &name))
-            .map_err(failed)?;
+        self.renewing(|| runtime().block_on(remote.rename(&item, &name)))?;
         if let Some(parent) = item.parent_id {
             let _ = runtime().block_on(remote.list(&parent));
         }
@@ -395,9 +391,7 @@ impl Account {
         let remote = self.drive()?;
         let item = self.known(&id)?;
         let to = self.known(&folder)?;
-        runtime()
-            .block_on(remote.move_to(&item, &to))
-            .map_err(failed)?;
+        self.renewing(|| runtime().block_on(remote.move_to(&item, &to)))?;
         for f in [item.parent_id.clone().unwrap_or_default(), folder] {
             if !f.is_empty() {
                 let _ = runtime().block_on(remote.list(&f));
@@ -410,7 +404,7 @@ impl Account {
     pub fn drive_delete(&self, id: String) -> Result<(), EngineError> {
         let remote = self.drive()?;
         let item = self.known(&id)?;
-        runtime().block_on(remote.delete(&item)).map_err(failed)?;
+        self.renewing(|| runtime().block_on(remote.delete(&item)))?;
         if let Some(parent) = item.parent_id {
             let _ = runtime().block_on(remote.list(&parent));
         }
@@ -420,7 +414,7 @@ impl Account {
     /// iCloud storage, `[used, total]` in bytes.
     pub fn drive_space(&self) -> Result<Vec<u64>, EngineError> {
         let remote = self.drive()?;
-        let (used, total) = runtime().block_on(remote.space()).map_err(failed)?;
+        let (used, total) = self.renewing(|| runtime().block_on(remote.space()))?;
         Ok(vec![used, total])
     }
 }
@@ -619,14 +613,14 @@ impl Account {
     pub fn drive_thumbnails(&self, ids: Vec<String>) -> Result<Vec<DThumb>, EngineError> {
         let files: Vec<DriveItem> = ids.iter().filter_map(|id| self.known(id).ok()).collect();
         let remote = self.drive()?;
-        let got = runtime()
-            .block_on(quince_icloud::drive::thumbnails(
+        let got = self.renewing(|| {
+            runtime().block_on(quince_icloud::drive::thumbnails(
                 &remote.http,
                 &remote.docws,
                 remote.params.clone(),
                 &files,
             ))
-            .map_err(failed)?;
+        })?;
         Ok(got
             .into_iter()
             .map(|(id, image)| DThumb { id, image })
@@ -682,15 +676,15 @@ impl Account {
             _ => {
                 let remote = self.drive()?;
                 let partial = staged.with_extension("download");
-                runtime()
-                    .block_on(quince_icloud::drive::download_to(
+                self.renewing(|| {
+                    runtime().block_on(quince_icloud::drive::download_to(
                         &remote.http,
                         &remote.docws,
                         remote.params.clone(),
                         &item,
                         &partial,
                     ))
-                    .map_err(failed)?;
+                })?;
                 std::fs::rename(&partial, &staged).map_err(failed)?;
             }
         }
@@ -762,15 +756,15 @@ impl Account {
         };
         let remote = self.drive()?;
         let folder = self.known(&held.folder)?;
-        let sent = runtime()
-            .block_on(quince_vfs::writes::send_held(
+        let sent = self.renewing(|| {
+            runtime().block_on(quince_vfs::writes::send_held(
                 &remote,
                 &writes,
                 key,
                 &folder,
                 keep_to.as_deref().map(Path::new),
             ))
-            .map_err(failed)?;
+        })?;
         Ok(match sent {
             quince_vfs::writes::Held::Nothing => WriteSent::NotHeld,
             quince_vfs::writes::Held::Open => WriteSent::StillOpen,

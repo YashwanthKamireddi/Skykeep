@@ -129,7 +129,7 @@ impl Service<'_> {
                 Ok(r) => {
                     let status = r.status().as_u16();
                     let text = r.text().await.unwrap_or_default();
-                    if status == 450 || status == 401 {
+                    if crate::session_lapsed(status) || status == 401 {
                         return Err(Error::ReauthRequired);
                     }
                     if status == 429 || status >= 500 {

@@ -975,7 +975,7 @@ async fn write_with(
     let status = response.status();
     let text = response.text().await.unwrap_or_default();
 
-    if status.as_u16() == 450 {
+    if crate::session_lapsed(status) {
         return Err(Error::ReauthRequired);
     }
     // Apple answers a stale syncToken with a conflict rather than an error, and the fix is
@@ -1400,7 +1400,7 @@ async fn write_list_with(
         .await?;
     let status = response.status();
     let text = response.text().await.unwrap_or_default();
-    if status.as_u16() == 450 {
+    if crate::session_lapsed(status) {
         return Err(Error::ReauthRequired);
     }
     if status.as_u16() == 412 || status.as_u16() == 409 {
@@ -1574,7 +1574,7 @@ async fn co_text_with(
         .await?;
     let status = response.status();
     let text = response.text().await.unwrap_or_default();
-    if status.as_u16() == 450 {
+    if crate::session_lapsed(status) {
         return Err(Error::ReauthRequired);
     }
     if status.as_u16() == 412 || status.as_u16() == 409 {
@@ -2126,7 +2126,7 @@ async fn startup(
     let status = response.status();
     let text = response.text().await.unwrap_or_default();
 
-    if status.as_u16() == 450 {
+    if crate::session_lapsed(status) {
         return Err(Error::ReauthRequired);
     }
     if !status.is_success() {
@@ -2171,7 +2171,7 @@ async fn startup(
         page_query.push(("limit".into(), "500".into()));
         let url = format!("{}/co/contacts/card/", root.trim_end_matches('/'));
         let response = http.get(url).query(&page_query).send().await?;
-        if response.status().as_u16() == 450 {
+        if crate::session_lapsed(response.status()) {
             return Err(Error::ReauthRequired);
         }
         if !response.status().is_success() {

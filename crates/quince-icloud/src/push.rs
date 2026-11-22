@@ -48,7 +48,7 @@ async fn post(
         .send()
         .await?;
     let status = response.status();
-    if status.as_u16() == 450 || status.as_u16() == 401 {
+    if crate::session_lapsed(status) || status.as_u16() == 401 {
         return Err(Error::ReauthRequired);
     }
     let text = response.text().await.unwrap_or_default();
