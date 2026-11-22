@@ -467,11 +467,9 @@ pub async fn send(
                     flagged: c.flagged,
                     ..Default::default()
                 };
-                // The reminder exists at Apple now: its date or flag failing is noted, never
-                // a reason to make it again.
-                if let Err(e) = r::edit_cloudkit(http, root, params, &made, &edit).await {
-                    crate::quiet!("a new reminder's date or flag was not set: {e}");
-                }
+                // Its date or flag not taken keeps the change queued: sent again, the create
+                // finds the reminder already made and only the date or flag goes.
+                r::edit_cloudkit(http, root, params, &made, &edit).await?;
             }
             Ok(())
         }
@@ -504,13 +502,11 @@ pub async fn send(
                     list_guid: Some(to.to_string()),
                     ..Default::default()
                 };
+                // A subtask left behind keeps the change queued: sent again, each write is
+                // made over Apple's version as it then stands.
                 for mut child in children {
                     child.list_guid.clone_from(&e.from_list);
-                    if let Err(e) =
-                        r::edit_cloudkit(http, root, params.clone(), &child, &follow).await
-                    {
-                        crate::quiet!("a subtask did not follow its reminder: {e}");
-                    }
+                    r::edit_cloudkit(http, root, params.clone(), &child, &follow).await?;
                 }
             }
             // A date carries its alert, as on the phone; made all-day, it rings none.
@@ -539,9 +535,11 @@ pub async fn send(
                 Ok(()) | Err(Error::NotFound) => {}
                 Err(e) => return Err(e),
             }
+            // A subtask left behind keeps the change queued, sent again until each is gone.
             for child in &d.children {
-                if let Err(e) = r::delete_cloudkit(http, root, params.clone(), child).await {
-                    crate::quiet!("a subtask did not go with its reminder: {e}");
+                match r::delete_cloudkit(http, root, params.clone(), child).await {
+                    Ok(()) | Err(Error::NotFound) => {}
+                    Err(e) => return Err(e),
                 }
             }
             Ok(())
@@ -551,3 +549,6 @@ pub async fn send(
         ))),
     }
 }
+
+#[cfg(test)]
+mod tests;
