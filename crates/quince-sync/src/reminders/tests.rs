@@ -55,8 +55,9 @@ async fn apple(writes: u16, made: bool) -> MockServer {
         .and(path_regex(r".*/records/modify$"))
         .and(body_string_contains(r#""operationType":"create""#))
         .respond_with(
-            ResponseTemplate::new(200)
-                .set_body_json(json!({ "records": [{ "recordName": "x", "recordChangeTag": "t2" }] })),
+            ResponseTemplate::new(200).set_body_json(
+                json!({ "records": [{ "recordName": "x", "recordChangeTag": "t2" }] }),
+            ),
         )
         .with_priority(1)
         .mount(&server)
@@ -64,8 +65,9 @@ async fn apple(writes: u16, made: bool) -> MockServer {
     Mock::given(method("POST"))
         .and(path_regex(r".*/records/modify$"))
         .respond_with(
-            ResponseTemplate::new(writes)
-                .set_body_json(json!({ "records": [{ "recordName": "x", "recordChangeTag": "t2" }] })),
+            ResponseTemplate::new(writes).set_body_json(
+                json!({ "records": [{ "recordName": "x", "recordChangeTag": "t2" }] }),
+            ),
         )
         .mount(&server)
         .await;
@@ -134,7 +136,12 @@ async fn a_new_reminders_date_waits_until_apple_takes_it() {
     // Sent again, to an Apple that holds the reminder now: only the date and flag go.
     let free = apple(200, true).await;
     assert!(send_all(&lib, &free).await.is_clear());
-    assert!(lib.lock().await.outbox_pending(REMINDERS).unwrap().is_empty());
+    assert!(lib
+        .lock()
+        .await
+        .outbox_pending(REMINDERS)
+        .unwrap()
+        .is_empty());
     assert!(
         !writes(&free).await.iter().any(|w| w == "create"),
         "made once, never twice"
@@ -171,8 +178,11 @@ async fn a_subtask_left_behind_keeps_the_change_queued() {
         },
     ])
     .unwrap();
-    l.put_reminders(&[reminder("Reminder/P", None), reminder("Reminder/C", Some("Reminder/P"))])
-        .unwrap();
+    l.put_reminders(&[
+        reminder("Reminder/P", None),
+        reminder("Reminder/C", Some("Reminder/P")),
+    ])
+    .unwrap();
     let parent = l.reminder("Reminder/P").unwrap().unwrap();
     record_reminder_edit(
         &mut l,
@@ -202,24 +212,36 @@ async fn a_subtask_left_behind_keeps_the_change_queued() {
     Mock::given(method("POST"))
         .and(path_regex(r".*/records/modify$"))
         .respond_with(
-            ResponseTemplate::new(200)
-                .set_body_json(json!({ "records": [{ "recordName": "x", "recordChangeTag": "t2" }] })),
+            ResponseTemplate::new(200).set_body_json(
+                json!({ "records": [{ "recordName": "x", "recordChangeTag": "t2" }] }),
+            ),
         )
         .mount(&server)
         .await;
     assert!(!send_all(&lib, &server).await.is_clear());
-    assert_eq!(lib.lock().await.outbox_pending(REMINDERS).unwrap().len(), 1, "move");
+    assert_eq!(
+        lib.lock().await.outbox_pending(REMINDERS).unwrap().len(),
+        1,
+        "move"
+    );
 
     // Deleted, the same: the parent goes, its subtask does not, the change waits.
     let lib = {
         let mut l = library_with_list();
-        l.put_reminders(&[reminder("Reminder/P", None), reminder("Reminder/C", Some("Reminder/P"))])
-            .unwrap();
+        l.put_reminders(&[
+            reminder("Reminder/P", None),
+            reminder("Reminder/C", Some("Reminder/P")),
+        ])
+        .unwrap();
         let parent = l.reminder("Reminder/P").unwrap().unwrap();
         record_reminder_delete(&mut l, &parent).unwrap();
         LibraryLock::new(l, None)
     };
     assert!(!send_all(&lib, &server).await.is_clear());
-    assert_eq!(lib.lock().await.outbox_pending(REMINDERS).unwrap().len(), 1, "delete");
+    assert_eq!(
+        lib.lock().await.outbox_pending(REMINDERS).unwrap().len(),
+        1,
+        "delete"
+    );
     assert!(writes(&server).await.iter().all(|w| w == "update"));
 }
