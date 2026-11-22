@@ -88,6 +88,32 @@ impl pass::Hooks for Phone<'_> {
 }
 
 impl Account {
+    /// One request of Apple's made from the app rather than a pass (a Drive folder opened, a
+    /// file sent or fetched, the Files app): when Apple answers that the web session lapsed
+    /// (a 421 or 450, `ReauthRequired`), the session is renewed as a pass renews it and the
+    /// request made once more. Only passes renewed it before, so the Drive tab showed the lapse
+    /// as an error and stayed stuck until the next pass, or a sign-out (#234). A lapse is a
+    /// request Apple turned away before acting on it, so the second try never does anything
+    /// twice.
+    pub(crate) fn renewing<T, E: std::fmt::Display>(
+        &self,
+        call: impl Fn() -> Result<T, E>,
+    ) -> Result<T, EngineError> {
+        match call() {
+            Err(e) if lapsed(&e.to_string()) && self.renewed() => {
+                call().map_err(|e| failed(e.to_string()))
+            }
+            r => r.map_err(|e| failed(e.to_string())),
+        }
+    }
+
+    /// The session asked about afresh, as a pass after a refusal asks: alive again or not.
+    fn renewed(&self) -> bool {
+        let mut c = self.client();
+        c.session_doubted();
+        runtime().block_on(c.ensure_session()) == quince_auth::Kept::Alive
+    }
+
     /// [`Apple`], in one look at the session; `what` names the app for "sign in" wording.
     pub(crate) fn apple(&self, what: &str) -> Result<Apple, EngineError> {
         let c = self.client();
@@ -159,32 +185,6 @@ impl Account {
     /// says it lapsed (no code is ever asked for from here). Called before every background
     /// pass; Apple is asked at most once a minute however many passes start together, and not
     /// at all once it has ended the session, until a sign-in.
-    /// One request of Apple's made from the app rather than a pass (a Drive folder opened, a
-    /// file sent or fetched, the Files app): when Apple answers that the web session lapsed
-    /// (a 421 or 450, `ReauthRequired`), the session is renewed as a pass renews it and the
-    /// request made once more. Only passes renewed it before, so the Drive tab showed the lapse
-    /// as an error and stayed stuck until the next pass, or a sign-out (#234). A lapse is a
-    /// request Apple turned away before acting on it, so the second try never does anything
-    /// twice.
-    pub(crate) fn renewing<T, E: std::fmt::Display>(
-        &self,
-        call: impl Fn() -> Result<T, E>,
-    ) -> Result<T, EngineError> {
-        match call() {
-            Err(e) if lapsed(&e.to_string()) && self.renewed() => {
-                call().map_err(|e| failed(e.to_string()))
-            }
-            r => r.map_err(|e| failed(e.to_string())),
-        }
-    }
-
-    /// The session asked about afresh, as a pass after a refusal asks: alive again or not.
-    fn renewed(&self) -> bool {
-        let mut c = self.client();
-        c.session_doubted();
-        runtime().block_on(c.ensure_session()) == quince_auth::Kept::Alive
-    }
-
     pub fn ensure_session(&self) -> SessionState {
         let mut c = self.client();
         match runtime().block_on(c.ensure_session()) {
