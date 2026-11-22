@@ -488,6 +488,10 @@ button.rx-tag:hover { background: color-mix(in srgb, var(--text) 12%, transparen
 .rx-tag-name:focus-visible, .rx-tag-remove:focus-visible { outline: var(--focus-ring); }
 .rx-tag-input { min-width: 6ch; flex: 1; padding: 2px 0; border: 0; background: none; color: var(--text); font: inherit; font-size: var(--t-13); outline: none; }
 .rx-tag-input::placeholder { color: var(--text-3); }
+/* The tag field and the account's tags it suggests (#63): the app's own menu, under the field. */
+.rx-tag-entry { display: flex; flex: 1; min-width: 6ch; }
+.rx-tag-suggest { min-width: 140px; }
+.rx-tag-suggest li { padding: 0 12px 0 8px; }
 .rx-detail-actions { display: flex; justify-content: space-between; margin-top: 2px; }
 
 /* The last row: where a new reminder is typed. */

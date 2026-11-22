@@ -224,6 +224,7 @@ pooled "notes folders"     node .uiverify/notes-folders.mjs
 pooled "list info"         node .uiverify/reminders-list-info.mjs
 pooled "reminder date"     node .uiverify/reminders-date.mjs
 pooled "reminder keys"     node .uiverify/reminders-keys.mjs
+pooled "tag suggestions"   node .uiverify/reminders-tag-suggest.mjs
 pooled "contacts order"    node .uiverify/contacts-order.mjs
 pooled "contacts lists"    node .uiverify/contacts-lists.mjs
 pooled "drive keys"        node .uiverify/drive-keys.mjs

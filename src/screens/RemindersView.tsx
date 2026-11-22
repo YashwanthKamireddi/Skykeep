@@ -1,5 +1,5 @@
 import { dateLocale, dateText, dayOf, timeText, useClock } from "../lib/when";
-import { Fragment, memo, useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { Fragment, memo, useCallback, useEffect, useId, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { t, activeLanguage, useI18n, type Key } from "../lib/i18n";
 import { AppFoot } from "../components/AppFoot";
 import { refusedLink, outsideHref } from "../lib/links";
@@ -465,6 +465,11 @@ export function RemindersView() {
   const [listSections, setListSections] = useState<ReminderSection[]>([]);
   /** Every tag on the account, with how many reminders still to do carry each. */
   const [tags, setTags] = useState<TagCount[]>([]);
+  /** The account's tags by name, most used first: one array while they stay the same. */
+  const tagNames = useMemo(
+    () => [...tags].sort((a, b) => b.open - a.open || a.name.localeCompare(b.name)).map((x) => x.name),
+    [tags],
+  );
   /** Each reminder's tags, by its id — for the chips on its row. */
   const [tagsOf, setTagsOf] = useState<Map<string, string[]>>(() => new Map());
   /** Smart lists made by hand on the phone or Mac, and how many each holds now. */
@@ -2214,6 +2219,7 @@ export function RemindersView() {
                     isOpen={isOpen}
                     marks={marks.get(reminder.guid)}
                     tags={isOpen && detailOf?.guid === reminder.guid ? detailOf.tags : (tagsOf.get(reminder.guid) ?? NO_TAGS)}
+                    knownTags={isOpen ? tagNames : NO_TAGS}
                     home={listById.get(reminder.listGuid)}
                     showListName={showListName}
                     justMoved={moved?.guid === reminder.guid ? moved.text : null}
@@ -2454,6 +2460,8 @@ type ReminderRowProps = {
   isOpen: boolean;
   marks: ReminderMarks | undefined;
   tags: string[];
+  /** Every tag on the account, most used first: what the open row's tag field suggests. */
+  knownTags: string[];
   home: ReminderList | undefined;
   showListName: boolean;
   justMoved: string | null;
@@ -2569,7 +2577,7 @@ const AddReminder = memo(function AddReminder({
  * each row the pointer crossed while dragging.
  */
 const ReminderRow = memo(function ReminderRow({
-  reminder, depth, dated, isOpen, marks: rowMarks, tags: rowTags, home, showListName, justMoved, waiting,
+  reminder, depth, dated, isOpen, marks: rowMarks, tags: rowTags, knownTags, home, showListName, justMoved, waiting,
   leaving, settling, isDragging, canReorder, inList, act, focused, detailOf, moreOf, lists, sections, section, subtasks,
   kids, kidsHidden,
 }: ReminderRowProps) {
@@ -2877,6 +2885,7 @@ const ReminderRow = memo(function ReminderRow({
             <TagsField
               reminder={reminder}
               tags={rowTags}
+              known={knownTags}
               onOpen={(name) => act.current.openTag(name)}
               onAdd={(name) => void act.current.tagAdd(reminder, name)}
               onRemove={(name) => void act.current.tagRemove(reminder, name)}
@@ -3295,15 +3304,78 @@ function EarlyField({ reminder, alerts, onChange }: {
   );
 }
 
+/** The most tags the field suggests at once. */
+const TAG_SUGGESTIONS = 6;
+
+/**
+ * The account's tags that fit what is typed, for the tag field: those starting with it first,
+ * then those holding it, most used first within each, none the reminder already has.
+ */
+export function tagSuggestions(known: string[], typed: string, has: string[]): string[] {
+  const want = typed.replace(/^#+/, "").toLocaleLowerCase();
+  const taken = new Set(has.map((x) => x.toLocaleLowerCase()));
+  const open = known.filter((name) => !taken.has(name.toLocaleLowerCase()));
+  if (!want) return open.slice(0, TAG_SUGGESTIONS);
+  const lower = (name: string) => name.toLocaleLowerCase();
+  const starts = open.filter((name) => lower(name).startsWith(want));
+  const holds = open.filter((name) => !lower(name).startsWith(want) && lower(name).includes(want));
+  return [...starts, ...holds].slice(0, TAG_SUGGESTIONS);
+}
+
 /** Tags as Apple writes them, #name. Tap one to see everything carrying it. */
-function TagsField({ reminder, tags, onOpen, onAdd, onRemove }: {
+function TagsField({ reminder, tags, known, onOpen, onAdd, onRemove }: {
   reminder: Reminder;
   tags: string[];
+  /** Every tag on the account, most used first. */
+  known: string[];
   onOpen: (name: string) => void;
   onAdd: (name: string) => void;
   onRemove: (name: string) => void;
 }) {
   const [typed, setTyped] = useState("");
+  /** Whether the field is being typed in: the suggestions show only then. */
+  const [typing, setTyping] = useState(false);
+  /** The suggestion the arrow keys are on, or -1 for none (Enter adds what is typed). */
+  const [active, setActive] = useState(-1);
+  const listId = useId();
+  const offered = typing ? tagSuggestions(known, typed, tags) : [];
+  const field = useRef<HTMLInputElement | null>(null);
+  const menu = useRef<HTMLUListElement | null>(null);
+  /** Where the list is drawn: under the field, or over it where there is no room below. */
+  const [place, setPlace] = useState<{ left: number; top: number; maxHeight: number } | null>(null);
+  const shown = offered.length > 0;
+  useLayoutEffect(() => {
+    if (!shown) {
+      setPlace(null);
+      return undefined;
+    }
+    const measure = () => {
+      const at = field.current?.getBoundingClientRect();
+      const list = menu.current;
+      if (!at || !list) return;
+      const pad = 8;
+      const height = list.scrollHeight;
+      const below = window.innerHeight - pad - (at.bottom + 4);
+      const fitsBelow = below >= Math.min(height, 120);
+      const room = fitsBelow ? below : at.top - 4 - pad;
+      const top = fitsBelow ? at.bottom + 4 : at.top - 4 - Math.min(height, room);
+      const left = Math.max(pad, Math.min(at.left - 5, window.innerWidth - pad - list.offsetWidth));
+      setPlace({ left, top, maxHeight: room });
+    };
+    measure();
+    // The detail scrolled or the window resized while it is open: it follows the field.
+    window.addEventListener("resize", measure);
+    window.addEventListener("scroll", measure, true);
+    return () => {
+      window.removeEventListener("resize", measure);
+      window.removeEventListener("scroll", measure, true);
+    };
+  }, [shown, offered.length]);
+  const pick = (name: string) => {
+    onAdd(name);
+    setTyped("");
+    setActive(-1);
+  };
   if (!REMINDER_DETAIL_WRITES && tags.length === 0) return null;
   return (
     <div className="rx-field">
@@ -3322,27 +3394,86 @@ function TagsField({ reminder, tags, onOpen, onAdd, onRemove }: {
           </span>
         ))}
         {REMINDER_DETAIL_WRITES && (
-          <input
-            className="rx-tag-input"
-            value={typed}
-            placeholder={tags.length ? t("reminders.add") : t("reminders.addTag")}
-            aria-label={t("reminders.addTagTo", { title: reminder.title })}
-            onChange={(e) => setTyped(e.target.value.replace(/\s/g, ""))}
-            onKeyDown={(e) => {
-              if (composing(e)) return;
-              if ((e.key === "Enter" || e.key === "," || e.key === " ") && typed.replace(/^#+/, "")) {
-                e.preventDefault();
-                onAdd(typed);
+          <span className="rx-tag-entry">
+            <input
+              ref={field}
+              className="rx-tag-input"
+              value={typed}
+              placeholder={tags.length ? t("reminders.add") : t("reminders.addTag")}
+              aria-label={t("reminders.addTagTo", { title: reminder.title })}
+              role="combobox"
+              aria-autocomplete="list"
+              aria-expanded={offered.length > 0}
+              aria-controls={listId}
+              aria-activedescendant={active >= 0 && offered[active] ? `${listId}-${active}` : undefined}
+              onFocus={() => setTyping(true)}
+              onChange={(e) => {
+                setTyped(e.target.value.replace(/\s/g, ""));
+                setTyping(true);
+                setActive(-1);
+              }}
+              onKeyDown={(e) => {
+                if (composing(e)) return;
+                if (e.key === "ArrowDown" && offered.length) {
+                  e.preventDefault();
+                  setActive((a) => (a + 1) % offered.length);
+                } else if (e.key === "ArrowUp" && offered.length) {
+                  e.preventDefault();
+                  setActive((a) => (a <= 0 ? offered.length - 1 : a - 1));
+                } else if (e.key === "Escape" && offered.length) {
+                  // The list closes; the reminder stays open.
+                  e.preventDefault();
+                  e.stopPropagation();
+                  setTyping(false);
+                  setActive(-1);
+                } else if (e.key === "Enter" && active >= 0 && offered[active]) {
+                  e.preventDefault();
+                  pick(offered[active]);
+                } else if ((e.key === "Enter" || e.key === "," || e.key === " ") && typed.replace(/^#+/, "")) {
+                  e.preventDefault();
+                  pick(typed);
+                } else if (e.key === "Backspace" && !typed && tags.length) {
+                  onRemove(tags[tags.length - 1]);
+                }
+              }}
+              onBlur={() => {
+                if (typed.replace(/^#+/, "")) onAdd(typed);
                 setTyped("");
-              } else if (e.key === "Backspace" && !typed && tags.length) {
-                onRemove(tags[tags.length - 1]);
-              }
-            }}
-            onBlur={() => {
-              if (typed.replace(/^#+/, "")) onAdd(typed);
-              setTyped("");
-            }}
-          />
+                setTyping(false);
+                setActive(-1);
+              }}
+            />
+            {shown && (
+              <Portal>
+              <ul
+                ref={menu}
+                className="picker-menu rx-tag-suggest"
+                id={listId}
+                role="listbox"
+                aria-label={t("reminders.tags")}
+                style={place ? { left: place.left, top: place.top, maxHeight: place.maxHeight } : { left: 0, top: 0, visibility: "hidden" }}
+              >
+                {offered.map((name, i) => (
+                  <li
+                    key={name}
+                    id={`${listId}-${i}`}
+                    role="option"
+                    aria-selected={i === active}
+                    className={i === active ? "is-active" : undefined}
+                    onMouseEnter={() => setActive(i)}
+                    // Taken on press, before the field loses its focus to the click.
+                    onMouseDown={(e) => {
+                      e.preventDefault();
+                      pick(name);
+                    }}
+                  >
+                    #{name}
+                  </li>
+                ))}
+              </ul>
+              </Portal>
+            )}
+          </span>
         )}
       </div>
     </div>
