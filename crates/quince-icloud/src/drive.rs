@@ -125,7 +125,7 @@ pub async fn fetch_folder(
 
     let response = http.post(url).query(&query).json(&body).send().await?;
     let status = response.status();
-    let text = response.text().await.unwrap_or_default();
+    let text = crate::bounded::reply(response).await?;
 
     if crate::session_lapsed(status) {
         return Err(Error::ReauthRequired);
@@ -200,7 +200,7 @@ async fn link(
 
     let response = http.get(url).query(&query).send().await?;
     let status = response.status();
-    let text = response.text().await.unwrap_or_default();
+    let text = crate::bounded::reply(response).await?;
 
     if crate::session_lapsed(status) {
         return Err(Error::ReauthRequired);
@@ -665,7 +665,7 @@ pub async fn create_folder(
 
     let response = http.post(url).query(&params).json(&body).send().await?;
     let status = response.status();
-    let text = response.text().await.unwrap_or_default();
+    let text = crate::bounded::reply(response).await?;
     if crate::session_lapsed(status) {
         return Err(Error::ReauthRequired);
     }
@@ -712,7 +712,7 @@ async fn raw_listing(
     let body = json!([{ "drivewsid": folder_id, "partialData": false }]);
     let response = http.post(url).query(params).json(&body).send().await?;
     let status = response.status();
-    let text = response.text().await.unwrap_or_default();
+    let text = crate::bounded::reply(response).await?;
     if crate::session_lapsed(status) {
         return Err(Error::ReauthRequired);
     }
@@ -771,7 +771,7 @@ pub async fn rename(
         return Err(Error::ReauthRequired);
     }
     if !status.is_success() {
-        let text = response.text().await.unwrap_or_default();
+        let text = crate::bounded::reply(response).await?;
         crate::approval_needed(status, &text)?;
         return Err(Error::Protocol(format!(
             "Drive refused the rename ({status}): {}",
@@ -1091,7 +1091,7 @@ async fn ask_for_copy(
         return Err(Error::ReauthRequired);
     }
     if !status.is_success() {
-        let text = response.text().await.unwrap_or_default();
+        let text = crate::bounded::reply(response).await?;
         crate::approval_needed(status, &text)?;
         return Err(Error::Protocol(format!(
             "Drive refused the copy ({status}): {}",
@@ -1176,7 +1176,7 @@ pub async fn thumbnails(
     }
     if !response.status().is_success() {
         let status = response.status();
-        let text = response.text().await.unwrap_or_default();
+        let text = crate::bounded::reply(response).await?;
         crate::approval_needed(status, &text)?;
         return Err(Error::Protocol(format!("thumbnails returned {status}")));
     }
@@ -1252,7 +1252,7 @@ pub async fn recents(
     if crate::session_lapsed(status) {
         return Err(Error::ReauthRequired);
     }
-    let text = response.text().await.unwrap_or_default();
+    let text = crate::bounded::reply(response).await?;
     if !status.is_success() {
         crate::approval_needed(status, &text)?;
         return Err(Error::Protocol(format!(
@@ -1315,7 +1315,7 @@ pub async fn trash_items(
     if crate::session_lapsed(status) {
         return Err(Error::ReauthRequired);
     }
-    let text = response.text().await.unwrap_or_default();
+    let text = crate::bounded::reply(response).await?;
     if !status.is_success() {
         crate::approval_needed(status, &text)?;
         return Err(Error::Protocol(format!(
@@ -1606,7 +1606,7 @@ pub async fn move_to(
         return Err(Error::ReauthRequired);
     }
     if !status.is_success() {
-        let text = response.text().await.unwrap_or_default();
+        let text = crate::bounded::reply(response).await?;
         crate::approval_needed(status, &text)?;
         return Err(Error::Protocol(format!(
             "Drive refused the move ({status}): {}",
@@ -2806,6 +2806,19 @@ mod write_tests {
         assert!(matches!(got, Err(Error::ReauthRequired)), "{got:?}");
     }
 
+    /// A listing whose connection dropped part way through is the connection, said as that and
+    /// tried again — read as an empty answer, it was "Drive returned invalid JSON" (#241).
+    #[tokio::test]
+    async fn a_listing_cut_off_part_way_is_the_connection() {
+        let at = crate::bounded::tests::raw_server(
+            "HTTP/1.1 200 OK\r\ncontent-length: 4000\r\nconnection: close\r\n\r\n",
+            br#"[{"drivewsid":"FOLDER::com.apple.CloudDocs::root","items":["#.to_vec(),
+        )
+        .await;
+        let got = fetch_folder(&reqwest::Client::new(), &at, vec![], quince_core::drive::ROOT).await;
+        assert!(matches!(got, Err(Error::Network(_))), "{got:?}");
+    }
+
     #[tokio::test]
     async fn downloading_to_disk_writes_the_exact_bytes() {
         let server = MockServer::start().await;
@@ -3847,7 +3860,7 @@ async fn post_json(
             .get("retry-after")
             .and_then(|v| v.to_str().ok())
             .and_then(|v| v.trim().parse::<u64>().ok());
-        let text = response.text().await.unwrap_or_default();
+        let text = crate::bounded::reply(response).await?;
         // A 409 is not always a name taken. Measured with three files going into one folder:
         // `ZONE_BUSY` — "Sync zone CAS Op-Lock failed. There was a concurrent write and this
         // operation was rejected. Retry request" — two writes to the zone at once, the second

@@ -19,6 +19,44 @@ pub fn read_capped(reader: impl Read, most: u64) -> Option<Vec<u8>> {
     (out.len() as u64 <= most).then_some(out)
 }
 
+/// The most one answer from a server is read to: hundreds of thousands of Drive items in one
+/// folder listing, far beyond any real answer, and still short of taking the memory with it.
+pub const MOST_REPLY: u64 = 256 * 1024 * 1024;
+
+/// A server's whole answer as text, within [`MOST_REPLY`]: the one way an answer is read.
+///
+/// Read as `text().unwrap_or_default()` before, an answer had no ceiling, and a connection
+/// dropped part way through came back as an empty answer and was said as one not understood
+/// rather than as the connection it was.
+pub async fn reply(response: reqwest::Response) -> crate::Result<String> {
+    reply_within(response, MOST_REPLY).await
+}
+
+/// [`reply`] within `most` bytes: anything longer is refused, never cut short and read as if
+/// whole.
+pub async fn reply_within(mut response: reqwest::Response, most: u64) -> crate::Result<String> {
+    let too_long = || {
+        crate::Error::Protocol(format!(
+            "the answer was larger than {} MB",
+            most / (1024 * 1024)
+        ))
+    };
+    if response.content_length().is_some_and(|n| n > most) {
+        return Err(too_long());
+    }
+    let mut body = Vec::new();
+    while let Some(piece) = response.chunk().await? {
+        if (body.len() + piece.len()) as u64 > most {
+            return Err(too_long());
+        }
+        body.extend_from_slice(&piece);
+    }
+    Ok(match String::from_utf8(body) {
+        Ok(text) => text,
+        Err(e) => String::from_utf8_lossy(e.as_bytes()).into_owned(),
+    })
+}
+
 /// A gzip stream inflated, within `most`.
 pub fn gunzip(data: &[u8], most: u64) -> Option<Vec<u8>> {
     read_capped(flate2::read::GzDecoder::new(data), most)
@@ -30,7 +68,7 @@ pub fn unzlib(data: &[u8], most: u64) -> Option<Vec<u8>> {
 }
 
 #[cfg(test)]
-mod tests {
+pub(crate) mod tests {
     use super::*;
     use std::io::Write;
 
@@ -38,6 +76,61 @@ mod tests {
         let mut e = flate2::write::GzEncoder::new(Vec::new(), flate2::Compression::best());
         e.write_all(bytes).unwrap();
         e.finish().unwrap()
+    }
+
+    /// A server that writes `head` and `body` raw to the first connection, then closes it:
+    /// an answer streamed in pieces with no length said, or one cut off part way.
+    pub(crate) async fn raw_server(head: &'static str, body: Vec<u8>) -> String {
+        use tokio::io::AsyncWriteExt;
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let at = format!("http://{}", listener.local_addr().unwrap());
+        tokio::spawn(async move {
+            let (mut socket, _) = listener.accept().await.unwrap();
+            let mut asked = [0u8; 4096];
+            let _ = tokio::io::AsyncReadExt::read(&mut socket, &mut asked).await;
+            let _ = socket.write_all(head.as_bytes()).await;
+            let _ = socket.write_all(&body).await;
+            let _ = socket.shutdown().await;
+        });
+        at
+    }
+
+    fn chunked(pieces: usize, size: usize) -> Vec<u8> {
+        let mut out = Vec::new();
+        for _ in 0..pieces {
+            out.extend_from_slice(format!("{size:x}\r\n").as_bytes());
+            out.extend(std::iter::repeat_n(b'a', size));
+            out.extend_from_slice(b"\r\n");
+        }
+        out.extend_from_slice(b"0\r\n\r\n");
+        out
+    }
+
+    const CHUNKED: &str = "HTTP/1.1 200 OK\r\ntransfer-encoding: chunked\r\nconnection: close\r\n\r\n";
+
+    /// An answer with no length said is read up to the ceiling and refused past it, never
+    /// cut short and read as if whole; one within it reads whole.
+    #[tokio::test]
+    async fn an_answer_past_the_ceiling_is_refused_and_one_within_reads_whole() {
+        let at = raw_server(CHUNKED, chunked(8, 1024)).await;
+        let got = reply_within(reqwest::get(&at).await.unwrap(), 4096).await;
+        assert!(matches!(got, Err(crate::Error::Protocol(_))), "{got:?}");
+
+        let at = raw_server(CHUNKED, chunked(4, 1024)).await;
+        let got = reply_within(reqwest::get(&at).await.unwrap(), 4096).await.unwrap();
+        assert_eq!(got.len(), 4096);
+    }
+
+    /// A length said up front past the ceiling is refused before a byte of it is read.
+    #[tokio::test]
+    async fn a_length_said_past_the_ceiling_is_refused_unread() {
+        let at = raw_server(
+            "HTTP/1.1 200 OK\r\ncontent-length: 1000000000\r\nconnection: close\r\n\r\n",
+            Vec::new(),
+        )
+        .await;
+        let got = reply_within(reqwest::get(&at).await.unwrap(), 4096).await;
+        assert!(matches!(got, Err(crate::Error::Protocol(_))), "{got:?}");
     }
 
     #[test]

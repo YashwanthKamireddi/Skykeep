@@ -1013,7 +1013,7 @@ async fn upload_asset(
         return Err(Error::ReauthRequired);
     }
     let answer: Value =
-        serde_json::from_str(&asked.text().await.unwrap_or_default()).unwrap_or(Value::Null);
+        serde_json::from_str(&crate::bounded::reply(asked).await?).unwrap_or(Value::Null);
     let to = answer
         .pointer("/tokens/0/url")
         .and_then(Value::as_str)
@@ -1029,7 +1029,7 @@ async fn upload_asset(
         .send()
         .await?;
     let status = sent.status();
-    let text = sent.text().await.unwrap_or_default();
+    let text = crate::bounded::reply(sent).await?;
     if !status.is_success() {
         return Err(Error::Protocol(format!(
             "Apple would not take the file ({status})"

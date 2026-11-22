@@ -1154,7 +1154,7 @@ impl<'a> CalendarClient<'a> {
                 "Apple did not say what this event holds now ({status}), so it was not changed."
             )));
         }
-        let body: Value = serde_json::from_str(&response.text().await?)
+        let body: Value = serde_json::from_str(&crate::bounded::reply(response).await?)
             .map_err(|e| Error::Protocol(format!("event detail: {e}")))?;
         Ok(event_of(&body).map(|_| body))
     }
@@ -1526,7 +1526,7 @@ impl<'a> CalendarClient<'a> {
             .send()
             .await?;
         let status = response.status();
-        let text = response.text().await.unwrap_or_default();
+        let text = crate::bounded::reply(response).await?;
 
         if crate::session_lapsed(status) {
             return Err(Error::ReauthRequired);
@@ -1568,7 +1568,7 @@ impl<'a> CalendarClient<'a> {
             .send()
             .await?;
         let status = response.status();
-        let text = response.text().await.unwrap_or_default();
+        let text = crate::bounded::reply(response).await?;
 
         if crate::session_lapsed(status) {
             return Err(Error::ReauthRequired);

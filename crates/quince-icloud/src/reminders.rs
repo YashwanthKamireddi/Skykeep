@@ -119,7 +119,7 @@ impl<'a> RemindersClient<'a> {
             .send()
             .await?;
         let status = response.status();
-        let text = response.text().await.unwrap_or_default();
+        let text = crate::bounded::reply(response).await?;
 
         if crate::session_lapsed(status) {
             return Err(Error::ReauthRequired);
@@ -220,7 +220,7 @@ pub async fn set_completed(
         return Err(Error::ReauthRequired);
     }
     if !status.is_success() {
-        let text = response.text().await.unwrap_or_default();
+        let text = crate::bounded::reply(response).await?;
         crate::approval_needed(status, &text)?;
         return Err(Error::Protocol(format!(
             "couldn't update that reminder ({status}): {}",

@@ -337,7 +337,7 @@ impl<'a> ZoneClient<'a> {
                 .get("retry-after")
                 .and_then(|v| v.to_str().ok())
                 .map(ToString::to_string);
-            let text = response.text().await.unwrap_or_default();
+            let text = crate::bounded::reply(response).await?;
             // Advanced Data Protection keeping this session out until it is approved on a
             // device (403 ACCESS_DENIED, "private db access disabled"): said as that, for every
             // CloudKit read and write, rather than as Apple's JSON.

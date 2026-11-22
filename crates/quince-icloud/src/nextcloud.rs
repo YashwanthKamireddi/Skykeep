@@ -148,7 +148,8 @@ pub async fn begin(http: &Client, server: &Url) -> Result<Flow> {
             status.as_u16()
         )));
     }
-    let begun: Begun = response.json().await.map_err(|_| {
+    let text = crate::bounded::reply(response).await?;
+    let begun: Begun = serde_json::from_str(&text).map_err(|_| {
         Error::Refused("There’s no Nextcloud at that address. Check it and try again.".into())
     })?;
     Ok(Flow {

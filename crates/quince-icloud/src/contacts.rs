@@ -630,7 +630,10 @@ pub async fn changed(
         }
         _ => {}
     }
-    let body: Value = response.json().await.unwrap_or(Value::Null);
+    // A body cut short is the connection, said as that: read as no answer, it said nothing
+    // had changed.
+    let body: Value =
+        serde_json::from_str(&crate::bounded::reply(response).await?).unwrap_or(Value::Null);
     Ok(changeset_moved(&body, tokens))
 }
 
@@ -973,7 +976,7 @@ async fn write_with(
         .send()
         .await?;
     let status = response.status();
-    let text = response.text().await.unwrap_or_default();
+    let text = crate::bounded::reply(response).await?;
 
     if crate::session_lapsed(status) {
         return Err(Error::ReauthRequired);
@@ -1399,7 +1402,7 @@ async fn write_list_with(
         .send()
         .await?;
     let status = response.status();
-    let text = response.text().await.unwrap_or_default();
+    let text = crate::bounded::reply(response).await?;
     if crate::session_lapsed(status) {
         return Err(Error::ReauthRequired);
     }
@@ -1573,7 +1576,7 @@ async fn co_text_with(
         .send()
         .await?;
     let status = response.status();
-    let text = response.text().await.unwrap_or_default();
+    let text = crate::bounded::reply(response).await?;
     if crate::session_lapsed(status) {
         return Err(Error::ReauthRequired);
     }
@@ -2124,7 +2127,7 @@ async fn startup(
     let url = format!("{}/co/startup", root.trim_end_matches('/'));
     let response = http.get(url).query(&query).send().await?;
     let status = response.status();
-    let text = response.text().await.unwrap_or_default();
+    let text = crate::bounded::reply(response).await?;
 
     if crate::session_lapsed(status) {
         return Err(Error::ReauthRequired);
@@ -2180,7 +2183,8 @@ async fn startup(
                 response.status()
             )));
         }
-        let page: Value = response.json().await?;
+        let page: Value = serde_json::from_str(&crate::bounded::reply(response).await?)
+            .map_err(|e| Error::Protocol(format!("the address book answer wasn't readable: {e}")))?;
         let more = page
             .get("contacts")
             .and_then(Value::as_array)

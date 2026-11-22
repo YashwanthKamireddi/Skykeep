@@ -143,7 +143,7 @@ pub async fn page(
     if matches!(status.as_u16(), 401 | 421 | 450) {
         return Err(Error::ReauthRequired);
     }
-    let text = response.text().await.unwrap_or_default();
+    let text = crate::bounded::reply(response).await?;
     if !status.is_success() {
         crate::approval_needed(status, &text)?;
         if text.contains("CHANGE_TOKEN_EXPIRED") || status.as_u16() == 400 && token.is_some() {
@@ -204,7 +204,7 @@ pub async fn zones_moved(
         if matches!(status.as_u16(), 401 | 421 | 450) {
             return Err(Error::ReauthRequired);
         }
-        let text = response.text().await.unwrap_or_default();
+        let text = crate::bounded::reply(response).await?;
         if !status.is_success() {
             crate::approval_needed(status, &text)?;
             if text.contains("CHANGE_TOKEN_EXPIRED") || status.as_u16() == 400 && asked_with_token {

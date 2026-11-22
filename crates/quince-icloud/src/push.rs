@@ -51,7 +51,7 @@ async fn post(
     if crate::session_lapsed(status) || status.as_u16() == 401 {
         return Err(Error::ReauthRequired);
     }
-    let text = response.text().await.unwrap_or_default();
+    let text = crate::bounded::reply(response).await?;
     if !status.is_success() {
         return Err(Error::Protocol(format!(
             "the push channel answered {status}: {}",
@@ -122,7 +122,7 @@ pub async fn wait(
             "the push channel answered {status}"
         )));
     }
-    let text = response.text().await.unwrap_or_default();
+    let text = crate::bounded::reply(response).await?;
     if text.trim().is_empty() {
         return Ok(None);
     }
@@ -160,7 +160,7 @@ pub async fn database_changed(
     if matches!(status.as_u16(), 401 | 421 | 450) {
         return Err(Error::ReauthRequired);
     }
-    let text = response.text().await.unwrap_or_default();
+    let text = crate::bounded::reply(response).await?;
     if !status.is_success() {
         // An expired or unreadable token is started over, not reported.
         if text.contains("CHANGE_TOKEN_EXPIRED") || status.as_u16() == 400 && token.is_some() {

@@ -55,7 +55,7 @@ impl SharedStreams<'_> {
             .send()
             .await?;
         let status = r.status();
-        let text = r.text().await?;
+        let text = crate::bounded::reply(r).await?;
         if status.as_u16() == 401 || crate::session_lapsed(status) {
             return Err(Error::ReauthRequired);
         }
