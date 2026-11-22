@@ -225,6 +225,7 @@ pooled "list info"         node .uiverify/reminders-list-info.mjs
 pooled "reminder date"     node .uiverify/reminders-date.mjs
 pooled "reminder keys"     node .uiverify/reminders-keys.mjs
 pooled "contacts order"    node .uiverify/contacts-order.mjs
+pooled "contacts CJK names" node .uiverify/contacts-cjk-names.mjs
 pooled "contacts lists"    node .uiverify/contacts-lists.mjs
 pooled "drive keys"        node .uiverify/drive-keys.mjs
 pooled "drive drag"        node .uiverify/drive-drag.mjs
