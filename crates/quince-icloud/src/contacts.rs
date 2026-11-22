@@ -2183,8 +2183,10 @@ async fn startup(
                 response.status()
             )));
         }
-        let page: Value = serde_json::from_str(&crate::bounded::reply(response).await?)
-            .map_err(|e| Error::Protocol(format!("the address book answer wasn't readable: {e}")))?;
+        let page: Value =
+            serde_json::from_str(&crate::bounded::reply(response).await?).map_err(|e| {
+                Error::Protocol(format!("the address book answer wasn't readable: {e}"))
+            })?;
         let more = page
             .get("contacts")
             .and_then(Value::as_array)

@@ -106,7 +106,8 @@ pub(crate) mod tests {
         out
     }
 
-    const CHUNKED: &str = "HTTP/1.1 200 OK\r\ntransfer-encoding: chunked\r\nconnection: close\r\n\r\n";
+    const CHUNKED: &str =
+        "HTTP/1.1 200 OK\r\ntransfer-encoding: chunked\r\nconnection: close\r\n\r\n";
 
     /// An answer with no length said is read up to the ceiling and refused past it, never
     /// cut short and read as if whole; one within it reads whole.
@@ -117,7 +118,9 @@ pub(crate) mod tests {
         assert!(matches!(got, Err(crate::Error::Protocol(_))), "{got:?}");
 
         let at = raw_server(CHUNKED, chunked(4, 1024)).await;
-        let got = reply_within(reqwest::get(&at).await.unwrap(), 4096).await.unwrap();
+        let got = reply_within(reqwest::get(&at).await.unwrap(), 4096)
+            .await
+            .unwrap();
         assert_eq!(got.len(), 4096);
     }
 

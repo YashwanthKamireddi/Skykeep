@@ -2815,7 +2815,13 @@ mod write_tests {
             br#"[{"drivewsid":"FOLDER::com.apple.CloudDocs::root","items":["#.to_vec(),
         )
         .await;
-        let got = fetch_folder(&reqwest::Client::new(), &at, vec![], quince_core::drive::ROOT).await;
+        let got = fetch_folder(
+            &reqwest::Client::new(),
+            &at,
+            vec![],
+            quince_core::drive::ROOT,
+        )
+        .await;
         assert!(matches!(got, Err(Error::Network(_))), "{got:?}");
     }
 
