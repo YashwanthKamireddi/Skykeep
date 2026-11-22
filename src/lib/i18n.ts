@@ -1,9 +1,9 @@
 import { Fragment, createElement, useSyncExternalStore, type ReactNode } from "react";
-import fr from "../locales/fr.json" with { type: "json" };
 import en from "../locales/en.json" with { type: "json" };
 import de from "../locales/de.json" with { type: "json" };
 import zhCN from "../locales/zh-CN.json" with { type: "json" };
 import id from "../locales/id.json" with { type: "json" };
+import fr from "../locales/fr.json" with { type: "json" };
 
 /**
  * Every language the interface speaks, by BCP 47 tag, with its own name for the picker. Adding
@@ -12,11 +12,11 @@ import id from "../locales/id.json" with { type: "json" };
  * checked against, and the fallback for any string a translation doesn't have yet.
  */
 const LOCALES = {
-  fr: { name: "Français", strings: fr },
   en: { name: "English", strings: en },
   de: { name: "Deutsch", strings: de },
   "zh-CN": { name: "简体中文", strings: zhCN },
   id: { name: "Bahasa Indonesia", strings: id },
+  fr: { name: "Français", strings: fr },
 } as const satisfies Record<string, { name: string; strings: object }>;
 
 export type ResolvedLanguage = keyof typeof LOCALES;

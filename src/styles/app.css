@@ -2037,9 +2037,12 @@
 .prefs-pane :is(.settings-hint, .settings-label, .settings-stack) { white-space: normal; overflow-wrap: anywhere; }
 
 /* Home: the account, its storage and its two actions, then the apps across the whole width. */
-.prefs-hero { display: flex; align-items: center; gap: 16px; min-width: 0; padding: 4px 0 8px; }
+/* The account's name, address and storage keep room to be read: on a narrow window, or in a
+   language whose buttons are long ("Synchroniser maintenant"), the buttons go under them
+   rather than squeezing them into a column a word wide. */
+.prefs-hero { display: flex; flex-wrap: wrap; align-items: center; gap: 16px; min-width: 0; padding: 4px 0 8px; }
 .prefs-hero > .avatar { flex: none; }
-.prefs-hero-text { display: flex; flex-direction: column; gap: 2px; flex: 1; min-width: 0; max-width: 560px; }
+.prefs-hero-text { display: flex; flex-direction: column; gap: 2px; flex: 1 1 260px; min-width: 0; max-width: 560px; }
 .prefs-hero-text strong { font-size: var(--t-20); font-weight: 650; letter-spacing: -0.01em; }
 .prefs-hero-mail { font-size: var(--t-13); color: var(--text-2); }
 .prefs-hero-text > strong, .prefs-hero-mail { overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }
