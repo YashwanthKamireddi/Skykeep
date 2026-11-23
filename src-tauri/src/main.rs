@@ -57,6 +57,10 @@ mod power;
 #[cfg(not(target_os = "linux"))]
 mod poster {
     //! Elsewhere than Linux there is no GStreamer to read a frame with: Apple's own poster stands.
+
+    /// Whether a frame can be read from a video here at all: if not, none is fetched to try.
+    pub const READS_FRAMES: bool = false;
+
     pub fn first_seen_frame(_path: &std::path::Path) -> Result<Option<Vec<u8>>, String> {
         Ok(None)
     }

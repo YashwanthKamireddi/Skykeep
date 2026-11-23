@@ -685,29 +685,59 @@ async fn from_apple(
 
 /// A video's own picture: its first frame that shows something (see `crate::poster`), upright,
 /// read once from the film and kept (`photos/poster/<id>`). An empty file there says the film
-/// is dark all through, so it is not read again. `None` when there is none to be had.
+/// is dark all through, or could not be read, so it is not read (or fetched) again. `None` when
+/// there is none to be had: at once where no frame can be read (Windows, macOS), never fetching
+/// the film to find that out (#258).
 async fn seen_frame(app: &AppHandle, id: &str) -> Option<Vec<u8>> {
     let kept = crate::state_dir(app)
         .join("photos")
         .join("poster")
         .join(&*cache_name(id));
-    if let Ok(bytes) = tokio::fs::read(&kept).await {
-        return (!bytes.is_empty()).then_some(bytes);
-    }
     // The film on disk already, whichever it is; otherwise Apple's streaming copy, a few
     // megabytes, which the player wants anyway.
-    let film = [Size::Original, Size::Video]
+    let here = [Size::Original, Size::Video]
         .into_iter()
         .map(|s| cache_path(app, id, s))
         .find(|p| p.exists());
-    let film = match film {
+    frame_of(
+        &kept,
+        here,
+        || async { Box::pin(cached(app, id, Size::Video)).await.ok() },
+        crate::poster::READS_FRAMES,
+        crate::poster::first_seen_frame,
+    )
+    .await
+}
+
+/// `seen_frame` with its parts given: the file it is kept in, the film on disk if there is
+/// one, how to fetch it if not, whether frames can be read here at all, and how one is read.
+async fn frame_of<F, Fut>(
+    kept: &std::path::Path,
+    here: Option<PathBuf>,
+    fetch: F,
+    reads: bool,
+    read: fn(&std::path::Path) -> Result<Option<Vec<u8>>, String>,
+) -> Option<Vec<u8>>
+where
+    F: FnOnce() -> Fut,
+    Fut: std::future::Future<Output = Option<PathBuf>>,
+{
+    if !reads {
+        return None;
+    }
+    if let Ok(bytes) = tokio::fs::read(kept).await {
+        return (!bytes.is_empty()).then_some(bytes);
+    }
+    let film = match here {
         Some(path) => path,
-        None => Box::pin(cached(app, id, Size::Video)).await.ok()?,
+        None => fetch().await?,
     };
-    let frame = crate::cpu::run(move || crate::poster::first_seen_frame(&film))
+    // A film that cannot be read is written down as having no frame, as a dark one is: asked
+    // again, its streaming copy was fetched again at every start, for nothing.
+    let frame = crate::cpu::run(move || read(&film))
         .await
         .ok()?
-        .ok()?;
+        .unwrap_or(None);
     if let Some(dir) = kept.parent() {
         let _ = tokio::fs::create_dir_all(dir).await;
     }
@@ -716,7 +746,7 @@ async fn seen_frame(app: &AppHandle, id: &str) -> Option<Vec<u8>> {
         .await
         .is_ok()
     {
-        let _ = tokio::fs::rename(&part, &kept).await;
+        let _ = tokio::fs::rename(&part, kept).await;
     }
     frame
 }
@@ -3650,6 +3680,51 @@ mod tests {
         assert_eq!(secs, [0, 0, 0, 30, 60, 120, 240, 480, 600, 600, 600, 600]);
     }
     use super::*;
+
+    /// Where no frame can be read (Windows, macOS), a black poster never fetches the video to
+    /// try; and a film that cannot be read is written down, never fetched again (#258).
+    #[tokio::test]
+    async fn a_poster_never_fetches_a_film_it_cannot_read() {
+        let dir = tempfile::tempdir().unwrap();
+        let kept = dir.path().join("poster").join("V1");
+        let fetched = std::sync::atomic::AtomicUsize::new(0);
+        let fetch = || async {
+            fetched.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+            Some(dir.path().join("film.mov"))
+        };
+        assert_eq!(
+            frame_of(&kept, None, fetch, false, |_| Ok(None)).await,
+            None
+        );
+        assert_eq!(
+            fetched.load(std::sync::atomic::Ordering::SeqCst),
+            0,
+            "nothing fetched where no frame can be read"
+        );
+    }
+
+    /// A film that cannot be read is written down as having no frame: fetched once, never at
+    /// every start after (#258).
+    #[tokio::test]
+    async fn an_unreadable_film_is_fetched_once() {
+        let dir = tempfile::tempdir().unwrap();
+        let kept = dir.path().join("poster").join("V1");
+        let fetched = std::sync::atomic::AtomicUsize::new(0);
+        let fetch = || async {
+            fetched.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+            Some(dir.path().join("film.mov"))
+        };
+        let unreadable: fn(&std::path::Path) -> Result<Option<Vec<u8>>, String> =
+            |_| Err("no decoder for this film".into());
+        for _ in 0..3 {
+            assert_eq!(frame_of(&kept, None, fetch, true, unreadable).await, None);
+        }
+        assert_eq!(
+            fetched.load(std::sync::atomic::Ordering::SeqCst),
+            1,
+            "fetched once, then known to have no frame"
+        );
+    }
 
     /// A grid picture is made from the thumbnail Apple has, even one short of its step (Apple's
     /// are 480 across, the grid's largest step 512): never from the screen-sized picture,

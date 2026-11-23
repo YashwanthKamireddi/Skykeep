@@ -10,6 +10,9 @@ use gstreamer as gst;
 use gstreamer::prelude::*;
 use gstreamer_app as gst_app;
 
+/// Whether a frame can be read from a video here at all (see the app's stand-in elsewhere).
+pub const READS_FRAMES: bool = true;
+
 /// Where the poster is looked for: the start, then a little way in, then further.
 const LOOKS: [u64; 7] = [0, 250, 500, 1000, 2000, 4000, 8000];
 
