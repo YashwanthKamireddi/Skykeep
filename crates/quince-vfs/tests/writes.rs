@@ -622,3 +622,60 @@ fn a_file_renamed_while_sending_ends_under_its_new_name() {
     assert_eq!(world.names(ROOT), ["b.txt"], "only the new name");
     drop(session);
 }
+
+/// Written, the app stopped before the send, and the folder set up again the way the app
+/// does it — thumbnails configured after what was waiting is taken back — mounts and sends.
+/// Before the fix, taking it back started its sender at once, and configuring the thumbnails
+/// next panicked ("configured before it is mounted"): the folder never came up (#253).
+#[test]
+fn a_folder_with_files_waiting_mounts_and_sends_them() {
+    if !Path::new("/dev/fuse").exists() {
+        return;
+    }
+    let world = Arc::new(World::default());
+    world
+        .folders
+        .lock()
+        .unwrap()
+        .insert(ROOT.into(), Vec::new());
+    let rt = tokio::runtime::Runtime::new().unwrap();
+    let (cache, staging, at, thumbs) = (
+        tempfile::tempdir().unwrap(),
+        tempfile::tempdir().unwrap(),
+        tempfile::tempdir().unwrap(),
+        tempfile::tempdir().unwrap(),
+    );
+    // Apple refusing, so the file is still waiting when the app stops (its own runtime,
+    // gone with it: no sender of that run is left to send it).
+    *world.refuse.lock().unwrap() = true;
+    let before = tokio::runtime::Runtime::new().unwrap();
+    let session = mount(&world, &before, at.path(), cache.path(), staging.path());
+    std::fs::write(at.path().join("Late.txt"), b"late\n").unwrap();
+    drop(session);
+    before.shutdown_background();
+    *world.refuse.lock().unwrap() = false;
+
+    let fs = fuse::DriveFs::new(
+        Arc::new(Apple(Arc::clone(&world))),
+        Arc::new(Library(Arc::clone(&world))),
+        Arc::new(Cache::new(cache.path()).unwrap()),
+        rt.handle().clone(),
+    )
+    .with_writes(staging.path())
+    .unwrap()
+    .with_thumbnails(at.path().to_path_buf(), thumbs.path().to_path_buf());
+    let writes = fs.writes().unwrap();
+    assert_eq!(writes.waiting().files, 1, "still waiting before the mount");
+    std::thread::sleep(Duration::from_millis(1500));
+    assert!(
+        world.bytes_of(ROOT, "Late.txt").is_none(),
+        "nothing sent before the folder is mounted"
+    );
+    let again = fuse::mount(fs, at.path()).expect("mounted");
+    assert!(
+        settled(&world, "Late.txt", b"late\n"),
+        "sent once mounted: {:?}",
+        world.names(ROOT)
+    );
+    drop(again);
+}

@@ -219,7 +219,9 @@ impl DriveFs {
     }
 
     /// Files can be written, their bytes kept in `dir` until Apple has them. What was waiting
-    /// when the folder last went away is picked up again and sent.
+    /// when the folder last went away is picked up again, and sent once the folder is mounted
+    /// (see `mount`): a sender started here would hold the folder's state, and every setting
+    /// made after this one would find it shared (#253).
     ///
     /// # Errors
     /// When the folder for the bytes cannot be made.
@@ -246,7 +248,6 @@ impl DriveFs {
                         ..pending
                     },
                 );
-            Inner::schedule(&self.0, ino, Duration::from_millis(500));
         }
         writes.save();
         Ok(self)
@@ -254,6 +255,25 @@ impl DriveFs {
 }
 
 impl Inner {
+    /// What was waiting when the folder last went away (taken back by `with_writes`), each
+    /// sent a moment after the folder comes up.
+    fn send_waiting(me: &Arc<Self>) {
+        let Some(writes) = me.writes.as_ref() else {
+            return;
+        };
+        let waiting: Vec<u64> = writes
+            .items
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
+            .iter()
+            .filter(|(_, p)| p.dirty)
+            .map(|(ino, _)| *ino)
+            .collect();
+        for ino in waiting {
+            Self::schedule(me, ino, Duration::from_millis(500));
+        }
+    }
+
     /// In the background, once per folder version: the folder's thumbnails written.
     fn fill_thumbnails(&self, folder: &DriveItem, files: &[(String, u64, DriveItem)]) {
         let Some((mount, cache)) = self.thumbs.clone() else {
@@ -2004,6 +2024,7 @@ pub fn mount(fs: DriveFs, at: &Path) -> std::io::Result<fuser::BackgroundSession
     config.n_threads = Some(4);
     let inner = Arc::clone(&fs.0);
     let session = fuser::spawn_mount(fs, at, &config)?;
+    Inner::send_waiting(&inner);
     // What was kept here before is made whole again, behind (a file may have changed on
     // another device since).
     Inner::settle_kept(&inner);
