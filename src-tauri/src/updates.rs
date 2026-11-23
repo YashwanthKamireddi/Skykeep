@@ -581,18 +581,26 @@ async fn check(app: &AppHandle, asked: bool) -> bool {
 }
 
 /// What is still on its way to iCloud: the outbox's changes, photos being uploaded, and files
-/// written in the Drive folder.
+/// written in the Drive folder. A refused change is not: it is never sent again by itself,
+/// and a restart keeps it (in the library) for the person to send again or let go — waiting
+/// on it, Update and Restart would wait forever (#254).
 async fn unsent(app: &AppHandle) -> (usize, usize, usize) {
     let (changes, uploads) = {
         let library = app.state::<crate::Data>();
         let library = library.0.lock().await;
         (
-            library.outbox_count().unwrap_or(1),
+            changes_on_the_way(&library),
             library.unfinished_uploads().map_or(1, |u| u.len()),
         )
     };
     let files = crate::mount::unsent_files(&crate::state_dir(app));
     (changes, uploads, files)
+}
+
+/// The outbox's changes on their way to Apple (one, when the library cannot be read: never
+/// install over what might be waiting).
+fn changes_on_the_way(library: &quince_core::Library) -> usize {
+    library.outbox_waiting_count().unwrap_or(1)
 }
 
 fn typing_now(i: &Inner) -> bool {
@@ -1051,6 +1059,30 @@ fn refuse_unless_here(app: &AppHandle) -> Result<(), String> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// A change Apple refused stays in the library across a restart and is never sent again
+    /// by itself: it never holds Update and Restart. One still waiting does (#254).
+    #[test]
+    fn a_refused_change_never_holds_the_update() {
+        let mut library = quince_core::Library::in_memory().unwrap();
+        let a = library
+            .outbox_append("reminders", "R1", "advance", "{}")
+            .unwrap();
+        library.outbox_refuse(a, "INTERNAL_ERROR").unwrap();
+        assert_eq!(
+            hold(changes_on_the_way(&library), 0, 0, false),
+            None,
+            "installs: nothing is on its way"
+        );
+        library
+            .outbox_append("reminders", "R2", "save", "{}")
+            .unwrap();
+        assert_eq!(
+            hold(changes_on_the_way(&library), 0, 0, false),
+            Some(Hold::Changes),
+            "waits for the one still on its way"
+        );
+    }
 
     fn v(s: &str) -> semver::Version {
         semver::Version::parse(s).unwrap()

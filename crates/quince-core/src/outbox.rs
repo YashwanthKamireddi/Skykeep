@@ -174,6 +174,18 @@ impl Library {
         Ok(usize::try_from(n).unwrap_or(0))
     }
 
+    /// Every change still on its way to Apple, whatever its service: refused ones are not
+    /// (they wait for the person to send them again or let them go), so nothing that waits on
+    /// this — Update and Restart — waits on them (#254).
+    pub fn outbox_waiting_count(&self) -> Result<usize> {
+        let n: i64 = self.conn.query_row(
+            "SELECT count(*) FROM outbox WHERE refused_at IS NULL",
+            [],
+            |r| r.get(0),
+        )?;
+        Ok(usize::try_from(n).unwrap_or(0))
+    }
+
     /// Apple has it: no longer waiting.
     pub fn outbox_done(&mut self, id: i64) -> Result<()> {
         self.conn
@@ -404,6 +416,11 @@ mod tests {
         assert_eq!(refused[0].change.payload, "my words");
         assert_eq!(refused[0].reason, "changed in the same place");
         assert_eq!(lib.outbox_count().unwrap(), 2, "counted as unsent");
+        assert_eq!(
+            lib.outbox_waiting_count().unwrap(),
+            1,
+            "but not as on its way: it is never sent again by itself"
+        );
         // Never replaced by a push of the same kind.
         lib.outbox_push("notes", "N1", "save", "newer").unwrap();
         assert_eq!(lib.outbox_refused().unwrap().len(), 1);
