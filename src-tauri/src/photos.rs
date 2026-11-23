@@ -437,8 +437,7 @@ pub async fn fitted(app: &AppHandle, id: &str, long: u32) -> Result<Vec<u8>, Str
             Some(MAKING.acquire().await.map_err(|e| e.to_string())?)
         };
         let made = crate::cpu::run(move || {
-            let big = quince_media::long_side(&src).is_some_and(|l| l >= long);
-            if !big && size != Size::Full {
+            if !serves(size, long, quince_media::long_side(&src)) {
                 return Ok(None);
             }
             // Large enough (or the largest there is): made the size it is shown at, or, when it
@@ -473,6 +472,20 @@ pub async fn fitted(app: &AppHandle, id: &str, long: u32) -> Result<Vec<u8>, Str
         last = Some(source);
     }
     last.ok_or_else(|| "No picture of that photo could be made.".into())
+}
+
+/// Whether Apple's `size` picture of a photo, `has` pixels on its longer side, is what a picture
+/// `long` across is made from. One at least that large serves; the whole picture serves
+/// whatever it is, being the largest there is; one that cannot be read never does. A grid picture (up to `THUMB_STEP`) is always
+/// made from the thumbnail, as every Photos grid is: Apple's are 480 across, short of the 512
+/// step, and passing them over fetched the screen-sized picture instead — 600 KB a photo, nine
+/// times the thumbnail, for every photo in the library, again at each new grid size: 34 GB at
+/// 57,000 photos, with nothing opened (#258).
+fn serves(size: Size, long: u32, has: Option<u32>) -> bool {
+    size == Size::Full
+        || has.is_some_and(|l| {
+            l >= long || (size == Size::Thumb && long <= crate::photo_cache::THUMB_STEP)
+        })
 }
 
 pub(crate) fn cache_path(app: &AppHandle, id: &str, size: Size) -> PathBuf {
@@ -3637,6 +3650,34 @@ mod tests {
         assert_eq!(secs, [0, 0, 0, 30, 60, 120, 240, 480, 600, 600, 600, 600]);
     }
     use super::*;
+
+    /// A grid picture is made from the thumbnail Apple has, even one short of its step (Apple's
+    /// are 480 across, the grid's largest step 512): never from the screen-sized picture,
+    /// fetched for every photo in the library (#258). A preview still wants one large enough.
+    #[test]
+    fn a_grid_picture_never_fetches_more_than_the_thumbnail() {
+        for step in FITS
+            .iter()
+            .copied()
+            .filter(|s| *s <= crate::photo_cache::THUMB_STEP)
+        {
+            assert!(
+                serves(Size::Thumb, step, Some(480)),
+                "grid step {step}: the 480 thumbnail serves"
+            );
+        }
+        assert!(
+            !serves(Size::Thumb, 512, None),
+            "one that cannot be read: the next picture is tried"
+        );
+        assert!(
+            !serves(Size::Thumb, 768, Some(480)),
+            "a preview wants a larger picture"
+        );
+        assert!(!serves(Size::Medium, 3072, Some(2048)));
+        assert!(serves(Size::Medium, 2048, Some(2048)));
+        assert!(serves(Size::Full, 3840, Some(1000)), "the largest there is");
+    }
 
     /// Copy on Linux answers a paste only with the PNG, and only when a picture was asked
     /// for: an app asking for text (a terminal, a text field) gets nothing, never the
