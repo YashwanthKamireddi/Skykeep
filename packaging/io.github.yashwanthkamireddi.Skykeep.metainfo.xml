@@ -103,6 +103,11 @@
     <color type="primary" scheme_preference="dark">#0B2A4A</color>
   </branding>
   <releases>
+    <release version="0.1.38" date="2026-11-23">
+      <description>
+        <p>In Reminders, the tag field suggests the tags you already use as you type, most used first. Chinese, Japanese and Korean names read family name first, as Apple's Contacts shows them, in Contacts and in Calendar's birthdays. Folders whose names begin with a dot, like an Obsidian vault's .obsidian, now sync from Windows and Linux, so settings, plugins and themes reach your other devices.</p>
+      </description>
+    </release>
     <release version="0.1.37" date="2026-11-22">
       <description>
         <p>A new reminder keeps its due date and flag even when Apple turns that step away for a moment: the change waits and is sent again, and subtasks moved or deleted with their reminder go the same way. After an answer from Apple it couldn't read, sign-in now waits before trying again instead of starting over on every sync. Every answer from iCloud is read within a size limit, and a connection that drops part way through is retried as a dropped connection.</p>
