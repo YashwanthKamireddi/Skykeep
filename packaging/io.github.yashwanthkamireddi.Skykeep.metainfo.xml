@@ -103,6 +103,11 @@
     <color type="primary" scheme_preference="dark">#0B2A4A</color>
   </branding>
   <releases>
+    <release version="0.1.39" date="2026-11-23">
+      <description>
+        <p>On Linux, the iCloud Drive folder mounts again when files written before a restart were still waiting to be sent, and sends them. Update and Restart no longer waits forever on a change iCloud refused; refused changes stay for you to send again or let go.</p>
+      </description>
+    </release>
     <release version="0.1.38" date="2026-11-23">
       <description>
         <p>In Reminders, the tag field suggests the tags you already use as you type, most used first. Chinese, Japanese and Korean names read family name first, as Apple's Contacts shows them, in Contacts and in Calendar's birthdays. Folders whose names begin with a dot, like an Obsidian vault's .obsidian, now sync from Windows and Linux, so settings, plugins and themes reach your other devices.</p>
