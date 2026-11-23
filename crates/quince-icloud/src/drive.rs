@@ -557,21 +557,12 @@ fn created_folder(body: &Value, name: &str) -> Result<DriveItem> {
         .ok_or_else(|| Error::Protocol("Drive's answer described the folder without an id".into()))
 }
 
-/// Create many folders inside `parent_id` in one request, as `createFolders` takes them — a
-/// folder of 256 folders (a git repository's `objects`) is one round trip, not 256. Each name
-/// answers with its new folder's id, or why it was not made; the answer is matched by the
-/// `clientId` each was sent with.
-/// A name iCloud Drive won't take, refused here in icloud.com's words: empty, hidden (a
-/// leading dot, which a Mac would never show), or holding ":" or a line break.
+/// A name iCloud Drive can't hold, refused here in icloud.com's words: empty, or holding ":"
+/// or a line break.
 pub fn unusable_name(name: &str) -> Result<()> {
     if name.is_empty() {
         return Err(Error::Refused(
             "A name can't be empty. Please choose a different name.".into(),
-        ));
-    }
-    if name.starts_with('.') {
-        return Err(Error::Refused(
-            "A name shouldn\u{2019}t begin with a \u{201c}.\u{201d} (dot). Please choose a different name.".into(),
         ));
     }
     if name.contains([':', '\n', '\r']) {
@@ -582,6 +573,25 @@ pub fn unusable_name(name: &str) -> Result<()> {
     Ok(())
 }
 
+/// A name typed in Skykeep's own Drive window: [`unusable_name`], and not hidden (a leading
+/// dot), as icloud.com and the Mac's Finder refuse one typed there. A name that only mirrors
+/// a folder on disk is not held to this: iCloud Drive keeps `.obsidian` and `.git` made by a
+/// Mac, and made by `createFolders` (probe/examples/drive_hidden_upload.rs, verified live);
+/// refused, a vault's `.obsidian` made on Windows or Linux never reached iCloud (#250).
+pub fn typed_name(name: &str) -> Result<()> {
+    unusable_name(name)?;
+    if name.starts_with('.') {
+        return Err(Error::Refused(
+            "A name shouldn\u{2019}t begin with a \u{201c}.\u{201d} (dot). Please choose a different name.".into(),
+        ));
+    }
+    Ok(())
+}
+
+/// Create many folders inside `parent_id` in one request, as `createFolders` takes them — a
+/// folder of 256 folders (a git repository's `objects`) is one round trip, not 256. Each name
+/// answers with its new folder's id, or why it was not made; the answer is matched by the
+/// `clientId` each was sent with.
 pub async fn create_folders(
     http: &reqwest::Client,
     root: &str,
@@ -750,7 +760,7 @@ pub async fn rename(
     name: &str,
 ) -> Result<()> {
     let name = name.trim();
-    unusable_name(name)?;
+    typed_name(name)?;
 
     let parent = parent_of(item);
     let current = folder_listing(http, root, &params, parent).await?;
@@ -1941,11 +1951,14 @@ mod created_folder_tests {
 mod tests {
     use super::*;
 
-    /// Names icloud.com refuses are refused here too, before anything is sent.
+    /// Names icloud.com refuses are refused here too, before anything is sent; a hidden name
+    /// only when typed (#250).
     #[test]
     fn hidden_empty_and_colon_names_are_refused() {
         assert!(unusable_name("").is_err());
-        assert!(unusable_name(".env").is_err());
+        assert!(unusable_name(".env").is_ok(), "a folder on disk's own name");
+        assert!(typed_name(".env").is_err(), "typed in the Drive window");
+        assert!(typed_name("Notes").is_ok());
         assert!(unusable_name("a:b").is_err());
         assert!(unusable_name("two\nlines").is_err());
         assert!(unusable_name("Semester Plan.pdf").is_ok());
@@ -2233,6 +2246,41 @@ mod write_tests {
             "FOLDER::com.apple.CloudDocs::root"
         );
         assert_eq!(body["folders"][0]["name"], "Scans");
+    }
+
+    /// A folder on disk named with a leading dot (a vault's `.obsidian`, a project's `.git`)
+    /// is made in iCloud Drive as named, as a Mac makes it: refused, Obsidian's settings,
+    /// plugins and themes made on Windows or Linux never reached iCloud (#250).
+    #[tokio::test]
+    async fn a_hidden_folder_on_disk_is_made_as_named() {
+        let server = MockServer::start().await;
+        Mock::given(method("POST"))
+            .and(path("/createFolders"))
+            .respond_with(ResponseTemplate::new(200).set_body_json(serde_json::json!({
+                "folders": [{
+                    "drivewsid": "FOLDER::com.apple.CloudDocs::DOT",
+                    "parentId": "FOLDER::com.apple.CloudDocs::vault",
+                    "name": ".obsidian",
+                    "type": "FOLDER",
+                    "etag": "e1"
+                }]
+            })))
+            .mount(&server)
+            .await;
+        let created = create_folder(
+            &reqwest::Client::new(),
+            &server.uri(),
+            vec![],
+            "FOLDER::com.apple.CloudDocs::vault",
+            ".obsidian",
+        )
+        .await
+        .unwrap();
+        assert_eq!(created.name, ".obsidian");
+        assert_eq!(
+            sent(&server, "/createFolders").await["folders"][0]["name"],
+            ".obsidian"
+        );
     }
 
     /// A folder made with its siblings in one request answers under the name it was asked by:

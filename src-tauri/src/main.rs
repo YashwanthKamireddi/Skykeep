@@ -5392,6 +5392,8 @@ async fn drive_create_folder(
     auth: State<'_, Auth>,
     data: State<'_, Data>,
 ) -> UiResult<()> {
+    // Typed here: refused as icloud.com refuses it, a hidden name too (drive::typed_name).
+    quince_icloud::drive::typed_name(name.trim()).map_err(|e| e.to_string())?;
     let (http, root, params) = drive_context(&auth).await?;
     quince_icloud::drive::create_folder(&http, &root, params.clone(), &parent_id, &name)
         .await
