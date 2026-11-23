@@ -39,6 +39,9 @@ pub enum Refusal {
     Duplicate,
     /// iCloud is full.
     OverQuota,
+    /// Apple took the bytes and turned the file down for good, in its own words: a video in a
+    /// form its server won't convert ("uploaded media is unsupported for transcoding"), say.
+    Rejected(String),
 }
 
 impl Refusal {
@@ -52,6 +55,12 @@ impl Refusal {
             Refusal::NameTooLong => "File name too long.".into(),
             Refusal::Duplicate => "Duplicate item.".into(),
             Refusal::OverQuota => "Not enough space to upload item.".into(),
+            // Sending it again gets the same answer. An iPhone converts a video before it
+            // uploads; here it goes as it is, so saved as MP4 (H.264) or JPEG it can be added.
+            Refusal::Rejected(said) => format!(
+                "iCloud Photos can\u{2019}t take this file as it is ({said}). Saved as an MP4 \
+                 video (H.264) or a JPEG photo, it can be added."
+            ),
         }
     }
 }
@@ -76,6 +85,20 @@ pub fn refusal(name: &str, size: u64) -> Option<Refusal> {
         return Some(Refusal::TooLarge);
     }
     None
+}
+
+/// Whether Apple's answer about one file (`putAsset`'s `response`) is final. Apple says so
+/// with `isRetryable` when it says; otherwise its status does: a 4xx is a verdict on the file
+/// (415, a form its server won't convert; 413, too large), save 408 and 429, which are about
+/// the moment. A 5xx, or no status, may go better another time.
+fn settled(response: &Value) -> bool {
+    if let Some(again) = response.get("isRetryable").and_then(Value::as_bool) {
+        return !again;
+    }
+    response
+        .get("status")
+        .and_then(Value::as_i64)
+        .is_some_and(|s| (400..500).contains(&s) && s != 408 && s != 429)
 }
 
 /// Where an upload stands, for the window's tray.
@@ -422,6 +445,11 @@ pub async fn send(
             .pointer("/response/errorMessage")
             .and_then(Value::as_str)
             .unwrap_or("no photo was made");
+        // A verdict on the file is final: tried again, the whole file went three times over
+        // for the same answer (D#262).
+        if first.get("response").is_some_and(settled) {
+            return Ok(Sending::Refused(Refusal::Rejected(said.to_string())));
+        }
         return Err(Error::Refused(format!(
             "iCloud didn’t take that photo: {said}"
         )));
@@ -467,6 +495,101 @@ mod tests {
         assert_eq!(states["d"], JobState::Working(0.0));
     }
     use super::*;
+
+    /// Apple's own verdict on a file ends its upload there, said in words that say what to do:
+    /// sent again, a whole video went three times over for the same answer (D#262). A refusal
+    /// about the moment (5xx) still errs, to be tried again.
+    #[tokio::test]
+    async fn a_file_apple_will_not_convert_is_refused_once() {
+        use wiremock::matchers::{method, path_regex};
+        use wiremock::{Mock, MockServer, ResponseTemplate};
+        for (response, final_) in [
+            (
+                json!({"status": 415, "isRetryable": false,
+                       "errorMessage": "uploaded media is unsupported for transcoding"}),
+                true,
+            ),
+            (
+                json!({"status": 415, "errorMessage": "uploaded media is unsupported for transcoding"}),
+                true,
+            ),
+            (json!({"status": 503, "errorMessage": "try later"}), false),
+            (json!({"status": 429, "errorMessage": "slow down"}), false),
+        ] {
+            let server = MockServer::start().await;
+            let base = server.uri();
+            // Any key: the address is the same whichever uuid was asked for.
+            Mock::given(method("POST"))
+                .and(path_regex(r".*/photosupload/createUploadUrl$"))
+                .respond_with(move |req: &wiremock::Request| {
+                    let body: Value = serde_json::from_slice(&req.body).unwrap();
+                    let key = body["assets"]
+                        .as_object()
+                        .unwrap()
+                        .keys()
+                        .next()
+                        .unwrap()
+                        .clone();
+                    ResponseTemplate::new(200)
+                        .set_body_json(json!({"uploadUrls": {key: format!("{base}/bytes")}}))
+                })
+                .mount(&server)
+                .await;
+            Mock::given(method("POST"))
+                .and(path_regex(r".*/bytes$"))
+                .respond_with(ResponseTemplate::new(200).set_body_json(json!({
+                    "singleFile": {"fileChecksum": "c", "size": 200, "receipt": "r"}
+                })))
+                .expect(1)
+                .mount(&server)
+                .await;
+            Mock::given(method("POST"))
+                .and(path_regex(r".*/photosupload/putAsset$"))
+                .respond_with(
+                    ResponseTemplate::new(200).set_body_json(json!([{ "response": response }])),
+                )
+                .mount(&server)
+                .await;
+            let file = std::env::temp_dir().join(format!(
+                "skykeep-refusal-{}-{}.mp4",
+                std::process::id(),
+                uuid::Uuid::new_v4()
+            ));
+            std::fs::write(&file, vec![7u8; 200]).unwrap();
+            let http = reqwest::Client::new();
+            let got = send(
+                &http,
+                &http,
+                &server.uri(),
+                "1",
+                "PrimarySync",
+                &file,
+                "clip.mp4",
+                0,
+                "UTC",
+                0,
+                "g",
+                std::sync::Arc::new(|_| {}),
+            )
+            .await;
+            let _ = std::fs::remove_file(&file);
+            if final_ {
+                let Ok(Sending::Refused(r)) = got else {
+                    panic!("a final refusal: {got:?}");
+                };
+                assert_eq!(
+                    r,
+                    Refusal::Rejected("uploaded media is unsupported for transcoding".into())
+                );
+                assert!(r.words().contains("MP4"), "says what to do: {}", r.words());
+            } else {
+                assert!(
+                    matches!(got, Err(Error::Refused(_))),
+                    "about the moment, tried again: {got:?}"
+                );
+            }
+        }
+    }
 
     /// Files Photos would refuse are refused here, with the reason, before anything is sent.
     #[test]
