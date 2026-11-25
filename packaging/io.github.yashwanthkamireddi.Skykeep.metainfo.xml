@@ -103,6 +103,11 @@
     <color type="primary" scheme_preference="dark">#0B2A4A</color>
   </branding>
   <releases>
+    <release version="0.1.43" date="2026-11-25">
+      <description>
+        <p>Skykeep now reads in Traditional Chinese (Taiwan), and systems set to Traditional Chinese, including Hong Kong, get it automatically instead of Simplified Chinese. A file in the Drive or Photos folder that iCloud turns down for good is no longer sent again and again; it waits, with the reason shown, until you change it.</p>
+      </description>
+    </release>
     <release version="0.1.42" date="2026-11-25">
       <description>
         <p>On Windows, saving a file in the iCloud Drive folder from Word, Excel, WPS and other programs that save by replacing the file now updates that same file in iCloud, keeping its history and sharing, instead of making a "conflicted copy"; only a real change made on another device in the meantime keeps both. A conflicted copy no longer makes further copies of itself. Settings › This Computer now shows what Skykeep downloaded from iCloud today and over the last 7 days, and why: photos you opened, the photo grid, backups, updates, and which programs read your Drive and Photos folders.</p>
