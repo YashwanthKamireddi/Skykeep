@@ -88,10 +88,15 @@ impl DriveItem {
     /// shared kinds.
     #[must_use]
     pub fn shared_with_me(&self) -> bool {
-        self.share
-            .as_ref()
-            .is_some_and(|s| s.direction == Some(ShareDirection::ToMe))
-            || id_shared_with_me(&self.drivewsid)
+        // Apple's own word first: what this account shared (`FROM_ME`) is its own, whatever the
+        // id's kind (an owner's view of its share is not proven to keep a plain `FOLDER::` id,
+        // and the owner must never lose writing to its own folder). The id's kind only when
+        // Apple says nothing.
+        match self.share.as_ref().and_then(|s| s.direction) {
+            Some(ShareDirection::FromMe) => false,
+            Some(ShareDirection::ToMe) => true,
+            None => id_shared_with_me(&self.drivewsid),
+        }
     }
 
     /// True for anything that can be opened to reveal more items.
@@ -429,6 +434,24 @@ mod tests {
             owner: Some("Anna Lee".into()),
             ..DriveShare::default()
         }
+    }
+
+    /// What this account shared is its own to write, whatever kind of id Apple gives it: only
+    /// Apple's `TO_ME`, or a shared kind of id with no direction said, is someone else's.
+    #[test]
+    fn what_i_shared_is_never_read_only() {
+        let mut mine = item("SHARED_FOLDER::com.apple.CloudDocs::mine", "Mine", "FOLDER");
+        mine.share = Some(DriveShare {
+            direction: Some(ShareDirection::FromMe),
+            ..DriveShare::default()
+        });
+        assert!(!mine.shared_with_me(), "FROM_ME wins over the id's kind");
+        let theirs = item("SHARED_FOLDER::com.apple.CloudDocs::bo", "Band", "FOLDER");
+        assert!(theirs.shared_with_me(), "a shared kind, no direction said");
+        let mut to_me = item("FOLDER::com.apple.CloudDocs::anna", "Trip", "FOLDER");
+        to_me.share = Some(shared_to_me());
+        assert!(to_me.shared_with_me());
+        assert!(!item("FOLDER::com.apple.CloudDocs::plain", "Plain", "FOLDER").shared_with_me());
     }
 
     /// A folder someone shared with this account that Apple wouldn't list is not one deleted
