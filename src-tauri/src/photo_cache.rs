@@ -582,26 +582,16 @@ pub fn limit(cap: u64, free: u64, used: u64) -> u64 {
     cap.min(free.saturating_add(used) / 5)
 }
 
-/// Free space on the disk holding `dir`, in bytes; `None` where it cannot be read.
-fn free_space(dir: &Path) -> Option<u64> {
-    #[cfg(unix)]
-    {
-        use std::os::unix::ffi::OsStrExt;
-        let path = std::ffi::CString::new(dir.as_os_str().as_bytes()).ok()?;
-        // SAFETY: statvfs fills the struct it is given and reads only the path.
-        let mut s: libc::statvfs = unsafe { std::mem::zeroed() };
-        if unsafe { libc::statvfs(path.as_ptr(), &mut s) } == 0 {
-            // 64-bit here already, narrower on some systems: the conversion is for those.
-            #[allow(clippy::useless_conversion)]
-            return Some(u64::from(s.f_bavail).saturating_mul(u64::from(s.f_frsize)));
-        }
-        None
-    }
-    #[cfg(not(unix))]
-    {
-        let _ = dir;
-        None
-    }
+// Free space on the disk holding a folder, in bytes; `None` where it cannot be read. The one
+// reader the backup's folder downloads use too, which reads it on Windows as well: this cache's
+// own read only Unix's, so on Windows no limit and no grid floor ever applied, and the grid's
+// pictures could fill the disk.
+use quince_backup::folder_download::free_space;
+
+/// Whether grid pictures may be kept on a disk with `free` bytes free: while it has
+/// [`GRID_FLOOR`] (or cannot say how much it has).
+pub fn grid_room_in(free: Option<u64>) -> bool {
+    free.is_none_or(|free| free >= GRID_FLOOR)
 }
 
 /// The nearest size Settings offers to `bytes`.
@@ -744,7 +734,7 @@ pub fn grew(app: &AppHandle) {
 /// Whether a grid picture made now may be kept on disk: while the disk has [`GRID_FLOOR`]
 /// free (or cannot say how much it has).
 pub fn grid_room(app: &AppHandle) -> bool {
-    free_space(&root(app)).is_none_or(|free| free >= GRID_FLOOR)
+    grid_room_in(free_space(&root(app)))
 }
 
 /// A grid picture landed: nothing to do while the disk has room; short of it, a trim soon.
@@ -1216,5 +1206,23 @@ mod tests {
             assert!(f.exists(), "{f:?}");
         }
         assert!(!data.join("photos/original/A").exists());
+    }
+
+    /// The cache reads the free space of its own disk on every desktop. On Windows it read none,
+    /// so its limit and the grid's floor never applied and grid pictures could fill `C:`.
+    #[test]
+    fn the_caches_disk_says_how_much_room_it_has() {
+        let dir = tempfile::tempdir().unwrap();
+        assert!(free_space(dir.path()).is_some_and(|free| free > 0));
+    }
+
+    /// Grid pictures are kept only while the disk has the floor free.
+    #[test]
+    fn grid_pictures_are_kept_only_above_the_floor() {
+        assert!(grid_room_in(Some(GRID_FLOOR)));
+        assert!(grid_room_in(Some(u64::MAX)));
+        assert!(!grid_room_in(Some(GRID_FLOOR - 1)));
+        assert!(!grid_room_in(Some(0)));
+        assert!(grid_room_in(None));
     }
 }
