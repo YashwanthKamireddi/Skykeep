@@ -766,6 +766,7 @@ mod tests {
                 created_at: None,
                 modified_at: None,
                 etag: None,
+                share: None,
             }],
         )
         .unwrap();

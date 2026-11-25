@@ -4546,13 +4546,11 @@ async fn drive_sync_folder(
     let items = match quince_icloud::drive::fetch_folder(&http, &root, params, &folder_id).await {
         Ok(items) => items,
         // Deleted or moved on another device: forgotten here too, so the screen can step back
-        // out of it rather than show a folder that is not there.
-        Err(quince_icloud::Error::NotFound) => {
+        // out of it rather than show a folder that is not there. A folder shared with this
+        // account is kept, and said to be one that can't be opened yet (drive::unlisted).
+        Err(e @ (quince_icloud::Error::NotFound | quince_icloud::Error::Protocol(_))) => {
             let mut library = data.0.lock().await;
-            library
-                .forget_drive_folder(&folder_id)
-                .map_err(|e| e.to_string())?;
-            return Err("This folder was deleted or moved on another device.".into());
+            return Err(quince_icloud::drive::unlisted(&mut library, &folder_id, e).to_string());
         }
         Err(e) => return Err(e.to_string()),
     };
@@ -4575,6 +4573,23 @@ async fn drive_item(drivewsid: String, data: State<'_, Data>) -> UiResult<Option
         .read(|library| library.drive_item(&drivewsid))
         .await
         .map_err(|e| e.to_string())
+}
+
+/// Refused, before Apple is asked, for a folder someone else shared with this account (or one
+/// inside such a share), as the library knows it: nothing is put into, moved into or copied
+/// into someone else's share until Skykeep supports shares. The engine refuses an id of the
+/// shared kinds too (quince_icloud::drive); this also catches a share's root that Apple marks
+/// only by its `share` field.
+async fn not_into_shared(data: &State<'_, Data>, folder_id: &str) -> Result<(), String> {
+    let shared = data
+        .0
+        .read(|library| library.drive_shared_with_me(folder_id))
+        .await
+        .map_err(|e| e.to_string())?;
+    if shared {
+        return Err(quince_core::drive::SHARED_READ_ONLY.into());
+    }
+    Ok(())
 }
 
 /// Everything a Drive write needs from the session, with the auth lock released first.
@@ -5232,6 +5247,7 @@ async fn drive_upload(
     for path in &paths {
         grants::take_read(path)?;
     }
+    not_into_shared(&data, &folder_id).await?;
     let (http, root, params) = drive_context(&auth).await?;
     let uploads = auth.client.lock().await.uploads().clone();
     let docws = {
@@ -5398,6 +5414,7 @@ async fn drive_create_folder(
 ) -> UiResult<()> {
     // Typed here: refused as icloud.com refuses it, a hidden name too (drive::typed_name).
     quince_icloud::drive::typed_name(name.trim()).map_err(|e| e.to_string())?;
+    not_into_shared(&data, &parent_id).await?;
     let (http, root, params) = drive_context(&auth).await?;
     quince_icloud::drive::create_folder(&http, &root, params.clone(), &parent_id, &name)
         .await
@@ -5552,6 +5569,7 @@ async fn drive_copy(
         }
         item
     };
+    not_into_shared(&data, &destination_id).await?;
     let (http, drivews, docws, params) = drive_hosts(&auth).await?;
     quince_icloud::drive::copy_to(
         &http,
@@ -5882,6 +5900,7 @@ async fn drive_move(
             .map_err(|e| e.to_string())?
             .ok_or("That item is no longer in the local library.")?
     };
+    not_into_shared(&data, &destination_id).await?;
     let (http, root, params) = drive_context(&auth).await?;
     quince_icloud::drive::move_to(&http, &root, params.clone(), &item, &destination_id)
         .await
@@ -8827,6 +8846,7 @@ mod tests {
             created_at: None,
             modified_at: None,
             etag: Some("e1".into()),
+            share: None,
         };
         let kept = item("FILE::kept", "FILE");
         let none = item("FILE::none", "FILE");

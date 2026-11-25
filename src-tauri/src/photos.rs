@@ -2784,7 +2784,18 @@ pub(crate) async fn queue_files(
             added_at: now,
             album: album.clone(),
         };
-        if let Some(r) = quince_icloud::photos_upload::refusal(&name, size) {
+        // Its name and size, then what is inside (headers only): refused here, with why, rather
+        // than after the whole file has gone to Apple.
+        let refused = match quince_icloud::photos_upload::refusal(&name, size) {
+            Some(r) => Some(r),
+            None => {
+                tokio::task::spawn_blocking(move || quince_icloud::photos_upload::inspect(&path))
+                    .await
+                    .ok()
+                    .flatten()
+            }
+        };
+        if let Some(r) = refused {
             u.state = "failed".into();
             u.error = Some(r.words());
         }
@@ -2873,6 +2884,13 @@ pub async fn add_from_folder(
         Some(u) if u.state != "failed" && u.state != "cancelled" => u.id,
         _ => {
             if let Some(r) = quince_icloud::photos_upload::refusal(&name, len) {
+                return Err(r.words());
+            }
+            let looked = path.to_path_buf();
+            if let Ok(Some(r)) =
+                tokio::task::spawn_blocking(move || quince_icloud::photos_upload::inspect(&looked))
+                    .await
+            {
                 return Err(r.words());
             }
             if let Some(dir) = kept.parent() {

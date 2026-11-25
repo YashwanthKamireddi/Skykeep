@@ -1,5 +1,6 @@
 import { convertFileSrc, invoke } from "@tauri-apps/api/core";
 import { personName } from "./names.ts";
+import { t, type Key } from "./i18n.ts";
 
 export type Status = {
   hasStoredSession: boolean;
@@ -1098,6 +1099,18 @@ export type DriveItem = {
   createdAt: number | null;
   modifiedAt: number | null;
   etag: string | null;
+  /** The share it is in, when Apple says it is in one (quince_core::drive::DriveShare). */
+  share?: DriveShare;
+};
+
+/** What Apple says about an item's share: whose, and which way it goes. */
+export type DriveShare = {
+  direction: "TO_ME" | "FROM_ME" | null;
+  shareName: string | null;
+  recordName: string | null;
+  zoneName: string | null;
+  ownerRecordName: string | null;
+  owner: string | null;
 };
 
 /** An item in Drive's Recently Deleted: when it goes for good, and where Recover puts it. */
@@ -1125,10 +1138,22 @@ export const takesDriveCopies = (folderId: string): boolean =>
 export const driveName = (item: DriveItem) =>
   item.extension && !isContainer(item) ? `${item.name}.${item.extension}` : item.name;
 
+/**
+ * The backend's own sentences that the window says in the reader's language, by the key each
+ * stands for. Kept word for word as quince_core::drive has them (SHARED_CANT_OPEN and the rest).
+ */
+export const SHARED_CANT_OPEN = "Folders shared with you can’t be opened in Skykeep yet.";
+const SAID: Record<string, Key> = {
+  [SHARED_CANT_OPEN]: "drive.sharedCantOpen",
+  "Files shared with you can’t be downloaded in Skykeep yet.": "drive.sharedCantDownload",
+  "Items shared with you can’t be changed in Skykeep yet.": "drive.sharedReadOnly",
+};
+
 export function messageOf(e: unknown): string {
-  if (typeof e === "string") return e;
-  if (e instanceof Error) return e.message;
-  return "Something went wrong. Try again.";
+  const said = typeof e === "string" ? e : e instanceof Error ? e.message : null;
+  if (said === null) return "Something went wrong. Try again.";
+  const key = SAID[said];
+  return key ? t(key) : said;
 }
 
 /** A film's turn as its file records it: the matrix `[a, b, c, d]`, each -1, 0 or 1. */

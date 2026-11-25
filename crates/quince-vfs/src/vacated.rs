@@ -249,6 +249,7 @@ mod tests {
             created_at: None,
             modified_at: None,
             etag: Some("e1".into()),
+            share: None,
         }
     }
 

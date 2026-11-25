@@ -45,6 +45,7 @@ fn folder(id: &str, name: &str) -> DriveItem {
         created_at: None,
         modified_at: None,
         etag: None,
+        share: None,
     }
 }
 
@@ -120,6 +121,7 @@ impl Remote for Photos {
                 created_at: None,
                 modified_at: None,
                 etag: None,
+                share: None,
             };
             me.added.lock().unwrap().insert(u.asset, item.clone());
             Ok(item)

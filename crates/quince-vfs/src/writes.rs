@@ -503,6 +503,11 @@ pub async fn send(
         .and_then(|n| n.to_str())
         .ok_or("no name")?
         .to_string();
+    // Someone else's share is read only here: nothing is sent into it, a conflicted copy
+    // neither, and nothing of theirs is written over.
+    if folder.shared_with_me() || base.is_some_and(DriveItem::shared_with_me) {
+        return Err(quince_core::drive::SHARED_READ_ONLY.to_string());
+    }
     let now = remote.list(&folder.drivewsid).await?;
     let current = base
         .and_then(|b| now.iter().find(|i| i.drivewsid == b.drivewsid))
@@ -657,6 +662,7 @@ mod send_tests {
                 extension: ext.map(Into::into),
                 size: Some(i64::try_from(std::fs::metadata(path).unwrap().len()).unwrap()),
                 etag: Some("v1".into()),
+                share: None,
                 ..file("unused", "v1")
             };
             self.files.lock().unwrap().push(item.clone());
@@ -690,6 +696,7 @@ mod send_tests {
             created_at: None,
             modified_at: None,
             etag: Some(etag.into()),
+            share: None,
         }
     }
 

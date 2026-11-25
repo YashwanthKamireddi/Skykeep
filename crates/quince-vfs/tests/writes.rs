@@ -46,6 +46,7 @@ impl World {
             created_at: Some(1_700_000_000),
             modified_at: Some(1_700_000_000 + i64::from(*n)),
             etag: Some(format!("v{n}")),
+            share: None,
         };
         self.bytes
             .lock()

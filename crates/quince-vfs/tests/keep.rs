@@ -25,6 +25,7 @@ fn file(id: &str, parent: &str, name: &str, size: usize) -> DriveItem {
         created_at: Some(1_700_000_000),
         modified_at: Some(1_700_000_100),
         etag: Some("e1".into()),
+        share: None,
     }
 }
 
