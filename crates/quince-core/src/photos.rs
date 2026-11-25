@@ -723,6 +723,29 @@ impl Library {
         Ok(())
     }
 
+    /// An upload Apple turned down for good: the same bytes are not offered again
+    /// (`upload_refused`).
+    pub fn set_upload_refused(&self, id: &str) -> Result<()> {
+        self.conn.execute(
+            "UPDATE photo_uploads SET refused = 1 WHERE id = ?1",
+            params![id],
+        )?;
+        Ok(())
+    }
+
+    /// Whether Apple turned upload `id` down for good.
+    pub fn upload_refused(&self, id: &str) -> Result<bool> {
+        let refused: Option<i64> = self
+            .conn
+            .query_row(
+                "SELECT refused FROM photo_uploads WHERE id = ?1",
+                params![id],
+                |r| r.get(0),
+            )
+            .optional()?;
+        Ok(refused == Some(1))
+    }
+
     /// An upload sent, its photo being made at Apple under `job`.
     pub fn set_upload_job(&self, id: &str, job: &str, asset: &str) -> Result<()> {
         self.conn.execute(
@@ -1929,6 +1952,32 @@ impl Library {
 #[cfg(test)]
 pub(crate) mod tests {
     use super::*;
+
+    /// Apple's last word on an upload is kept with it: only that upload says so, and an upload
+    /// no one knows of says nothing.
+    #[test]
+    fn an_upload_refused_for_good_says_so() {
+        let mut lib = crate::Library::in_memory().unwrap();
+        let up = |id: &str| Upload {
+            id: id.into(),
+            batch: "b".into(),
+            path: format!("/kept/{id}.avi"),
+            name: format!("{id}.avi"),
+            state: "failed".into(),
+            error: Some("iCloud won't take this file".into()),
+            asset: None,
+            added_at: 1,
+            album: None,
+        };
+        lib.queue_uploads(&[up("U1"), up("U2")]).unwrap();
+        lib.set_upload_refused("U1").unwrap();
+        assert!(lib.upload_refused("U1").unwrap());
+        assert!(
+            !lib.upload_refused("U2").unwrap(),
+            "ran out of tries: not Apple's word"
+        );
+        assert!(!lib.upload_refused("nobody").unwrap());
+    }
 
     pub(crate) fn photo(id: &str, taken: i64) -> Photo {
         Photo {

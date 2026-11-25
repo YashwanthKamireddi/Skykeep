@@ -212,8 +212,12 @@ async fn settle_and_send(
                     touched.remove(&path);
                     if let Err(e) = sync_path(remote.as_ref(), &staging, &path, add_only, &vacated).await {
                         crate::note_about(&format!("sending a saved file: {e}"), &path.display().to_string());
-                        // Tried again in a while; the file itself stays as it is.
-                        touched.insert(path, Instant::now() + std::time::Duration::from_secs(25));
+                        // Tried again in a while; the file itself stays as it is. Apple's last
+                        // word on these bytes is not asked again: the file written again comes
+                        // back through the watcher and goes afresh.
+                        if !e.settled {
+                            touched.insert(path, Instant::now() + std::time::Duration::from_secs(25));
+                        }
                     }
                 }
             }
@@ -228,7 +232,7 @@ async fn sync_path(
     path: &Path,
     add_only: bool,
     vacated: &Vacated,
-) -> Result<(), String> {
+) -> Result<(), crate::Failed> {
     let Some(name) = path
         .file_name()
         .and_then(|n| n.to_str())
@@ -325,7 +329,7 @@ async fn sync_path(
             send(remote, &folder, &staged, base.as_ref(), base.as_ref()).await
         };
         let _ = std::fs::remove_dir_all(&dir);
-        Ok::<_, String>((sent?, before))
+        Ok::<_, crate::Failed>((sent?, before))
     };
     let result = sending.await;
     let (sent, before) = match result {
@@ -471,7 +475,7 @@ async fn save_as_new_photo(
     path: &Path,
     name: &str,
     folder: &DriveItem,
-) -> Result<(), String> {
+) -> Result<(), crate::Failed> {
     let Some(original) = identity_of(path) else {
         return Ok(());
     };
@@ -484,7 +488,7 @@ async fn save_as_new_photo(
         let copied = std::fs::copy(path, &staged).map_err(|e| e.to_string());
         let sent = match copied {
             Ok(_) => remote.upload(folder, &staged).await.map(|_| ()),
-            Err(e) => Err(e),
+            Err(e) => Err(e.into()),
         };
         let _ = std::fs::remove_dir_all(&dir);
         sent?;

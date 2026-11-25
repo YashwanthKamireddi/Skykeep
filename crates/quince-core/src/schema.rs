@@ -1037,6 +1037,12 @@ pub const MIGRATIONS: &[&str] = &[
     r#"
     ALTER TABLE drive_items ADD COLUMN share TEXT;
     "#,
+    // 58 — an upload Apple turned down for good (its verdict on these bytes, or the check made
+    // before sending), as against one that ran out of tries: the Photos folder asks again for
+    // the second, never for the first until the file changes.
+    r#"
+    ALTER TABLE photo_uploads ADD COLUMN refused INTEGER NOT NULL DEFAULT 0;
+    "#,
 ];
 
 /// Migrations that need more than SQL, run in the same transaction as the one numbered.

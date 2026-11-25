@@ -280,7 +280,7 @@ impl Remote for PhotosRemote {
         accepts(&self.0, &folder.drivewsid)
     }
 
-    fn upload(&self, folder: &DriveItem, path: &std::path::Path) -> Fut<DriveItem> {
+    fn upload(&self, folder: &DriveItem, path: &std::path::Path) -> quince_vfs::Sends<DriveItem> {
         let (app, folder, path) = (self.0.clone(), folder.drivewsid.clone(), path.to_path_buf());
         Box::pin(async move {
             let album = folder.strip_prefix("PH::album:").map(str::to_string);

@@ -54,23 +54,23 @@ impl Remote for Apple {
         made.parent_id = Some(parent.drivewsid.clone());
         Box::pin(async move { Ok(made) })
     }
-    fn upload(&self, folder: &DriveItem, path: &Path) -> Fut<DriveItem> {
+    fn upload(&self, folder: &DriveItem, path: &Path) -> quince_vfs::Sends<DriveItem> {
         let name = path.file_name().unwrap().to_string_lossy().to_string();
         let len = std::fs::metadata(path).map(|m| m.len() as i64).unwrap_or(0);
         self.said(format!("upload {name} {len}"));
         let (stem, ext) = name.rsplit_once('.').unwrap_or((&name, ""));
         let mut sent = file(&format!("up-{name}"), stem, ext, len);
         sent.parent_id = Some(folder.drivewsid.clone());
-        Box::pin(async move { Ok(sent) })
+        quince_vfs::sends(async move { Ok(sent) })
     }
     /// New contents into the same file, as Apple's modify_file writes them (#24).
-    fn replace(&self, item: &DriveItem, path: &Path) -> Fut<Option<DriveItem>> {
+    fn replace(&self, item: &DriveItem, path: &Path) -> quince_vfs::Sends<Option<DriveItem>> {
         let len = std::fs::metadata(path).map(|m| m.len() as i64).unwrap_or(0);
         self.said(format!("replace {} {len}", item.display_name()));
         let mut now = item.clone();
         now.size = Some(len);
         now.etag = Some(format!("{}+", item.etag.clone().unwrap_or_default()));
-        Box::pin(async move { Ok(Some(now)) })
+        quince_vfs::sends(async move { Ok(Some(now)) })
     }
     fn rename(&self, item: &DriveItem, name: &str) -> Fut<()> {
         self.said(format!("rename {} {name}", item.display_name()));
@@ -387,14 +387,14 @@ impl Remote for Photos {
     fn accepts(&self, folder: &DriveItem) -> bool {
         folder.drivewsid == "PH::library"
     }
-    fn upload(&self, folder: &DriveItem, path: &Path) -> Fut<DriveItem> {
+    fn upload(&self, folder: &DriveItem, path: &Path) -> quince_vfs::Sends<DriveItem> {
         let name = path.file_name().unwrap().to_string_lossy().to_string();
         self.0.lock().unwrap().push(format!("upload {name}"));
         let (stem, ext) = name.rsplit_once('.').unwrap_or((&name, ""));
         let mut sent = file(&format!("up-{name}"), stem, ext, JPEG.len() as i64);
         sent.drivewsid = format!("PHOTO::up-{name}");
         sent.parent_id = Some(folder.drivewsid.clone());
-        Box::pin(async move { Ok(sent) })
+        quince_vfs::sends(async move { Ok(sent) })
     }
     fn delete(&self, item: &DriveItem) -> Fut<()> {
         self.0
@@ -837,10 +837,10 @@ fn a_clash_or_a_failed_listing_never_breaks_a_folder() {
         fn mkdir(&self, p: &DriveItem, n: &str) -> Fut<DriveItem> {
             self.0.mkdir(p, n)
         }
-        fn upload(&self, f: &DriveItem, p: &Path) -> Fut<DriveItem> {
+        fn upload(&self, f: &DriveItem, p: &Path) -> quince_vfs::Sends<DriveItem> {
             self.0.upload(f, p)
         }
-        fn replace(&self, i: &DriveItem, p: &Path) -> Fut<Option<DriveItem>> {
+        fn replace(&self, i: &DriveItem, p: &Path) -> quince_vfs::Sends<Option<DriveItem>> {
             self.0.replace(i, p)
         }
         fn rename(&self, i: &DriveItem, n: &str) -> Fut<()> {
@@ -1231,7 +1231,7 @@ fn a_save_during_an_upload_makes_no_conflicted_copy() {
         fn mkdir(&self, _: &DriveItem, _: &str) -> Fut<DriveItem> {
             Box::pin(async { Err("no folders here".to_string()) })
         }
-        fn upload(&self, folder: &DriveItem, path: &Path) -> Fut<DriveItem> {
+        fn upload(&self, folder: &DriveItem, path: &Path) -> quince_vfs::Sends<DriveItem> {
             let name = path.file_name().unwrap().to_string_lossy().to_string();
             let len = std::fs::metadata(path).map(|m| m.len() as i64).unwrap_or(0);
             self.1.lock().unwrap().push(format!("upload {name} {len}"));
@@ -1244,12 +1244,12 @@ fn a_save_during_an_upload_makes_no_conflicted_copy() {
                 .entry(folder.drivewsid.clone())
                 .or_default()
                 .push(sent.clone());
-            Box::pin(async move {
+            quince_vfs::sends(async move {
                 tokio::time::sleep(std::time::Duration::from_secs(3)).await;
                 Ok(sent)
             })
         }
-        fn replace(&self, item: &DriveItem, path: &Path) -> Fut<Option<DriveItem>> {
+        fn replace(&self, item: &DriveItem, path: &Path) -> quince_vfs::Sends<Option<DriveItem>> {
             let len = std::fs::metadata(path).map(|m| m.len() as i64).unwrap_or(0);
             self.1
                 .lock()
@@ -1263,7 +1263,7 @@ fn a_save_during_an_upload_makes_no_conflicted_copy() {
                     *i = now.clone();
                 }
             }
-            Box::pin(async move { Ok(Some(now)) })
+            quince_vfs::sends(async move { Ok(Some(now)) })
         }
         fn rename(&self, _: &DriveItem, _: &str) -> Fut<()> {
             Box::pin(async { Ok(()) })
@@ -1874,7 +1874,7 @@ impl Remote for Drive {
     fn mkdir(&self, _: &DriveItem, _: &str) -> Fut<DriveItem> {
         Box::pin(async { Err("no folders here".to_string()) })
     }
-    fn upload(&self, folder: &DriveItem, path: &Path) -> Fut<DriveItem> {
+    fn upload(&self, folder: &DriveItem, path: &Path) -> quince_vfs::Sends<DriveItem> {
         let name = path.file_name().unwrap().to_string_lossy().to_string();
         let len = std::fs::metadata(path).map(|m| m.len() as i64).unwrap_or(0);
         self.said(format!("upload {name} {len}"));
@@ -1882,9 +1882,9 @@ impl Remote for Drive {
         let mut sent = file(&format!("up-{name}"), stem, ext, len);
         sent.parent_id = Some(folder.drivewsid.clone());
         self.files.lock().unwrap().push(sent.clone());
-        Box::pin(async move { Ok(sent) })
+        quince_vfs::sends(async move { Ok(sent) })
     }
-    fn replace(&self, item: &DriveItem, path: &Path) -> Fut<Option<DriveItem>> {
+    fn replace(&self, item: &DriveItem, path: &Path) -> quince_vfs::Sends<Option<DriveItem>> {
         let len = std::fs::metadata(path).map(|m| m.len() as i64).unwrap_or(0);
         self.said(format!("replace {} {len}", item.display_name()));
         let mut files = self.files.lock().unwrap();
@@ -1896,7 +1896,7 @@ impl Remote for Drive {
             }
             _ => None,
         };
-        Box::pin(async move { Ok(now) })
+        quince_vfs::sends(async move { Ok(now) })
     }
     fn rename(&self, item: &DriveItem, name: &str) -> Fut<()> {
         self.said(format!("rename {} {name}", item.display_name()));

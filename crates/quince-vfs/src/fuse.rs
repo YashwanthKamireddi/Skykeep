@@ -837,6 +837,7 @@ impl Inner {
                     sender: false,
                     quiet_since: None,
                     sending: false,
+                    settled: false,
                     failure: None,
                 },
             );
@@ -855,6 +856,8 @@ impl Inner {
                     false
                 } else {
                     p.sender = true;
+                    // Written again since Apple refused it: these are new bytes, tried afresh.
+                    p.settled = false;
                     true
                 }
             })
@@ -956,7 +959,10 @@ impl Inner {
                 };
                 me.with_pending(ino, |p| {
                     p.sending = false;
-                    p.failure = result.as_ref().err().map(|e| e.chars().take(160).collect());
+                    p.failure = result
+                        .as_ref()
+                        .err()
+                        .map(|e| e.reason.chars().take(160).collect());
                 });
                 match result {
                     Ok(sent) => {
@@ -1032,8 +1038,18 @@ impl Inner {
                             return;
                         }
                     }
+                    // Apple's last word on these bytes: not tried again until the file is written
+                    // again (the next close claims a sender afresh). Its reason stays told.
+                    Err(e) if e.settled => {
+                        quiet_note(&e.reason);
+                        me.with_pending(ino, |p| {
+                            p.sender = false;
+                            p.settled = true;
+                        });
+                        return;
+                    }
                     Err(e) => {
-                        quiet_note(&e);
+                        quiet_note(&e.reason);
                         tokio::time::sleep(wait).await;
                         wait = (wait * 2).min(LONGEST_RETRY);
                     }
@@ -1619,6 +1635,7 @@ impl Filesystem for DriveFs {
                         sender: false,
                         quiet_since: None,
                         sending: false,
+                        settled: false,
                         failure: None,
                     },
                 );
