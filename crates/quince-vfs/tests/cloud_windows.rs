@@ -2108,7 +2108,6 @@ fn words_save_goes_into_the_same_file() {
 #[test]
 fn a_save_by_replace_file_goes_into_the_same_file() {
     let s = Saves::start("replacefile");
-    std::fs::write(s.place.join("Report.new"), "fourth save!").unwrap();
     // Full paths: .NET resolves a relative one against its own current directory, which
     // PowerShell does not keep in step with the process's. And no backup as [NullString]:
     // PowerShell passes $null to a string parameter as "", which Replace refuses.
@@ -2118,10 +2117,13 @@ fn a_save_by_replace_file_goes_into_the_same_file() {
             "-NoProfile",
             "-NonInteractive",
             "-Command",
+            // Written and put in place in one go, as a program saving does: a file left a
+            // while would be sent as a file of its own first.
             &format!(
-                "[System.IO.File]::Replace('{}', '{}', [NullString]::Value)",
-                from.display(),
-                to.display()
+                "[System.IO.File]::WriteAllText('{from}', 'fourth save!'); \
+                 [System.IO.File]::Replace('{from}', '{to}', [NullString]::Value)",
+                from = from.display(),
+                to = to.display()
             ),
         ])
         .output()
@@ -2170,6 +2172,32 @@ fn a_replacing_save_over_a_file_changed_elsewhere_is_one_conflicted_copy() {
         (theirs.etag.as_deref(), theirs.size),
         (Some("e2"), Some(7)),
         "theirs untouched"
+    );
+}
+
+/// A file written into in place (still its placeholder) while another device changed it at
+/// Apple goes beside it as exactly one conflicted copy, and that copy then stays put. Before,
+/// the copy was "converted" to a placeholder it already was, which failed, so it still named
+/// the file it clashed with and clashed again: a copy of a copy every round (#265).
+#[test]
+fn a_file_written_in_place_over_a_change_elsewhere_is_one_conflicted_copy() {
+    let s = Saves::start("inplace-conflict");
+    {
+        let mut files = s.apple.files.lock().unwrap();
+        files[0].etag = Some("e2".into());
+        files[0].size = Some(7);
+    }
+    s.cmd("echo more>> Report.docx");
+    s.wait("upload Report (conflicted copy ");
+    std::thread::sleep(std::time::Duration::from_secs(10));
+    let said = s.said();
+    println!("Apple heard: {said:?}");
+    assert_eq!(
+        said.iter()
+            .filter(|l| l.contains("conflicted copy"))
+            .count(),
+        1,
+        "one copy, never a copy of a copy: {said:?}"
     );
 }
 
