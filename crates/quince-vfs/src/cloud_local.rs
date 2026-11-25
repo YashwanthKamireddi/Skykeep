@@ -360,7 +360,11 @@ async fn sync_path(
         here = path.with_file_name(sent.item.display_name());
         std::fs::rename(path, &here).map_err(|e| e.to_string())?;
     }
-    if state.is_some() && !sent.conflicted {
+    // A placeholder already (written in place, or one a save renamed here) has its identity
+    // moved to what was sent, conflicted copy or not: converting a placeholder fails, which left
+    // a conflicted copy still naming the file it clashed with, so its next look clashed again,
+    // a copy of a copy every round without end (#265, seen on Windows 11).
+    if state.is_some() {
         update(&here, &sent.item).map_err(|e| e.to_string())?;
     } else {
         convert(&here, Some(&sent.item)).map_err(|e| e.to_string())?;
