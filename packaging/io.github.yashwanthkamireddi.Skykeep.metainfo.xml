@@ -103,6 +103,11 @@
     <color type="primary" scheme_preference="dark">#0B2A4A</color>
   </branding>
   <releases>
+    <release version="0.1.41" date="2026-11-25">
+      <description>
+        <p>Photos checks a photo or video before uploading it and says at once why iCloud won't take it, instead of sending the whole file first; one iCloud turns down is never sent again. On Windows, the photo cache now keeps to its limit and can no longer fill the disk. Folders others share with you in iCloud Drive are no longer shown as deleted, and nothing in them can be changed from Skykeep yet. A Drive backup to a NAS or a FAT drive no longer downloads every file again on each pass. Changes waiting to reach iCloud Drive are kept safe even if their list is damaged. On GNOME, Automatic appearance follows the system's dark style.</p>
+      </description>
+    </release>
     <release version="0.1.40" date="2026-11-23">
       <description>
         <p>Photos no longer downloads Apple's screen-sized picture of every photo to draw the grid: it is drawn from Apple's thumbnails, as Photos does, so a large library takes a few gigabytes once instead of tens of gigabytes again and again. Videos whose first frame is black are no longer downloaded just to look for a better picture.</p>
