@@ -359,6 +359,19 @@ async fn drive_pass<H: Host>(host: &H, folder: &Path) -> Result<(), String> {
     };
     let top = folder.join("iCloud Drive");
     let earlier = folder.join("Earlier versions");
+    // The backup's own record of what it copied: a file is current by it, not by the date on
+    // the copy, which a NAS or FAT disk may not keep.
+    let known: HashMap<String, Copied> = {
+        let library = host.library().lock().await;
+        library
+            .backup_files()
+            .map_err(|e| e.to_string())?
+            .into_iter()
+            .filter(|c| c.source == fd::DRIVE && c.part == fd::FILE)
+            .map(|c| (c.item.clone(), c))
+            .collect()
+    };
+    let copied = Mutex::new(Vec::new());
     let stop = fd::Stop::default();
     if let Ok(mut s) = DRIVE_STOP.lock() {
         *s = Some(stop.clone());
@@ -408,6 +421,8 @@ async fn drive_pass<H: Host>(host: &H, folder: &Path) -> Result<(), String> {
         backup: Some(fd::Backup {
             top: &top,
             earlier: &earlier,
+            known: &known,
+            copied: &copied,
         }),
     };
     let report = fd::run(&drive, request, counting, &stop).await;
@@ -415,6 +430,12 @@ async fn drive_pass<H: Host>(host: &H, folder: &Path) -> Result<(), String> {
     ticker.abort();
     if let Ok(mut s) = DRIVE_STOP.lock() {
         *s = None;
+    }
+    // Recorded however the pass ended: what is whole in the backup is never fetched again.
+    let copied = copied.into_inner().unwrap_or_else(|e| e.into_inner());
+    if !copied.is_empty() {
+        let mut library = host.library().lock().await;
+        library.backup_copied(&copied).map_err(|e| e.to_string())?;
     }
     let report = report?;
     if let Some(problem) = report.problem {
