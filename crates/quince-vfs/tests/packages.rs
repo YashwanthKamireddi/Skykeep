@@ -22,6 +22,7 @@ fn item(id: &str, name: &str, ext: &str, listed: i64) -> DriveItem {
         created_at: Some(1_700_000_000),
         modified_at: Some(1_700_000_100),
         etag: Some("e1".into()),
+        share: None,
     }
 }
 

@@ -332,6 +332,8 @@ pooled "webkit: approval" env ENGINE=webkit node .uiverify/device-approval.mjs
 pooled "calendar undo"    node .uiverify/calendar-undo.mjs
 pooled "backup"           node .uiverify/settings-backup.mjs
 pooled "webkit: backup"   env ENGINE=webkit node .uiverify/settings-backup.mjs
+pooled "downloaded"       node .uiverify/settings-downloaded.mjs
+pooled "webkit: downloaded" env ENGINE=webkit node .uiverify/settings-downloaded.mjs
 
 
 wait "${pids[@]}" 2>/dev/null

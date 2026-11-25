@@ -18,6 +18,7 @@
 //! - Population is FULL (never PARTIAL, which Microsoft says is not supported), and a folder
 //!   already listed is brought up to date when the library changes, never left stale (#10871).
 
+use crate::vacated::{same_place, Left, Vacated};
 use crate::{
     named_on, served_size_differs, transfer, Arriving, Landing, Names, Remote, Store, CHUNK, ROOT,
 };
@@ -57,6 +58,10 @@ pub struct Provider {
     /// Cleared just before the folder disconnects (Skykeep quitting, or restarting for an
     /// update): an answer still on its way then is for a connection that is gone.
     connected: Arc<std::sync::atomic::AtomicBool>,
+    /// What each path a placeholder was just deleted or renamed away from stood for, so a save
+    /// that replaces the file goes into the same Apple file (crate::vacated, #265). Filled by
+    /// the delete and rename notices, taken from by the watcher sending changes (cloud_local).
+    vacated: Arc<Vacated>,
 }
 
 impl Provider {
@@ -82,6 +87,7 @@ impl Provider {
             add_only: false,
             shown: std::sync::Mutex::default(),
             connected: Arc::new(std::sync::atomic::AtomicBool::new(true)),
+            vacated: Arc::default(),
         }
     }
 }
@@ -196,8 +202,14 @@ impl CloudFolder {
             named.iter().map(|(_, i)| i.drivewsid.as_str()).collect();
         for (name, item) in &named {
             let want = dir.join(name);
+            // Just deleted or renamed away here, its Apple side waiting for the save it may be
+            // part of to settle: neither brought back nor renamed back meanwhile, which would
+            // undo a delete or take the name a save is about to put its new file at.
+            let settling = provider
+                .vacated
+                .holds(&item.drivewsid, std::time::Instant::now());
             match here.get(&item.drivewsid) {
-                None if !want.exists() => {
+                None if !want.exists() && !settling => {
                     let size = u64::try_from(item.size.unwrap_or(0)).unwrap_or(0);
                     let made = Placeholder::of(name, item, size);
                     let mut one = [made.info()];
@@ -215,7 +227,11 @@ impl CloudFolder {
                 None => {}
                 Some(path) if in_sync(path) => {
                     let mut path = path.clone();
-                    if path != want && !want.exists() && std::fs::rename(&path, &want).is_ok() {
+                    if path != want
+                        && !want.exists()
+                        && !settling
+                        && std::fs::rename(&path, &want).is_ok()
+                    {
                         path = want;
                     }
                     let known = identity_of(&path);
@@ -430,10 +446,11 @@ pub fn start(root: &Path, shown: &Shown, provider: Provider) -> Result<CloudFold
             false
         }
     };
-    let (remote, staging, rt) = (
+    let (remote, staging, rt, vacated) = (
         Arc::clone(&provider.remote),
         provider.staging.clone(),
         provider.rt.clone(),
+        Arc::clone(&provider.vacated),
     );
     provider
         .listed
@@ -468,6 +485,7 @@ pub fn start(root: &Path, shown: &Shown, provider: Provider) -> Result<CloudFold
         rt,
         Arc::clone(&folder.stop),
         add_only,
+        vacated,
     );
     // Files brought down here given back when the disk runs low, from the folders Windows has
     // listed only (crate::room).
@@ -797,9 +815,24 @@ unsafe extern "system" fn on_fetch_data(
         let offset = u64::try_from(fetch.RequiredFileOffset).unwrap_or(0);
         let len = u64::try_from(fetch.RequiredLength).unwrap_or(0);
         // SAFETY: as above; the program's path is copied out before this call ends.
-        tally_download(unsafe { requester(info) }, len);
+        let asker = unsafe { requester(info) };
+        // What this read makes Skykeep download is counted under the program's name
+        // (quince_record), as the Linux folder's are.
+        let why = quince_record::Why::Folder(crate::downloads::program(&asker));
+        tally_download(asker, len);
+        // The version a program is reading here: a save that replaces the file without a word
+        // to us goes into it (crate::vacated, #265).
+        if let Some(item) = req
+            .item
+            .as_ref()
+            .filter(|i| !provider.add_only && !i.is_container())
+        {
+            provider.vacated.read(&req.path, item);
+        }
         let (remote, rt) = (Arc::clone(&provider.remote), provider.rt.clone());
-        rt.spawn(async move { fetch_data(remote.as_ref(), req, offset, len).await });
+        rt.spawn(quince_record::because(why, async move {
+            fetch_data(remote.as_ref(), req, offset, len).await;
+        }));
     });
     if caught.is_err() {
         crate::note("a file request failed inside Skykeep; it is answered as failed");
@@ -1369,7 +1402,8 @@ fn transfer_placeholders(
     result.map(|()| processed).map_err(|e| (e, processed))
 }
 
-/// A path Windows gives as a volume ("C:") and a path on it ("\\Users\\…"), joined.
+/// A path Windows gives as a volume ("C:") and a path on it ("\\Users\\…"), joined. One
+/// given whole already ("C:\\…", "\\\\?\\…") is taken as it is.
 unsafe fn full_path(volume: PCWSTR, path: PCWSTR) -> PathBuf {
     let text = |p: PCWSTR| {
         if p.is_null() {
@@ -1378,7 +1412,11 @@ unsafe fn full_path(volume: PCWSTR, path: PCWSTR) -> PathBuf {
             unsafe { p.to_string() }.unwrap_or_default()
         }
     };
-    PathBuf::from(format!("{}{}", text(volume), text(path)))
+    let path = text(path);
+    if path.starts_with("\\\\") || path.as_bytes().get(1) == Some(&b':') {
+        return PathBuf::from(path);
+    }
+    PathBuf::from(format!("{}{path}", text(volume)))
 }
 
 /// Answers a delete or rename notice: allowed, or (`status` not success) declined. Nothing is
@@ -1418,7 +1456,14 @@ unsafe extern "system" fn on_delete(
     let _ = std::panic::catch_unwind(|| {
         // SAFETY: as in on_fetch_data.
         if let Some((req, _)) = unsafe { request(info) } {
-            ack(&req, CF_OPERATION_TYPE_ACK_DELETE, STATUS_SUCCESS);
+            // Someone else's share, or anything in it: declined, and the file stays. Deleted
+            // here it would go from Apple too, for them as well.
+            let status = if req.item.as_ref().is_some_and(DriveItem::shared_with_me) {
+                windows::Win32::Foundation::STATUS_CLOUD_FILE_ACCESS_DENIED
+            } else {
+                STATUS_SUCCESS
+            };
+            ack(&req, CF_OPERATION_TYPE_ACK_DELETE, status);
         }
     });
 }
@@ -1434,6 +1479,9 @@ unsafe extern "system" fn on_rename(
             // Linux declines it, and the file stays as it was.
             let status = if provider.add_only {
                 windows::Win32::Foundation::STATUS_CLOUD_FILE_NOT_SUPPORTED
+            } else if req.item.as_ref().is_some_and(DriveItem::shared_with_me) {
+                // Someone else's share, or anything in it: not renamed or moved from here.
+                windows::Win32::Foundation::STATUS_CLOUD_FILE_ACCESS_DENIED
             } else {
                 STATUS_SUCCESS
             };
@@ -1445,6 +1493,11 @@ unsafe extern "system" fn on_rename(
 /// Deleted in Explorer, and done: into Apple's Recently Deleted, where it can be put back for
 /// 30 days. Only for this notice from Windows, a person's own delete: Skykeep never deletes at
 /// Apple because a file is missing here (a client that did lost people's files, Nextcloud #3444).
+///
+/// A file's delete can be half of a save that replaces it (deleted, then made again; renamed
+/// over; Word deleting the ~WRL copy it renamed the original to): Apple's file is deleted only
+/// once that has settled, and not at all if a new file has taken its name meanwhile — that file
+/// is its new contents, and goes into it (crate::vacated, #265).
 unsafe extern "system" fn on_deleted(
     info: *const CF_CALLBACK_INFO,
     _params: *const CF_CALLBACK_PARAMETERS,
@@ -1455,10 +1508,40 @@ unsafe extern "system" fn on_deleted(
             return;
         };
         let Some(item) = req.item.clone() else { return };
-        let (remote, rt) = (Arc::clone(&provider.remote), provider.rt.clone());
+        // Declined before it was done (on_delete); never sent should it get here all the same.
+        if item.shared_with_me() {
+            return;
+        }
+        provider.vacated.read_moved(&req.path, None);
+        let (remote, rt, vacated) = (
+            Arc::clone(&provider.remote),
+            provider.rt.clone(),
+            Arc::clone(&provider.vacated),
+        );
+        // Photos has no saves that replace a photo, and a folder is never saved over.
+        let settles = !provider.add_only && !item.is_container();
+        // Written down here, before anything else can run: the new file a save puts at the name
+        // is sent only once it has been left alone a while, so it always finds this.
+        if settles && !named_scratch(&req.path) {
+            vacated.leave(
+                &req.path,
+                Left {
+                    item: item.clone(),
+                    moved_to: None,
+                },
+                std::time::Instant::now(),
+            );
+        }
         rt.spawn(async move {
-            // Done means gone: a delete that was undone before it was done leaves the file.
-            if req.path.exists() {
+            if settles {
+                tokio::time::sleep(crate::writes::SETTLE).await;
+                if !vacated.settle(&item.drivewsid, std::time::Instant::now(), Path::exists) {
+                    return;
+                }
+            }
+            // Done means gone: a delete that was undone before it was done leaves the file. And
+            // never while another file here stands for the same Apple file.
+            if req.path.exists() || held_elsewhere(&item, &[&req.path]) {
                 return;
             }
             for wait in [0u64, 2, 8, 30] {
@@ -1486,13 +1569,60 @@ unsafe extern "system" fn on_renamed(
             return;
         };
         let Some(item) = req.item.clone() else { return };
-        let _ = params;
-        let (remote, rt) = (Arc::clone(&provider.remote), provider.rt.clone());
-        rt.spawn(async move { renamed(remote.as_ref(), item, &req.path).await });
+        // Where it was: the notice's own path is where it is now.
+        // SAFETY: Windows' pointers, valid for this call; the path is copied out here.
+        let from = unsafe {
+            let info = &*info;
+            params.as_ref().and_then(|p| {
+                let source = p.Anonymous.RenameCompletion.SourcePath;
+                (!source.is_null()).then(|| full_path(info.VolumeDosName, source))
+            })
+        };
+        if let Some(f) = &from {
+            provider.vacated.read_moved(f, Some(&req.path));
+        }
+        let (remote, rt, vacated) = (
+            Arc::clone(&provider.remote),
+            provider.rt.clone(),
+            Arc::clone(&provider.vacated),
+        );
+        // A file's name left by a rename may be taken by a save that replaces it (Word's dance,
+        // a backup kept beside the save): written down at once, as for a delete.
+        let from = from.filter(|f| {
+            !provider.add_only
+                && !item.is_container()
+                && !same_place(f, &req.path)
+                && !named_scratch(f)
+        });
+        vacated.forget(&req.path, &item.drivewsid, std::time::Instant::now());
+        if let Some(from) = &from {
+            vacated.leave(
+                from,
+                Left {
+                    item: item.clone(),
+                    moved_to: Some(req.path.clone()),
+                },
+                std::time::Instant::now(),
+            );
+        }
+        rt.spawn(async move {
+            renamed(remote.as_ref(), &vacated, item, from.as_deref(), &req.path).await;
+        });
     });
 }
 
-async fn renamed(remote: &dyn Remote, item: DriveItem, now: &Path) {
+/// A rename at Apple, for a placeholder renamed or moved here (`from`: the name it left, when a
+/// save may take it). Never to a scratch name (Word's ~WRLnnnn.tmp, an editor's backup "~"):
+/// such a rename is a save under way, never the file's new name at Apple. Otherwise done once
+/// the save it may be part of has settled, and not at all if a new file took the old name: that
+/// file is the Apple file now, and this one goes up as a file of its own (cloud_local).
+async fn renamed(
+    remote: &dyn Remote,
+    vacated: &Vacated,
+    item: DriveItem,
+    from: Option<&Path>,
+    now: &Path,
+) {
     let Some(name) = now.file_name().and_then(|n| n.to_str()) else {
         return;
     };
@@ -1500,7 +1630,24 @@ async fn renamed(remote: &dyn Remote, item: DriveItem, now: &Path) {
         // Moved out of the folder Skykeep keeps: nothing at Apple changes until it is deleted.
         return;
     };
+    if let Some(from) = from {
+        if named_scratch(now) {
+            return;
+        }
+        tokio::time::sleep(crate::writes::SETTLE).await;
+        if !vacated.settle(&item.drivewsid, std::time::Instant::now(), Path::exists)
+            || held_elsewhere(&item, &[from, now])
+        {
+            return;
+        }
+    }
     let moved = item.parent_id.as_deref() != Some(parent.drivewsid.as_str());
+    // Nothing of someone else's share renamed or moved at Apple, and nothing moved into one:
+    // declined before it was done where Windows asks (on_rename); not sent if it got here.
+    if item.shared_with_me() || (moved && parent.shared_with_me()) {
+        crate::note_about(quince_core::drive::SHARED_READ_ONLY, &item.drivewsid);
+        return;
+    }
     for wait in [0u64, 2, 8, 30] {
         tokio::time::sleep(std::time::Duration::from_secs(wait)).await;
         let step = async {
@@ -1519,6 +1666,30 @@ async fn renamed(remote: &dyn Remote, item: DriveItem, now: &Path) {
     }
 }
 
+/// Whether a path's name is one programs keep for their own scratch (never sent, cloud_local).
+fn named_scratch(path: &Path) -> bool {
+    path.file_name()
+        .and_then(|n| n.to_str())
+        .is_some_and(crate::cloud_local::scratch)
+}
+
+/// Whether a file here other than `besides` stands for Apple's `item`: one at its own name, in
+/// the folder the first of `besides` is in. Then a delete or rename of the one in `besides` is
+/// never done at Apple — it would delete or rename that file. A save that replaced the file
+/// left it there (crate::vacated); this holds after the record of it is gone too.
+fn held_elsewhere(item: &DriveItem, besides: &[&Path]) -> bool {
+    let Some(dir) = besides.first().and_then(|p| p.parent()) else {
+        return false;
+    };
+    named_on(std::slice::from_ref(item), Names::Windows)
+        .into_iter()
+        .any(|(name, _)| {
+            let at = dir.join(name);
+            !besides.iter().any(|b| same_place(b, &at))
+                && identity_of(&at).is_some_and(|i| i.drivewsid == item.drivewsid)
+        })
+}
+
 /// The Apple folder a folder here stands for: its placeholder's identity, or the root's (whose
 /// registration carries none). `None` for a folder that is not one of ours.
 pub(crate) fn folder_item(dir: &Path) -> Option<DriveItem> {
@@ -1535,6 +1706,7 @@ pub(crate) fn folder_item(dir: &Path) -> Option<DriveItem> {
             created_at: None,
             modified_at: None,
             etag: None,
+            share: None,
         }),
         None => None,
     }

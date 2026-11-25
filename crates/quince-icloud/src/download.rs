@@ -146,6 +146,7 @@ impl Download {
                                 out.write_all(&bytes).await?;
                                 out.flush().await?;
                                 have += bytes.len() as u64;
+                                quince_record::landed(bytes.len() as u64);
                                 landed(bytes.len() as u64);
                             }
                             Err(e) => {

@@ -703,6 +703,7 @@ mod tests {
             created_at: None,
             modified_at: Some(modified),
             etag: None,
+            share: None,
         }
     }
 

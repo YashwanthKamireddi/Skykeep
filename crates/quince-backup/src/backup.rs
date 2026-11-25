@@ -280,24 +280,27 @@ pub fn kick<H: Host>(host: &H) {
     }
     let host = host.clone();
     let work = host.clone();
-    work.spawn(Box::pin(async move {
-        let retry = loop {
-            AGAIN.store(false, Ordering::SeqCst);
-            let ended = pass(&host).await;
-            if let Ok(mut p) = PROBLEM.lock() {
-                *p = ended.clone().err();
+    work.spawn(Box::pin(quince_record::because(
+        quince_record::Why::Backup,
+        async move {
+            let retry = loop {
+                AGAIN.store(false, Ordering::SeqCst);
+                let ended = pass(&host).await;
+                if let Ok(mut p) = PROBLEM.lock() {
+                    *p = ended.clone().err();
+                }
+                if !AGAIN.load(Ordering::SeqCst) {
+                    break ended.is_err();
+                }
+            };
+            RUNNING.store(false, Ordering::SeqCst);
+            host.tell(status(&host).await);
+            if retry {
+                tokio::time::sleep(AGAIN_AFTER).await;
+                kick(&host);
             }
-            if !AGAIN.load(Ordering::SeqCst) {
-                break ended.is_err();
-            }
-        };
-        RUNNING.store(false, Ordering::SeqCst);
-        host.tell(status(&host).await);
-        if retry {
-            tokio::time::sleep(AGAIN_AFTER).await;
-            kick(&host);
-        }
-    }));
+        },
+    )));
 }
 
 /// One pass: Photos, then iCloud Drive when it is due, only into the backup's own folder.
@@ -356,9 +359,23 @@ async fn drive_pass<H: Host>(host: &H, folder: &Path) -> Result<(), String> {
         created_at: None,
         modified_at: None,
         etag: None,
+        share: None,
     };
     let top = folder.join("iCloud Drive");
     let earlier = folder.join("Earlier versions");
+    // The backup's own record of what it copied: a file is current by it, not by the date on
+    // the copy, which a NAS or FAT disk may not keep.
+    let known: HashMap<String, Copied> = {
+        let library = host.library().lock().await;
+        library
+            .backup_files()
+            .map_err(|e| e.to_string())?
+            .into_iter()
+            .filter(|c| c.source == fd::DRIVE && c.part == fd::FILE)
+            .map(|c| (c.item.clone(), c))
+            .collect()
+    };
+    let copied = Mutex::new(Vec::new());
     let stop = fd::Stop::default();
     if let Ok(mut s) = DRIVE_STOP.lock() {
         *s = Some(stop.clone());
@@ -408,6 +425,8 @@ async fn drive_pass<H: Host>(host: &H, folder: &Path) -> Result<(), String> {
         backup: Some(fd::Backup {
             top: &top,
             earlier: &earlier,
+            known: &known,
+            copied: &copied,
         }),
     };
     let report = fd::run(&drive, request, counting, &stop).await;
@@ -415,6 +434,12 @@ async fn drive_pass<H: Host>(host: &H, folder: &Path) -> Result<(), String> {
     ticker.abort();
     if let Ok(mut s) = DRIVE_STOP.lock() {
         *s = None;
+    }
+    // Recorded however the pass ended: what is whole in the backup is never fetched again.
+    let copied = copied.into_inner().unwrap_or_else(|e| e.into_inner());
+    if !copied.is_empty() {
+        let mut library = host.library().lock().await;
+        library.backup_copied(&copied).map_err(|e| e.to_string())?;
     }
     let report = report?;
     if let Some(problem) = report.problem {

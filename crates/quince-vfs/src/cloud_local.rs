@@ -11,10 +11,15 @@
 //! sync only if it is still exactly what was sent; otherwise it goes again. A file changed at
 //! Apple meanwhile is kept beside it as a conflicted copy, never written over (`writes::send`).
 //!
+//! A file saved by replacing it (renamed over, ReplaceFileW, Word's dance, deleted and made
+//! again) is no placeholder any more: it goes into the Apple file whose name it took, which
+//! the delete or rename Windows told of says (crate::vacated, #265).
+//!
 //! iCloud Photos can't replace a photo from a computer, so a photo saved over goes to iCloud as
 //! a new photo and the one under it goes back to iCloud's copy (`save_as_new_photo`).
 
 use crate::cloud::{folder_item, identity_of, placeholder_state, renew_unless_changed};
+use crate::vacated::{Left, Vacated};
 use crate::writes::{send, stays_local, SETTLE};
 use crate::Remote;
 use quince_core::drive::DriveItem;
@@ -31,7 +36,7 @@ fn windows_own(name: &str) -> bool {
 }
 
 /// Never sent, never marked: editors' scratch files and Office's "~$" locks.
-fn scratch(name: &str) -> bool {
+pub(crate) fn scratch(name: &str) -> bool {
     stays_local(name) || name.starts_with("~$")
 }
 
@@ -43,6 +48,7 @@ pub fn watch(
     rt: tokio::runtime::Handle,
     stop: Arc<std::sync::atomic::AtomicBool>,
     add_only: bool,
+    vacated: Arc<Vacated>,
 ) -> Option<std::thread::JoinHandle<()>> {
     let (tx, rx) = tokio::sync::mpsc::unbounded_channel::<PathBuf>();
     // Whatever changed while Skykeep was closed, looked for behind the start: walked before it
@@ -57,7 +63,13 @@ pub fn watch(
                 let _ = found.send(path);
             }
         });
-    rt.spawn(settle_and_send(rx, Arc::clone(&remote), staging, add_only));
+    rt.spawn(settle_and_send(
+        rx,
+        Arc::clone(&remote),
+        staging,
+        add_only,
+        vacated,
+    ));
     let watched = root.clone();
     std::thread::Builder::new()
         .name("quince:cloud-watch".into())
@@ -180,6 +192,7 @@ async fn settle_and_send(
     remote: Arc<dyn Remote>,
     staging: PathBuf,
     add_only: bool,
+    vacated: Arc<Vacated>,
 ) {
     let mut touched: HashMap<PathBuf, Instant> = HashMap::new();
     let mut tick = tokio::time::interval(std::time::Duration::from_millis(500));
@@ -197,7 +210,7 @@ async fn settle_and_send(
                     .collect();
                 for path in due {
                     touched.remove(&path);
-                    if let Err(e) = sync_path(remote.as_ref(), &staging, &path, add_only).await {
+                    if let Err(e) = sync_path(remote.as_ref(), &staging, &path, add_only, &vacated).await {
                         crate::note_about(&format!("sending a saved file: {e}"), &path.display().to_string());
                         // Tried again in a while; the file itself stays as it is.
                         touched.insert(path, Instant::now() + std::time::Duration::from_secs(25));
@@ -214,6 +227,7 @@ async fn sync_path(
     staging: &Path,
     path: &Path,
     add_only: bool,
+    vacated: &Vacated,
 ) -> Result<(), String> {
     let Some(name) = path
         .file_name()
@@ -256,7 +270,7 @@ async fn sync_path(
         convert(path, Some(&made)).map_err(|e| e.to_string())?;
         // What was copied in with it.
         for entry in std::fs::read_dir(path).into_iter().flatten().flatten() {
-            Box::pin(sync_path(remote, staging, &entry.path(), add_only)).await?;
+            Box::pin(sync_path(remote, staging, &entry.path(), add_only, vacated)).await?;
         }
         return Ok(());
     }
@@ -268,6 +282,13 @@ async fn sync_path(
         // Photos: a view (Favorites, Videos) is no place to add a photo. Left as it is.
         return Ok(());
     }
+    // Not a placeholder, at a path a placeholder left a moment ago: a save that replaced the
+    // file. It goes into the Apple file that left (its version then is the base, so a change
+    // made elsewhere since still makes a conflicted copy), never beside it by its name.
+    let claimed = match &state {
+        None if !add_only => vacated.take(path, Instant::now()),
+        _ => None,
+    };
     let base = match &state {
         Some((s, _)) if *s == CF_IN_SYNC_STATE_IN_SYNC => {
             // In sync: only "Free up space" or "Always keep on this device" can have changed.
@@ -275,28 +296,51 @@ async fn sync_path(
             return Ok(());
         }
         Some(_) => identity_of(path),
-        None => None,
+        None => match &claimed {
+            Some(c) => Some(c.item.clone()),
+            None if !add_only => read_here(remote, &folder, path, &name, vacated).await?,
+            None => None,
+        },
     };
-    // A copy to send from, so bytes still being written never reach Apple half done.
-    let before = stamp(path).ok_or("the file went away")?;
-    let dir = staging.join(format!("{}-{}", std::process::id(), stamp_key(&before)));
-    std::fs::create_dir_all(&dir).map_err(|e| e.to_string())?;
-    let staged = dir.join(&name);
-    std::fs::copy(path, &staged).map_err(|e| e.to_string())?;
-    let sent = if add_only {
-        // Only ever an addition: never a replacement of a photo found under the same name.
-        remote
-            .upload(&folder, &staged)
-            .await
-            .map(|item| crate::writes::Sent {
-                item,
-                conflicted: false,
-            })
-    } else {
-        send(remote, &folder, &staged, base.as_ref(), base.as_ref()).await
+    let sending = async {
+        if let Some(c) = &claimed {
+            keep_moved_whole(c).await?;
+        }
+        // A copy to send from, so bytes still being written never reach Apple half done.
+        let before = stamp(path).ok_or("the file went away")?;
+        let dir = staging.join(format!("{}-{}", std::process::id(), stamp_key(&before)));
+        std::fs::create_dir_all(&dir).map_err(|e| e.to_string())?;
+        let staged = dir.join(&name);
+        std::fs::copy(path, &staged).map_err(|e| e.to_string())?;
+        let sent = if add_only {
+            // Only ever an addition: never a replacement of a photo found under the same name.
+            remote
+                .upload(&folder, &staged)
+                .await
+                .map(|item| crate::writes::Sent {
+                    item,
+                    conflicted: false,
+                })
+        } else {
+            send(remote, &folder, &staged, base.as_ref(), base.as_ref()).await
+        };
+        let _ = std::fs::remove_dir_all(&dir);
+        Ok::<_, String>((sent?, before))
     };
-    let _ = std::fs::remove_dir_all(&dir);
-    let sent = sent?;
+    let result = sending.await;
+    let (sent, before) = match result {
+        Ok(done) => done,
+        Err(e) => {
+            // Not sent: the Apple file it replaces is still its, for the next try.
+            if let Some(c) = claimed {
+                vacated.put_back(path, c, Instant::now());
+            }
+            return Err(e);
+        }
+    };
+    if let Some(c) = &claimed {
+        let_go_of_moved(remote, staging, c, add_only, vacated).await;
+    }
     if stamp(path) != Some(before) {
         // Changed while it was being sent: it goes again, as it is now — over the version just
         // sent, which is ours. Left naming the version before it, the next send found Apple's
@@ -305,6 +349,7 @@ async fn sync_path(
         // during an upload. So the file now names what was sent, and stays waiting.
         if !sent.conflicted && !add_only {
             remember_sent(path, &sent.item, state.is_some()).map_err(|e| e.to_string())?;
+            vacated.read(path, &sent.item);
         }
         return Err("changed while sending; sending again".into());
     }
@@ -315,10 +360,99 @@ async fn sync_path(
         here = path.with_file_name(sent.item.display_name());
         std::fs::rename(path, &here).map_err(|e| e.to_string())?;
     }
-    if state.is_some() && !sent.conflicted {
-        update(&here, &sent.item).map_err(|e| e.to_string())
+    // A placeholder already (written in place, or one a save renamed here) has its identity
+    // moved to what was sent, conflicted copy or not: converting a placeholder fails, which left
+    // a conflicted copy still naming the file it clashed with, so its next look clashed again,
+    // a copy of a copy every round without end (#265, seen on Windows 11).
+    if state.is_some() {
+        update(&here, &sent.item).map_err(|e| e.to_string())?;
     } else {
-        convert(&here, Some(&sent.item)).map_err(|e| e.to_string())
+        convert(&here, Some(&sent.item)).map_err(|e| e.to_string())?;
+    }
+    if !add_only {
+        // The bytes here are this version now: a save replacing the file next goes over it.
+        vacated.read(&here, &sent.item);
+    }
+    Ok(())
+}
+
+/// The Apple file a plain file at `path` is the next version of, when no delete or rename was
+/// told of: the one last read here (`Vacated::read`), so long as Apple's file of that id is
+/// still in this folder under this name. Renamed or moved elsewhere since, it is another file
+/// now, never written over; gone, the new file is new (`send` finds nothing to replace).
+async fn read_here(
+    remote: &dyn Remote,
+    folder: &DriveItem,
+    path: &Path,
+    name: &str,
+    vacated: &Vacated,
+) -> Result<Option<DriveItem>, String> {
+    let Some(read) = vacated.last_read(path) else {
+        return Ok(None);
+    };
+    let now = remote.list(&folder.drivewsid).await?;
+    Ok(now
+        .iter()
+        .any(|i| i.drivewsid == read.drivewsid && i.display_name() == name)
+        .then_some(read))
+}
+
+/// Whether the placeholder a replacing save renamed away still stands for the Apple file the
+/// save goes into: where it went (`Left::moved_to`), if it is still there as that file.
+fn moved_still_claims(left: &Left) -> Option<&Path> {
+    let moved = left.moved_to.as_deref()?;
+    identity_of(moved)
+        .is_some_and(|i| i.drivewsid == left.item.drivewsid)
+        .then_some(moved)
+}
+
+/// The placeholder a replacing save renamed away (Word's ~WRL copy, a backup kept beside the
+/// save) brought here whole before the save goes over the Apple file it stands for: its bytes
+/// are that file's version before the save, which Apple no longer serves once it has gone.
+async fn keep_moved_whole(left: &Left) -> Result<(), String> {
+    use std::os::windows::fs::MetadataExt;
+    let Some(moved) = moved_still_claims(left) else {
+        return Ok(());
+    };
+    let whole = std::fs::metadata(moved).is_ok_and(|m| m.file_attributes() & NOT_ALL_HERE == 0);
+    if whole {
+        return Ok(());
+    }
+    let file = moved.to_path_buf();
+    // Fetched through Skykeep's own requests: waited on off the runtime's threads (keep_or_free).
+    match tokio::task::spawn_blocking(move || hydrate(&file)).await {
+        Ok(Ok(())) => Ok(()),
+        Ok(Err(e)) => Err(format!("keeping the copy a save set aside: {e}")),
+        Err(e) => Err(e.to_string()),
+    }
+}
+
+/// Once a save has gone into the Apple file, the placeholder it renamed away no longer stands
+/// for that file: two files here never stand for one at Apple. It becomes a plain file, and goes
+/// to Apple as a file of its own (a scratch copy, never sent, just stays here). Nothing at Apple
+/// is deleted or renamed for it.
+async fn let_go_of_moved(
+    remote: &dyn Remote,
+    staging: &Path,
+    left: &Left,
+    add_only: bool,
+    vacated: &Vacated,
+) {
+    let Some(moved) = moved_still_claims(left) else {
+        return;
+    };
+    let said = moved.display().to_string();
+    if let Err(e) = revert(moved) {
+        // Left standing for the Apple file: deleting it later deletes nothing at Apple while
+        // the saved file stands for it (cloud::held_elsewhere).
+        crate::note_about(
+            &format!("letting go of a copy a save set aside: {e}"),
+            &said,
+        );
+        return;
+    }
+    if let Err(e) = Box::pin(sync_path(remote, staging, moved, add_only, vacated)).await {
+        crate::note_about(&format!("sending a copy a save set aside: {e}"), &said);
     }
 }
 
@@ -496,6 +630,13 @@ fn mark_in_sync(path: &Path) -> windows::core::Result<()> {
             None,
         )
     }
+}
+
+/// A placeholder made a plain file again, its bytes kept (it must be whole).
+fn revert(path: &Path) -> windows::core::Result<()> {
+    let handle = open_for_update(path)?;
+    // SAFETY: our handle.
+    unsafe { CfRevertPlaceholder(handle.0, CF_REVERT_FLAG_NONE, None) }
 }
 
 const PINNED: u32 = 0x0008_0000;

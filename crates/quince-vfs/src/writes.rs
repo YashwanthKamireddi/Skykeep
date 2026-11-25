@@ -283,6 +283,7 @@ impl Writes {
                 }
             }
         }
+        self.set_aside_if_unreadable()?;
         let waiting = self.load();
         std::fs::create_dir_all(self.dir.join(".restore"))?;
         for (old, _) in &waiting {
@@ -305,6 +306,40 @@ impl Writes {
             placed.push((ino, pending));
         }
         Ok(placed)
+    }
+
+    /// A journal that can't be read (a disk error, a damaged file) is never written over, nor are
+    /// the bytes it named: read as nothing waiting, the next save put an empty journal in its
+    /// place, and a new file given an old one's number would delete that file's unsent bytes.
+    /// Both go, as they are, into `unreadable-<seconds>` beside them, and the diagnostics log
+    /// says where: kept for the person, never sent blind.
+    fn set_aside_if_unreadable(&self) -> std::io::Result<()> {
+        let Ok(bytes) = std::fs::read(self.journal()) else {
+            return Ok(());
+        };
+        if serde_json::from_slice::<Vec<(u64, Pending)>>(&bytes).is_ok() {
+            return Ok(());
+        }
+        let secs = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .map_or(0, |d| d.as_secs());
+        let aside = self.dir.join(format!("unreadable-{secs}"));
+        std::fs::create_dir_all(&aside)?;
+        std::fs::rename(self.journal(), aside.join("pending.json"))?;
+        for entry in std::fs::read_dir(&self.dir)?.flatten() {
+            let numbered = entry
+                .file_name()
+                .to_str()
+                .is_some_and(|n| n.parse::<u64>().is_ok());
+            if numbered {
+                std::fs::rename(entry.path(), aside.join(entry.file_name()))?;
+            }
+        }
+        crate::note(&format!(
+            "the list of changes still to send could not be read; it and their bytes are kept in {}",
+            aside.display()
+        ));
+        Ok(())
     }
 
     /// What was waiting when the folder last went away, with where its bytes are.
@@ -503,6 +538,11 @@ pub async fn send(
         .and_then(|n| n.to_str())
         .ok_or("no name")?
         .to_string();
+    // Someone else's share is read only here: nothing is sent into it, a conflicted copy
+    // neither, and nothing of theirs is written over.
+    if folder.shared_with_me() || base.is_some_and(DriveItem::shared_with_me) {
+        return Err(quince_core::drive::SHARED_READ_ONLY.to_string());
+    }
     let now = remote.list(&folder.drivewsid).await?;
     let current = base
         .and_then(|b| now.iter().find(|i| i.drivewsid == b.drivewsid))
@@ -657,6 +697,7 @@ mod send_tests {
                 extension: ext.map(Into::into),
                 size: Some(i64::try_from(std::fs::metadata(path).unwrap().len()).unwrap()),
                 etag: Some("v1".into()),
+                share: None,
                 ..file("unused", "v1")
             };
             self.files.lock().unwrap().push(item.clone());
@@ -690,6 +731,7 @@ mod send_tests {
             created_at: None,
             modified_at: None,
             etag: Some(etag.into()),
+            share: None,
         }
     }
 
@@ -935,6 +977,51 @@ mod send_tests {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// A journal that can't be read is set aside with the bytes it named, never written over:
+    /// read as nothing waiting, the next save replaced it with an empty one and the unsent
+    /// bytes were left for a new file of the same number to delete.
+    #[test]
+    fn an_unreadable_journal_and_its_bytes_are_kept() {
+        let dir = tempfile::tempdir().unwrap();
+        let w = Writes::new(dir.path()).unwrap();
+        std::fs::create_dir_all(dir.path().join("7")).unwrap();
+        std::fs::write(dir.path().join("7").join("notes.txt"), b"unsent words").unwrap();
+        std::fs::write(dir.path().join("pending.json"), b"{ half a journal").unwrap();
+        let waiting = w.take_back(|_| 1).unwrap();
+        assert!(waiting.is_empty());
+        w.save();
+        let aside: Vec<_> = std::fs::read_dir(dir.path())
+            .unwrap()
+            .flatten()
+            .filter(|e| e.file_name().to_string_lossy().starts_with("unreadable-"))
+            .map(|e| e.path())
+            .collect();
+        assert_eq!(aside.len(), 1, "set aside once");
+        assert_eq!(
+            std::fs::read(aside[0].join("pending.json")).unwrap(),
+            b"{ half a journal",
+            "the journal as it was"
+        );
+        assert_eq!(
+            std::fs::read(aside[0].join("7").join("notes.txt")).unwrap(),
+            b"unsent words",
+            "and the bytes it named"
+        );
+        assert!(
+            !dir.path().join("7").exists(),
+            "no new file can take its number"
+        );
+        // A readable journal is never set aside.
+        let again = w.take_back(|_| 1).unwrap();
+        assert!(again.is_empty());
+        let count = std::fs::read_dir(dir.path())
+            .unwrap()
+            .flatten()
+            .filter(|e| e.file_name().to_string_lossy().starts_with("unreadable-"))
+            .count();
+        assert_eq!(count, 1);
+    }
 
     #[test]
     fn scratch_files_never_leave() {

@@ -90,25 +90,11 @@ impl Library {
 
     /// Every Drive item the library has listed, in every folder it has read.
     pub fn export_drive_items(&self) -> Result<Vec<DriveItem>> {
-        let mut stmt = self.conn.prepare(
-            "SELECT drivewsid, parent_id, name, extension, kind, size, child_count,
-                    created_at, modified_at, etag
-             FROM drive_items ORDER BY drivewsid",
-        )?;
-        let rows = stmt.query_map([], |row| {
-            Ok(DriveItem {
-                drivewsid: row.get(0)?,
-                parent_id: row.get(1)?,
-                name: row.get(2)?,
-                extension: row.get(3)?,
-                kind: row.get(4)?,
-                size: row.get(5)?,
-                child_count: row.get(6)?,
-                created_at: row.get(7)?,
-                modified_at: row.get(8)?,
-                etag: row.get(9)?,
-            })
-        })?;
+        let mut stmt = self.conn.prepare(&format!(
+            "SELECT {} FROM drive_items ORDER BY drivewsid",
+            crate::drive::ITEM_COLUMNS
+        ))?;
+        let rows = stmt.query_map([], crate::drive::item_from_row)?;
         Ok(rows.collect::<rusqlite::Result<Vec<_>>>()?)
     }
 

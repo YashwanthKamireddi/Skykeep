@@ -595,7 +595,10 @@ impl Account {
                             "This file's name is too long for iCloud Photos.".into()
                         }
                         Refusal::OverQuota => "Your iCloud storage is full.".into(),
-                        r @ Refusal::Rejected(_) => r.words(),
+                        Refusal::Dimensions(w, h) => format!(
+                            "This photo is too large for iCloud Photos ({w} \u{d7} {h} pixels)."
+                        ),
+                        r @ (Refusal::Rejected(_) | Refusal::Unsupported(_)) => r.words(),
                         Refusal::Duplicate => unreachable!(),
                     };
                     l.set_upload(&key, "refused", Some(&reason), None)

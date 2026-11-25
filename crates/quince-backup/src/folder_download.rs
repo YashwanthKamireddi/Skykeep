@@ -50,6 +50,7 @@ use std::time::{Duration, Instant};
 
 use futures_util::future::{AbortHandle, Abortable};
 use futures_util::StreamExt;
+use quince_core::backup::Copied;
 use quince_core::drive::DriveItem;
 use quince_icloud::drive::Placing;
 use quince_icloud::Error;
@@ -164,10 +165,25 @@ pub struct Request<'a> {
 
 /// Where a backup keeps iCloud Drive: `top`, the folder its whole tree lives in, and `earlier`,
 /// where a file replaced by a newer version goes, at the same place in the tree.
+///
+/// `known` and `copied` are the backup's own record of what it copied (`backup_files`, source
+/// [`DRIVE`]): which file of Drive's, at which path, how large, at which etag. A file is current
+/// by that record, never by the date on the copy: a NAS, an SMB share or a FAT disk may refuse
+/// or drop the date a download sets, and judged by it every file looked changed on every pass,
+/// was fetched again and its copy piled into `earlier` until the disk filled (rclone#9807).
 pub struct Backup<'a> {
     pub top: &'a Path,
     pub earlier: &'a Path,
+    /// What earlier passes recorded, by Drive id.
+    pub known: &'a std::collections::HashMap<String, Copied>,
+    /// Every file this pass found current or copied, to be recorded by the caller (kept even
+    /// when the pass stops short).
+    pub copied: &'a Mutex<Vec<Copied>>,
 }
+
+/// `backup_files.source` for iCloud Drive's files, and the one part of each.
+pub const DRIVE: &str = "drive";
+pub const FILE: &str = "file";
 
 // ── Stopping ────────────────────────────────────────────────────────────────────────────────
 
@@ -642,6 +658,9 @@ struct Run<'a> {
     into: &'a Path,
     /// A backup's earlier versions, when this run is a backup's (`Request::backup`).
     earlier: Option<PathBuf>,
+    /// A backup's record: what it copied before, and what it copies now (`Backup`).
+    known: Option<&'a std::collections::HashMap<String, Copied>>,
+    copied: Option<&'a Mutex<Vec<Copied>>>,
     emit: Emit,
     stop: &'a Stop,
     tops: Vec<Top>,
@@ -668,6 +687,80 @@ struct Run<'a> {
 }
 
 impl Run<'_> {
+    /// Whether the file at `path` is `item`, whole and current. A backup goes by its own record
+    /// first: the same Drive file copied to this same path at the etag Apple gives now, and the
+    /// copy still the size it was. Anything else (no record, a record from before, an etag
+    /// changed, no etag) is judged as a download is, by size and date (`whole_here`); a backup
+    /// records what that finds current so the next pass needs no date. `record`: saving, not
+    /// counting.
+    fn current(&self, path: &Path, item: &DriveItem, record: bool) -> bool {
+        let Some(rel) = self.known.and(self.rel(path)) else {
+            return whole_here(path, item);
+        };
+        let recorded = self.known.and_then(|k| k.get(&item.drivewsid)).filter(|c| {
+            c.source == DRIVE
+                && c.part == FILE
+                && c.path == rel
+                && c.version.is_some()
+                && c.version == item.etag
+        });
+        if let Some(c) = recorded {
+            if std::fs::symlink_metadata(path)
+                .is_ok_and(|m| m.is_file() && m.len() as i64 == c.size)
+            {
+                // Recorded already, as it is: nothing to add.
+                return true;
+            }
+            return false;
+        }
+        if !whole_here(path, item) {
+            return false;
+        }
+        if record {
+            if let Ok(m) = std::fs::symlink_metadata(path) {
+                self.record(path, item, m.len());
+            }
+        }
+        true
+    }
+
+    /// `path` as `backup_files` keeps it: inside the backup's folder, `/` between names.
+    fn rel(&self, path: &Path) -> Option<String> {
+        let rel = path.strip_prefix(self.into).ok()?;
+        let parts: Vec<String> = rel
+            .components()
+            .map(|c| c.as_os_str().to_string_lossy().into_owned())
+            .collect();
+        Some(parts.join("/"))
+    }
+
+    /// A backup's file, whole at `path` as `item` (`len` bytes there): recorded.
+    fn record(&self, path: &Path, item: &DriveItem, len: u64) {
+        if self.copied.is_none() {
+            return;
+        }
+        let Some(rel) = self.rel(path) else {
+            return;
+        };
+        self.note_copied(Copied {
+            source: DRIVE.into(),
+            item: item.drivewsid.clone(),
+            part: FILE.into(),
+            path: rel,
+            size: i64::try_from(len).unwrap_or(i64::MAX),
+            version: item.etag.clone(),
+        });
+    }
+
+    fn note_copied(&self, c: Copied) {
+        if let Some(copied) = self.copied {
+            copied
+                .lock()
+                .unwrap_or_else(PoisonError::into_inner)
+                .push(c);
+        }
+    }
+
     fn note_failure(&self, line: String) {
         let mut failed = self.failed.lock().unwrap_or_else(PoisonError::into_inner);
         if failed.0.len() < NAMED_FAILURES {
@@ -927,7 +1020,7 @@ impl Run<'_> {
         let size = size_of(item).unwrap_or(0);
         self.found.fetch_add(1, Ordering::Relaxed);
         self.found_bytes.fetch_add(size, Ordering::Relaxed);
-        if matches!(pass, Pass::Count) && on_disk && whole_here(path, item) {
+        if matches!(pass, Pass::Count) && on_disk && self.current(path, item, false) {
             self.have_bytes.fetch_add(size, Ordering::Relaxed);
         }
         !self.stop.stopped()
@@ -969,7 +1062,7 @@ impl Run<'_> {
         };
         if job.placing == Placing::Replace {
             // Resumed: a file already here at iCloud's size is the one that arrived before.
-            if whole_here(&job.path, &job.item) {
+            if self.current(&job.path, &job.item, true) {
                 done(size.unwrap_or(0));
                 return;
             }
@@ -1063,6 +1156,7 @@ impl Run<'_> {
             Some(Ok(())) => {
                 crate::saving::mark_from_internet(path);
                 let len = std::fs::metadata(path).map_or(size.unwrap_or(0), |m| m.len());
+                self.record(path, item, len);
                 self.arrived_bytes.fetch_add(len, Ordering::Relaxed);
                 self.lost.store(0, Ordering::Relaxed);
                 done(len);
@@ -1263,6 +1357,8 @@ pub async fn run(
         batch,
         into,
         earlier: backup.as_ref().map(|b| b.earlier.to_path_buf()),
+        known: backup.as_ref().map(|b| b.known),
+        copied: backup.as_ref().map(|b| b.copied),
         emit: emit.clone(),
         stop,
         tops,

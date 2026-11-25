@@ -182,6 +182,7 @@ async fn body_part(mut r: reqwest::Response, skip: u64, len: u64) -> Result<Serv
         };
         let at = seen;
         seen += chunk.len() as u64;
+        quince_record::landed(chunk.len() as u64);
         // The piece of this chunk inside [skip, end).
         let from = usize::try_from(skip.saturating_sub(at).min(chunk.len() as u64)).unwrap_or(0);
         let to = usize::try_from(end.saturating_sub(at).min(chunk.len() as u64)).unwrap_or(0);

@@ -18,6 +18,9 @@ mod downloads;
 #[cfg(target_os = "linux")]
 pub mod fuse;
 pub mod transfer;
+// Used by the Windows folder; tested everywhere.
+#[cfg_attr(not(windows), allow(dead_code))]
+mod vacated;
 pub mod writes;
 
 use quince_core::drive::DriveItem;
@@ -278,6 +281,7 @@ impl Inodes {
             created_at: None,
             modified_at: None,
             etag: None,
+            share: None,
         };
         me.by_ino.insert(1, root);
         me.by_id.insert(ROOT.into(), 1);
@@ -349,6 +353,7 @@ impl Inodes {
             created_at: None,
             modified_at: None,
             etag: None,
+            share: None,
         };
         self.by_id.insert(item.drivewsid.clone(), ino);
         self.by_ino.insert(ino, item);
@@ -1163,6 +1168,7 @@ mod tests {
             created_at: None,
             modified_at: None,
             etag: Some(etag.into()),
+            share: None,
         }
     }
 

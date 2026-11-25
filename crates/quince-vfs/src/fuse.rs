@@ -608,8 +608,11 @@ impl Inner {
             } else {
                 FileType::RegularFile
             },
+            // Someone else's share, read only until shares are supported: said in its modes too,
+            // so a file manager greys out what it would only be refused.
             perm: match (dir, self.writes.is_some() && !self.read_only) {
-                (true, _) if self.read_only => 0o555,
+                (true, _) if self.read_only || item.shared_with_me() => 0o555,
+                (false, _) if item.shared_with_me() => 0o444,
                 (true, _) => 0o755,
                 (false, true) if !self.add_only => 0o644,
                 (false, true) => 0o444,
@@ -767,6 +770,9 @@ impl Inner {
     fn begin_writing(&self, ino: u64, item: &DriveItem, keep: bool) -> Result<(), Errno> {
         if self.add_only {
             return Err(Errno::EROFS);
+        }
+        if item.shared_with_me() {
+            return Err(Errno::EACCES);
         }
         let writes = self.writes.as_ref().ok_or(Errno::EROFS)?;
         if self.pending(ino).is_some() {
@@ -1041,6 +1047,11 @@ impl Inner {
     fn remove(&self, parent: u64, name: &OsStr, folder: bool) -> Result<(), Errno> {
         let from = self.item(parent).ok_or(Errno::ENOENT)?;
         let (ino, item) = self.child(parent, name)?;
+        // Someone else's share, or anything in it: never deleted from here (a mount has no
+        // way to say what Apple would do to their copy too).
+        if item.shared_with_me() || from.shared_with_me() {
+            return Err(Errno::EACCES);
+        }
         if folder != item.is_container() {
             return Err(if folder {
                 Errno::ENOTDIR
@@ -1127,7 +1138,7 @@ impl Inner {
     fn mkdir(&self, parent: u64, name: &OsStr) -> Result<(u64, DriveItem), Errno> {
         let folder = self.item(parent).ok_or(Errno::ENOENT)?;
         let name = name.to_str().ok_or(Errno::EINVAL)?;
-        if parent == 1 && writes::is_trash_folder(name) {
+        if (parent == 1 && writes::is_trash_folder(name)) || folder.shared_with_me() {
             return Err(Errno::EACCES);
         }
         if self.child(parent, OsStr::new(name)).is_ok() {
@@ -1149,6 +1160,10 @@ impl Inner {
             me.item(newparent).ok_or(Errno::ENOENT)?,
         );
         let (ino, item) = me.child(parent, name)?;
+        // Nothing renamed or moved in, out of or within someone else's share.
+        if item.shared_with_me() || from.shared_with_me() || to.shared_with_me() {
+            return Err(Errno::EACCES);
+        }
         let newname = newname.to_str().ok_or(Errno::EINVAL)?;
         // Nor is one made by renaming a folder to it.
         if newparent == 1 && writes::is_trash_folder(newname) {
@@ -1534,6 +1549,9 @@ impl Filesystem for DriveFs {
             if inner.add_only && !inner.remote.accepts(&folder) {
                 return reply.error(Errno::EROFS);
             }
+            if folder.shared_with_me() {
+                return reply.error(Errno::EACCES);
+            }
             if let Ok((ino, item)) = inner.child(parent.0, OsStr::new(name)) {
                 if flags & libc::O_EXCL != 0 {
                     return reply.error(Errno::EEXIST);
@@ -1625,7 +1643,7 @@ impl Filesystem for DriveFs {
 
     fn read(
         &self,
-        _req: &Request,
+        req: &Request,
         ino: INodeNo,
         _fh: FileHandle,
         offset: u64,
@@ -1649,10 +1667,15 @@ impl Filesystem for DriveFs {
             let Some(item) = inner.item(ino.0) else {
                 return reply.error(Errno::ENOENT);
             };
+            // What a program reading here makes Skykeep download is counted under its name
+            // (quince_record): the folder's reads are where a file manager or an indexer that
+            // opens every file shows up.
+            let why = quince_record::Why::Folder(program(req.pid()));
             // Kept whole by the app (a photo's original): read from there, no second copy. One
             // still downloading is read as it lands: each read waits for its own bytes only,
             // so a video opened from the folder starts playing long before it is all here.
-            if let Some(arriving) = inner.remote.arriving(&item) {
+            let arriving = quince_record::because_now(why.clone(), || inner.remote.arriving(&item));
+            if let Some(arriving) = arriving {
                 inner.rt.spawn(async move {
                     let bytes = match arriving.await {
                         Ok(crate::Arriving::Whole(p)) => {
@@ -1679,7 +1702,7 @@ impl Filesystem for DriveFs {
             }
             let (cache, remote) = (Arc::clone(&inner.cache), Arc::clone(&inner.remote));
             // Answered when the bytes are here, without holding up the folder's other requests.
-            inner.rt.spawn(async move {
+            inner.rt.spawn(quince_record::because(why, async move {
                 match cache
                     .read(remote.as_ref(), &item, offset, u64::from(size))
                     .await
@@ -1687,7 +1710,7 @@ impl Filesystem for DriveFs {
                     Ok(bytes) => reply.data(&bytes),
                     Err(_) => reply.error(Errno::EIO),
                 }
-            });
+            }));
         })
     }
 
@@ -2031,6 +2054,38 @@ pub fn mount(fs: DriveFs, at: &Path) -> std::io::Result<fuser::BackgroundSession
     Ok(session)
 }
 
+/// The program a file system request came from, by name ("nautilus", "tracker-extract"):
+/// `pid` is the asking thread's, so its process (the Tgid in /proc/<pid>/status) is named, as
+/// the thread's own name is often a pool's. Kept for the last few, as a folder's reads come in
+/// bursts from one program. Unknown (gone, or outside this pid namespace) is said so.
+fn program(pid: u32) -> String {
+    static NAMES: Mutex<Vec<(u32, String)>> = Mutex::new(Vec::new());
+    let mut names = NAMES
+        .lock()
+        .unwrap_or_else(std::sync::PoisonError::into_inner);
+    if let Some((_, n)) = names.iter().find(|(p, _)| *p == pid) {
+        return n.clone();
+    }
+    let tgid = std::fs::read_to_string(format!("/proc/{pid}/status"))
+        .ok()
+        .and_then(|s| {
+            s.lines()
+                .find_map(|l| l.strip_prefix("Tgid:"))
+                .and_then(|t| t.trim().parse::<u32>().ok())
+        })
+        .unwrap_or(pid);
+    let name = std::fs::read_to_string(format!("/proc/{tgid}/comm"))
+        .map(|n| n.trim().to_string())
+        .ok()
+        .filter(|n| pid != 0 && !n.is_empty())
+        .unwrap_or_else(|| "an unknown program".to_string());
+    if names.len() >= 32 {
+        names.remove(0);
+    }
+    names.push((pid, name.clone()));
+    name
+}
+
 #[cfg(test)]
 mod listing_tests {
     /// A request that panics ends with that request: the mount's thread goes on.
@@ -2085,6 +2140,7 @@ mod listing_tests {
             created_at: Some(1_700_000_000),
             modified_at: Some(1_700_000_000),
             etag: Some("e1".into()),
+            share: None,
         }
     }
 
@@ -2180,6 +2236,7 @@ mod listing_tests {
                         created_at: None,
                         modified_at: None,
                         etag: Some("f1".into()),
+                        share: None,
                     }]),
                     _ => Some(Vec::new()),
                 }
@@ -2237,6 +2294,7 @@ mod listing_tests {
                     created_at: None,
                     modified_at: None,
                     etag: Some("f1".into()),
+                    share: None,
                 };
                 Box::pin(async move { Ok(made) })
             }
@@ -2270,6 +2328,135 @@ mod listing_tests {
         );
         assert!(crate::writes::is_trash_folder(".Trash-1000"));
         assert!(!crate::writes::is_trash_folder(".Trash-"));
+    }
+
+    /// Someone else's share is read only here: nothing in it, nor it, is deleted, renamed or
+    /// moved, nothing is moved or made in it, and its modes say so — refused here, so nothing
+    /// is ever asked of Apple.
+    #[test]
+    fn what_is_shared_with_me_is_read_only() {
+        struct Writes(Mutex<Vec<String>>);
+        impl Remote for Writes {
+            fn list(&self, _folder: &str) -> Fut<Vec<DriveItem>> {
+                Box::pin(async { Ok(Vec::new()) })
+            }
+            fn read(&self, _item: &DriveItem, _offset: u64, _len: u64) -> Fut<Vec<u8>> {
+                Box::pin(async { Ok(Vec::new()) })
+            }
+            fn mkdir(&self, _parent: &DriveItem, name: &str) -> Fut<DriveItem> {
+                self.0.lock().unwrap().push(format!("mkdir {name}"));
+                Box::pin(async { Err("no".to_string()) })
+            }
+            fn rename(&self, item: &DriveItem, _name: &str) -> Fut<()> {
+                self.0
+                    .lock()
+                    .unwrap()
+                    .push(format!("rename {}", item.drivewsid));
+                Box::pin(async { Ok(()) })
+            }
+            fn move_to(&self, item: &DriveItem, _folder: &DriveItem) -> Fut<()> {
+                self.0
+                    .lock()
+                    .unwrap()
+                    .push(format!("move {}", item.drivewsid));
+                Box::pin(async { Ok(()) })
+            }
+            fn delete(&self, item: &DriveItem) -> Fut<()> {
+                self.0
+                    .lock()
+                    .unwrap()
+                    .push(format!("delete {}", item.drivewsid));
+                Box::pin(async { Ok(()) })
+            }
+        }
+        let share = "SHARED_FOLDER::com.apple.CloudDocs::trip";
+        let at = |id: &str, name: &str, kind: &str, parent: &str| DriveItem {
+            drivewsid: id.into(),
+            parent_id: Some(parent.into()),
+            name: name.into(),
+            extension: None,
+            kind: kind.into(),
+            size: (kind == "FILE").then_some(3),
+            child_count: (kind == "FOLDER").then_some(1),
+            created_at: None,
+            modified_at: None,
+            etag: Some("e".into()),
+            share: None,
+        };
+        struct Tree(Vec<DriveItem>);
+        impl Store for Tree {
+            fn children(&self, folder: &str) -> Option<Vec<DriveItem>> {
+                Some(
+                    self.0
+                        .iter()
+                        .filter(|i| i.parent_id.as_deref() == Some(folder))
+                        .cloned()
+                        .collect(),
+                )
+            }
+        }
+        let library = Arc::new(Tree(vec![
+            at(share, "Trip", "FOLDER", ROOT),
+            at("FILE::com.apple.CloudDocs::own", "own", "FILE", ROOT),
+            at(
+                "FILE_IN_SHARED_FOLDER::com.apple.CloudDocs::pic",
+                "pic",
+                "FILE",
+                share,
+            ),
+        ]));
+        let rt = tokio::runtime::Runtime::new().unwrap();
+        let cache = tempfile::tempdir().unwrap();
+        let remote = Arc::new(Writes(Mutex::new(Vec::new())));
+        let fs = DriveFs::new(
+            Arc::clone(&remote) as Arc<dyn Remote>,
+            library as Arc<dyn Store>,
+            Arc::new(Cache::new(cache.path()).unwrap()),
+            rt.handle().clone(),
+        );
+        let (trip, folder) = fs.0.child(1, OsStr::new("Trip")).unwrap();
+        let (pic_ino, pic) = fs.0.child(trip, OsStr::new("pic")).unwrap();
+        let denied = |r: Result<(), Errno>| assert!(matches!(r, Err(Errno::EACCES)), "{r:?}");
+        denied(fs.0.remove(trip, OsStr::new("pic"), false));
+        denied(fs.0.remove(1, OsStr::new("Trip"), true));
+        denied(Inner::rename(
+            &fs.0,
+            trip,
+            OsStr::new("pic"),
+            trip,
+            OsStr::new("p2"),
+        ));
+        denied(Inner::rename(
+            &fs.0,
+            trip,
+            OsStr::new("pic"),
+            1,
+            OsStr::new("pic"),
+        ));
+        denied(Inner::rename(
+            &fs.0,
+            1,
+            OsStr::new("Trip"),
+            1,
+            OsStr::new("Trip 2"),
+        ));
+        denied(Inner::rename(
+            &fs.0,
+            1,
+            OsStr::new("own"),
+            trip,
+            OsStr::new("own"),
+        ));
+        denied(fs.0.mkdir(trip, OsStr::new("New")).map(|_| ()));
+        assert_eq!(fs.0.attr(trip, &folder).perm, 0o555);
+        assert_eq!(fs.0.attr(pic_ino, &pic).perm, 0o444);
+        assert!(
+            remote.0.lock().unwrap().is_empty(),
+            "nothing asked of Apple"
+        );
+        // The account's own file is renamed as ever.
+        assert!(Inner::rename(&fs.0, 1, OsStr::new("own"), 1, OsStr::new("mine")).is_ok());
+        assert_eq!(remote.0.lock().unwrap().len(), 1);
     }
 
     /// Without a version to go by, every look reads the library, as it always did.

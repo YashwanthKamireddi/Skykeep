@@ -273,6 +273,7 @@ impl Account {
                 created_at: None,
                 modified_at: None,
                 etag: None,
+                share: None,
             });
         }
         let (lock, _) = self.library()?;
@@ -812,6 +813,7 @@ mod tests {
             created_at: None,
             modified_at: Some(1),
             etag: None,
+            share: None,
         };
         assert!(is_copy_of(&copy, &item));
         item.size = Some(6);

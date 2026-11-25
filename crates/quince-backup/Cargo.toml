@@ -1,6 +1,6 @@
 [package]
 name = "quince-backup"
-version = "0.1.40"
+version = "0.1.42"
 edition.workspace = true
 rust-version.workspace = true
 license.workspace = true
@@ -8,6 +8,7 @@ publish = false
 description = "Skykeep's backup and Export Everything, without a window: the engine the desktop app (src-tauri) drives, usable by other front ends too."
 
 [dependencies]
+quince-record = { path = "../quince-record" }
 quince-core = { path = "../quince-core" }
 quince-icloud = { path = "../quince-icloud" }
 quince-vfs = { path = "../quince-vfs" }

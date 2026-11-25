@@ -61,6 +61,7 @@ pub mod sync;
 pub mod table;
 pub mod topotext;
 pub mod upload;
+mod upload_probe;
 pub mod zones;
 
 #[derive(Debug, thiserror::Error)]

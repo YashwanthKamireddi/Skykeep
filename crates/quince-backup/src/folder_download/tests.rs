@@ -261,6 +261,8 @@ struct Node {
     children: Vec<Node>,
     /// When iCloud says it was last changed, in seconds.
     changed: Option<i64>,
+    /// Apple's etag for it: a new one with every change.
+    etag: String,
 }
 
 fn file(id: &str, name: &str, ext: Option<&str>, bytes: &[u8]) -> Node {
@@ -272,6 +274,7 @@ fn file(id: &str, name: &str, ext: Option<&str>, bytes: &[u8]) -> Node {
         bytes: bytes.to_vec(),
         children: vec![],
         changed: None,
+        etag: "1".into(),
     }
 }
 
@@ -284,6 +287,7 @@ fn folder(id: &str, name: &str, children: Vec<Node>) -> Node {
         bytes: vec![],
         children,
         changed: None,
+        etag: "1".into(),
     }
 }
 
@@ -299,7 +303,7 @@ fn as_json(n: &Node, parent: &str) -> Value {
     json!({
         "drivewsid": wsid(n), "docwsid": n.id, "parentId": parent, "name": n.name,
         "extension": n.ext, "type": if n.folder { "FOLDER" } else { "FILE" },
-        "size": if n.folder { -1 } else { n.bytes.len() as i64 }, "etag": "1",
+        "size": if n.folder { -1 } else { n.bytes.len() as i64 }, "etag": n.etag,
         "dateModified": n.changed.map(|s| s * 1000),
     })
 }
@@ -316,6 +320,7 @@ fn item(n: &Node) -> DriveItem {
         created_at: None,
         modified_at: n.changed,
         etag: None,
+        share: None,
     }
 }
 
@@ -1680,6 +1685,8 @@ async fn a_backup_keeps_the_version_it_had_and_its_own_folder() {
             backup: Some(Backup {
                 top: &top,
                 earlier: &earlier,
+                known: &HashMap::new(),
+                copied: &Mutex::new(Vec::new()),
             }),
         };
         let report = run(&drive, request, emit.clone(), &Stop::default())
@@ -1752,6 +1759,7 @@ fn a_package_saved_as_its_zip_is_whole_here_until_its_date_changes() {
         created_at: None,
         modified_at: Some(1_766_732_062),
         etag: None,
+        share: None,
     };
     assert!(
         whole_here(&path, &package),
@@ -1792,4 +1800,107 @@ fn a_package_saved_as_its_zip_is_whole_here_until_its_date_changes() {
     archive.name = "Archive".into();
     archive.extension = Some("zip".into());
     assert!(!whole_here(&dir.path().join("Archive.zip"), &archive));
+}
+
+/// A backup on a disk that doesn't keep the date a download sets — a NAS or SMB share that
+/// refuses it or keeps the time it was written, a FAT disk that rounds it — still copies each
+/// file once. Judged by the date, every file looked changed on every pass: fetched again, its
+/// copy piled into Earlier versions until the disk filled. The backup's own record (Drive id,
+/// path, size, etag) says what it has; a file changed in iCloud is still copied again.
+#[tokio::test]
+async fn a_backup_on_a_disk_that_drops_dates_copies_each_file_once() {
+    const MONDAY: i64 = 1_793_000_000;
+    let mut report = file("a", "Report", Some("txt"), b"report");
+    report.changed = Some(MONDAY);
+    let mut notes = file("b", "Notes", Some("txt"), b"notes");
+    notes.changed = Some(MONDAY);
+    let tree = |report: Node| {
+        folder(
+            "r",
+            "R",
+            vec![folder("d", "Docs", vec![report]), notes.clone()],
+        )
+    };
+    let backup = tempfile::tempdir().unwrap();
+    let top = backup.path().join("iCloud Drive");
+    let earlier = backup.path().join("Earlier versions");
+    let mut known: HashMap<String, Copied> = HashMap::new();
+    async fn pass(
+        drive: &Drive,
+        tree: &Node,
+        into: &Path,
+        known: &HashMap<String, Copied>,
+    ) -> Vec<Copied> {
+        let (top, earlier) = (into.join("iCloud Drive"), into.join("Earlier versions"));
+        let copied = Mutex::new(Vec::new());
+        let request = Request {
+            batch: "b",
+            title: "iCloud Drive",
+            items: vec![item(tree)],
+            into,
+            journal: None,
+            backup: Some(Backup {
+                top: &top,
+                earlier: &earlier,
+                known,
+                copied: &copied,
+            }),
+        };
+        let (_heard, emit) = hearing();
+        let report = run(drive, request, emit, &Stop::default()).await.unwrap();
+        assert!(report.failed.is_empty(), "{report:?}");
+        copied.into_inner().unwrap()
+    }
+    // The disk keeps no date: every file says it was written now, or 30 s off (rounding).
+    let drop_dates = || {
+        for (name, off) in [("Docs/Report.txt", 0u64), ("Notes.txt", 30)] {
+            std::fs::File::options()
+                .write(true)
+                .open(top.join(name))
+                .unwrap()
+                .set_modified(std::time::SystemTime::now() - Duration::from_secs(off))
+                .unwrap();
+        }
+    };
+
+    let (_server, drive, hits) = drive_of(&[tree(report.clone())], Setup::default()).await;
+    for c in pass(&drive, &tree(report.clone()), backup.path(), &known).await {
+        known.insert(c.item.clone(), c);
+    }
+    assert_eq!(known.len(), 2, "both recorded: {known:?}");
+    drop_dates();
+    let again = pass(&drive, &tree(report.clone()), backup.path(), &known).await;
+    let hits_now = hits.lock().unwrap().clone();
+    assert_eq!(
+        (hits_now.get("a"), hits_now.get("b")),
+        (Some(&1), Some(&1)),
+        "the second pass downloads nothing"
+    );
+    assert!(
+        std::fs::symlink_metadata(&earlier).is_err(),
+        "no Earlier versions: {:?}",
+        std::fs::symlink_metadata(&earlier).map(|_| on_disk(&earlier))
+    );
+    for c in again {
+        known.insert(c.item.clone(), c);
+    }
+
+    // Edited in iCloud, the same length, and the disk still keeps no date: copied again by the
+    // new etag, the version it had kept.
+    let mut edited = report.clone();
+    edited.bytes = b"REPORT".to_vec();
+    edited.etag = "2".into();
+    let (_server, drive, hits) = drive_of(&[tree(edited.clone())], Setup::default()).await;
+    pass(&drive, &tree(edited), backup.path(), &known).await;
+    assert_eq!(
+        std::fs::read(top.join("Docs/Report.txt")).unwrap(),
+        b"REPORT"
+    );
+    let hits_now = hits.lock().unwrap().clone();
+    assert_eq!((hits_now.get("a"), hits_now.get("b")), (Some(&1), None));
+    let kept: Vec<Vec<u8>> = on_disk(&earlier.join("iCloud Drive/Docs"))
+        .into_values()
+        .flatten()
+        .collect();
+    assert_eq!(kept, vec![b"report".to_vec()], "the version it had, once");
 }

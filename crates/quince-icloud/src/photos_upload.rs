@@ -21,10 +21,12 @@ pub const MAX_SIDE: u32 = 20_480;
 pub const MAX_AREA: u64 = 419_430_400;
 pub const MAX_NAME: usize = 255;
 
-/// The types icloud.com's current uploader takes, by extension.
-const TYPES: [&str; 14] = [
-    "jpg", "jpeg", "heic", "heif", "png", "gif", "tif", "tiff", "webp", "mov", "mp4", "m4v", "avi",
-    "dng",
+/// The types icloud.com's current uploader takes, by extension. Not AVI, though its file
+/// picker offers it: its own list of what it uploads leaves AVI out, no Apple app reads one,
+/// and a tool on the same upload service finds it refused (isynca compat.py), so an AVI went
+/// up whole for nothing.
+const TYPES: [&str; 13] = [
+    "jpg", "jpeg", "heic", "heif", "png", "gif", "tif", "tiff", "webp", "mov", "mp4", "m4v", "dng",
 ];
 
 /// Why a file was not uploaded, in words a person can act on.
@@ -42,6 +44,11 @@ pub enum Refusal {
     /// Apple took the bytes and turned the file down for good, in its own words: a video in a
     /// form its server won't convert ("uploaded media is unsupported for transcoding"), say.
     Rejected(String),
+    /// A photo larger than Photos takes: its width and height in pixels.
+    Dimensions(u32, u32),
+    /// Read before sending, a form Apple's server is known to turn down: what it is, in words
+    /// ("an AVI video", "Motion JPEG video, …").
+    Unsupported(String),
 }
 
 impl Refusal {
@@ -57,9 +64,14 @@ impl Refusal {
             Refusal::OverQuota => "Not enough space to upload item.".into(),
             // Sending it again gets the same answer. An iPhone converts a video before it
             // uploads; here it goes as it is, so saved as MP4 (H.264) or JPEG it can be added.
-            Refusal::Rejected(said) => format!(
+            Refusal::Rejected(said) | Refusal::Unsupported(said) => format!(
                 "iCloud Photos can\u{2019}t take this file as it is ({said}). Saved as an MP4 \
                  video (H.264) or a JPEG photo, it can be added."
+            ),
+            Refusal::Dimensions(w, h) => format!(
+                "This photo is too large for iCloud Photos ({w} \u{d7} {h} pixels). It can be \
+                 up to {MAX_SIDE} pixels a side and {} million pixels in all.",
+                MAX_AREA / 1_000_000
             ),
         }
     }
@@ -85,6 +97,28 @@ pub fn refusal(name: &str, size: u64) -> Option<Refusal> {
         return Some(Refusal::TooLarge);
     }
     None
+}
+
+/// A file's contents checked against what Photos is known to refuse, reading only its headers
+/// (crate::upload_probe): a photo past Photos' size in pixels, a container no Apple app reads,
+/// a video codec Apple's server turns down. `None` when it may go, or can't be read here: then
+/// Apple decides. Blocking, but a few small reads.
+#[must_use]
+pub fn inspect(path: &std::path::Path) -> Option<Refusal> {
+    let mut file = std::fs::File::open(path).ok()?;
+    let len = file.metadata().ok()?.len();
+    crate::upload_probe::inspect(&mut file, len)
+}
+
+/// The name a file goes to Photos under. Apple refuses a `.m4v` by its name alone (415,
+/// "unsupported file type"), even holding plain H.264 and AAC, and takes the same bytes named
+/// otherwise (isynca PR #9, live on the same upload service): an M4V is an MP4 by another
+/// name, so it goes as one. The file itself is never renamed.
+fn upload_name(name: &str) -> std::borrow::Cow<'_, str> {
+    match name.rsplit_once('.') {
+        Some((stem, ext)) if ext.eq_ignore_ascii_case("m4v") => format!("{stem}.mp4").into(),
+        _ => name.into(),
+    }
 }
 
 /// Whether Apple's answer about one file (`putAsset`'s `response`) is final. Apple says so
@@ -341,6 +375,11 @@ pub async fn send(
     if let Some(r) = refusal(name, size) {
         return Ok(Sending::Refused(r));
     }
+    // What is inside, before a byte goes: Apple only says no once it has the whole file.
+    let looked = path.to_path_buf();
+    if let Ok(Some(r)) = tokio::task::spawn_blocking(move || inspect(&looked)).await {
+        return Ok(Sending::Refused(r));
+    }
     let service = Service {
         http,
         base: photosupload_root.trim_end_matches('/').to_string(),
@@ -424,7 +463,7 @@ pub async fn send(
                 "localTimeZoneId": time_zone,
                 "importGroup": import_group,
                 "files": [{
-                    "fileName": name,
+                    "fileName": upload_name(name),
                     "lastModDate": modified_ms,
                     "timeZoneOffset": offset_minutes,
                     "singleFileUploadRequest": single,
@@ -591,6 +630,147 @@ mod tests {
         }
     }
 
+    /// A file whose contents Apple is known to refuse is refused before any request at all:
+    /// no upload address asked for, no byte sent. One that is fine still goes, and an M4V goes
+    /// named as the MP4 it is.
+    #[tokio::test]
+    async fn contents_are_checked_before_any_request() {
+        use wiremock::matchers::{method, path_regex};
+        use wiremock::{Mock, MockServer, ResponseTemplate};
+        // A JPEG 30 000 px wide: SOI, then its frame header, then a scan.
+        let mut wide = vec![0xFF, 0xD8, 0xFF, 0xC0, 0, 11, 8];
+        wide.extend_from_slice(&2000u16.to_be_bytes());
+        wide.extend_from_slice(&30_000u16.to_be_bytes());
+        wide.extend_from_slice(&[1, 1, 0x11, 0, 0xFF, 0xDA, 0, 8, 1, 1, 0, 0, 0x3F, 0]);
+        wide.resize(400, 0);
+        // An AVI, named as an MP4.
+        let mut avi = b"RIFF\0\0\0\0AVI LIST".to_vec();
+        avi.resize(400, 0);
+        // An MP4 of MPEG-4 Part 2 video: ftyp, then moov → trak → mdia → hdlr + minf → stbl →
+        // stsd → mp4v.
+        let bx = |kind: &[u8; 4], body: &[u8]| {
+            let mut out = ((body.len() + 8) as u32).to_be_bytes().to_vec();
+            out.extend_from_slice(kind);
+            out.extend_from_slice(body);
+            out
+        };
+        let mut hdlr = vec![0u8; 8];
+        hdlr.extend_from_slice(b"vide");
+        hdlr.extend_from_slice(&[0u8; 13]);
+        let mut stsd = vec![0, 0, 0, 0, 0, 0, 0, 1];
+        stsd.extend(bx(b"mp4v", &[0u8; 30]));
+        let stbl = bx(b"stbl", &bx(b"stsd", &stsd));
+        let mut mdia = bx(b"hdlr", &hdlr);
+        mdia.extend(bx(b"minf", &stbl));
+        let mut mp4v = bx(b"ftyp", b"isom\0\0\0\0isom");
+        mp4v.extend(bx(b"moov", &bx(b"trak", &bx(b"mdia", &mdia))));
+        mp4v.extend(bx(b"mdat", &[0u8; 300]));
+
+        let server = MockServer::start().await;
+        let base = server.uri();
+        Mock::given(method("POST"))
+            .and(path_regex(r".*/photosupload/createUploadUrl$"))
+            .respond_with(move |req: &wiremock::Request| {
+                let body: Value = serde_json::from_slice(&req.body).unwrap();
+                let key = body["assets"]
+                    .as_object()
+                    .unwrap()
+                    .keys()
+                    .next()
+                    .unwrap()
+                    .clone();
+                ResponseTemplate::new(200)
+                    .set_body_json(json!({"uploadUrls": {key: format!("{base}/bytes")}}))
+            })
+            .mount(&server)
+            .await;
+        Mock::given(method("POST"))
+            .and(path_regex(r".*/bytes$"))
+            .respond_with(ResponseTemplate::new(200).set_body_json(json!({
+                "singleFile": {"fileChecksum": "c", "size": 400, "receipt": "r"}
+            })))
+            .mount(&server)
+            .await;
+        Mock::given(method("POST"))
+            .and(path_regex(r".*/photosupload/putAsset$"))
+            .respond_with(
+                ResponseTemplate::new(200).set_body_json(
+                    json!([{ "uploadJobId": "j", "cplAsset": "a", "cplMaster": "m" }]),
+                ),
+            )
+            .mount(&server)
+            .await;
+        let http = reqwest::Client::new();
+        let go = |bytes: Vec<u8>, name: &'static str| {
+            let http = http.clone();
+            let root = server.uri();
+            async move {
+                let file = std::env::temp_dir().join(format!(
+                    "skykeep-precheck-{}-{}",
+                    std::process::id(),
+                    uuid::Uuid::new_v4()
+                ));
+                std::fs::write(&file, bytes).unwrap();
+                let got = send(
+                    &http,
+                    &http,
+                    &root,
+                    "1",
+                    "PrimarySync",
+                    &file,
+                    name,
+                    0,
+                    "UTC",
+                    0,
+                    "g",
+                    std::sync::Arc::new(|_| {}),
+                )
+                .await;
+                let _ = std::fs::remove_file(&file);
+                got
+            }
+        };
+        async fn asked(server: &MockServer) -> usize {
+            server
+                .received_requests()
+                .await
+                .unwrap_or_default()
+                .iter()
+                .filter(|r| r.url.path().ends_with("createUploadUrl"))
+                .count()
+        }
+        for (bytes, name, want) in [
+            (wide, "pano.jpg", Refusal::Dimensions(30_000, 2000)),
+            (avi, "clip.mp4", Refusal::Unsupported("an AVI video".into())),
+        ] {
+            let got = go(bytes, name).await;
+            assert!(
+                matches!(&got, Ok(Sending::Refused(r)) if *r == want),
+                "{got:?}"
+            );
+        }
+        let got = go(mp4v, "old.mp4").await;
+        assert!(
+            matches!(&got, Ok(Sending::Refused(Refusal::Unsupported(w))) if w.contains("MPEG-4 Part 2")),
+            "{got:?}"
+        );
+        assert_eq!(asked(&server).await, 0, "nothing asked for a refused file");
+
+        // A file that is fine goes; an M4V goes as an MP4.
+        let got = go(vec![7u8; 400], "clip.M4V").await;
+        assert!(matches!(got, Ok(Sending::Sent(_))), "{got:?}");
+        assert_eq!(asked(&server).await, 1);
+        let put = server
+            .received_requests()
+            .await
+            .unwrap()
+            .into_iter()
+            .find(|r| r.url.path().ends_with("putAsset"))
+            .unwrap();
+        let body: Value = serde_json::from_slice(&put.body).unwrap();
+        assert_eq!(body["files"][0]["fileName"], "clip.mp4");
+    }
+
     /// Files Photos would refuse are refused here, with the reason, before anything is sent.
     #[test]
     fn files_are_checked_before_sending() {
@@ -601,6 +781,11 @@ mod tests {
             Some(Refusal::Kind("txt".into()))
         );
         assert_eq!(refusal("noext", 2_000), Some(Refusal::Kind("?".into())));
+        assert_eq!(
+            refusal("clip.AVI", 2_000),
+            Some(Refusal::Kind("avi".into()))
+        );
+        assert_eq!(refusal("clip.m4v", 2_000), None);
         assert_eq!(refusal("a.jpg", 10), Some(Refusal::TooSmall));
         assert_eq!(refusal("a.jpg", MAX_BYTES + 1), Some(Refusal::TooLarge));
         assert_eq!(
