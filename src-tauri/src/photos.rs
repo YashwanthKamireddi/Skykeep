@@ -1069,10 +1069,16 @@ const GRID_PAGE: usize = 2_000;
 /// that set fits. Before, they were made for the grid's first 600, in its own order: with
 /// Oldest First (#120) that was the oldest 600, a picture downloaded for each, let go of by
 /// the cap and made again after every sync (#167). Of those only the ones `missing`.
+///
+/// Thumbnail-sized ones only while `grid_room` (photo_cache::grid_room): short of it, one made
+/// is not kept, so it stayed missing and every pass (each read of the library) made it again,
+/// downloading its thumbnail again once the grid's trim had let that go. Then only what is on
+/// screen is made, when the window asks for it.
 fn wanted_steps(
     page: &[quince_core::photos::PhotoShape],
     shown: Shown,
     ahead: &std::collections::HashSet<String>,
+    grid_room: bool,
     missing: impl Fn(&str, u32) -> bool,
 ) -> Vec<(String, u32)> {
     let stills = page
@@ -1082,7 +1088,8 @@ fn wanted_steps(
     for p in stills {
         let (grid, viewer) = steps_of(p.width, p.height, shown);
         let newest = ahead.contains(&p.id);
-        if grid <= crate::photo_cache::THUMB_STEP || newest {
+        let grid_sized = grid <= crate::photo_cache::THUMB_STEP;
+        if (grid_sized && grid_room) || (newest && !grid_sized) {
             out.push((p.id.clone(), grid));
         }
         if newest {
@@ -1198,11 +1205,12 @@ pub fn prepare(app: AppHandle) {
             .await
             .unwrap_or_default();
         if !shared.is_empty() {
-            let dir = fit_dir.clone();
+            let (dir, ask) = (fit_dir.clone(), app.clone());
             // Their grid pictures; a preview of one is made when it is opened (it is made from
             // the original, which the cap would let go of and a sync fetch again).
             let wanted = tauri::async_runtime::spawn_blocking(move || {
-                wanted_steps(&shared, shown, &Default::default(), |id, step| {
+                let room = crate::photo_cache::grid_room(&ask);
+                wanted_steps(&shared, shown, &Default::default(), room, |id, step| {
                     !dir.join(step.to_string()).join(&*cache_name(id)).exists()
                 })
             })
@@ -1239,11 +1247,13 @@ pub fn prepare(app: AppHandle) {
             else {
                 return;
             };
-            let dir = fit_dir.clone();
+            let (dir, ask) = (fit_dir.clone(), app.clone());
             let ahead = ahead.clone();
-            // A stat per picture, off the runtime's workers (see keep_ahead).
+            // A stat per picture, off the runtime's workers (see keep_ahead). The disk's room is
+            // asked each page: it may run short while a pass makes them.
             let wanted: Vec<(String, u32)> = tauri::async_runtime::spawn_blocking(move || {
-                wanted_steps(&page, shown, &ahead, |id, step| {
+                let room = crate::photo_cache::grid_room(&ask);
+                wanted_steps(&page, shown, &ahead, room, |id, step| {
                     !dir.join(step.to_string()).join(&*cache_name(id)).exists()
                 })
             })
@@ -3568,7 +3578,7 @@ mod tests {
             view: None,
         };
         let ahead: std::collections::HashSet<String> = ["p999".to_string()].into();
-        let wanted = super::wanted_steps(&page, shown, &ahead, |_, _| true);
+        let wanted = super::wanted_steps(&page, shown, &ahead, true, |_, _| true);
         let previews: Vec<&(String, u32)> = wanted
             .iter()
             .filter(|(_, step)| *step > crate::photo_cache::THUMB_STEP)
@@ -3577,10 +3587,60 @@ mod tests {
         // Every photo's grid picture (thumbnail-sized, kept always) is still made.
         assert_eq!(wanted.len(), 1001);
         // Nothing kept ahead: no previews at all.
-        let none = super::wanted_steps(&page, shown, &Default::default(), |_, _| true);
+        let none = super::wanted_steps(&page, shown, &Default::default(), true, |_, _| true);
         assert!(none
             .iter()
             .all(|(_, step)| *step <= crate::photo_cache::THUMB_STEP));
+    }
+
+    /// The disk short of room for grid pictures: one made then is not kept (photo_cache's
+    /// GRID_FLOOR), so it stays missing. `prepare` made every one of them again on each read of
+    /// the library, downloading thumbnails the grid's trim had let go of, over and over (#167's
+    /// shape). Short of room it makes none ahead; the previews kept ahead (the cap's) still are,
+    /// once each.
+    #[test]
+    fn short_of_room_no_grid_picture_is_made_ahead_and_nothing_twice() {
+        use quince_core::photos::{Kind, PhotoShape};
+        use std::cell::RefCell;
+        use std::collections::HashSet;
+        let page: Vec<PhotoShape> = (0..1000)
+            .map(|i| PhotoShape {
+                id: format!("p{i}"),
+                width: 4032,
+                height: 3024,
+                kind: Kind::Image,
+                taken_at: 0,
+            })
+            .collect();
+        let shown = super::Shown {
+            cell: 180.0,
+            fit: false,
+            stage_w: 1300.0,
+            stage_h: 800.0,
+            dpr: 1.0,
+            view: None,
+        };
+        let ahead: HashSet<String> = ["p999".to_string()].into();
+        // What is on disk: a grid picture made short of room is not kept; a preview is.
+        let kept: RefCell<HashSet<(String, u32)>> = RefCell::default();
+        let pass = || {
+            let wanted = super::wanted_steps(&page, shown, &ahead, false, |id, step| {
+                !kept.borrow().contains(&(id.to_string(), step))
+            });
+            for (id, step) in &wanted {
+                if *step > crate::photo_cache::THUMB_STEP {
+                    kept.borrow_mut().insert((id.clone(), *step));
+                }
+            }
+            wanted
+        };
+        let first = pass();
+        assert!(first
+            .iter()
+            .all(|(_, step)| *step > crate::photo_cache::THUMB_STEP));
+        assert_eq!(first, [("p999".to_string(), 1536)]);
+        // The next read of the library makes (and fetches) nothing at all.
+        assert_eq!(pass(), []);
     }
 
     /// #167: a library whose newest photos outgrow the cache. What is kept ahead stays within
