@@ -2873,7 +2873,7 @@ pub async fn add_from_folder(
     app: &AppHandle,
     path: &std::path::Path,
     album: Option<String>,
-) -> Result<String, String> {
+) -> Result<String, quince_vfs::Failed> {
     use sha2::Digest;
     let name = path
         .file_name()
@@ -2913,18 +2913,33 @@ pub async fn add_from_folder(
         .await
         .upload_at(&at)
         .map_err(|e| e.to_string())?;
+    // Whether Apple turned these very bytes down for good (looked up here: a guard can't wait).
+    let refused_before = match &known {
+        Some(u) if u.state == "failed" => {
+            data.0.lock().await.upload_refused(&u.id).unwrap_or(false)
+        }
+        _ => false,
+    };
     let id = match known {
         Some(u) if u.state != "failed" && u.state != "cancelled" => u.id,
+        // These very bytes (kept by their digest) were tried and the queue gave up on them:
+        // sent again they get the same answer, so the folder doesn't ask again until the file
+        // changes. Before, every look queued them anew and sent them whole (health audit).
+        Some(u) if u.state == "failed" && refused_before => {
+            return Err(quince_vfs::Failed::settled(
+                u.error.unwrap_or_else(|| "It could not be added.".into()),
+            ))
+        }
         _ => {
             if let Some(r) = quince_icloud::photos_upload::refusal(&name, len) {
-                return Err(r.words());
+                return Err(quince_vfs::Failed::settled(r.words()));
             }
             let looked = path.to_path_buf();
             if let Ok(Some(r)) =
                 tokio::task::spawn_blocking(move || quince_icloud::photos_upload::inspect(&looked))
                     .await
             {
-                return Err(r.words());
+                return Err(quince_vfs::Failed::settled(r.words()));
             }
             if let Some(dir) = kept.parent() {
                 tokio::fs::create_dir_all(dir)
@@ -2960,10 +2975,20 @@ pub async fn add_from_folder(
         let now = data.0.lock().await.upload(&id).map_err(|e| e.to_string())?;
         match now {
             Some(u) if u.state == "done" => {
-                break u.asset.ok_or("Apple named no photo".to_string())
+                break u
+                    .asset
+                    .ok_or_else(|| quince_vfs::Failed::from("Apple named no photo"))
             }
             Some(u) if u.state == "failed" => {
-                break Err(u.error.unwrap_or_else(|| "It could not be added.".into()))
+                let reason = u.error.unwrap_or_else(|| "It could not be added.".into());
+                // Settled only on Apple's own verdict; a send that ran out of tries is asked
+                // again by the folder.
+                let refused = data.0.lock().await.upload_refused(&u.id).unwrap_or(false);
+                break Err(if refused {
+                    quince_vfs::Failed::settled(reason)
+                } else {
+                    reason.into()
+                });
             }
             Some(u) if u.state == "cancelled" => break Err("The upload was cancelled.".into()),
             None => break Err("The upload is no longer there.".into()),
@@ -3253,6 +3278,8 @@ async fn one(app: &AppHandle, u: quince_core::photos::Upload) -> bool {
             }
             Ok(Sending::Refused(r)) => {
                 set("failed", Some(&r.words()), None).await;
+                // Apple's last word on these bytes: the Photos folder doesn't offer them again.
+                let _ = app.state::<Data>().0.lock().await.set_upload_refused(&u.id);
                 say(app, &u, "failed", 0, size, Some(r.words()));
                 return true;
             }
@@ -3384,6 +3411,8 @@ fn confirm(app: AppHandle) {
                         let words =
                             format!("iCloud couldn\u{2019}t make that photo (error {code}).");
                         set("failed", Some(words.clone())).await;
+                        // Apple couldn't make a photo of these bytes: its last word on them.
+                        let _ = app.state::<Data>().0.lock().await.set_upload_refused(&u.id);
                         say(&app, &u, "failed", 0, 0, Some(words));
                         moved.remove(&u.id);
                     }

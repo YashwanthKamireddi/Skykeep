@@ -52,6 +52,19 @@ async fn context(
 }
 
 /// The session's client for a file's bytes (`quince_auth::Client::uploads`).
+/// A Drive send that failed, and whether that is Apple's last word on the bytes: a refusal
+/// (a name or a size Drive won't take, someone else's share) is; Drive busy, the network, a
+/// sign-in to renew are of the moment, and the folder tries again.
+fn failed(e: quince_icloud::Error) -> quince_vfs::Failed {
+    let settled =
+        matches!(e, quince_icloud::Error::Refused(_)) && !quince_icloud::drive::transient(&e);
+    if settled {
+        quince_vfs::Failed::settled(e.to_string())
+    } else {
+        e.to_string().into()
+    }
+}
+
 pub(crate) async fn uploads(app: &AppHandle) -> reqwest::Client {
     app.state::<Auth>().client.lock().await.uploads().clone()
 }
@@ -116,7 +129,7 @@ impl Remote for AppRemote {
         })
     }
 
-    fn upload(&self, folder: &DriveItem, path: &std::path::Path) -> Fut<DriveItem> {
+    fn upload(&self, folder: &DriveItem, path: &std::path::Path) -> quince_vfs::Sends<DriveItem> {
         let (app, folder, path) = (
             self.app.clone(),
             folder.drivewsid.clone(),
@@ -146,11 +159,15 @@ impl Remote for AppRemote {
                 &http, &uploads, &docws, &drivews, params, &folder, &path, progress,
             )
             .await
-            .map_err(|e| e.to_string())
+            .map_err(failed)
         })
     }
 
-    fn replace(&self, item: &DriveItem, path: &std::path::Path) -> Fut<Option<DriveItem>> {
+    fn replace(
+        &self,
+        item: &DriveItem,
+        path: &std::path::Path,
+    ) -> quince_vfs::Sends<Option<DriveItem>> {
         let (app, item, path) = (self.app.clone(), item.clone(), path.to_path_buf());
         Box::pin(async move {
             let (http, docws, params) = context(&app, "docws").await?;
@@ -185,7 +202,7 @@ impl Remote for AppRemote {
                 Ok(now) => Ok(Some(now)),
                 // Changed on another device first: nothing written, and the caller keeps both.
                 Err(quince_icloud::Error::Conflict) => Ok(None),
-                Err(e) => Err(e.to_string()),
+                Err(e) => Err(failed(e)),
             }
         })
     }

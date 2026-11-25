@@ -49,6 +49,10 @@ pub struct Pending {
     /// On its way to Apple right now.
     #[serde(skip)]
     pub sending: bool,
+    /// Apple refused these bytes for good (`crate::Failed::settled`): not tried again until the
+    /// file is written again. Not kept across restarts: a start tries it once more.
+    #[serde(skip)]
+    pub settled: bool,
     /// Why the last try did not go, said once it has failed (cleared when it goes).
     #[serde(skip)]
     pub failure: Option<String>,
@@ -62,6 +66,9 @@ pub struct Waiting {
     pub files: u32,
     pub sending: u32,
     pub failure: Option<String>,
+    /// Of `files`, those Apple refused for good (`Pending::settled`): not on their way, so no
+    /// restart waits for them, and still shown with why.
+    pub settled: u32,
 }
 
 /// Names programs use for their own scratch files, which never leave this computer: Vim's
@@ -189,6 +196,7 @@ impl Writes {
         for p in items.values().filter(|p| p.dirty && !stays_local(&p.name)) {
             w.files += 1;
             w.sending += u32::from(p.sending);
+            w.settled += u32::from(p.settled);
             if w.failure.is_none() {
                 w.failure.clone_from(&p.failure);
             }
@@ -465,7 +473,9 @@ pub async fn send_held(
             .map(|m| (m.len(), m.modified().ok()))
     };
     let before = (stamp(&staged), pending.generation);
-    let sent = send(remote, folder, &staged, pending.replaces.as_ref(), None).await?;
+    let sent = send(remote, folder, &staged, pending.replaces.as_ref(), None)
+        .await
+        .map_err(|e| e.reason)?;
     // Let go of while it went (the account signed out): nothing more to keep.
     let Some(now) = writes.get(key) else {
         return Ok(Held::Sent {
@@ -532,7 +542,7 @@ pub async fn send(
     staged: &Path,
     base: Option<&DriveItem>,
     ours: Option<&DriveItem>,
-) -> Result<Sent, String> {
+) -> Result<Sent, crate::Failed> {
     let name = staged
         .file_name()
         .and_then(|n| n.to_str())
@@ -541,7 +551,7 @@ pub async fn send(
     // Someone else's share is read only here: nothing is sent into it, a conflicted copy
     // neither, and nothing of theirs is written over.
     if folder.shared_with_me() || base.is_some_and(DriveItem::shared_with_me) {
-        return Err(quince_core::drive::SHARED_READ_ONLY.to_string());
+        return Err(crate::Failed::settled(quince_core::drive::SHARED_READ_ONLY));
     }
     let now = remote.list(&folder.drivewsid).await?;
     let current = base
@@ -577,7 +587,7 @@ pub async fn send(
             while let Err(e) = remote.rename(&item, &name).await {
                 tries += 1;
                 if tries >= 3 {
-                    return Err(e);
+                    return Err(e.into());
                 }
                 tokio::time::sleep(std::time::Duration::from_millis(800 * tries)).await;
             }
@@ -665,7 +675,7 @@ mod send_tests {
         fn read(&self, _item: &DriveItem, _offset: u64, _len: u64) -> Fut<Vec<u8>> {
             Box::pin(async { Ok(Vec::new()) })
         }
-        fn replace(&self, item: &DriveItem, path: &Path) -> Fut<Option<DriveItem>> {
+        fn replace(&self, item: &DriveItem, path: &Path) -> crate::Sends<Option<DriveItem>> {
             self.log
                 .lock()
                 .unwrap()
@@ -680,9 +690,9 @@ mod send_tests {
                 // Apple's OP_LOCK_FAILURE: nothing written.
                 _ => None,
             };
-            Box::pin(async move { Ok(answer) })
+            crate::sends(async move { Ok(answer) })
         }
-        fn upload(&self, folder: &DriveItem, path: &Path) -> Fut<DriveItem> {
+        fn upload(&self, folder: &DriveItem, path: &Path) -> crate::Sends<DriveItem> {
             let name = path.file_name().unwrap().to_str().unwrap().to_string();
             self.log.lock().unwrap().push(format!("upload {name}"));
             let mut next = self.next.lock().unwrap();
@@ -701,7 +711,7 @@ mod send_tests {
                 ..file("unused", "v1")
             };
             self.files.lock().unwrap().push(item.clone());
-            Box::pin(async move { Ok(item) })
+            crate::sends(async move { Ok(item) })
         }
         fn delete(&self, item: &DriveItem) -> Fut<()> {
             self.log
@@ -885,6 +895,7 @@ mod send_tests {
             sender: false,
             quiet_since: None,
             sending: false,
+            settled: false,
             failure: None,
         });
         let at = writes.staging(key, "Passwords.kdbx");
@@ -1069,6 +1080,7 @@ mod tests {
             sender: false,
             quiet_since: None,
             sending: false,
+            settled: false,
             failure: None,
         };
         std::fs::create_dir_all(w.staging(7, "a.txt").parent().unwrap()).unwrap();
@@ -1101,6 +1113,7 @@ mod tests {
             sender: false,
             quiet_since: None,
             sending: false,
+            settled: false,
             failure: None,
         }
     }

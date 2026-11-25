@@ -166,10 +166,10 @@ impl Remote for PhoneRemote {
         })
     }
 
-    fn upload(&self, folder: &DriveItem, path: &Path) -> Fut<DriveItem> {
+    fn upload(&self, folder: &DriveItem, path: &Path) -> quince_vfs::Sends<DriveItem> {
         let (folder, path) = (folder.drivewsid.clone(), path.to_path_buf());
         let me = self.clone();
-        Box::pin(async move {
+        quince_vfs::sends(async move {
             let len = tokio::fs::metadata(&path).await.map_or(0, |m| m.len());
             me.room_for(len).await?;
             let progress: quince_icloud::drive::Progress = Arc::new(|_, _| {});
@@ -188,10 +188,10 @@ impl Remote for PhoneRemote {
         })
     }
 
-    fn replace(&self, item: &DriveItem, path: &Path) -> Fut<Option<DriveItem>> {
+    fn replace(&self, item: &DriveItem, path: &Path) -> quince_vfs::Sends<Option<DriveItem>> {
         let (item, path) = (item.clone(), path.to_path_buf());
         let me = self.clone();
-        Box::pin(async move {
+        quince_vfs::sends(async move {
             let len = tokio::fs::metadata(&path).await.map_or(0, |m| m.len());
             let was = item.size.and_then(|s| u64::try_from(s).ok()).unwrap_or(0);
             me.room_for(len.saturating_sub(was)).await?;
@@ -700,6 +700,7 @@ impl Account {
             sender: false,
             quiet_since: None,
             sending: false,
+            settled: false,
             failure: None,
         });
         Ok(staged.to_string_lossy().into_owned())

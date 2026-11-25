@@ -519,7 +519,7 @@ async fn put(
     while let Some((name, sent)) = done.next().await {
         match sent {
             Ok(()) => ended.files += 1,
-            Err(why) => ended.failed.push((name, why)),
+            Err(why) => ended.failed.push((name, why.to_string())),
         }
         let gone = (ended.files + ended.failed.len()) as u64;
         let quarter = gone * 4 / total.max(1);

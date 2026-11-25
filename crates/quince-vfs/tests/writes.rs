@@ -21,6 +21,8 @@ struct World {
     replaced: Mutex<Vec<String>>,
     /// Apple refusing every change, as when it is down.
     refuse: Mutex<bool>,
+    /// Apple turning every file down for good (a photo it can't take, a name it won't).
+    refuse_for_good: Mutex<bool>,
     /// How long each step at "Apple" takes: slow, as on a real connection.
     slow: Mutex<Duration>,
     deleted: Mutex<Vec<String>>,
@@ -119,9 +121,15 @@ impl Remote for Apple {
             .to_vec();
         Box::pin(async move { Ok(b) })
     }
-    fn upload(&self, folder: &DriveItem, path: &Path) -> Fut<DriveItem> {
+    fn upload(&self, folder: &DriveItem, path: &Path) -> quince_vfs::Sends<DriveItem> {
+        if *self.0.refuse_for_good.lock().unwrap() {
+            self.0.uploads.lock().unwrap().push("refused".into());
+            return Box::pin(async {
+                Err(quince_vfs::Failed::settled("iCloud won't take this file"))
+            });
+        }
         if *self.0.refuse.lock().unwrap() {
-            return Box::pin(async { Err("iCloud is busy right now".to_string()) });
+            return quince_vfs::sends(async { Err("iCloud is busy right now".to_string()) });
         }
         let bytes = std::fs::read(path).unwrap();
         let mut name = path.file_name().unwrap().to_str().unwrap().to_string();
@@ -135,22 +143,22 @@ impl Remote for Apple {
         self.0.uploads.lock().unwrap().push(name.clone());
         let slow = *self.0.slow.lock().unwrap();
         let (world, folder) = (Arc::clone(&self.0), folder.drivewsid.clone());
-        Box::pin(async move {
+        quince_vfs::sends(async move {
             tokio::time::sleep(slow).await;
             Ok(world.file(&folder, &name, &bytes))
         })
     }
     /// New contents into the same file, refused when it is no longer the version named — as
     /// Apple's `modify_file` with its etag (probe `drive_modify_in_place`).
-    fn replace(&self, it: &DriveItem, path: &Path) -> Fut<Option<DriveItem>> {
+    fn replace(&self, it: &DriveItem, path: &Path) -> quince_vfs::Sends<Option<DriveItem>> {
         if *self.0.refuse.lock().unwrap() {
-            return Box::pin(async { Err("iCloud is busy right now".to_string()) });
+            return quince_vfs::sends(async { Err("iCloud is busy right now".to_string()) });
         }
         let bytes = std::fs::read(path).unwrap();
         self.0.replaced.lock().unwrap().push(it.drivewsid.clone());
         let slow = *self.0.slow.lock().unwrap();
         let (world, it) = (Arc::clone(&self.0), it.clone());
-        Box::pin(async move {
+        quince_vfs::sends(async move {
             tokio::time::sleep(slow).await;
             let mut n = world.next.lock().unwrap();
             *n += 1;
@@ -544,6 +552,74 @@ fn what_is_waiting_is_told() {
         1,
         "and the file still waiting, not lost"
     );
+    drop(session);
+}
+
+/// A file Apple turns down for good is sent once and then left: not tried again every few
+/// minutes, not counted as on its way (no restart waits for it), its reason still told. Written
+/// again, it is new bytes and goes afresh (health audit, 25 Nov).
+#[test]
+fn a_file_refused_for_good_is_not_sent_again_until_it_changes() {
+    if !Path::new("/dev/fuse").exists() {
+        return;
+    }
+    let world = Arc::new(World::default());
+    world
+        .folders
+        .lock()
+        .unwrap()
+        .insert(ROOT.into(), Vec::new());
+    *world.refuse_for_good.lock().unwrap() = true;
+    let rt = tokio::runtime::Runtime::new().unwrap();
+    let (cache, staging, at) = (
+        tempfile::tempdir().unwrap(),
+        tempfile::tempdir().unwrap(),
+        tempfile::tempdir().unwrap(),
+    );
+    let fs = fuse::DriveFs::new(
+        Arc::new(Apple(Arc::clone(&world))),
+        Arc::new(Library(Arc::clone(&world))),
+        Arc::new(Cache::new(cache.path()).unwrap()),
+        rt.handle().clone(),
+    )
+    .with_writes(staging.path())
+    .unwrap();
+    let writes = fs.writes().unwrap();
+    let session = fuse::mount(fs, at.path()).unwrap();
+    std::fs::write(at.path().join("clip.avi"), b"not a video Apple takes").unwrap();
+    // Long enough for the first try and several retries, had there been any (5 s, doubling).
+    std::thread::sleep(Duration::from_secs(14));
+    let tries = world
+        .uploads
+        .lock()
+        .unwrap()
+        .iter()
+        .filter(|u| *u == "refused")
+        .count();
+    assert_eq!(
+        tries,
+        1,
+        "sent once, never again: {:?}",
+        world.uploads.lock().unwrap()
+    );
+    let w = writes.waiting();
+    assert_eq!(
+        (w.files, w.settled),
+        (1, 1),
+        "still here, but not on its way"
+    );
+    assert_eq!(w.failure.as_deref(), Some("iCloud won't take this file"));
+    // Written again: new bytes, tried afresh.
+    std::fs::write(at.path().join("clip.avi"), b"other bytes").unwrap();
+    std::thread::sleep(Duration::from_secs(6));
+    let tries = world
+        .uploads
+        .lock()
+        .unwrap()
+        .iter()
+        .filter(|u| *u == "refused")
+        .count();
+    assert_eq!(tries, 2, "the new bytes went once");
     drop(session);
 }
 

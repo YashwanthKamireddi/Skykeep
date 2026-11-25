@@ -95,6 +95,59 @@ pub(crate) fn note_about(public: &str, private: &str) {
 /// A future the engine waits on, as the app's own async code gives it.
 pub type Fut<T> = Pin<Box<dyn Future<Output = Result<T, String>> + Send>>;
 
+/// Why a file wasn't sent, and whether that is Apple's last word on it. `settled`: the same bytes
+/// sent again get the same answer (a photo iCloud can't take, a file Drive refuses), so the
+/// folder stops trying until the file changes. Before, every refusal was tried again for ever:
+/// every 25 s on Windows, a 300 MB video sent whole each time (health audit, 25 Nov).
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Failed {
+    pub reason: String,
+    pub settled: bool,
+}
+
+impl Failed {
+    /// Apple's last word on these bytes.
+    #[must_use]
+    pub fn settled(reason: impl Into<String>) -> Failed {
+        Failed {
+            reason: reason.into(),
+            settled: true,
+        }
+    }
+}
+
+/// A failure of the moment (the network, Apple busy): tried again.
+impl From<String> for Failed {
+    fn from(reason: String) -> Failed {
+        Failed {
+            reason,
+            settled: false,
+        }
+    }
+}
+
+impl From<&str> for Failed {
+    fn from(reason: &str) -> Failed {
+        reason.to_string().into()
+    }
+}
+
+impl std::fmt::Display for Failed {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str(&self.reason)
+    }
+}
+
+/// A send, which may be refused for good ([`Failed`]).
+pub type Sends<T> = Pin<Box<dyn Future<Output = Result<T, Failed>> + Send>>;
+
+/// A send whose failures are all of the moment (none says Apple's last word).
+pub fn sends<T: 'static>(
+    work: impl Future<Output = Result<T, String>> + Send + 'static,
+) -> Sends<T> {
+    Box::pin(async move { work.await.map_err(Failed::from) })
+}
+
 /// A file the app keeps whole, as asked for: here already, or on its way ([`Remote::arriving`]).
 pub enum Arriving {
     Whole(PathBuf),
@@ -193,14 +246,14 @@ pub trait Remote: Send + Sync + 'static {
     }
     /// A file sent into `folder`, named after the file at `path`; Apple names it "name 2"
     /// when the name is taken. Answers the file as Apple filed it.
-    fn upload(&self, _folder: &DriveItem, _path: &Path) -> Fut<DriveItem> {
-        Box::pin(async { Err("read-only".to_string()) })
+    fn upload(&self, _folder: &DriveItem, _path: &Path) -> Sends<DriveItem> {
+        Box::pin(async { Err(Failed::settled("read-only")) })
     }
     /// New contents for `item`, written into that same file at Apple: its id, shares and
     /// history kept. Refused by Apple when the file is no longer the version `item` names —
     /// changed on another device — and then `Ok(None)`, nothing written. Read-only by default.
-    fn replace(&self, _item: &DriveItem, _path: &Path) -> Fut<Option<DriveItem>> {
-        Box::pin(async { Err("read-only".to_string()) })
+    fn replace(&self, _item: &DriveItem, _path: &Path) -> Sends<Option<DriveItem>> {
+        Box::pin(async { Err(Failed::settled("read-only")) })
     }
     /// Whether new files may be written into `folder`. Every folder by default; a folder that
     /// is a view, not a place (the Photos folder's Favorites), says no.

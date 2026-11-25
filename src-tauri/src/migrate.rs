@@ -1070,6 +1070,7 @@ mod tests {
             sender: false,
             quiet_since: None,
             sending: false,
+            settled: false,
             failure: None,
         };
         fs::write(
