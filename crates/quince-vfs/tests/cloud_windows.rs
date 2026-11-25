@@ -2108,18 +2108,27 @@ fn words_save_goes_into_the_same_file() {
 fn a_save_by_replace_file_goes_into_the_same_file() {
     let s = Saves::start("replacefile");
     std::fs::write(s.place.join("Report.new"), "fourth save!").unwrap();
-    let ok = Command::new("powershell")
+    // Full paths: .NET resolves a relative one against its own current directory, which
+    // PowerShell does not keep in step with the process's.
+    let (from, to) = (s.place.join("Report.new"), s.place.join("Report.docx"));
+    let out = Command::new("powershell")
         .args([
             "-NoProfile",
             "-NonInteractive",
             "-Command",
-            "[System.IO.File]::Replace('Report.new', 'Report.docx', $null)",
+            &format!(
+                "[System.IO.File]::Replace('{}', '{}', $null)",
+                from.display(),
+                to.display()
+            ),
         ])
-        .current_dir(&s.place)
-        .status()
-        .unwrap()
-        .success();
-    assert!(ok, "File.Replace failed");
+        .output()
+        .unwrap();
+    assert!(
+        out.status.success(),
+        "File.Replace failed: {}",
+        String::from_utf8_lossy(&out.stderr)
+    );
     s.saved_in_place();
 }
 
