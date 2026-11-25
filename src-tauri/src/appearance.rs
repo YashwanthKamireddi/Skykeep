@@ -6,6 +6,10 @@
 //! `data-contrast="more"`; the same rules as `prefers-contrast: more` then apply (a11y.css).
 //! Followed as it changes: switched on in the desktop's settings, the window firms up at once.
 //! Elsewhere the engine's own media query already says it, and this reads as unset.
+//!
+//! The same portal's `color-scheme` says whether the desktop is dark: GNOME 42+ says it only
+//! there, which GTK3 (and so WebKitGTK) never reads, so "Auto" would open light on a dark
+//! GNOME and stay so at sunset. It is read for the window's own theme and followed as well.
 
 #[cfg(target_os = "linux")]
 use tauri::Emitter;
@@ -20,13 +24,24 @@ fn more(value: u32) -> bool {
     value == 1
 }
 
+/// Whether the desktop is dark, from the portal's `color-scheme` (1 prefers dark, 2 prefers
+/// light) or, with no preference (0) or no portal, from what GTK said.
+#[cfg_attr(not(target_os = "linux"), allow(dead_code))]
+fn dark(color_scheme: Option<u32>, gtk: bool) -> bool {
+    match color_scheme {
+        Some(1) => true,
+        Some(2) => false,
+        _ => gtk,
+    }
+}
+
 /// Whether the desktop asks for more contrast now.
 #[tauri::command]
 pub async fn system_contrast() -> bool {
     #[cfg(target_os = "linux")]
     {
         if let Some(settings) = portal().await {
-            return read(&settings).await.is_some_and(more);
+            return read(&settings, "contrast").await.is_some_and(more);
         }
     }
     false
@@ -50,9 +65,9 @@ async fn portal() -> Option<zbus::Proxy<'static>> {
 
 /// `ReadOne`, or `Read` on a portal older than version 2, which wraps the value once more.
 #[cfg(target_os = "linux")]
-async fn read(settings: &zbus::Proxy<'static>) -> Option<u32> {
+async fn read(settings: &zbus::Proxy<'static>, key: &str) -> Option<u32> {
     use zbus::zvariant::OwnedValue;
-    let key = ("org.freedesktop.appearance", "contrast");
+    let key = ("org.freedesktop.appearance", key);
     if let Ok(v) = settings.call::<_, _, OwnedValue>("ReadOne", &key).await {
         return u32::try_from(v).ok();
     }
@@ -64,7 +79,8 @@ async fn read(settings: &zbus::Proxy<'static>) -> Option<u32> {
     }
 }
 
-/// Follow the setting for as long as the app runs, telling every window when it moves.
+/// Follow the settings for as long as the app runs: contrast is told to every window, and a
+/// change of `color-scheme` redraws the windows' theme while "Auto" is chosen.
 pub fn watch(app: tauri::AppHandle) {
     #[cfg(target_os = "linux")]
     tauri::async_runtime::spawn(async move {
@@ -81,9 +97,21 @@ pub fn watch(app: tauri::AppHandle) {
             else {
                 continue;
             };
-            if ns == "org.freedesktop.appearance" && key == "contrast" {
+            if ns != "org.freedesktop.appearance" {
+                continue;
+            }
+            if key == "contrast" {
                 let on = u32::try_from(value).is_ok_and(more);
                 let _ = app.emit(CHANGED, on);
+            } else if key == "color-scheme" {
+                let chosen = CHOSEN
+                    .lock()
+                    .ok()
+                    .and_then(|c| c.as_ref().map(|c| c.0.clone()));
+                if chosen.as_deref() == Some("auto") {
+                    let system = dark(u32::try_from(value).ok(), gtk_dark(&app).await);
+                    apply(&app, "auto", system);
+                }
             }
         }
     });
@@ -105,17 +133,30 @@ fn native(chosen: &str, system_dark: bool) -> Option<tauri::Theme> {
     }
 }
 
-/// The theme last chosen this run, for a window made after it (`dress`). Unset until a page
-/// says it: a window made before then is left to the system, as it would be anyway.
-static CHOSEN: std::sync::Mutex<Option<Option<tauri::Theme>>> = std::sync::Mutex::new(None);
+/// The appearance last chosen this run, as theme.ts says it, and the theme it drew: for a
+/// window made after it (`dress`), and for the desktop turning dark or light under "Auto"
+/// (`watch`). Unset until a page says it: a window made before then is left to the system, as
+/// it would be anyway.
+type Chosen = Option<(String, Option<tauri::Theme>)>;
+static CHOSEN: std::sync::Mutex<Chosen> = std::sync::Mutex::new(None);
 
 /// Whether GTK preferred dark before the app first set it: read once, on the main thread GTK
 /// is touched from, before any window's theme is changed.
 #[cfg(target_os = "linux")]
 static GTK_DARK: tokio::sync::OnceCell<bool> = tokio::sync::OnceCell::const_new();
 
+/// The desktop's dark, read afresh from the portal each time (it follows the sun on GNOME).
 #[cfg(target_os = "linux")]
 async fn system_dark(app: &tauri::AppHandle) -> bool {
+    let color_scheme = match portal().await {
+        Some(settings) => read(&settings, "color-scheme").await,
+        None => None,
+    };
+    dark(color_scheme, gtk_dark(app).await)
+}
+
+#[cfg(target_os = "linux")]
+async fn gtk_dark(app: &tauri::AppHandle) -> bool {
     *GTK_DARK
         .get_or_init(|| async {
             let (tx, rx) = tokio::sync::oneshot::channel();
@@ -137,14 +178,18 @@ async fn system_dark(app: &tauri::AppHandle) -> bool {
 /// "dark", as theme.ts stores it. Each page says it as it starts and again when it changes.
 #[tauri::command]
 pub async fn window_theme(app: tauri::AppHandle, theme: String) {
-    use tauri::Manager;
     #[cfg(target_os = "linux")]
     let system = system_dark(&app).await;
     #[cfg(not(target_os = "linux"))]
     let system = false;
-    let native = native(&theme, system);
+    apply(&app, &theme, system);
+}
+
+fn apply(app: &tauri::AppHandle, theme: &str, system_dark: bool) {
+    use tauri::Manager;
+    let native = native(theme, system_dark);
     if let Ok(mut chosen) = CHOSEN.lock() {
-        *chosen = Some(native);
+        *chosen = Some((theme.to_owned(), native));
     }
     for window in app.webview_windows().values() {
         window.set_theme(native).ok();
@@ -154,7 +199,7 @@ pub async fn window_theme(app: tauri::AppHandle, theme: String) {
 /// A window just made, in the appearance chosen this run, before it is first shown: its page
 /// says it again once loaded, but on Windows the frame would first be drawn in the system's.
 pub fn dress(window: &tauri::WebviewWindow) {
-    if let Some(native) = CHOSEN.lock().ok().and_then(|c| *c) {
+    if let Some(native) = CHOSEN.lock().ok().and_then(|c| c.as_ref().map(|c| c.1)) {
         window.set_theme(native).ok();
     }
 }
@@ -202,6 +247,20 @@ mod tests {
         assert_eq!(super::native("auto", false), None);
         assert_eq!(super::native("auto", true), Some(Dark));
         assert_eq!(super::native("anything else", false), None);
+    }
+
+    #[test]
+    fn the_portals_color_scheme_says_dark_before_gtk() {
+        // 1 prefers dark, 2 prefers light, whatever GTK says: GNOME's dark style leaves GTK3
+        // light.
+        assert!(super::dark(Some(1), false));
+        assert!(!super::dark(Some(2), true));
+        // No preference, an unknown value or no portal: GTK's own.
+        assert!(super::dark(Some(0), true));
+        assert!(!super::dark(Some(0), false));
+        assert!(super::dark(Some(7), true));
+        assert!(super::dark(None, true));
+        assert!(!super::dark(None, false));
     }
 
     #[test]
