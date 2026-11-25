@@ -1855,3 +1855,362 @@ fn room_is_made_from_files_not_kept_or_open() {
     let _ = std::fs::remove_dir_all(&place);
     let _ = std::fs::remove_dir_all(&out);
 }
+
+/// Apple for the saves below (#265), as it is: what is sent, renamed or deleted shows in the
+/// next listing, a write over a version that is no longer the file's is refused (Apple's
+/// OP_LOCK_FAILURE), and every call is written down. It starts with one file, Report.docx.
+struct Drive {
+    files: std::sync::Mutex<Vec<DriveItem>>,
+    log: std::sync::Mutex<Vec<String>>,
+}
+
+impl Drive {
+    fn said(&self, what: String) {
+        self.log.lock().unwrap().push(what);
+    }
+}
+
+impl Remote for Drive {
+    fn mkdir(&self, _: &DriveItem, _: &str) -> Fut<DriveItem> {
+        Box::pin(async { Err("no folders here".to_string()) })
+    }
+    fn upload(&self, folder: &DriveItem, path: &Path) -> Fut<DriveItem> {
+        let name = path.file_name().unwrap().to_string_lossy().to_string();
+        let len = std::fs::metadata(path).map(|m| m.len() as i64).unwrap_or(0);
+        self.said(format!("upload {name} {len}"));
+        let (stem, ext) = name.rsplit_once('.').unwrap_or((&name, ""));
+        let mut sent = file(&format!("up-{name}"), stem, ext, len);
+        sent.parent_id = Some(folder.drivewsid.clone());
+        self.files.lock().unwrap().push(sent.clone());
+        Box::pin(async move { Ok(sent) })
+    }
+    fn replace(&self, item: &DriveItem, path: &Path) -> Fut<Option<DriveItem>> {
+        let len = std::fs::metadata(path).map(|m| m.len() as i64).unwrap_or(0);
+        self.said(format!("replace {} {len}", item.display_name()));
+        let mut files = self.files.lock().unwrap();
+        let now = match files.iter_mut().find(|f| f.drivewsid == item.drivewsid) {
+            Some(f) if f.etag == item.etag => {
+                f.size = Some(len);
+                f.etag = Some(format!("{}+", f.etag.clone().unwrap_or_default()));
+                Some(f.clone())
+            }
+            _ => None,
+        };
+        Box::pin(async move { Ok(now) })
+    }
+    fn rename(&self, item: &DriveItem, name: &str) -> Fut<()> {
+        self.said(format!("rename {} {name}", item.display_name()));
+        for f in self
+            .files
+            .lock()
+            .unwrap()
+            .iter_mut()
+            .filter(|f| f.drivewsid == item.drivewsid)
+        {
+            let (stem, ext) = name.rsplit_once('.').unwrap_or((name, ""));
+            f.name = stem.into();
+            f.extension = Some(ext.into());
+            f.etag = Some(format!("{}+", f.etag.clone().unwrap_or_default()));
+        }
+        Box::pin(async { Ok(()) })
+    }
+    fn move_to(&self, item: &DriveItem, folder: &DriveItem) -> Fut<()> {
+        self.said(format!("move {} {}", item.display_name(), folder.name));
+        Box::pin(async { Ok(()) })
+    }
+    fn delete(&self, item: &DriveItem) -> Fut<()> {
+        self.said(format!("delete {}", item.display_name()));
+        self.files
+            .lock()
+            .unwrap()
+            .retain(|f| f.drivewsid != item.drivewsid);
+        Box::pin(async { Ok(()) })
+    }
+    fn list(&self, folder: &str) -> Fut<Vec<DriveItem>> {
+        let items = if folder == ROOT {
+            self.files.lock().unwrap().clone()
+        } else {
+            Vec::new()
+        };
+        Box::pin(async move { Ok(items) })
+    }
+    fn read(&self, item: &DriveItem, offset: u64, len: u64) -> Fut<Vec<u8>> {
+        let end = (offset + len).min(item.size.unwrap_or(0) as u64);
+        Box::pin(async move { Ok((offset..end).map(byte).collect()) })
+    }
+}
+
+/// The library as Apple is.
+struct Mirror(Arc<Drive>);
+
+impl Store for Mirror {
+    fn children(&self, folder: &str) -> Option<Vec<DriveItem>> {
+        (folder == ROOT).then(|| self.0.files.lock().unwrap().clone())
+    }
+}
+
+/// A Drive folder holding Apple's Report.docx, listed and opened once here (as the app saving
+/// it has it), with `Drive` behind it. Taken down when dropped.
+struct Saves {
+    folder: Option<cloud::CloudFolder>,
+    place: PathBuf,
+    out: PathBuf,
+    id: String,
+    apple: Arc<Drive>,
+    _rt: tokio::runtime::Runtime,
+}
+
+const REPORT: &str = "FILE::com.apple.CloudDocs::rep";
+
+impl Saves {
+    fn start(tag: &str) -> Saves {
+        let rt = tokio::runtime::Runtime::new().unwrap();
+        let base = PathBuf::from(std::env::var("USERPROFILE").unwrap());
+        let place = base.join(format!("Skykeep {tag} {}", std::process::id()));
+        let out = std::env::temp_dir().join(format!("skykeep-{tag}-{}", std::process::id()));
+        std::fs::create_dir_all(&out).unwrap();
+        let apple = Arc::new(Drive {
+            files: std::sync::Mutex::new(vec![file("rep", "Report", "docx", 5)]),
+            log: std::sync::Mutex::default(),
+        });
+        let id = cloud::sync_root_id(&format!("{tag}{}", std::process::id())).unwrap();
+        let shown = Shown {
+            id: &id,
+            name: "Skykeep saves",
+            icon: "%SystemRoot%\\system32\\imageres.dll,-1043",
+        };
+        let folder = cloud::start(
+            &place,
+            &shown,
+            Provider::new(
+                Arc::clone(&apple) as Arc<dyn Remote>,
+                Arc::new(Mirror(Arc::clone(&apple))),
+                rt.handle().clone(),
+                out.join("sending"),
+            ),
+        )
+        .expect("the cloud folder registers and connects");
+        assert_eq!(dir(&place), ["Report.docx"]);
+        copy_out(&place.join("Report.docx"), &out.join("opened.docx"));
+        assert_eq!(std::fs::read(out.join("opened.docx")).unwrap().len(), 5);
+        // Every mark Windows sets after the read settled before the save.
+        std::thread::sleep(std::time::Duration::from_secs(3));
+        Saves {
+            folder: Some(folder),
+            place,
+            out,
+            id,
+            apple,
+            _rt: rt,
+        }
+    }
+
+    /// `line` run by cmd in the folder, as another program saving there.
+    fn cmd(&self, line: &str) {
+        use std::os::windows::process::CommandExt;
+        let ok = Command::new("cmd")
+            .arg("/c")
+            .raw_arg(line)
+            .current_dir(&self.place)
+            .status()
+            .unwrap()
+            .success();
+        assert!(ok, "{line}");
+    }
+
+    fn said(&self) -> Vec<String> {
+        self.apple.log.lock().unwrap().clone()
+    }
+
+    fn wait(&self, what: &str) {
+        for _ in 0..150 {
+            if self.said().iter().any(|l| l.starts_with(what)) {
+                return;
+            }
+            std::thread::sleep(std::time::Duration::from_millis(200));
+        }
+        panic!("never reached Apple: {what}; Apple heard {:?}", self.said());
+    }
+
+    fn at_apple(&self) -> Vec<DriveItem> {
+        self.apple.files.lock().unwrap().clone()
+    }
+
+    /// The save went into Apple's Report.docx itself: its id kept, the last save's bytes in
+    /// it, and nothing else done at Apple — no upload beside it, no rename, nothing deleted.
+    fn saved_in_place(&self) {
+        self.wait("replace Report.docx");
+        // A delete or rename Windows told of waits for the save to settle: given time to.
+        std::thread::sleep(std::time::Duration::from_secs(6));
+        let said = self.said();
+        println!("Apple heard: {said:?}");
+        assert!(
+            !said.iter().any(|l| l.contains("conflicted copy")),
+            "a save made a conflicted copy: {said:?}"
+        );
+        assert!(
+            said.iter().all(|l| l.starts_with("replace Report.docx")),
+            "a save is no upload, delete, rename or move: {said:?}"
+        );
+        assert_eq!(dir(&self.place), ["Report.docx"], "no copies beside it");
+        let at_apple = self.at_apple();
+        assert_eq!(at_apple.len(), 1, "one file at Apple: {at_apple:?}");
+        assert_eq!(at_apple[0].drivewsid, REPORT, "the same file at Apple");
+        let here = std::fs::metadata(self.place.join("Report.docx"))
+            .unwrap()
+            .len();
+        assert_eq!(at_apple[0].size, Some(here as i64), "Apple has the save");
+        assert_eq!(
+            cloud::identity_of(&self.place.join("Report.docx")).map(|i| i.drivewsid),
+            Some(REPORT.to_string()),
+            "the file here is Apple's file again"
+        );
+    }
+}
+
+impl Drop for Saves {
+    fn drop(&mut self) {
+        drop(self.folder.take());
+        cloud::unregister(&self.place, &self.id);
+        let _ = std::fs::remove_dir_all(&self.place);
+        let _ = std::fs::remove_dir_all(&self.out);
+    }
+}
+
+/// A save written beside the file and renamed over it (MoveFileEx with REPLACE_EXISTING: Qt's
+/// QSaveFile, JetBrains' safe write, many editors) goes into the same file at Apple: never
+/// "Report (conflicted copy …).docx" beside it (#265).
+#[test]
+fn a_save_renamed_over_the_file_goes_into_it() {
+    let s = Saves::start("renamed-over");
+    s.cmd("echo second save> Report.docx.tmp && move /y Report.docx.tmp Report.docx");
+    s.saved_in_place();
+}
+
+/// Word's save: the original renamed to ~WRLnnnn.tmp, the new one renamed in, the original
+/// deleted. The same file at Apple takes the save: Apple's is never renamed to ~WRL…, never
+/// deleted into Recently Deleted, and no new file is uploaded in its place (#265).
+#[test]
+fn words_save_goes_into_the_same_file() {
+    let s = Saves::start("word");
+    s.cmd("echo third save> ~WRD0001.tmp");
+    s.cmd("ren Report.docx ~WRL0001.tmp && ren ~WRD0001.tmp Report.docx && del ~WRL0001.tmp");
+    s.saved_in_place();
+    assert!(
+        !s.said().iter().any(|l| l.contains("~WRL")),
+        "{:?}",
+        s.said()
+    );
+}
+
+/// ReplaceFileW (as .NET's File.Replace calls it, from another program), as .NET apps and many
+/// editors save: the same file at Apple takes the save (#265).
+#[test]
+fn a_save_by_replace_file_goes_into_the_same_file() {
+    let s = Saves::start("replacefile");
+    // Full paths: .NET resolves a relative one against its own current directory, which
+    // PowerShell does not keep in step with the process's. And no backup as [NullString]:
+    // PowerShell passes $null to a string parameter as "", which Replace refuses.
+    let (from, to) = (s.place.join("Report.new"), s.place.join("Report.docx"));
+    let out = Command::new("powershell")
+        .args([
+            "-NoProfile",
+            "-NonInteractive",
+            "-Command",
+            // Written and put in place in one go, as a program saving does: a file left a
+            // while would be sent as a file of its own first.
+            &format!(
+                "[System.IO.File]::WriteAllText('{from}', 'fourth save!'); \
+                 [System.IO.File]::Replace('{from}', '{to}', [NullString]::Value)",
+                from = from.display(),
+                to = to.display()
+            ),
+        ])
+        .output()
+        .unwrap();
+    assert!(
+        out.status.success(),
+        "File.Replace failed: {}",
+        String::from_utf8_lossy(&out.stderr)
+    );
+    s.saved_in_place();
+}
+
+/// A real conflict stays one: another device saved Report.docx after it was opened here, so a
+/// save that replaces the file goes beside Apple's as exactly one conflicted copy, and Apple's
+/// is left as that device saved it.
+#[test]
+fn a_replacing_save_over_a_file_changed_elsewhere_is_one_conflicted_copy() {
+    let s = Saves::start("conflict");
+    {
+        let mut files = s.apple.files.lock().unwrap();
+        files[0].etag = Some("e2".into());
+        files[0].size = Some(7);
+    }
+    s.cmd("echo ours> Report.docx.tmp && move /y Report.docx.tmp Report.docx");
+    s.wait("upload Report (conflicted copy ");
+    std::thread::sleep(std::time::Duration::from_secs(6));
+    let said = s.said();
+    println!("Apple heard: {said:?}");
+    assert_eq!(
+        said.iter()
+            .filter(|l| l.contains("conflicted copy"))
+            .count(),
+        1,
+        "{said:?}"
+    );
+    assert!(
+        !said.iter().any(|l| l.starts_with("replace")
+            || l.starts_with("delete")
+            || l.starts_with("rename")),
+        "Apple's file is never written over, renamed or deleted: {said:?}"
+    );
+    let at_apple = s.at_apple();
+    assert_eq!(at_apple.len(), 2, "{at_apple:?}");
+    let theirs = at_apple.iter().find(|i| i.drivewsid == REPORT).unwrap();
+    assert_eq!(
+        (theirs.etag.as_deref(), theirs.size),
+        (Some("e2"), Some(7)),
+        "theirs untouched"
+    );
+}
+
+/// A file written into in place (still its placeholder) while another device changed it at
+/// Apple goes beside it as exactly one conflicted copy, and that copy then stays put. Before,
+/// the copy was "converted" to a placeholder it already was, which failed, so it still named
+/// the file it clashed with and clashed again: a copy of a copy every round (#265).
+#[test]
+fn a_file_written_in_place_over_a_change_elsewhere_is_one_conflicted_copy() {
+    let s = Saves::start("inplace-conflict");
+    {
+        let mut files = s.apple.files.lock().unwrap();
+        files[0].etag = Some("e2".into());
+        files[0].size = Some(7);
+    }
+    s.cmd("echo more>> Report.docx");
+    s.wait("upload Report (conflicted copy ");
+    std::thread::sleep(std::time::Duration::from_secs(10));
+    let said = s.said();
+    println!("Apple heard: {said:?}");
+    assert_eq!(
+        said.iter()
+            .filter(|l| l.contains("conflicted copy"))
+            .count(),
+        1,
+        "one copy, never a copy of a copy: {said:?}"
+    );
+}
+
+/// A file deleted here, with nothing saved in its place, is still deleted at Apple (into
+/// Recently Deleted) once the delete has settled.
+#[test]
+fn a_file_deleted_here_is_deleted_at_apple() {
+    let s = Saves::start("delete");
+    s.cmd("del Report.docx");
+    s.wait("delete Report.docx");
+    std::thread::sleep(std::time::Duration::from_secs(3));
+    let said = s.said();
+    assert_eq!(said, ["delete Report.docx"], "{said:?}");
+    assert!(s.at_apple().is_empty());
+    assert!(dir(&s.place).is_empty());
+}
