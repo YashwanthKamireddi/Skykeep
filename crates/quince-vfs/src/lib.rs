@@ -18,6 +18,9 @@ mod downloads;
 #[cfg(target_os = "linux")]
 pub mod fuse;
 pub mod transfer;
+// Used by the Windows folder; tested everywhere.
+#[cfg_attr(not(windows), allow(dead_code))]
+mod vacated;
 pub mod writes;
 
 use quince_core::drive::DriveItem;
