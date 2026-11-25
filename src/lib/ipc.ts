@@ -1267,6 +1267,34 @@ export const iphoneApi = {
   everyApp: () => invoke<IphoneStatus["everyApp"]>("iphone_every_app"),
 };
 
+/** One day of what Skykeep downloaded from Apple (src-tauri download_record, quince-record). */
+export type RecordDay = {
+  /** The local date, "2026-11-25". */
+  date: string;
+  /** Bytes per reason, in RECORD_WHYS order. */
+  bytes: number[];
+  /** Bytes per program that read the Drive or Photos folder. */
+  programs: Record<string, number>;
+};
+/** The reasons, in the order `RecordDay.bytes` keeps them (quince-record's Why::code). */
+export const RECORD_WHYS = [
+  "other",
+  "opened",
+  "grid",
+  "keptAhead",
+  "posters",
+  "keptOnComputer",
+  "folders",
+  "backup",
+  "saved",
+  "sync",
+  "updates",
+] as const;
+export const downloadRecordApi = {
+  /** The last 30 days, newest first. */
+  days: () => invoke<RecordDay[]>("download_record"),
+};
+
 export const photoCacheApi = {
   status: () => invoke<PhotoCache>("photos_cache_status"),
   /** Answers at once; the trim a lower cap starts reports through PHOTO_CACHE. */

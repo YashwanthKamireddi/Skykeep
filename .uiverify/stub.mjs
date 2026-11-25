@@ -1126,6 +1126,18 @@ export function installStub({ screen, services, twoFactor, calendarFixture, note
           window.__cleared = (window.__cleared ?? 0) + 1;
           return (window.__local = { ...l, photos: l.photos - (l.clearable - l.notes - 3_000), notes: 0, drive: l.drive - 3_000, total: l.total - l.clearable, clearable: 0 });
         }
+        // What Skykeep downloaded and why (quince-record): today and the day before, local dates,
+        // bytes per reason in RECORD_WHYS order; a test sets window.__record to say otherwise.
+        case "download_record": {
+          if (window.__record) return window.__record;
+          const day = (back) => { const d = new Date(); d.setDate(d.getDate() - back); const two = (n) => String(n).padStart(2, "0"); return `${d.getFullYear()}-${two(d.getMonth() + 1)}-${two(d.getDate())}`; };
+          const MB = 1024 ** 2;
+          return [
+            { date: day(0), bytes: [0, 120 * MB, 40 * MB, 300 * MB, 0, 0, 900 * MB, 0, 0, 25 * MB, 0], programs: { nautilus: 700 * MB, "tracker-extract": 200 * MB } },
+            { date: day(1), bytes: [0, 0, 60 * MB, 0, 0, 0, 0, 0, 0, 20 * MB, 110 * MB], programs: {} },
+            { date: day(9), bytes: [0, 0, 0, 0, 0, 0, 0, 5000 * MB, 0, 0, 0], programs: {} },
+          ];
+        }
         // Photos Cache: a cap set lets the longest unseen go in the background, reported as an event.
         case "photos_cache_status": case "photos_cache_set": {
           const GB = 1024 ** 3;
