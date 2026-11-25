@@ -127,6 +127,9 @@
     ; Send to → iPhone (Skykeep), which Skykeep keeps in this person's Send To folder
     ; (src-tauri/src/send.rs).
     Delete "$SENDTO\iPhone (Skykeep).lnk"
+    ; The address a press on a reminder's toast opens, which Skykeep registers for this person
+    ; (src-tauri/src/alerts.rs, offer_answers).
+    DeleteRegKey HKCU "Software\Classes\skykeep-alert"
     !insertmacro SKYKEEP_MENU
     !insertmacro SKYKEEP_APP_SHORTCUT_GONE "Notes"
     !insertmacro SKYKEEP_APP_SHORTCUT_GONE "Reminders"

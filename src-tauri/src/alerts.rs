@@ -9,6 +9,7 @@
 
 use crate::{Auth, Data};
 use quince_core::alarms::DueAlarm;
+use std::collections::HashMap;
 use std::time::Duration;
 use tauri::Emitter;
 use tauri::{AppHandle, Manager};
@@ -50,30 +51,38 @@ const SNOOZE: i64 = 60 * 60;
 const ICON: &[u8] = include_bytes!("../icons/notify.png");
 static ICON_PATH: std::sync::OnceLock<Option<String>> = std::sync::OnceLock::new();
 
+/// Whether the reminder is still at the occurrence an alert was shown for (`due_then`: its due
+/// date then, `None` when it could not be read): not done, and not moved on to a later date.
+/// A press on an alert that is not still due does nothing, and such an alert is withdrawn.
+fn still_due(
+    due_then: Option<Option<i64>>,
+    now: Option<&quince_core::reminders::Reminder>,
+) -> bool {
+    now.is_some_and(|r| r.completed_at.is_none() && Some(r.due_at) == due_then)
+}
+
 /// What a press on a reminder's alert does — Linux's notification actions and Windows' toast
 /// buttons alike: complete this occurrence, put it off an hour, or open it in Reminders.
-fn answer(app: &AppHandle, due: &DueAlarm, due_then: Option<Option<i64>>, action: &str) {
+/// `resume`: this launch was started by the press (Windows), so the session is taken up first,
+/// as a command line's tick does (apps::on_reminder), for the tick to reach Apple.
+fn answer(app: &AppHandle, alert: &Answered, action: &str, resume: bool) {
     match action {
         "complete" => {
             let app = app.clone();
-            let due = due.clone();
+            let alert = alert.clone();
             tauri::async_runtime::block_on(async move {
                 let auth = app.state::<Auth>();
                 let data = app.state::<Data>();
-                let now = data
-                    .0
-                    .lock()
-                    .await
-                    .reminder(&due.reminder_guid)
-                    .ok()
-                    .flatten();
-                let same = now
-                    .as_ref()
-                    .is_some_and(|r| r.completed_at.is_none() && Some(r.due_at) == due_then);
-                if !same {
+                if resume {
+                    if let Err(e) = crate::auth_resume(app.clone(), app.state::<Auth>()).await {
+                        quiet!("the session could not be taken up for an alert's tick: {e}");
+                    }
+                }
+                let now = data.0.lock().await.reminder(&alert.reminder).ok().flatten();
+                if !still_due(alert.due_then, now.as_ref()) {
                     quiet!("an alert was answered after its reminder had moved on");
                 } else if let Err(e) =
-                    crate::set_done(&auth, &data, &due.reminder_guid, &due.list_guid, true).await
+                    crate::set_done(&auth, &data, &alert.reminder, &alert.list, true).await
                 {
                     quiet!("an alert's reminder could not be completed: {e}");
                 }
@@ -84,7 +93,7 @@ fn answer(app: &AppHandle, due: &DueAlarm, due_then: Option<Option<i64>>, action
         }
         "snooze" => {
             let app = app.clone();
-            let guid = due.reminder_guid.clone();
+            let guid = alert.reminder.clone();
             tauri::async_runtime::block_on(async move {
                 let data = app.state::<Data>();
                 let mut library = data.0.lock().await;
@@ -99,13 +108,197 @@ fn answer(app: &AppHandle, due: &DueAlarm, due_then: Option<Option<i64>>, action
                 "reminders",
                 &serde_json::json!({
                     "screen": "reminders",
-                    "id": due.reminder_guid,
-                    "within": due.list_guid,
+                    "id": alert.reminder,
+                    "within": alert.list,
                 }),
             );
         }
         _ => {}
     }
+}
+
+/// The reminder an alert was shown for, as a press on it names it.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Answered {
+    reminder: String,
+    list: String,
+    /// The reminder's due date when the alert was shown; `None` when it could not be read.
+    due_then: Option<Option<i64>>,
+}
+
+impl Answered {
+    fn of(due: &DueAlarm, due_then: Option<Option<i64>>) -> Self {
+        Self {
+            reminder: due.reminder_guid.clone(),
+            list: due.list_guid.clone(),
+            due_then,
+        }
+    }
+}
+
+/// The scheme a Windows toast's press comes back on. Windows can only answer a press itself
+/// while the process that showed the toast is alive: a toast still in Notification Center after
+/// Skykeep quit or the computer restarted did nothing when pressed. A press through a protocol
+/// is a launch (`skykeep.exe "skykeep-alert:complete?…"`), which starts Skykeep or is handed to
+/// the copy already running (single instance), so it is answered either way, through one path.
+/// Registered by the app for the .exe and .msi (`offer_answers`), by the MSIX in its manifest.
+pub const SCHEME: &str = "skykeep-alert";
+
+/// The address a press on an alert opens: the action, then the reminder, its list and the due
+/// date it was shown for (absent when unknown, empty when it has none).
+#[cfg_attr(not(windows), allow(dead_code))]
+fn answer_uri(action: &str, alert: &Answered) -> String {
+    let mut uri = format!(
+        "{SCHEME}:{action}?r={}&l={}",
+        escape_uri(&alert.reminder),
+        escape_uri(&alert.list)
+    );
+    if let Some(due) = alert.due_then {
+        uri.push_str("&d=");
+        if let Some(due) = due {
+            uri.push_str(&due.to_string());
+        }
+    }
+    uri
+}
+
+/// A press on an alert, handed over on a command line: the action and the reminder it is for.
+pub fn asked(args: &[String]) -> Option<(String, Answered)> {
+    let prefix = format!("{SCHEME}:");
+    args.iter().skip(1).find_map(|a| {
+        let rest = a
+            .get(..prefix.len())
+            .filter(|p| p.eq_ignore_ascii_case(&prefix))
+            .and_then(|_| a.get(prefix.len()..))?;
+        let (action, query) = rest.split_once('?')?;
+        let action = action.trim_end_matches('/');
+        if !matches!(action, "complete" | "snooze" | "default") {
+            return None;
+        }
+        let (mut reminder, mut list, mut due_then) = (None, None, None);
+        for pair in query.split('&') {
+            match pair.split_once('=') {
+                Some(("r", v)) => reminder = unescape_uri(v),
+                Some(("l", v)) => list = unescape_uri(v),
+                Some(("d", "")) => due_then = Some(None),
+                Some(("d", v)) => due_then = Some(Some(v.parse().ok()?)),
+                _ => {}
+            }
+        }
+        let alert = Answered {
+            reminder: reminder.filter(|r| !r.is_empty())?,
+            list: list.unwrap_or_default(),
+            due_then,
+        };
+        Some((action.to_string(), alert))
+    })
+}
+
+/// Do what a press handed over on a command line asks, on a thread of its own (it waits on
+/// the library). `this_launch`: Skykeep was started by the press.
+pub fn on_asked(app: &AppHandle, action: String, alert: Answered, this_launch: bool) {
+    let app = app.clone();
+    std::thread::spawn(move || answer(&app, &alert, &action, this_launch));
+}
+
+/// Every byte but letters, digits, `-`, `_` and `.` as `%XX`.
+fn escape_uri(s: &str) -> String {
+    let mut out = String::with_capacity(s.len());
+    for b in s.bytes() {
+        if b.is_ascii_alphanumeric() || matches!(b, b'-' | b'_' | b'.') {
+            out.push(char::from(b));
+        } else {
+            out.push_str(&format!("%{b:02X}"));
+        }
+    }
+    out
+}
+
+fn unescape_uri(s: &str) -> Option<String> {
+    let mut bytes = Vec::with_capacity(s.len());
+    let mut rest = s.as_bytes();
+    while let Some((&b, tail)) = rest.split_first() {
+        if b == b'%' {
+            let hex = std::str::from_utf8(tail.get(..2)?).ok()?;
+            bytes.push(u8::from_str_radix(hex, 16).ok()?);
+            rest = &tail[2..];
+        } else {
+            bytes.push(b);
+            rest = tail;
+        }
+    }
+    String::from_utf8(bytes).ok()
+}
+
+/// The scheme registered for this user, so a press on a toast reaches the .exe or .msi's
+/// Skykeep (an MSIX declares it in its manifest instead; writes here would be the package's
+/// alone). Written each start, so a moved install or an update points at the program running
+/// now; the uninstallers take it away.
+#[cfg(windows)]
+pub fn offer_answers() {
+    if crate::package::packaged() {
+        return;
+    }
+    std::thread::spawn(|| {
+        let Ok(exe) = std::env::current_exe() else {
+            return;
+        };
+        let key = format!(r"HKCU\Software\Classes\{SCHEME}");
+        let command = format!("\"{}\" \"%1\"", exe.display());
+        let done = [
+            crate::login::reg(&["add", &key, "/ve", "/d", "URL:Skykeep alert", "/f"]),
+            crate::login::reg(&["add", &key, "/v", "URL Protocol", "/d", "", "/f"]),
+            crate::login::reg(&[
+                "add",
+                &format!(r"{key}\shell\open\command"),
+                "/ve",
+                "/d",
+                &command,
+                "/f",
+            ]),
+        ];
+        if !done.iter().all(|d| d.as_ref().is_ok_and(|s| s.success())) {
+            quiet!("a press on an alert can't start Skykeep: its scheme was not registered");
+        }
+    });
+}
+
+/// A reminder's toast, as Windows reads it: the phone's two choices as buttons, every press
+/// a protocol launch (`SCHEME`), Windows' reminder chime, and kept on screen until answered.
+#[cfg_attr(not(windows), allow(dead_code))]
+fn toast_xml(title: &str, body: &str, icon: Option<&str>, alert: &Answered) -> String {
+    let attr = |s: &str| {
+        s.replace('&', "&amp;")
+            .replace('<', "&lt;")
+            .replace('>', "&gt;")
+            .replace('"', "&quot;")
+    };
+    let image = icon.map_or_else(String::new, |path| {
+        format!(
+            r#"<image placement="appLogoOverride" src="file:///{}" alt="Skykeep"/>"#,
+            attr(path)
+        )
+    });
+    let action = |label: &str, key: &str| {
+        format!(
+            r#"<action content="{label}" activationType="protocol" arguments="{}"/>"#,
+            attr(&answer_uri(key, alert))
+        )
+    };
+    format!(
+        concat!(
+            r#"<toast launch="{}" activationType="protocol" duration="long" scenario="reminder">"#,
+            r#"<visual><binding template="ToastGeneric">{}<text>{}</text><text>{}</text>"#,
+            r#"</binding></visual><audio src="ms-winsoundevent:Notification.Reminder"/>"#,
+            r#"<actions>{}{}</actions></toast>"#
+        ),
+        attr(&answer_uri("default", alert)),
+        image,
+        attr(title),
+        attr(body),
+        action("Mark as Completed", "complete"),
+        action("Remind Me in 1 Hour", "snooze"),
+    )
 }
 
 /// A plain notice from the app itself — not a reminder or an event — sent as Skykeep, and
@@ -262,6 +455,7 @@ pub fn spawn(app: AppHandle) {
                 let data = app.state::<Data>();
                 let mut library = data.0.lock().await;
                 let (ring, next) = take_due(&mut library, at);
+                withdraw_gone(&app, &library);
                 (ring, next, allowed(&library, REMINDER_ALERTS))
             };
             for due in ring.into_iter().filter(|_| on) {
@@ -334,39 +528,19 @@ fn show(app: AppHandle, due: DueAlarm) {
                 library.reminder(&guid).ok().flatten().map(|r| r.due_at)
             })
         };
+        let alert = Answered::of(&due, due_then);
         // On Windows the phone's choices are the toast's own buttons, and the toast is sent as
         // the app the Start menu knows (the installer stamps its shortcut with this ID; without
-        // it every alert came from "Windows PowerShell"), with Windows' reminder chime.
+        // it every alert came from "Windows PowerShell"), with Windows' reminder chime. Tagged
+        // with its reminder, to be withdrawn when the reminder is done elsewhere.
         #[cfg(windows)]
         {
-            use tauri_winrt_notification::{Duration as Shown, Scenario, Sound, Toast};
-            let answering = app.clone();
-            let due_answered = due.clone();
-            let mut toast = Toast::new(&crate::taskbar::own_id(&app.config().identifier))
-                .title(&due.title)
-                .text1(&body)
-                .sound(Some(Sound::Reminder))
-                .duration(Shown::Long)
-                .scenario(Scenario::Reminder)
-                .add_button("Mark as Completed", "complete")
-                .add_button("Remind Me in 1 Hour", "snooze")
-                .on_activated(move |action| {
-                    answer(
-                        &answering,
-                        &due_answered,
-                        due_then,
-                        action.as_deref().unwrap_or("default"),
-                    );
-                    Ok(())
-                });
-            if let Some(icon) = icon_path(&app) {
-                toast = toast.icon(
-                    std::path::Path::new(icon),
-                    tauri_winrt_notification::IconCrop::Square,
-                    "Skykeep",
-                );
+            let xml = toast_xml(&due.title, &body, icon_path(&app), &alert);
+            let id = crate::taskbar::own_id(&app.config().identifier);
+            match windows_toast::show(&xml, &due.reminder_guid, &id) {
+                Ok(()) => remember(&due.reminder_guid, due_then, 0),
+                Err(e) => quiet!("a reminder's alert could not be shown: {e}"),
             }
-            toast.show().ok();
         }
         #[cfg(all(unix, not(target_os = "macos")))]
         {
@@ -384,12 +558,119 @@ fn show(app: AppHandle, due: DueAlarm) {
                 sound: chime(),
                 resident: true,
             };
-            let (answering, due_answered) = (app.clone(), due.clone());
-            crate::notices::show(&notice, move |action| {
-                answer(&answering, &due_answered, due_then, action);
+            let answering = app.clone();
+            let shown = crate::notices::show(&notice, move |action| {
+                answer(&answering, &alert, action, false);
             });
+            if let Some(id) = shown {
+                remember(&due.reminder_guid, due_then, id);
+            }
         }
     });
+}
+
+/// The reminders' alerts on screen, by reminder: the due date each was shown for, and on Linux
+/// the notification's id. Withdrawn once that occurrence is no longer due — done or moved on
+/// on the iPhone, or here — as Reminders on a Mac and the phone take theirs back.
+static SHOWN: std::sync::Mutex<Option<Shown>> = std::sync::Mutex::new(None);
+type Shown = HashMap<String, (Option<Option<i64>>, u32)>;
+
+#[cfg_attr(
+    not(any(windows, all(unix, not(target_os = "macos")))),
+    allow(dead_code)
+)]
+fn remember(reminder: &str, due_then: Option<Option<i64>>, id: u32) {
+    if let Ok(mut shown) = SHOWN.lock() {
+        shown
+            .get_or_insert_with(HashMap::new)
+            .insert(reminder.to_string(), (due_then, id));
+    }
+}
+
+/// The alerts in `shown` whose reminder is no longer due as it was, taken out of it.
+fn gone_by(library: &quince_core::Library, shown: &mut Shown) -> Vec<(String, u32)> {
+    let gone: Vec<(String, u32)> = shown
+        .iter()
+        .filter(|(guid, (due_then, _))| {
+            !still_due(*due_then, library.reminder(guid).ok().flatten().as_ref())
+        })
+        .map(|(guid, (_, id))| (guid.clone(), *id))
+        .collect();
+    for (guid, _) in &gone {
+        shown.remove(guid);
+    }
+    gone
+}
+
+/// Take back the alerts whose reminder is no longer due as it was.
+fn withdraw_gone(app: &AppHandle, library: &quince_core::Library) {
+    let gone = match SHOWN.lock() {
+        Ok(mut shown) => match shown.as_mut() {
+            Some(shown) => gone_by(library, shown),
+            None => return,
+        },
+        Err(_) => return,
+    };
+    if gone.is_empty() {
+        return;
+    }
+    // Off the library's lock and the async runtime: each is a blocking call to the desktop.
+    let app = app.clone();
+    std::thread::spawn(move || withdraw(&app, gone));
+}
+
+fn withdraw(app: &AppHandle, gone: Vec<(String, u32)>) {
+    for (guid, id) in gone {
+        #[cfg(windows)]
+        {
+            let _ = id;
+            let app_id = crate::taskbar::own_id(&app.config().identifier);
+            if let Err(e) = windows_toast::remove(&guid, &app_id) {
+                quiet!("a done reminder's alert could not be taken back: {e}");
+            }
+        }
+        #[cfg(all(unix, not(target_os = "macos")))]
+        {
+            let _ = guid;
+            crate::notices::close(id);
+        }
+        #[cfg(not(any(windows, all(unix, not(target_os = "macos")))))]
+        let _ = (guid, id);
+    }
+    let _ = app;
+}
+
+/// Reminders' toasts through Windows' own API: tauri-winrt-notification sets no tag, so a toast
+/// could never be taken back, and its presses only reached a process still running.
+#[cfg(windows)]
+mod windows_toast {
+    use windows::core::HSTRING;
+    use windows::Data::Xml::Dom::XmlDocument;
+    use windows::UI::Notifications::{ToastNotification, ToastNotificationManager};
+
+    const GROUP: &str = "reminders";
+
+    /// A toast's tag is at most 64 characters.
+    fn tag(reminder: &str) -> HSTRING {
+        HSTRING::from(reminder.chars().take(64).collect::<String>())
+    }
+
+    pub fn show(xml: &str, reminder: &str, app_id: &str) -> windows::core::Result<()> {
+        let doc = XmlDocument::new()?;
+        doc.LoadXml(&HSTRING::from(xml))?;
+        let toast = ToastNotification::CreateToastNotification(&doc)?;
+        toast.SetTag(&tag(reminder))?;
+        toast.SetGroup(&HSTRING::from(GROUP))?;
+        ToastNotificationManager::CreateToastNotifierWithId(&HSTRING::from(app_id))?.Show(&toast)
+    }
+
+    pub fn remove(reminder: &str, app_id: &str) -> windows::core::Result<()> {
+        ToastNotificationManager::History()?.RemoveGroupedTagWithId(
+            &tag(reminder),
+            &HSTRING::from(GROUP),
+            &HSTRING::from(app_id),
+        )
+    }
 }
 
 /// Alerts read for events no longer coming let go of.
@@ -763,6 +1044,100 @@ mod tests {
         lib.put_reminders(&reminders).unwrap();
         lib.put_alarms(&alarms, &triggers, &[], true).unwrap();
         lib
+    }
+
+    fn alert(due_then: Option<Option<i64>>) -> Answered {
+        Answered {
+            reminder: "R a/b&c".into(),
+            list: "L".into(),
+            due_then,
+        }
+    }
+
+    fn launched(uri: &str) -> Vec<String> {
+        vec![r"C:\Program Files\Skykeep\skykeep.exe".into(), uri.into()]
+    }
+
+    #[test]
+    fn a_press_on_a_toast_comes_back_as_it_was_sent() {
+        for due_then in [Some(Some(1_700_000_000)), Some(None), None] {
+            for action in ["complete", "snooze", "default"] {
+                let uri = answer_uri(action, &alert(due_then));
+                assert_eq!(
+                    asked(&launched(&uri)),
+                    Some((action.to_string(), alert(due_then)))
+                );
+            }
+        }
+        // Windows may hand the scheme back in another case, or with a slash after the action.
+        assert_eq!(
+            asked(&launched("SKYKEEP-ALERT:complete/?r=R1&l=L&d=5")).map(|(a, _)| a),
+            Some("complete".to_string())
+        );
+        // Anything else is not a press: another action, no reminder, a bad date, or the
+        // address in the program's own place on the line.
+        assert_eq!(asked(&launched("skykeep-alert:delete?r=R1&l=L")), None);
+        assert_eq!(asked(&launched("skykeep-alert:complete?l=L")), None);
+        assert_eq!(asked(&launched("skykeep-alert:complete?r=R1&d=soon")), None);
+        assert_eq!(asked(&["skykeep-alert:complete?r=R1".to_string()]), None);
+        assert_eq!(asked(&launched("--complete-reminder")), None);
+    }
+
+    #[test]
+    fn every_press_on_a_reminders_toast_is_a_protocol_launch() {
+        let xml = toast_xml(
+            "Milk & <eggs>",
+            "say \"now\"",
+            Some(r"C:\Users\a\icon.png"),
+            &alert(Some(Some(5))),
+        );
+        // Each press goes through the protocol, the toast itself included.
+        assert_eq!(xml.matches(r#"activationType="protocol""#).count(), 3);
+        assert!(xml.contains(r#"launch="skykeep-alert:default?r=R%20a%2Fb%26c&amp;l=L&amp;d=5""#));
+        assert!(
+            xml.contains(r#"arguments="skykeep-alert:complete?r=R%20a%2Fb%26c&amp;l=L&amp;d=5""#)
+        );
+        assert!(xml.contains(r#"arguments="skykeep-alert:snooze?"#));
+        // What the person wrote can't break out of the XML.
+        assert!(xml.contains("<text>Milk &amp; &lt;eggs&gt;</text>"));
+        assert!(xml.contains("<text>say &quot;now&quot;</text>"));
+        assert!(xml.contains(r#"src="file:///C:\Users\a\icon.png""#));
+    }
+
+    #[test]
+    fn an_alert_is_withdrawn_once_its_reminder_is_done_or_moved_on() {
+        let mut lib = library_with(&[("a", 1), ("b", 2), ("c", 3), ("d", 4)]);
+        let mut shown: Shown = HashMap::new();
+        for (guid, id) in [("Ra", 1), ("Rb", 2), ("Rc", 3), ("Rd", 4)] {
+            shown.insert(guid.into(), (Some(None), id));
+        }
+        // Nothing has changed: every alert stays.
+        assert!(gone_by(&lib, &mut shown).is_empty());
+        // On the iPhone: a completed, b moved on to its next date, d deleted; c untouched.
+        let put = |guid: &str, completed_at: Option<i64>, due_at: Option<i64>| Reminder {
+            guid: guid.into(),
+            list_guid: "L".into(),
+            title: format!("Do {guid}"),
+            completed_at,
+            due_at,
+            ..Default::default()
+        };
+        lib.put_reminders(&[put("Ra", Some(10), None), put("Rb", None, Some(86_400))])
+            .unwrap();
+        lib.forget_reminders(&["Rd".to_string()], &[]).unwrap();
+        let mut gone = gone_by(&lib, &mut shown);
+        gone.sort();
+        assert_eq!(
+            gone,
+            [
+                ("Ra".to_string(), 1),
+                ("Rb".to_string(), 2),
+                ("Rd".to_string(), 4)
+            ]
+        );
+        // Each is taken back once; the one still due is kept.
+        assert_eq!(shown.keys().collect::<Vec<_>>(), ["Rc"]);
+        assert!(gone_by(&lib, &mut shown).is_empty());
     }
 
     #[test]

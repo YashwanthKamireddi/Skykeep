@@ -7664,7 +7664,10 @@ fn main() {
             alerts::spawn_events(app.handle().clone());
             backup::init(app.handle());
             #[cfg(windows)]
-            send::offer_in_send_to();
+            {
+                send::offer_in_send_to();
+                alerts::offer_answers();
+            }
             if let Err(e) = build_tray(app) {
                 quiet!("no tray on this desktop, so closing the window quits: {e}");
             }
