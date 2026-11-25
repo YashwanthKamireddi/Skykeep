@@ -2110,7 +2110,8 @@ fn a_save_by_replace_file_goes_into_the_same_file() {
     let s = Saves::start("replacefile");
     std::fs::write(s.place.join("Report.new"), "fourth save!").unwrap();
     // Full paths: .NET resolves a relative one against its own current directory, which
-    // PowerShell does not keep in step with the process's.
+    // PowerShell does not keep in step with the process's. And no backup as [NullString]:
+    // PowerShell passes $null to a string parameter as "", which Replace refuses.
     let (from, to) = (s.place.join("Report.new"), s.place.join("Report.docx"));
     let out = Command::new("powershell")
         .args([
@@ -2118,7 +2119,7 @@ fn a_save_by_replace_file_goes_into_the_same_file() {
             "-NonInteractive",
             "-Command",
             &format!(
-                "[System.IO.File]::Replace('{}', '{}', $null)",
+                "[System.IO.File]::Replace('{}', '{}', [NullString]::Value)",
                 from.display(),
                 to.display()
             ),
