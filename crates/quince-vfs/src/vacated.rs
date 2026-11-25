@@ -43,11 +43,30 @@ struct Entry {
     claimed: bool,
 }
 
+/// The most files kept in the record of what was read (`read`): the files programs have opened
+/// lately, a few hundred bytes each. The oldest goes first.
+pub const READ_MOST: usize = 4096;
+
 /// Vacated paths, by path. Shared by the folder's callbacks (which fill it) and the watcher
 /// sending what changes (which takes from it).
+///
+/// Beside them, the version of each file a program last read here, by path (`read`): what its
+/// bytes on this computer are. Not every save that replaces a file is told of: a file renamed
+/// over a placeholder, or put in its place by ReplaceFileW, takes it away with no delete or
+/// rename notice (measured on Windows 11, #265). The new file at the path is still the next
+/// version of the one that was read there, so that version is its base; Apple's check that its
+/// file is still that version keeps a change made elsewhere a conflicted copy. Never the version
+/// a later listing brought: a program holding the old bytes would write over that change.
 #[derive(Default)]
 pub struct Vacated {
     entries: Mutex<HashMap<String, Entry>>,
+    read: Mutex<ReadRecord>,
+}
+
+#[derive(Default)]
+struct ReadRecord {
+    by_path: HashMap<String, (DriveItem, u64)>,
+    next: u64,
 }
 
 /// Windows names are the same name in any case.
@@ -121,6 +140,51 @@ impl Vacated {
             .any(|e| e.left.item.drivewsid == id)
     }
 
+    /// A program read `item`'s bytes at `path` (or Skykeep just put `item` there): the version
+    /// the file at `path` now holds.
+    pub fn read(&self, path: &Path, item: &DriveItem) {
+        let mut r = self
+            .read
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner);
+        r.next += 1;
+        let at = r.next;
+        r.by_path.insert(key(path), (item.clone(), at));
+        if r.by_path.len() > READ_MOST {
+            if let Some(oldest) = r
+                .by_path
+                .iter()
+                .min_by_key(|(_, (_, at))| *at)
+                .map(|(k, _)| k.clone())
+            {
+                r.by_path.remove(&oldest);
+            }
+        }
+    }
+
+    /// The version last read at `path`, if any.
+    pub fn last_read(&self, path: &Path) -> Option<DriveItem> {
+        self.read
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
+            .by_path
+            .get(&key(path))
+            .map(|(item, _)| item.clone())
+    }
+
+    /// The file at `from` was deleted (`to` None) or renamed to `to`: what was read follows it.
+    pub fn read_moved(&self, from: &Path, to: Option<&Path>) {
+        let mut r = self
+            .read
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner);
+        if let Some(was) = r.by_path.remove(&key(from)) {
+            if let Some(to) = to {
+                r.by_path.insert(key(to), was);
+            }
+        }
+    }
+
     /// `id`'s placeholder is back at `path` (a save undone part way): nothing waits there.
     pub fn forget(&self, path: &Path, id: &str, now: Instant) {
         let mut entries = self.entries(now);
@@ -136,6 +200,42 @@ impl Vacated {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// What was read at a path is its base until the file is deleted or renamed away, follows
+    /// a rename, is the newest of two reads, and the record never grows past READ_MOST (#265).
+    #[test]
+    fn what_was_read_is_kept_by_path_bounded() {
+        let v = Vacated::default();
+        let p = Path::new(r"C:\Drive\Report.docx");
+        assert!(v.last_read(p).is_none());
+        v.read(p, &item("A"));
+        v.read(&PathBuf::from(r"c:\drive\REPORT.docx"), &item("B"));
+        assert_eq!(
+            v.last_read(p).unwrap().drivewsid,
+            "FILE::B",
+            "the newest, any case"
+        );
+        let to = Path::new(r"C:\Drive\Old.docx");
+        v.read_moved(p, Some(to));
+        assert!(
+            v.last_read(p).is_none(),
+            "renamed away: nothing read here now"
+        );
+        assert_eq!(v.last_read(to).unwrap().drivewsid, "FILE::B");
+        v.read_moved(to, None);
+        assert!(v.last_read(to).is_none(), "deleted");
+        for n in 0..READ_MOST + 10 {
+            v.read(&PathBuf::from(format!(r"C:\Drive\{n}.txt")), &item("X"));
+        }
+        assert_eq!(v.read.lock().unwrap().by_path.len(), READ_MOST);
+        assert!(
+            v.last_read(Path::new(r"C:\Drive\0.txt")).is_none(),
+            "the oldest went"
+        );
+        assert!(v
+            .last_read(&PathBuf::from(format!(r"C:\Drive\{}.txt", READ_MOST + 9)))
+            .is_some());
+    }
 
     fn item(id: &str) -> DriveItem {
         DriveItem {

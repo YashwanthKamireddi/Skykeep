@@ -816,6 +816,15 @@ unsafe extern "system" fn on_fetch_data(
         let len = u64::try_from(fetch.RequiredLength).unwrap_or(0);
         // SAFETY: as above; the program's path is copied out before this call ends.
         tally_download(unsafe { requester(info) }, len);
+        // The version a program is reading here: a save that replaces the file without a word
+        // to us goes into it (crate::vacated, #265).
+        if let Some(item) = req
+            .item
+            .as_ref()
+            .filter(|i| !provider.add_only && !i.is_container())
+        {
+            provider.vacated.read(&req.path, item);
+        }
         let (remote, rt) = (Arc::clone(&provider.remote), provider.rt.clone());
         rt.spawn(async move { fetch_data(remote.as_ref(), req, offset, len).await });
     });
@@ -1483,6 +1492,7 @@ unsafe extern "system" fn on_deleted(
             return;
         };
         let Some(item) = req.item.clone() else { return };
+        provider.vacated.read_moved(&req.path, None);
         let (remote, rt, vacated) = (
             Arc::clone(&provider.remote),
             provider.rt.clone(),
@@ -1548,6 +1558,9 @@ unsafe extern "system" fn on_renamed(
                 (!source.is_null()).then(|| full_path(info.VolumeDosName, source))
             })
         };
+        if let Some(f) = &from {
+            provider.vacated.read_moved(f, Some(&req.path));
+        }
         let (remote, rt, vacated) = (
             Arc::clone(&provider.remote),
             provider.rt.clone(),

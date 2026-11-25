@@ -296,7 +296,11 @@ async fn sync_path(
             return Ok(());
         }
         Some(_) => identity_of(path),
-        None => claimed.as_ref().map(|c| c.item.clone()),
+        None => match &claimed {
+            Some(c) => Some(c.item.clone()),
+            None if !add_only => read_here(remote, &folder, path, &name, vacated).await?,
+            None => None,
+        },
     };
     let sending = async {
         if let Some(c) = &claimed {
@@ -345,6 +349,7 @@ async fn sync_path(
         // during an upload. So the file now names what was sent, and stays waiting.
         if !sent.conflicted && !add_only {
             remember_sent(path, &sent.item, state.is_some()).map_err(|e| e.to_string())?;
+            vacated.read(path, &sent.item);
         }
         return Err("changed while sending; sending again".into());
     }
@@ -356,10 +361,36 @@ async fn sync_path(
         std::fs::rename(path, &here).map_err(|e| e.to_string())?;
     }
     if state.is_some() && !sent.conflicted {
-        update(&here, &sent.item).map_err(|e| e.to_string())
+        update(&here, &sent.item).map_err(|e| e.to_string())?;
     } else {
-        convert(&here, Some(&sent.item)).map_err(|e| e.to_string())
+        convert(&here, Some(&sent.item)).map_err(|e| e.to_string())?;
     }
+    if !add_only {
+        // The bytes here are this version now: a save replacing the file next goes over it.
+        vacated.read(&here, &sent.item);
+    }
+    Ok(())
+}
+
+/// The Apple file a plain file at `path` is the next version of, when no delete or rename was
+/// told of: the one last read here (`Vacated::read`), so long as Apple's file of that id is
+/// still in this folder under this name. Renamed or moved elsewhere since, it is another file
+/// now, never written over; gone, the new file is new (`send` finds nothing to replace).
+async fn read_here(
+    remote: &dyn Remote,
+    folder: &DriveItem,
+    path: &Path,
+    name: &str,
+    vacated: &Vacated,
+) -> Result<Option<DriveItem>, String> {
+    let Some(read) = vacated.last_read(path) else {
+        return Ok(None);
+    };
+    let now = remote.list(&folder.drivewsid).await?;
+    Ok(now
+        .iter()
+        .any(|i| i.drivewsid == read.drivewsid && i.display_name() == name)
+        .then_some(read))
 }
 
 /// Whether the placeholder a replacing save renamed away still stands for the Apple file the
