@@ -55,7 +55,10 @@ fn destination(path: &Path) -> To {
         .map(|n| n.to_string_lossy())
         .unwrap_or_default();
     let size = std::fs::metadata(path).map_or(0, |m| m.len());
-    if path.is_file() && quince_icloud::photos_upload::refusal(&name, size).is_none() {
+    if path.is_file()
+        && quince_icloud::photos_upload::refusal(&name, size).is_none()
+        && quince_icloud::photos_upload::inspect(path).is_none()
+    {
         To::Photos
     } else {
         To::Files
