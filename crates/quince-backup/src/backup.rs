@@ -356,6 +356,7 @@ async fn drive_pass<H: Host>(host: &H, folder: &Path) -> Result<(), String> {
         created_at: None,
         modified_at: None,
         etag: None,
+        share: None,
     };
     let top = folder.join("iCloud Drive");
     let earlier = folder.join("Earlier versions");

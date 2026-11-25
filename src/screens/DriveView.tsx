@@ -19,6 +19,7 @@ import {
   isContainer,
   messageOf,
   DRIVE_ROOT,
+  SHARED_CANT_OPEN,
   UPLOAD,
   type DriveItem,
   type FolderNow,
@@ -728,8 +729,12 @@ export function DriveView() {
       if (token !== openToken.current) return;
       setError(messageOf(e));
       // Deleted or moved on another device: the backend has forgotten it, so step back out
-      // to the nearest folder still here rather than sit in one that is not.
-      if (folderId !== DRIVE_ROOT && (await api.driveItem(folderId).catch(() => undefined)) === null) {
+      // to the nearest folder still here rather than sit in one that is not. A folder shared
+      // with this account that can't be opened yet is kept, and stepped back out of the same.
+      if (
+        folderId !== DRIVE_ROOT &&
+        (e === SHARED_CANT_OPEN || (await api.driveItem(folderId).catch(() => undefined)) === null)
+      ) {
         if (token !== openToken.current) return;
         leftBecause.current = messageOf(e);
         setTrail((t) => {

@@ -4,7 +4,10 @@
 //! list of folder identifiers and answers with their contents.
 
 use crate::{Error, Result};
-use quince_core::drive::DriveItem;
+use quince_core::drive::{
+    id_shared_with_me, DriveItem, DriveShare, ShareDirection, SHARED_CANT_DOWNLOAD,
+    SHARED_READ_ONLY,
+};
 use serde_json::{json, Value};
 
 fn string(v: &Value, key: &str) -> Option<String> {
@@ -40,7 +43,64 @@ fn item_from(v: &Value) -> Option<DriveItem> {
         created_at: seconds(v, "dateCreated"),
         modified_at: seconds(v, "dateModified").or_else(|| seconds(v, "dateChanged")),
         etag: string(v, "etag"),
+        share: share_from(v),
     })
+}
+
+/// An item's share, from the fields icloud.com reads (docs/research 2026-11-25
+/// drive-shared.md §1.1): `share` (`TO_ME` / `FROM_ME`), `shareID {shareName, recordName,
+/// zoneID {zoneName, ownerRecordName}}` and `owner {firstName, lastName, ownerRecordName}`.
+/// An id of one of the shared kinds (`SHARED_FOLDER::…`) is someone else's share even when
+/// Apple leaves the fields off. `None` for an ordinary item.
+fn share_from(v: &Value) -> Option<DriveShare> {
+    let id = v.get("shareID").filter(|s| s.is_object());
+    let owner = v.get("owner").filter(|o| o.is_object());
+    let direction = match v.get("share").and_then(Value::as_str) {
+        Some("TO_ME") => Some(ShareDirection::ToMe),
+        Some("FROM_ME") => Some(ShareDirection::FromMe),
+        _ if string(v, "drivewsid").is_some_and(|d| id_shared_with_me(&d)) => {
+            Some(ShareDirection::ToMe)
+        }
+        _ => None,
+    };
+    if direction.is_none() && id.is_none() {
+        return None;
+    }
+    let zone = id.and_then(|s| s.get("zoneID"));
+    let name = owner.map(|o| {
+        [string(o, "firstName"), string(o, "lastName")]
+            .into_iter()
+            .flatten()
+            .collect::<Vec<_>>()
+            .join(" ")
+    });
+    Some(DriveShare {
+        direction,
+        share_name: id.and_then(|s| string(s, "shareName")),
+        record_name: id.and_then(|s| string(s, "recordName")),
+        zone_name: zone.and_then(|z| string(z, "zoneName")),
+        owner_record_name: zone
+            .and_then(|z| string(z, "ownerRecordName"))
+            .or_else(|| owner.and_then(|o| string(o, "ownerRecordName"))),
+        owner: name.filter(|n| !n.is_empty()),
+    })
+}
+
+/// Refused, before Apple is asked, for anything someone else shared with this account: until
+/// Skykeep sends the share with each change, as icloud.com does, nothing of theirs is changed.
+fn not_shared_with_me(item: &DriveItem) -> Result<()> {
+    if item.shared_with_me() {
+        return Err(Error::Refused(SHARED_READ_ONLY.into()));
+    }
+    Ok(())
+}
+
+/// [`not_shared_with_me`] for a folder known only by its id: anything put into it.
+fn not_into_shared_with_me(folder_id: &str) -> Result<()> {
+    if id_shared_with_me(folder_id) {
+        return Err(Error::Refused(SHARED_READ_ONLY.into()));
+    }
+    Ok(())
 }
 
 /// Read the contents of one folder from a `retrieveItemDetailsInFolders` response.
@@ -104,6 +164,30 @@ pub fn store_folder(
     library.put_drive_children(folder_id, items)?;
     library.mark_synced("drive", None)?;
     Ok(items.len())
+}
+
+/// Said of a folder Apple no longer has.
+pub const FOLDER_GONE: &str = "This folder was deleted or moved on another device.";
+
+/// What a folder [`fetch_folder`] could not list leaves in the library, and what is said of it.
+///
+/// Apple's "not found" for a folder is a folder deleted or moved elsewhere: it is forgotten
+/// here, with everything stored beneath it, and said to be gone. Not for a folder someone else
+/// shared with this account: Skykeep does not yet send the share Apple needs to list one, so a
+/// failure says nothing about whether it is there. It is kept, and said to be what it is — a
+/// shared folder that can't be opened here yet — rather than reported deleted, forgotten, and
+/// listed again by the next look at the folder above it. Any other failure is said as it is.
+pub fn unlisted(library: &mut quince_core::Library, folder_id: &str, error: Error) -> Error {
+    let shared = || Error::Refused(quince_core::drive::SHARED_CANT_OPEN.into());
+    match error {
+        Error::NotFound => match library.forget_drive_folder(folder_id) {
+            Ok(true) => Error::Refused(FOLDER_GONE.into()),
+            Ok(false) => shared(),
+            Err(e) => e.into(),
+        },
+        Error::Protocol(_) if library.drive_shared_with_me(folder_id).unwrap_or(false) => shared(),
+        other => other,
+    }
 }
 
 /// Ask Apple for one folder's contents. Touches no local state, so it can run without
@@ -183,6 +267,13 @@ async fn link(
     item: &DriveItem,
     exact: bool,
 ) -> Result<String> {
+    // Someone else's file is served from the owner's side (`download/batch/<owner>` in
+    // icloud.com's code, `download/by_id/<owner>` in other clients'): neither is proven
+    // against Apple yet, and the plain path answers 404 for it (michis0806/iCloud-Backup-
+    // Docker, measured). Said as it is rather than sent to fail.
+    if item.shared_with_me() {
+        return Err(Error::Refused(SHARED_CANT_DOWNLOAD.into()));
+    }
     // The zone in the path is the file's own. An app library — Keynote's, Shortcuts', a
     // third party's — is a zone of its own, and asking for one of its files under the
     // ordinary Drive zone gets "Could not find document" rather than the file. Every file
@@ -599,6 +690,7 @@ pub async fn create_folders(
     parent_id: &str,
     names: &[String],
 ) -> Result<Vec<(String, std::result::Result<String, String>)>> {
+    not_into_shared_with_me(parent_id)?;
     let mut out = Vec::with_capacity(names.len());
     for chunk in names.chunks(100) {
         // (as asked, as sent, client id): answered under the name asked, which is how the caller
@@ -666,6 +758,7 @@ pub async fn create_folder(
 ) -> Result<DriveItem> {
     let name = name.trim();
     unusable_name(name)?;
+    not_into_shared_with_me(parent_id)?;
 
     let url = format!("{}/createFolders", root.trim_end_matches('/'));
     let body = json!({
@@ -761,6 +854,7 @@ pub async fn rename(
 ) -> Result<()> {
     let name = name.trim();
     typed_name(name)?;
+    not_shared_with_me(item)?;
 
     let parent = parent_of(item);
     let current = folder_listing(http, root, &params, parent).await?;
@@ -822,6 +916,7 @@ pub async fn delete(
     params: Vec<(String, String)>,
     item: &DriveItem,
 ) -> Result<()> {
+    not_shared_with_me(item)?;
     let parent = parent_of(item);
     let current = folder_listing(http, root, &params, parent).await?;
     let etag = current
@@ -960,6 +1055,7 @@ pub async fn delete_as_shown(
     shown: &[DriveItem],
     expect: Option<&str>,
 ) -> Result<Removed> {
+    not_shared_with_me(item)?;
     let parent = parent_of(item);
     let listed = folder_listing(http, root, &params, parent).await?;
     let Some(current) = listed.iter().find(|i| i.drivewsid == item.drivewsid) else {
@@ -1057,6 +1153,7 @@ pub async fn duplicate(
     params: Vec<(String, String)>,
     item: &DriveItem,
 ) -> Result<()> {
+    not_shared_with_me(item)?;
     ask_for_copy(http, docws_root, drivews_root, &params, item)
         .await
         .map(|_| ())
@@ -1590,6 +1687,8 @@ pub async fn move_to(
     item: &DriveItem,
     destination_id: &str,
 ) -> Result<()> {
+    not_shared_with_me(item)?;
+    not_into_shared_with_me(destination_id)?;
     let parent = parent_of(item);
     let current = folder_listing(http, root, &params, parent).await?;
     let etag = current
@@ -1691,6 +1790,9 @@ pub async fn copy_to(
     item: &DriveItem,
     destination_id: &str,
 ) -> Result<DriveItem> {
+    // A copy is first made beside the original, in its folder: a write into a share too.
+    not_shared_with_me(item)?;
+    not_into_shared_with_me(destination_id)?;
     match item.kind.as_str() {
         "FILE" => {
             copy_file_to(
@@ -2137,6 +2239,7 @@ mod write_tests {
             created_at: None,
             modified_at: None,
             etag: Some("e1".into()),
+            share: None,
         }
     }
 
@@ -3521,6 +3624,7 @@ async fn upload_once(
     if folder_id.trim().is_empty() {
         return Err(Error::Protocol("no folder was named to put this in".into()));
     }
+    not_into_shared_with_me(folder_id)?;
     // Filed in the folder's own zone. An app library (Obsidian's vault, Shortcuts', Keynote's)
     // is a zone of its own, and `update/documents` names the folder by a bare id — so asked
     // of the documents zone, Apple looked for that id there and refused with "out of order
@@ -3669,6 +3773,7 @@ pub async fn replace_contents(
     path: &std::path::Path,
     progress: Progress,
 ) -> Result<DriveItem> {
+    not_shared_with_me(item)?;
     // A busy Drive is met again from the start, as an upload's is.
     let mut attempt = 0;
     loop {
@@ -4087,6 +4192,7 @@ mod replace_tests {
             created_at: None,
             modified_at: None,
             etag: Some("v1".into()),
+            share: None,
         }
     }
 
@@ -4599,6 +4705,7 @@ mod download_zone_tests {
             created_at: None,
             modified_at: None,
             etag: None,
+            share: None,
         }
     }
 
@@ -4948,6 +5055,7 @@ mod copy_tests {
                 created_at: None,
                 modified_at: None,
                 etag: Some("e".into()),
+                share: None,
             }
         }
 
@@ -5344,6 +5452,7 @@ mod delete_as_shown_tests {
                 created_at: None,
                 modified_at: None,
                 etag: Some(i.3.clone()),
+                share: None,
             }
         }
         fn children(&self, folder: &str) -> Vec<DriveItem> {
@@ -5529,5 +5638,251 @@ mod delete_as_shown_tests {
             .retain(|i| i.0 != "FILE::com.apple.CloudDocs::b");
         let now = folder_now(&shown, &apple.children(WORK), None);
         assert_eq!((now.items, now.added, now.changed, now.gone), (2, 1, 1, 1));
+    }
+}
+
+/// Items someone else shared with this account (docs/research 2026-11-25 drive-shared.md):
+/// read from Apple's listing, never taken for deleted when they can't be opened, and never
+/// written to before Skykeep supports shares.
+#[cfg(test)]
+mod share_tests {
+    use super::*;
+    use quince_core::drive::{ROOT, SHARED_CANT_OPEN};
+    use wiremock::matchers::{method, path_regex};
+    use wiremock::{Mock, MockServer, ResponseTemplate};
+
+    /// The root as Apple might list it: someone's folder shared with this account (marked by
+    /// `share` alone, its id a plain folder's), one Apple names by a shared kind and nothing
+    /// else, this account's own folder shared with others, and an ordinary folder.
+    fn root_listing() -> Value {
+        json!([{
+            "drivewsid": ROOT,
+            "status": "OK",
+            "items": [
+                { "drivewsid": "FOLDER::com.apple.CloudDocs::anna", "parentId": ROOT,
+                  "name": "Trip Photos", "type": "FOLDER", "etag": "a1",
+                  "share": "TO_ME",
+                  "shareID": { "shareName": "share-1", "recordName": "rec-1",
+                               "zoneID": { "zoneName": "com.apple.CloudDocs",
+                                           "ownerRecordName": "_owner1" } },
+                  "owner": { "firstName": "Anna", "lastName": "Lee",
+                             "ownerRecordName": "_owner1" } },
+                { "drivewsid": "SHARED_FOLDER::com.apple.CloudDocs::bo", "parentId": ROOT,
+                  "name": "Band", "type": "FOLDER", "etag": "b1" },
+                { "drivewsid": "FOLDER::com.apple.CloudDocs::mine", "parentId": ROOT,
+                  "name": "Shared by me", "type": "FOLDER", "etag": "m1",
+                  "share": "FROM_ME",
+                  "shareID": { "shareName": "share-2", "recordName": "rec-2",
+                               "zoneID": { "zoneName": "com.apple.CloudDocs",
+                                           "ownerRecordName": "_me" } } },
+                { "drivewsid": "FOLDER::com.apple.CloudDocs::plain", "parentId": ROOT,
+                  "name": "Plain", "type": "FOLDER", "etag": "p1" }
+            ]
+        }])
+    }
+
+    fn child(id: &str, name: &str, parent: &str) -> DriveItem {
+        DriveItem {
+            drivewsid: id.into(),
+            parent_id: Some(parent.into()),
+            name: name.into(),
+            extension: Some("jpg".into()),
+            kind: "FILE".into(),
+            size: Some(10),
+            child_count: None,
+            created_at: None,
+            modified_at: None,
+            etag: Some("c1".into()),
+            share: None,
+        }
+    }
+
+    #[test]
+    fn a_share_is_read_from_the_listing() {
+        let items = parse_folder(&root_listing());
+        let anna = items[0].share.as_ref().expect("Anna's share is kept");
+        assert_eq!(anna.direction, Some(ShareDirection::ToMe));
+        assert_eq!(anna.share_name.as_deref(), Some("share-1"));
+        assert_eq!(anna.record_name.as_deref(), Some("rec-1"));
+        assert_eq!(anna.zone_name.as_deref(), Some("com.apple.CloudDocs"));
+        assert_eq!(anna.owner_record_name.as_deref(), Some("_owner1"));
+        assert_eq!(anna.owner.as_deref(), Some("Anna Lee"));
+        assert!(items[0].shared_with_me() && items[0].is_container());
+        assert!(
+            items[1].shared_with_me(),
+            "a shared kind of id is someone else's share"
+        );
+        assert_eq!(
+            items[2].share.as_ref().and_then(|s| s.direction),
+            Some(ShareDirection::FromMe)
+        );
+        assert!(
+            !items[2].shared_with_me(),
+            "this account's own share stays its own"
+        );
+        assert!(items[3].share.is_none() && !items[3].shared_with_me());
+    }
+
+    /// The bug: a folder shared with this account failed to open, and was forgotten here and
+    /// said to be "deleted or moved on another device", then listed again with the root.
+    #[tokio::test]
+    async fn a_shared_folder_that_fails_to_open_is_kept_and_not_called_deleted() {
+        let mut library = quince_core::Library::in_memory().unwrap();
+        store_folder(&mut library, ROOT, &parse_folder(&root_listing())).unwrap();
+        for folder in [
+            "FOLDER::com.apple.CloudDocs::anna",
+            "SHARED_FOLDER::com.apple.CloudDocs::bo",
+            "FOLDER::com.apple.CloudDocs::plain",
+        ] {
+            library
+                .put_drive_children(folder, &[child(&format!("{folder}-x"), "x", folder)])
+                .unwrap();
+        }
+
+        // Apple's answer for a folder it has no such id for (measured; what a share asked for
+        // without its shareID most likely gets), then a refusal by status.
+        let gone = json!([{ "items": [], "numberOfItems": 0, "status": "ID_INVALID" }]);
+        for answer in [
+            ResponseTemplate::new(200).set_body_json(gone.clone()),
+            ResponseTemplate::new(404).set_body_string("not found"),
+        ] {
+            let server = MockServer::start().await;
+            Mock::given(method("POST"))
+                .and(path_regex(r".*/retrieveItemDetailsInFolders$"))
+                .respond_with(answer)
+                .mount(&server)
+                .await;
+            for shared in [
+                "FOLDER::com.apple.CloudDocs::anna",
+                "SHARED_FOLDER::com.apple.CloudDocs::bo",
+            ] {
+                let failed = fetch_folder(&reqwest::Client::new(), &server.uri(), vec![], shared)
+                    .await
+                    .unwrap_err();
+                let said = unlisted(&mut library, shared, failed).to_string();
+                assert_eq!(said, SHARED_CANT_OPEN, "{shared}");
+                assert!(
+                    library.drive_item(shared).unwrap().is_some(),
+                    "{shared} is still in Drive"
+                );
+                assert_eq!(library.drive_children(shared).unwrap().len(), 1, "{shared}");
+            }
+        }
+
+        // An ordinary folder Apple no longer has is still forgotten, and said to be gone.
+        let server = MockServer::start().await;
+        Mock::given(method("POST"))
+            .and(path_regex(r".*/retrieveItemDetailsInFolders$"))
+            .respond_with(ResponseTemplate::new(200).set_body_json(gone))
+            .mount(&server)
+            .await;
+        let plain = "FOLDER::com.apple.CloudDocs::plain";
+        let failed = fetch_folder(&reqwest::Client::new(), &server.uri(), vec![], plain)
+            .await
+            .unwrap_err();
+        assert_eq!(
+            unlisted(&mut library, plain, failed).to_string(),
+            FOLDER_GONE
+        );
+        assert!(library.drive_item(plain).unwrap().is_none());
+        assert!(library.drive_children(plain).unwrap().is_empty());
+    }
+
+    /// Nothing of someone else's is renamed, moved, deleted, copied, replaced or added to:
+    /// each refused with the reason, and not one request made to Apple.
+    #[tokio::test]
+    async fn writes_to_what_is_shared_with_me_are_refused_without_asking_apple() {
+        let server = MockServer::start().await;
+        let (http, root) = (reqwest::Client::new(), server.uri());
+        let marked = parse_folder(&root_listing())[0].clone();
+        let in_share = child(
+            "FILE_IN_SHARED_FOLDER::com.apple.CloudDocs::f",
+            "photo",
+            "SHARED_FOLDER::com.apple.CloudDocs::bo",
+        );
+        let own = child("FILE::com.apple.CloudDocs::own", "own", ROOT);
+        let progress: Progress = std::sync::Arc::new(|_, _| {});
+        let dir = std::env::temp_dir().join(format!("quince-drive-share-{}", uuid::Uuid::new_v4()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let file = dir.join("photo.jpg");
+        std::fs::write(&file, b"x").unwrap();
+        let refused = |r: Result<()>, what: &str| match r {
+            Err(Error::Refused(m)) if m == SHARED_READ_ONLY => {}
+            other => panic!("{what}: {other:?}"),
+        };
+
+        for item in [&marked, &in_share] {
+            refused(rename(&http, &root, vec![], item, "new").await, "rename");
+            refused(delete(&http, &root, vec![], item).await, "delete");
+            refused(
+                delete_as_shown(&http, &root, vec![], item, &[], None)
+                    .await
+                    .map(|_| ()),
+                "delete as shown",
+            );
+            refused(move_to(&http, &root, vec![], item, ROOT).await, "move out");
+            refused(
+                duplicate(&http, &root, &root, vec![], item).await,
+                "duplicate",
+            );
+            refused(
+                copy_to(&http, &root, &root, vec![], item, ROOT)
+                    .await
+                    .map(|_| ()),
+                "copy",
+            );
+            refused(
+                replace_contents(
+                    &http,
+                    &http,
+                    &root,
+                    &root,
+                    vec![],
+                    item,
+                    &file,
+                    progress.clone(),
+                )
+                .await
+                .map(|_| ()),
+                "replace",
+            );
+        }
+        let into = "SHARED_FOLDER::com.apple.CloudDocs::bo";
+        refused(move_to(&http, &root, vec![], &own, into).await, "move in");
+        refused(
+            copy_to(&http, &root, &root, vec![], &own, into)
+                .await
+                .map(|_| ()),
+            "copy in",
+        );
+        refused(
+            create_folder(&http, &root, vec![], into, "New")
+                .await
+                .map(|_| ()),
+            "new folder",
+        );
+        refused(
+            create_folders(&http, &root, vec![], into, &["New".into()])
+                .await
+                .map(|_| ()),
+            "new folders",
+        );
+        refused(
+            upload(&http, &http, &root, &root, vec![], into, &file, progress)
+                .await
+                .map(|_| ()),
+            "upload",
+        );
+        // A file in a share is not asked for by a path that isn't proven: said instead.
+        match download_url(&http, &root, vec![], &in_share).await {
+            Err(Error::Refused(m)) if m == SHARED_CANT_DOWNLOAD => {}
+            other => panic!("download: {other:?}"),
+        }
+        let _ = std::fs::remove_dir_all(&dir);
+
+        assert!(
+            server.received_requests().await.unwrap().is_empty(),
+            "nothing was sent to Apple"
+        );
     }
 }

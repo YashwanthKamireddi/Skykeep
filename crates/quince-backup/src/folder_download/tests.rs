@@ -316,6 +316,7 @@ fn item(n: &Node) -> DriveItem {
         created_at: None,
         modified_at: n.changed,
         etag: None,
+        share: None,
     }
 }
 
@@ -1752,6 +1753,7 @@ fn a_package_saved_as_its_zip_is_whole_here_until_its_date_changes() {
         created_at: None,
         modified_at: Some(1_766_732_062),
         etag: None,
+        share: None,
     };
     assert!(
         whole_here(&path, &package),

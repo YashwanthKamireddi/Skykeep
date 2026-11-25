@@ -20,6 +20,7 @@ fn item(id: &str, parent: &str, name: &str, ext: Option<&str>, kind: &str, size:
         created_at: Some(1_700_000_000),
         modified_at: Some(1_700_000_100),
         etag: Some("e1".into()),
+        share: None,
     }
 }
 

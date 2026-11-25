@@ -59,6 +59,7 @@ fn folder(id: String, parent: &str, name: String) -> DriveItem {
         created_at: None,
         modified_at: None,
         etag: None,
+        share: None,
     }
 }
 
@@ -87,6 +88,7 @@ fn file(p: &Photo, parent: &str) -> DriveItem {
         created_at: p.added_at,
         modified_at: Some(p.taken_at),
         etag: p.change_tag.clone(),
+        share: None,
     }
 }
 
@@ -313,6 +315,7 @@ impl Remote for PhotosRemote {
                         created_at: None,
                         modified_at: None,
                         etag: None,
+                        share: None,
                     }
                 }
             })

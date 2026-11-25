@@ -1418,7 +1418,14 @@ unsafe extern "system" fn on_delete(
     let _ = std::panic::catch_unwind(|| {
         // SAFETY: as in on_fetch_data.
         if let Some((req, _)) = unsafe { request(info) } {
-            ack(&req, CF_OPERATION_TYPE_ACK_DELETE, STATUS_SUCCESS);
+            // Someone else's share, or anything in it: declined, and the file stays. Deleted
+            // here it would go from Apple too, for them as well.
+            let status = if req.item.as_ref().is_some_and(DriveItem::shared_with_me) {
+                windows::Win32::Foundation::STATUS_CLOUD_FILE_ACCESS_DENIED
+            } else {
+                STATUS_SUCCESS
+            };
+            ack(&req, CF_OPERATION_TYPE_ACK_DELETE, status);
         }
     });
 }
@@ -1434,6 +1441,9 @@ unsafe extern "system" fn on_rename(
             // Linux declines it, and the file stays as it was.
             let status = if provider.add_only {
                 windows::Win32::Foundation::STATUS_CLOUD_FILE_NOT_SUPPORTED
+            } else if req.item.as_ref().is_some_and(DriveItem::shared_with_me) {
+                // Someone else's share, or anything in it: not renamed or moved from here.
+                windows::Win32::Foundation::STATUS_CLOUD_FILE_ACCESS_DENIED
             } else {
                 STATUS_SUCCESS
             };
@@ -1455,6 +1465,10 @@ unsafe extern "system" fn on_deleted(
             return;
         };
         let Some(item) = req.item.clone() else { return };
+        // Declined before it was done (on_delete); never sent should it get here all the same.
+        if item.shared_with_me() {
+            return;
+        }
         let (remote, rt) = (Arc::clone(&provider.remote), provider.rt.clone());
         rt.spawn(async move {
             // Done means gone: a delete that was undone before it was done leaves the file.
@@ -1501,6 +1515,12 @@ async fn renamed(remote: &dyn Remote, item: DriveItem, now: &Path) {
         return;
     };
     let moved = item.parent_id.as_deref() != Some(parent.drivewsid.as_str());
+    // Nothing of someone else's share renamed or moved at Apple, and nothing moved into one:
+    // declined before it was done where Windows asks (on_rename); not sent if it got here.
+    if item.shared_with_me() || (moved && parent.shared_with_me()) {
+        crate::note_about(quince_core::drive::SHARED_READ_ONLY, &item.drivewsid);
+        return;
+    }
     for wait in [0u64, 2, 8, 30] {
         tokio::time::sleep(std::time::Duration::from_secs(wait)).await;
         let step = async {
@@ -1535,6 +1555,7 @@ pub(crate) fn folder_item(dir: &Path) -> Option<DriveItem> {
             created_at: None,
             modified_at: None,
             etag: None,
+            share: None,
         }),
         None => None,
     }

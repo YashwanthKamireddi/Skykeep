@@ -1725,6 +1725,7 @@ mod tests {
                 created_at: None,
                 modified_at: None,
                 etag: None,
+                share: None,
             }],
         )
         .unwrap();
@@ -1742,6 +1743,7 @@ mod tests {
                     created_at: Some(1_700_000_000),
                     modified_at: Some(1_700_000_000),
                     etag: Some("e1".into()),
+                    share: None,
                 },
                 DriveItem {
                     drivewsid: "FILE::x::big".into(),
@@ -1754,6 +1756,7 @@ mod tests {
                     created_at: None,
                     modified_at: None,
                     etag: Some("e2".into()),
+                    share: None,
                 },
             ],
         )

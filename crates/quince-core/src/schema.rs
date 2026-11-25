@@ -1030,6 +1030,13 @@ pub const MIGRATIONS: &[&str] = &[
     r#"
     UPDATE sync_state SET token = NULL WHERE service = 'reminders';
     "#,
+    // 57 — a Drive item's share, as Apple sends it (`share`, `shareID`, `owner`), kept as JSON
+    // (quince_core::drive::DriveShare): what someone else shared with this account is not
+    // written to, and a share failing to open is not taken for a folder deleted elsewhere.
+    // Filled as each folder is next listed.
+    r#"
+    ALTER TABLE drive_items ADD COLUMN share TEXT;
+    "#,
 ];
 
 /// Migrations that need more than SQL, run in the same transaction as the one numbered.
