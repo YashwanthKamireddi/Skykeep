@@ -27,6 +27,35 @@ test("a key translates to Simplified Chinese when zh-CN is active", () => {
   assert.equal(t("settings.appearance"), "外观");
 });
 
+test("a key translates to Traditional Chinese when zh-TW is active", () => {
+  setLanguage("zh-TW");
+  assert.equal(activeLanguage(), "zh-TW");
+  assert.equal(t("common.cancel"), "取消");
+  assert.equal(t("settings.title"), "設定");
+  assert.equal(t("sync.updatedMinAgo", { count: 5 }), "5 分鐘前更新");
+  assert.equal(appName("notes"), "備忘錄");
+  assert.equal(appName("drivews"), "雲碟");
+});
+
+test("Traditional Chinese, by region or script, is zh-TW, and Simplified stays zh-CN", () => {
+  const real = Object.getOwnPropertyDescriptor(globalThis, "navigator");
+  const prefer = (tag) =>
+    Object.defineProperty(globalThis, "navigator", { value: { languages: [tag, "en-US"], language: tag }, configurable: true });
+  try {
+    for (const tag of ["zh-TW", "zh-Hant", "zh-Hant-TW", "zh-HK", "zh-Hant-HK", "zh-MO"]) {
+      prefer(tag);
+      assert.equal(systemLanguage(), "zh-TW", tag);
+    }
+    for (const tag of ["zh", "zh-CN", "zh-Hans", "zh-Hans-CN", "zh-SG", "zh-Hans-SG", "zh-Hans-HK"]) {
+      prefer(tag);
+      assert.equal(systemLanguage(), "zh-CN", tag);
+    }
+  } finally {
+    if (real) Object.defineProperty(globalThis, "navigator", real);
+    else delete globalThis.navigator;
+  }
+});
+
 test("a key translates to German when de is active", () => {
   setLanguage("de");
   assert.equal(activeLanguage(), "de");
@@ -103,6 +132,7 @@ test("parameters interpolate into template placeholders in English and Chinese",
 test("language name helper returns readable name", () => {
   assert.equal(languageName("en"), "English");
   assert.equal(languageName("zh-CN"), "简体中文");
+  assert.equal(languageName("zh-TW"), "繁體中文");
   assert.equal(languageName("de"), "Deutsch");
   assert.equal(languageName("id"), "Bahasa Indonesia");
 });

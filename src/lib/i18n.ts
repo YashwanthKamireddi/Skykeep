@@ -4,6 +4,7 @@ import de from "../locales/de.json" with { type: "json" };
 import zhCN from "../locales/zh-CN.json" with { type: "json" };
 import id from "../locales/id.json" with { type: "json" };
 import fr from "../locales/fr.json" with { type: "json" };
+import zhTW from "../locales/zh-TW.json" with { type: "json" };
 
 /**
  * Every language the interface speaks, by BCP 47 tag, with its own name for the picker. Adding
@@ -17,6 +18,7 @@ const LOCALES = {
   "zh-CN": { name: "简体中文", strings: zhCN },
   id: { name: "Bahasa Indonesia", strings: id },
   fr: { name: "Français", strings: fr },
+  "zh-TW": { name: "繁體中文", strings: zhTW },
 } as const satisfies Record<string, { name: string; strings: object }>;
 
 export type ResolvedLanguage = keyof typeof LOCALES;
@@ -50,7 +52,9 @@ export function subscribeLanguage(listener: () => void) {
 
 /**
  * The language of the system's first preference that the interface speaks: the whole tag first
- * ("zh-CN"), then its language alone ("zh-Hans-SG" → "zh-CN"), else English.
+ * ("zh-CN"), then its language alone ("zh-Hans-SG" → "zh-CN"), else English. Traditional Chinese
+ * ("zh-Hant", "zh-HK", "zh-MO") is zh-TW: by its language alone it would get the first Chinese
+ * in the list, which is Simplified.
  */
 export function systemLanguage(): ResolvedLanguage {
   const wanted = typeof navigator === "undefined" ? [] : navigator.languages?.length ? navigator.languages : [navigator.language];
@@ -58,6 +62,7 @@ export function systemLanguage(): ResolvedLanguage {
     if (!tag) continue;
     const exact = LANGUAGES.find((l) => l.toLowerCase() === tag.toLowerCase());
     if (exact) return exact;
+    if (/^zh-(hant|tw|hk|mo)\b/i.test(tag)) return "zh-TW";
     const base = tag.split("-")[0].toLowerCase();
     const near = LANGUAGES.find((l) => l.split("-")[0].toLowerCase() === base);
     if (near) return near;
