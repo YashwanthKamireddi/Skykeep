@@ -728,6 +728,7 @@ async fn download(app: &AppHandle, update: &Update) -> Option<Vec<u8>> {
         .download(
             |chunk, total| {
                 let updates = tell.state::<Updates>();
+                quince_record::landed_as(&quince_record::Why::Updates, chunk as u64);
                 let mut i = updates.lock();
                 i.received += chunk as u64;
                 i.total = total;

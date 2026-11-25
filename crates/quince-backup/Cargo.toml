@@ -8,6 +8,7 @@ publish = false
 description = "Skykeep's backup and Export Everything, without a window: the engine the desktop app (src-tauri) drives, usable by other front ends too."
 
 [dependencies]
+quince-record = { path = "../quince-record" }
 quince-core = { path = "../quince-core" }
 quince-icloud = { path = "../quince-icloud" }
 quince-vfs = { path = "../quince-vfs" }

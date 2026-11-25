@@ -1643,7 +1643,7 @@ impl Filesystem for DriveFs {
 
     fn read(
         &self,
-        _req: &Request,
+        req: &Request,
         ino: INodeNo,
         _fh: FileHandle,
         offset: u64,
@@ -1667,10 +1667,15 @@ impl Filesystem for DriveFs {
             let Some(item) = inner.item(ino.0) else {
                 return reply.error(Errno::ENOENT);
             };
+            // What a program reading here makes Skykeep download is counted under its name
+            // (quince_record): the folder's reads are where a file manager or an indexer that
+            // opens every file shows up.
+            let why = quince_record::Why::Folder(program(req.pid()));
             // Kept whole by the app (a photo's original): read from there, no second copy. One
             // still downloading is read as it lands: each read waits for its own bytes only,
             // so a video opened from the folder starts playing long before it is all here.
-            if let Some(arriving) = inner.remote.arriving(&item) {
+            let arriving = quince_record::because_now(why.clone(), || inner.remote.arriving(&item));
+            if let Some(arriving) = arriving {
                 inner.rt.spawn(async move {
                     let bytes = match arriving.await {
                         Ok(crate::Arriving::Whole(p)) => {
@@ -1697,7 +1702,7 @@ impl Filesystem for DriveFs {
             }
             let (cache, remote) = (Arc::clone(&inner.cache), Arc::clone(&inner.remote));
             // Answered when the bytes are here, without holding up the folder's other requests.
-            inner.rt.spawn(async move {
+            inner.rt.spawn(quince_record::because(why, async move {
                 match cache
                     .read(remote.as_ref(), &item, offset, u64::from(size))
                     .await
@@ -1705,7 +1710,7 @@ impl Filesystem for DriveFs {
                     Ok(bytes) => reply.data(&bytes),
                     Err(_) => reply.error(Errno::EIO),
                 }
-            });
+            }));
         })
     }
 
@@ -2047,6 +2052,38 @@ pub fn mount(fs: DriveFs, at: &Path) -> std::io::Result<fuser::BackgroundSession
     // another device since).
     Inner::settle_kept(&inner);
     Ok(session)
+}
+
+/// The program a file system request came from, by name ("nautilus", "tracker-extract"):
+/// `pid` is the asking thread's, so its process (the Tgid in /proc/<pid>/status) is named, as
+/// the thread's own name is often a pool's. Kept for the last few, as a folder's reads come in
+/// bursts from one program. Unknown (gone, or outside this pid namespace) is said so.
+fn program(pid: u32) -> String {
+    static NAMES: Mutex<Vec<(u32, String)>> = Mutex::new(Vec::new());
+    let mut names = NAMES
+        .lock()
+        .unwrap_or_else(std::sync::PoisonError::into_inner);
+    if let Some((_, n)) = names.iter().find(|(p, _)| *p == pid) {
+        return n.clone();
+    }
+    let tgid = std::fs::read_to_string(format!("/proc/{pid}/status"))
+        .ok()
+        .and_then(|s| {
+            s.lines()
+                .find_map(|l| l.strip_prefix("Tgid:"))
+                .and_then(|t| t.trim().parse::<u32>().ok())
+        })
+        .unwrap_or(pid);
+    let name = std::fs::read_to_string(format!("/proc/{tgid}/comm"))
+        .map(|n| n.trim().to_string())
+        .ok()
+        .filter(|n| pid != 0 && !n.is_empty())
+        .unwrap_or_else(|| "an unknown program".to_string());
+    if names.len() >= 32 {
+        names.remove(0);
+    }
+    names.push((pid, name.clone()));
+    name
 }
 
 #[cfg(test)]

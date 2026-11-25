@@ -49,6 +49,7 @@ pub async fn reply_within(mut response: reqwest::Response, most: u64) -> crate::
         if (body.len() + piece.len()) as u64 > most {
             return Err(too_long());
         }
+        quince_record::landed(piece.len() as u64);
         body.extend_from_slice(&piece);
     }
     Ok(match String::from_utf8(body) {
@@ -108,6 +109,28 @@ pub(crate) mod tests {
 
     const CHUNKED: &str =
         "HTTP/1.1 200 OK\r\ntransfer-encoding: chunked\r\nconnection: close\r\n\r\n";
+
+    /// Every byte of an answer is counted in the download record, under the reason its work
+    /// was given (quince_record): 4,096 bytes read for an update land as 4,096 more there.
+    #[tokio::test]
+    async fn an_answer_is_counted_under_the_reason_its_work_was_given() {
+        use quince_record::{because, Why, RECORD};
+        let updates = || {
+            RECORD
+                .days()
+                .first()
+                .map_or(0, |d| d.bytes[Why::Updates.code()])
+        };
+        let before = updates();
+        let at = raw_server(CHUNKED, chunked(4, 1024)).await;
+        let got = because(Why::Updates, async {
+            reply_within(reqwest::get(&at).await.unwrap(), 4096).await
+        })
+        .await
+        .unwrap();
+        assert_eq!(got.len(), 4096);
+        assert_eq!(updates() - before, 4096);
+    }
 
     /// An answer with no length said is read up to the ceiling and refused past it, never
     /// cut short and read as if whole; one within it reads whole.

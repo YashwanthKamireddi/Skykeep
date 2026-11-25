@@ -17,6 +17,7 @@ iphone = ["dep:quince-link"]
 [dependencies]
 futures-util = { version = "0.3", default-features = false, features = ["std"] }
 quince-vfs = { path = "../crates/quince-vfs" }
+quince-record = { path = "../crates/quince-record" }
 sha2 = "0.10"
 # The tray is Tauri's on Windows and macOS. On Linux it is ksni's (main.rs, linux_tray): Tauri's
 # goes through libayatana-appindicator, which never passes a click on, so a left click could

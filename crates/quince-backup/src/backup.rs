@@ -280,24 +280,27 @@ pub fn kick<H: Host>(host: &H) {
     }
     let host = host.clone();
     let work = host.clone();
-    work.spawn(Box::pin(async move {
-        let retry = loop {
-            AGAIN.store(false, Ordering::SeqCst);
-            let ended = pass(&host).await;
-            if let Ok(mut p) = PROBLEM.lock() {
-                *p = ended.clone().err();
+    work.spawn(Box::pin(quince_record::because(
+        quince_record::Why::Backup,
+        async move {
+            let retry = loop {
+                AGAIN.store(false, Ordering::SeqCst);
+                let ended = pass(&host).await;
+                if let Ok(mut p) = PROBLEM.lock() {
+                    *p = ended.clone().err();
+                }
+                if !AGAIN.load(Ordering::SeqCst) {
+                    break ended.is_err();
+                }
+            };
+            RUNNING.store(false, Ordering::SeqCst);
+            host.tell(status(&host).await);
+            if retry {
+                tokio::time::sleep(AGAIN_AFTER).await;
+                kick(&host);
             }
-            if !AGAIN.load(Ordering::SeqCst) {
-                break ended.is_err();
-            }
-        };
-        RUNNING.store(false, Ordering::SeqCst);
-        host.tell(status(&host).await);
-        if retry {
-            tokio::time::sleep(AGAIN_AFTER).await;
-            kick(&host);
-        }
-    }));
+        },
+    )));
 }
 
 /// One pass: Photos, then iCloud Drive when it is due, only into the backup's own folder.

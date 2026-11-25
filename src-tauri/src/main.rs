@@ -4637,44 +4637,47 @@ async fn drive_download(
     auth: State<'_, Auth>,
     data: State<'_, Data>,
 ) -> UiResult<String> {
-    // A file seen only in Recents was never in a folder this library has read, so the item
-    // comes with the request; the library's own copy wins when there is one.
-    let stored = {
-        let library = data.0.lock().await;
-        library.drive_item(&drivewsid).map_err(|e| e.to_string())?
-    };
-    let item = stored
-        .or(item.filter(|i| i.drivewsid == drivewsid))
-        .ok_or("That item is no longer in the local library.")?;
-    if item.is_container() {
-        return Err("That's a folder, not a file.".into());
-    }
+    quince_record::because(quince_record::Why::Saved, async move {
+        // A file seen only in Recents was never in a folder this library has read, so the item
+        // comes with the request; the library's own copy wins when there is one.
+        let stored = {
+            let library = data.0.lock().await;
+            library.drive_item(&drivewsid).map_err(|e| e.to_string())?
+        };
+        let item = stored
+            .or(item.filter(|i| i.drivewsid == drivewsid))
+            .ok_or("That item is no longer in the local library.")?;
+        if item.is_container() {
+            return Err("That's a folder, not a file.".into());
+        }
 
-    let (http, root, params) = {
-        let client = auth.client.lock().await;
-        let root = client
-            .session()
-            .service_url("docws")
-            .ok_or("Apple hasn't offered downloads for this account.")?;
-        (client.http().clone(), root, client.service_params())
-    };
+        let (http, root, params) = {
+            let client = auth.client.lock().await;
+            let root = client
+                .session()
+                .service_url("docws")
+                .ok_or("Apple hasn't offered downloads for this account.")?;
+            (client.http().clone(), root, client.service_params())
+        };
 
-    let downloads = app
-        .path()
-        .download_dir()
-        .map_err(|_| "Couldn't find your Downloads folder.".to_string())?;
-    // The name is whoever shared the folder's to choose (a `..\\` or a `C:` in it would reach
-    // out of Downloads on Windows): saved as one plain name in Downloads, or not at all.
-    tokio::fs::create_dir_all(&downloads)
-        .await
-        .map_err(|e| e.to_string())?;
-    let destination = saving::save_path(&downloads, &item.display_name(), "Download")?;
+        let downloads = app
+            .path()
+            .download_dir()
+            .map_err(|_| "Couldn't find your Downloads folder.".to_string())?;
+        // The name is whoever shared the folder's to choose (a `..\\` or a `C:` in it would reach
+        // out of Downloads on Windows): saved as one plain name in Downloads, or not at all.
+        tokio::fs::create_dir_all(&downloads)
+            .await
+            .map_err(|e| e.to_string())?;
+        let destination = saving::save_path(&downloads, &item.display_name(), "Download")?;
 
-    quince_icloud::drive::download_to(&http, &root, params, &item, &destination)
-        .await
-        .map_err(|e| e.to_string())?;
-    saving::mark_from_internet(&destination);
-    Ok(destination.to_string_lossy().into_owned())
+        quince_icloud::drive::download_to(&http, &root, params, &item, &destination)
+            .await
+            .map_err(|e| e.to_string())?;
+        saving::mark_from_internet(&destination);
+        Ok(destination.to_string_lossy().into_owned())
+    })
+    .await
 }
 
 /// Downloads that can still be stopped, by batch.
@@ -4826,7 +4829,11 @@ async fn drive_download_items(
         journal: Some(&journal),
         backup: None,
     };
-    let report = folder_download::run(&drive, request, emit, &stop).await;
+    let report = quince_record::because(
+        quince_record::Why::Saved,
+        folder_download::run(&drive, request, emit, &stop),
+    )
+    .await;
     downloads_running()
         .lock()
         .map(|mut m| m.remove(&batch))
@@ -6611,6 +6618,12 @@ fn end(app: &tauri::AppHandle, code: i32) -> ! {
     unsafe { libc::_exit(code) }
 }
 
+/// What Skykeep downloaded from Apple and why, a day at a time, newest first (quince_record).
+#[tauri::command]
+fn download_record() -> Vec<quince_record::Day> {
+    quince_record::RECORD.days()
+}
+
 /// What ending Skykeep does first, however it ends — Quit, a signal, or an update restarting
 /// it: once, however many of them arrive.
 fn wind_down(app: &tauri::AppHandle) {
@@ -6618,6 +6631,7 @@ fn wind_down(app: &tauri::AppHandle) {
     if !ENDING.swap(true, Ordering::SeqCst) {
         // Where each window was, kept before the quick exit below skips the usual teardown.
         save_window_places(app);
+        let _ = quince_record::RECORD.save(&state_dir(app).join("download-record.json"));
         first_show::settle_all();
         for w in app.webview_windows().values() {
             w.hide().ok();
@@ -7379,7 +7393,22 @@ fn main() {
             let picture = photos::requested(uri.path());
             let fit = photos::requested_fit(uri.path());
             let queued = photos::requested_upload(uri.path());
-            tauri::async_runtime::spawn(async move {
+            // Counted as the grid's when it is a grid-sized picture or a thumbnail, else as
+            // something opened (quince_record).
+            let why = if fit
+                .as_ref()
+                .is_some_and(|(_, long, _)| *long <= photo_cache::THUMB_STEP)
+                || picture
+                    .as_ref()
+                    .is_some_and(|(_, size)| *size == photos::Size::Thumb)
+                || drive_thumb.is_some()
+                || note_thumb.is_some()
+            {
+                quince_record::Why::Grid
+            } else {
+                quince_record::Why::Opened
+            };
+            tauri::async_runtime::spawn(quince_record::because(why, async move {
                 // A file on its way into Photos, small, for the upload panel.
                 if let Some(id) = queued {
                     let response = match photos::upload_picture(&app, &id).await {
@@ -7524,7 +7553,7 @@ fn main() {
                             .unwrap_or_default(),
                     ),
                 }
-            });
+            }));
         })
         .setup(|app| {
             timing::mark("setup");
@@ -7547,6 +7576,18 @@ fn main() {
             }
             // Before anything reaches Apple, so a run with diagnostics on has all of it.
             diagnostics::start(&dir);
+            // What was downloaded and why (quince_record), kept beside the library: read once
+            // here, written each minute it changed and as Skykeep ends.
+            let record = dir.join("download-record.json");
+            quince_record::RECORD.load(&record);
+            tauri::async_runtime::spawn(async move {
+                loop {
+                    tokio::time::sleep(std::time::Duration::from_secs(60)).await;
+                    if let Err(e) = quince_record::RECORD.save(&record) {
+                        quiet!("download record: {e}");
+                    }
+                }
+            });
             iphone::start(app.handle(), &dir);
             let client = match Client::new(&dir) {
                 Ok(client) => client,
@@ -7747,6 +7788,7 @@ fn main() {
             auth_submit_sms_code,
             auth_sign_out,
             account_unsent,
+            download_record,
             search_everything,
             apps::app_open,
             apps::settings_open,

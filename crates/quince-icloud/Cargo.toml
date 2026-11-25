@@ -6,6 +6,7 @@ rust-version.workspace = true
 license.workspace = true
 
 [dependencies]
+quince-record = { path = "../quince-record" }
 quince-core = { path = "../quince-core" }
 reqwest.workspace = true
 serde.workspace = true

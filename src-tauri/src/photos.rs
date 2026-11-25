@@ -702,7 +702,11 @@ async fn seen_frame(app: &AppHandle, id: &str) -> Option<Vec<u8>> {
     frame_of(
         &kept,
         here,
-        || async { Box::pin(cached(app, id, Size::Video)).await.ok() },
+        || {
+            quince_record::because(quince_record::Why::Posters, async {
+                Box::pin(cached(app, id, Size::Video)).await.ok()
+            })
+        },
         crate::poster::READS_FRAMES,
         crate::poster::first_seen_frame,
     )
@@ -838,152 +842,155 @@ pub fn keep_ahead(app: AppHandle) {
         prepare(app);
         return;
     }
-    tauri::async_runtime::spawn(async move {
-        use futures_util::StreamExt;
-        // Read beside a pass, and only what is used: the newest 600 and the videos' ids. The
-        // whole library read as photos, twice, under the writer's lock, was 1.3 GB at a
-        // million and held up every pass behind it.
-        let (newest, every_video) = {
-            let data = app.state::<Data>();
-            let newest = data
-                .0
-                .read(|l| l.newest_photos(600))
-                .await
-                .unwrap_or_default();
-            let videos = data.0.read(|l| l.video_ids()).await.unwrap_or_default();
-            (newest, videos)
-        };
-        // Videos whose black poster was kept before posters were remade: remade now, once —
-        // once per video for the life of the process. Every pass decoded every video's poster
-        // again to ask (1.7 ms each, measured), and a pass follows each read of the library.
-        static LOOKED: Mutex<Option<std::collections::HashSet<String>>> = Mutex::new(None);
-        let unlooked: Vec<String> = {
-            let looked = LOOKED
-                .lock()
-                .unwrap_or_else(std::sync::PoisonError::into_inner);
-            // Hidden's videos too: their posters show in its grid and its slideshow.
-            every_video
-                .into_iter()
-                .filter(|id| looked.as_ref().is_none_or(|l| !l.contains(id)))
-                .collect()
-        };
-        for id in unlooked {
-            // Looked at only once its poster is here to look at.
-            if cache_path(&app, &id, Size::Thumb).exists() {
-                crate::cpu::ahead(repair_poster(&app, &id)).await;
-                LOOKED
+    tauri::async_runtime::spawn(quince_record::because(
+        quince_record::Why::KeptAhead,
+        async move {
+            use futures_util::StreamExt;
+            // Read beside a pass, and only what is used: the newest 600 and the videos' ids. The
+            // whole library read as photos, twice, under the writer's lock, was 1.3 GB at a
+            // million and held up every pass behind it.
+            let (newest, every_video) = {
+                let data = app.state::<Data>();
+                let newest = data
+                    .0
+                    .read(|l| l.newest_photos(600))
+                    .await
+                    .unwrap_or_default();
+                let videos = data.0.read(|l| l.video_ids()).await.unwrap_or_default();
+                (newest, videos)
+            };
+            // Videos whose black poster was kept before posters were remade: remade now, once —
+            // once per video for the life of the process. Every pass decoded every video's poster
+            // again to ask (1.7 ms each, measured), and a pass follows each read of the library.
+            static LOOKED: Mutex<Option<std::collections::HashSet<String>>> = Mutex::new(None);
+            let unlooked: Vec<String> = {
+                let looked = LOOKED
                     .lock()
-                    .unwrap_or_else(std::sync::PoisonError::into_inner)
-                    .get_or_insert_with(Default::default)
-                    .insert(id);
-            }
-        }
-        // The cache held to its limit first; half of that limit (and 3 GB) is what may be kept
-        // ahead. What is on disk is asked of the disk off the runtime's workers: a stat each,
-        // and on Windows a stat is slow enough to count.
-        let ask = app.clone();
-        let (wanted, room) = tauri::async_runtime::spawn_blocking(move || {
-            let (out, limit) = crate::photo_cache::trim_now(&ask);
-            let steps = preview_steps(&ask);
-            // A still's previews are made from its whole picture and kept with it: counted
-            // with it, so the set and what is made from it fit together.
-            let previews = |id: &str| -> u64 {
-                steps
-                    .iter()
-                    .filter_map(|step| std::fs::metadata(fit_path(&ask, id, *step)).ok())
-                    .map(|m| m.len())
-                    .sum()
+                    .unwrap_or_else(std::sync::PoisonError::into_inner);
+                // Hidden's videos too: their posters show in its grid and its slideshow.
+                every_video
+                    .into_iter()
+                    .filter(|id| looked.as_ref().is_none_or(|l| !l.contains(id)))
+                    .collect()
             };
-            let plan = ahead_plan(
-                newest.iter().take(600).map(|p| {
-                    (
-                        p.id.as_str(),
-                        p.kind == quince_core::photos::Kind::Video,
-                        p.size.and_then(|s| u64::try_from(s).ok()),
-                    )
-                }),
-                |id, size| {
-                    std::fs::metadata(cache_path(&ask, id, size))
-                        .ok()
-                        .map(|m| m.len() + if size == Size::Full { previews(id) } else { 0 })
-                },
-                (limit / 2).min(AHEAD_MOST),
-            );
-            // Seen now, so the cap lets what was opened go first: the set fits half the limit,
-            // so the other half is always there for what the person views.
-            let now = std::time::SystemTime::now();
-            let seen = |path: PathBuf| {
-                if let Ok(file) = std::fs::File::options().write(true).open(&path) {
-                    let _ = file.set_modified(now);
-                }
-            };
-            for (id, size) in &plan.kept {
-                seen(cache_path(&ask, id, *size));
-                if *size == Size::Full {
-                    for step in &steps {
-                        seen(fit_path(&ask, id, *step));
-                    }
+            for id in unlooked {
+                // Looked at only once its poster is here to look at.
+                if cache_path(&app, &id, Size::Thumb).exists() {
+                    crate::cpu::ahead(repair_poster(&app, &id)).await;
+                    LOOKED
+                        .lock()
+                        .unwrap_or_else(std::sync::PoisonError::into_inner)
+                        .get_or_insert_with(Default::default)
+                        .insert(id);
                 }
             }
-            // The stills kept ahead that are on disk: theirs are the previews `prepare` makes,
-            // from what is here (those still to come join once fetched, below).
-            set_ahead(
-                plan.kept
-                    .iter()
-                    .filter(|(_, size)| *size == Size::Full)
-                    .map(|(id, _)| id.clone())
-                    .collect(),
-            );
-            let room = limit.saturating_sub(out.after).min(plan.room);
-            (plan.fetch, room)
-        })
-        .await
-        .unwrap_or_default();
-        // The grid's pictures now, not after the downloads below.
-        prepare(app.clone());
-        let budget = std::sync::atomic::AtomicU64::new(room);
-        let wanted_ids: Vec<String> = wanted
-            .iter()
-            .filter(|(_, size)| *size == Size::Full)
-            .map(|(id, _)| id.clone())
-            .collect();
-        futures_util::stream::iter(wanted)
-            .for_each_concurrent(2, |(id, size)| {
-                let (app, budget) = (app.clone(), &budget);
-                async move {
-                    if budget.load(std::sync::atomic::Ordering::Relaxed) == 0 {
-                        return;
+            // The cache held to its limit first; half of that limit (and 3 GB) is what may be kept
+            // ahead. What is on disk is asked of the disk off the runtime's workers: a stat each,
+            // and on Windows a stat is slow enough to count.
+            let ask = app.clone();
+            let (wanted, room) = tauri::async_runtime::spawn_blocking(move || {
+                let (out, limit) = crate::photo_cache::trim_now(&ask);
+                let steps = preview_steps(&ask);
+                // A still's previews are made from its whole picture and kept with it: counted
+                // with it, so the set and what is made from it fit together.
+                let previews = |id: &str| -> u64 {
+                    steps
+                        .iter()
+                        .filter_map(|step| std::fs::metadata(fit_path(&ask, id, *step)).ok())
+                        .map(|m| m.len())
+                        .sum()
+                };
+                let plan = ahead_plan(
+                    newest.iter().take(600).map(|p| {
+                        (
+                            p.id.as_str(),
+                            p.kind == quince_core::photos::Kind::Video,
+                            p.size.and_then(|s| u64::try_from(s).ok()),
+                        )
+                    }),
+                    |id, size| {
+                        std::fs::metadata(cache_path(&ask, id, size))
+                            .ok()
+                            .map(|m| m.len() + if size == Size::Full { previews(id) } else { 0 })
+                    },
+                    (limit / 2).min(AHEAD_MOST),
+                );
+                // Seen now, so the cap lets what was opened go first: the set fits half the limit,
+                // so the other half is always there for what the person views.
+                let now = std::time::SystemTime::now();
+                let seen = |path: PathBuf| {
+                    if let Ok(file) = std::fs::File::options().write(true).open(&path) {
+                        let _ = file.set_modified(now);
                     }
-                    if let Ok(path) = crate::cpu::ahead(cached(&app, &id, size)).await {
-                        let len = tokio::fs::metadata(&path).await.map_or(0, |m| m.len());
-                        let mut b = budget.load(std::sync::atomic::Ordering::Relaxed);
-                        while let Err(now) = budget.compare_exchange_weak(
-                            b,
-                            b.saturating_sub(len),
-                            std::sync::atomic::Ordering::Relaxed,
-                            std::sync::atomic::Ordering::Relaxed,
-                        ) {
-                            b = now;
+                };
+                for (id, size) in &plan.kept {
+                    seen(cache_path(&ask, id, *size));
+                    if *size == Size::Full {
+                        for step in &steps {
+                            seen(fit_path(&ask, id, *step));
                         }
                     }
                 }
+                // The stills kept ahead that are on disk: theirs are the previews `prepare` makes,
+                // from what is here (those still to come join once fetched, below).
+                set_ahead(
+                    plan.kept
+                        .iter()
+                        .filter(|(_, size)| *size == Size::Full)
+                        .map(|(id, _)| id.clone())
+                        .collect(),
+                );
+                let room = limit.saturating_sub(out.after).min(plan.room);
+                (plan.fetch, room)
             })
-            .await;
-        let trim = app.clone();
-        let _ = tauri::async_runtime::spawn_blocking(move || trim_cache(&trim)).await;
-        // The stills fetched join the set, their whole picture now here to make previews from.
-        let fetched: Vec<String> = wanted_ids
-            .into_iter()
-            .filter(|id| cache_path(&app, id, Size::Full).exists())
-            .collect();
-        if !fetched.is_empty() {
-            let mut all = (*kept_ahead()).clone();
-            all.extend(fetched);
-            set_ahead(all);
+            .await
+            .unwrap_or_default();
+            // The grid's pictures now, not after the downloads below.
             prepare(app.clone());
-        }
-        RUNNING.store(false, std::sync::atomic::Ordering::SeqCst);
-    });
+            let budget = std::sync::atomic::AtomicU64::new(room);
+            let wanted_ids: Vec<String> = wanted
+                .iter()
+                .filter(|(_, size)| *size == Size::Full)
+                .map(|(id, _)| id.clone())
+                .collect();
+            futures_util::stream::iter(wanted)
+                .for_each_concurrent(2, |(id, size)| {
+                    let (app, budget) = (app.clone(), &budget);
+                    async move {
+                        if budget.load(std::sync::atomic::Ordering::Relaxed) == 0 {
+                            return;
+                        }
+                        if let Ok(path) = crate::cpu::ahead(cached(&app, &id, size)).await {
+                            let len = tokio::fs::metadata(&path).await.map_or(0, |m| m.len());
+                            let mut b = budget.load(std::sync::atomic::Ordering::Relaxed);
+                            while let Err(now) = budget.compare_exchange_weak(
+                                b,
+                                b.saturating_sub(len),
+                                std::sync::atomic::Ordering::Relaxed,
+                                std::sync::atomic::Ordering::Relaxed,
+                            ) {
+                                b = now;
+                            }
+                        }
+                    }
+                })
+                .await;
+            let trim = app.clone();
+            let _ = tauri::async_runtime::spawn_blocking(move || trim_cache(&trim)).await;
+            // The stills fetched join the set, their whole picture now here to make previews from.
+            let fetched: Vec<String> = wanted_ids
+                .into_iter()
+                .filter(|id| cache_path(&app, id, Size::Full).exists())
+                .collect();
+            if !fetched.is_empty() {
+                let mut all = (*kept_ahead()).clone();
+                all.extend(fetched);
+                set_ahead(all);
+                prepare(app.clone());
+            }
+            RUNNING.store(false, std::sync::atomic::Ordering::SeqCst);
+        },
+    ));
 }
 
 /// The most kept ahead, whatever the cache's limit.
@@ -1191,91 +1198,96 @@ pub fn prepare(app: AppHandle) {
         return;
     };
     let mine = PREPARING.fetch_add(1, std::sync::atomic::Ordering::SeqCst) + 1;
-    tauri::async_runtime::spawn(async move {
-        use futures_util::StreamExt;
-        let fit_dir = crate::state_dir(&app).join("photos").join("fit");
-        // Shared albums' photos first: Apple keeps no screen-sized picture of one (only a small
-        // thumbnail and the original), so made as each tile came on screen, every tile fetched
-        // its original while the album was open and flickered in one by one. They are few
-        // (Apple caps an album at a few thousand): all of them, before the library's.
-        let shared = app
-            .state::<Data>()
-            .0
-            .read(quince_core::Library::shared_photo_shapes)
-            .await
-            .unwrap_or_default();
-        if !shared.is_empty() {
-            let (dir, ask) = (fit_dir.clone(), app.clone());
-            // Their grid pictures; a preview of one is made when it is opened (it is made from
-            // the original, which the cap would let go of and a sync fetch again).
-            let wanted = tauri::async_runtime::spawn_blocking(move || {
-                let room = crate::photo_cache::grid_room(&ask);
-                wanted_steps(&shared, shown, &Default::default(), room, |id, step| {
-                    !dir.join(step.to_string()).join(&*cache_name(id)).exists()
-                })
-            })
-            .await
-            .unwrap_or_default();
-            futures_util::stream::iter(wanted)
-                .for_each_concurrent(4, |(id, step)| {
-                    let app = app.clone();
-                    async move {
-                        if PREPARING.load(std::sync::atomic::Ordering::SeqCst) != mine {
-                            return;
-                        }
-                        let _ = crate::cpu::ahead(fitted(&app, &id, step)).await;
-                    }
-                })
-                .await;
-        }
-        // The grid's photos a page at a time, each read beside a pass on a reader and made
-        // before the next is read: what is held at once is one page, however large the
-        // library (the whole of it, read as photos under the writer's lock, was 665 MB and
-        // seconds of every pass's wait at a million).
-        let mut after = None;
-        let ahead = kept_ahead();
-        loop {
-            if PREPARING.load(std::sync::atomic::Ordering::SeqCst) != mine {
-                return;
-            }
-            let data = app.state::<Data>();
-            let from = after.clone();
-            let Ok((page, next)) = data
+    tauri::async_runtime::spawn(quince_record::because(
+        quince_record::Why::Grid,
+        async move {
+            use futures_util::StreamExt;
+            let fit_dir = crate::state_dir(&app).join("photos").join("fit");
+            // Shared albums' photos first: Apple keeps no screen-sized picture of one (only a small
+            // thumbnail and the original), so made as each tile came on screen, every tile fetched
+            // its original while the album was open and flickered in one by one. They are few
+            // (Apple caps an album at a few thousand): all of them, before the library's.
+            let shared = app
+                .state::<Data>()
                 .0
-                .read(|l| l.grid_shapes_shown(shown.view, from.as_ref(), GRID_PAGE, hidden_open()))
+                .read(quince_core::Library::shared_photo_shapes)
                 .await
-            else {
-                return;
-            };
-            let (dir, ask) = (fit_dir.clone(), app.clone());
-            let ahead = ahead.clone();
-            // A stat per picture, off the runtime's workers (see keep_ahead). The disk's room is
-            // asked each page: it may run short while a pass makes them.
-            let wanted: Vec<(String, u32)> = tauri::async_runtime::spawn_blocking(move || {
-                let room = crate::photo_cache::grid_room(&ask);
-                wanted_steps(&page, shown, &ahead, room, |id, step| {
-                    !dir.join(step.to_string()).join(&*cache_name(id)).exists()
+                .unwrap_or_default();
+            if !shared.is_empty() {
+                let (dir, ask) = (fit_dir.clone(), app.clone());
+                // Their grid pictures; a preview of one is made when it is opened (it is made from
+                // the original, which the cap would let go of and a sync fetch again).
+                let wanted = tauri::async_runtime::spawn_blocking(move || {
+                    let room = crate::photo_cache::grid_room(&ask);
+                    wanted_steps(&shared, shown, &Default::default(), room, |id, step| {
+                        !dir.join(step.to_string()).join(&*cache_name(id)).exists()
+                    })
                 })
-            })
-            .await
-            .unwrap_or_default();
-            futures_util::stream::iter(wanted)
-                .for_each_concurrent(4, |(id, step)| {
-                    let app = app.clone();
-                    async move {
-                        if PREPARING.load(std::sync::atomic::Ordering::SeqCst) != mine {
-                            return;
+                .await
+                .unwrap_or_default();
+                futures_util::stream::iter(wanted)
+                    .for_each_concurrent(4, |(id, step)| {
+                        let app = app.clone();
+                        async move {
+                            if PREPARING.load(std::sync::atomic::Ordering::SeqCst) != mine {
+                                return;
+                            }
+                            let _ = crate::cpu::ahead(fitted(&app, &id, step)).await;
                         }
-                        let _ = crate::cpu::ahead(fitted(&app, &id, step)).await;
-                    }
-                })
-                .await;
-            match next {
-                Some(n) => after = Some(n),
-                None => return,
+                    })
+                    .await;
             }
-        }
-    });
+            // The grid's photos a page at a time, each read beside a pass on a reader and made
+            // before the next is read: what is held at once is one page, however large the
+            // library (the whole of it, read as photos under the writer's lock, was 665 MB and
+            // seconds of every pass's wait at a million).
+            let mut after = None;
+            let ahead = kept_ahead();
+            loop {
+                if PREPARING.load(std::sync::atomic::Ordering::SeqCst) != mine {
+                    return;
+                }
+                let data = app.state::<Data>();
+                let from = after.clone();
+                let Ok((page, next)) = data
+                    .0
+                    .read(|l| {
+                        l.grid_shapes_shown(shown.view, from.as_ref(), GRID_PAGE, hidden_open())
+                    })
+                    .await
+                else {
+                    return;
+                };
+                let (dir, ask) = (fit_dir.clone(), app.clone());
+                let ahead = ahead.clone();
+                // A stat per picture, off the runtime's workers (see keep_ahead). The disk's room is
+                // asked each page: it may run short while a pass makes them.
+                let wanted: Vec<(String, u32)> = tauri::async_runtime::spawn_blocking(move || {
+                    let room = crate::photo_cache::grid_room(&ask);
+                    wanted_steps(&page, shown, &ahead, room, |id, step| {
+                        !dir.join(step.to_string()).join(&*cache_name(id)).exists()
+                    })
+                })
+                .await
+                .unwrap_or_default();
+                futures_util::stream::iter(wanted)
+                    .for_each_concurrent(4, |(id, step)| {
+                        let app = app.clone();
+                        async move {
+                            if PREPARING.load(std::sync::atomic::Ordering::SeqCst) != mine {
+                                return;
+                            }
+                            let _ = crate::cpu::ahead(fitted(&app, &id, step)).await;
+                        }
+                    })
+                    .await;
+                match next {
+                    Some(n) => after = Some(n),
+                    None => return,
+                }
+            }
+        },
+    ));
 }
 
 async fn new_link(
@@ -1523,33 +1535,36 @@ pub async fn film(app: &AppHandle, id: &str, size: Size) -> Result<Film, String>
     }
     let g = growth.clone();
     let app = app.clone();
-    tauri::async_runtime::spawn(async move {
-        use std::sync::atomic::Ordering;
-        // Each piece told of once it is written and flushed, so a reader finds it there.
-        let saved = download.save(&g.part, |n| g.landed(n)).await;
-        let ok = saved.is_ok() && g.have.load(Ordering::SeqCst) == g.total;
-        // Waiting while Windows holds the file just written (a virus scan of a new file):
-        // a plain rename failed then, and the whole download was thrown away.
-        let whole = ok && {
-            let (from, to) = (g.part.clone(), path.clone());
-            tokio::task::spawn_blocking(move || quince_core::files::rename(&from, &to))
-                .await
-                .is_ok_and(|moved| moved.is_ok())
-        };
-        if whole {
-            // Still being played from: held, and the cap checked once it is whole.
-            crate::photo_cache::hold(&path);
-            crate::photo_cache::grew(&app);
-        } else {
-            let _ = tokio::fs::remove_file(&g.part).await;
-        }
-        g.ended(whole);
-        GROWING
-            .lock()
-            .unwrap_or_else(std::sync::PoisonError::into_inner)
-            .as_mut()
-            .map(|m| m.remove(&path));
-    });
+    tauri::async_runtime::spawn(quince_record::because(
+        quince_record::current(),
+        async move {
+            use std::sync::atomic::Ordering;
+            // Each piece told of once it is written and flushed, so a reader finds it there.
+            let saved = download.save(&g.part, |n| g.landed(n)).await;
+            let ok = saved.is_ok() && g.have.load(Ordering::SeqCst) == g.total;
+            // Waiting while Windows holds the file just written (a virus scan of a new file):
+            // a plain rename failed then, and the whole download was thrown away.
+            let whole = ok && {
+                let (from, to) = (g.part.clone(), path.clone());
+                tokio::task::spawn_blocking(move || quince_core::files::rename(&from, &to))
+                    .await
+                    .is_ok_and(|moved| moved.is_ok())
+            };
+            if whole {
+                // Still being played from: held, and the cap checked once it is whole.
+                crate::photo_cache::hold(&path);
+                crate::photo_cache::grew(&app);
+            } else {
+                let _ = tokio::fs::remove_file(&g.part).await;
+            }
+            g.ended(whole);
+            GROWING
+                .lock()
+                .unwrap_or_else(std::sync::PoisonError::into_inner)
+                .as_mut()
+                .map(|m| m.remove(&path));
+        },
+    ));
     Ok(Film::Growing(growth))
 }
 
@@ -2402,53 +2417,58 @@ pub async fn photo_copy(
     app: AppHandle,
     data: State<'_, Data>,
 ) -> UiResult<tauri::ipc::Response> {
-    let photo = data
-        .0
-        .lock()
-        .await
-        .photo_to_view(&id)
-        .map_err(|e| e.to_string())?
-        .ok_or("That photo is no longer in the library.")?;
-    if photo.kind == quince_core::photos::Kind::Video {
-        return Err("A video can’t be copied as a picture.".into());
-    }
-    let (original, full) = (
-        cache_path(&app, &id, Size::Original),
-        cache_path(&app, &id, Size::Full),
-    );
-    let png_of = |path: PathBuf| async move {
-        crate::photo_cache::hold(&path);
-        let bytes = tokio::fs::read(&path).await.map_err(|e| e.to_string())?;
-        crate::cpu::run(move || picture_for_clipboard(&bytes)).await?
-    };
-    if tokio::fs::metadata(&full).await.is_err() && tokio::fs::metadata(&original).await.is_err() {
-        // Neither here yet: the whole picture, as the viewer would fetch it (a HEIC's comes with
-        // its original, which is then the one used).
-        cached(&app, &id, Size::Full).await?;
-    }
-    // The original first; one this cannot decode (a RAW) gives way to the whole picture.
-    let from_original = if tokio::fs::metadata(&original).await.is_ok() {
-        png_of(original).await
-    } else {
-        Err(String::new())
-    };
-    let png = match from_original {
-        Ok(png) => png,
-        Err(_) => png_of(cached(&app, &id, Size::Full).await?).await?,
-    };
-    #[cfg(target_os = "linux")]
-    {
-        offer_png(&app, png).await?;
-        Ok(tauri::ipc::Response::new(Vec::new()))
-    }
-    #[cfg(windows)]
-    {
-        let _ = app;
-        crate::cpu::run(move || win_clipboard::put(&png.0, &png.1)).await??;
-        Ok(tauri::ipc::Response::new(Vec::new()))
-    }
-    #[cfg(not(any(target_os = "linux", windows)))]
-    Ok(tauri::ipc::Response::new(png))
+    quince_record::because(quince_record::Why::Saved, async move {
+        let photo = data
+            .0
+            .lock()
+            .await
+            .photo_to_view(&id)
+            .map_err(|e| e.to_string())?
+            .ok_or("That photo is no longer in the library.")?;
+        if photo.kind == quince_core::photos::Kind::Video {
+            return Err("A video can’t be copied as a picture.".into());
+        }
+        let (original, full) = (
+            cache_path(&app, &id, Size::Original),
+            cache_path(&app, &id, Size::Full),
+        );
+        let png_of = |path: PathBuf| async move {
+            crate::photo_cache::hold(&path);
+            let bytes = tokio::fs::read(&path).await.map_err(|e| e.to_string())?;
+            crate::cpu::run(move || picture_for_clipboard(&bytes)).await?
+        };
+        if tokio::fs::metadata(&full).await.is_err()
+            && tokio::fs::metadata(&original).await.is_err()
+        {
+            // Neither here yet: the whole picture, as the viewer would fetch it (a HEIC's comes with
+            // its original, which is then the one used).
+            cached(&app, &id, Size::Full).await?;
+        }
+        // The original first; one this cannot decode (a RAW) gives way to the whole picture.
+        let from_original = if tokio::fs::metadata(&original).await.is_ok() {
+            png_of(original).await
+        } else {
+            Err(String::new())
+        };
+        let png = match from_original {
+            Ok(png) => png,
+            Err(_) => png_of(cached(&app, &id, Size::Full).await?).await?,
+        };
+        #[cfg(target_os = "linux")]
+        {
+            offer_png(&app, png).await?;
+            Ok(tauri::ipc::Response::new(Vec::new()))
+        }
+        #[cfg(windows)]
+        {
+            let _ = app;
+            crate::cpu::run(move || win_clipboard::put(&png.0, &png.1)).await??;
+            Ok(tauri::ipc::Response::new(Vec::new()))
+        }
+        #[cfg(not(any(target_os = "linux", windows)))]
+        Ok(tauri::ipc::Response::new(png))
+    })
+    .await
 }
 
 /// What Copy puts on the clipboard, made from a photo's bytes: a PNG; on Windows the same
@@ -2583,79 +2603,82 @@ pub async fn photo_download(
     auth: State<'_, Auth>,
     data: State<'_, Data>,
 ) -> UiResult<String> {
-    let want = want.unwrap_or(quince_icloud::photos::Want::Originals);
-    let photo = data
-        .0
-        .lock()
-        .await
-        .photo_to_view(&id)
-        .map_err(|e| e.to_string())?
-        .ok_or("That photo is no longer in the library.")?;
-    // Asked of the zone the photo lives in: its Shared Library's, its shared album's, or the
-    // personal library's.
-    let place = {
-        let library = data.0.lock().await;
-        match quince_sync::photos::library_place(&library, &id)? {
-            Some(p) => Some(p),
-            None => library
-                .shared_photo(&id)
-                .map_err(|e| e.to_string())?
-                .map(|(_, s)| quince_icloud::shared_collections::Place {
-                    database: if s.database == "shared" {
-                        quince_icloud::cloudkit::Database::Shared
-                    } else {
-                        quince_icloud::cloudkit::Database::Private
-                    },
-                    zone: s.zone,
-                    owner: s.owner,
-                }),
-        }
-    };
-    let (http, root, params) = crate::cloudkit_context(&auth).await?;
-    let zc = quince_icloud::cloudkit::ZoneClient::new(
-        &http,
-        &root,
-        quince_icloud::photos::CONTAINER,
-        params,
-    );
-    let (zc, zone) = match &place {
-        Some(p) => (
-            zc.in_database(p.database).owned_by(p.owner.clone()),
-            p.zone.clone(),
-        ),
-        None => {
-            let zone = quince_icloud::photos::library_zone(&zc).await;
-            (zc, zone)
-        }
-    };
-    let asset = zc
-        .lookup_record(&zone, &id)
-        .await
-        .map_err(|e| e.to_string())?
-        .ok_or("That photo is no longer in iCloud.")?;
-    let master = zc
-        .lookup_record(&zone, &photo.master)
-        .await
-        .map_err(|e| e.to_string())?
-        .ok_or("That photo's file is no longer in iCloud.")?;
-    let video = photo.kind == quince_core::photos::Kind::Video;
-    let (url, name) = quince_icloud::photos::download_choice(&asset, &master, want, video)
-        .ok_or("iCloud has no file of that kind for this photo.")?;
-    let dir = app
-        .path()
-        .download_dir()
-        .map_err(|_| "There is no Downloads folder to save to.")?;
-    // A shared album's file names are other people's: one plain name in Downloads, or none.
-    tokio::fs::create_dir_all(&dir)
-        .await
-        .map_err(|e| e.to_string())?;
-    let fallback = format!("Photo {}", id.chars().take(8).collect::<String>());
-    let path = crate::saving::save_path(&dir, &name, &fallback)?;
-    stream_to_new_file(&http, &url, &path)
-        .await
-        .map_err(String::from)?;
-    crate::saving::mark_from_internet(&path);
-    Ok(path.display().to_string())
+    quince_record::because(quince_record::Why::Saved, async move {
+        let want = want.unwrap_or(quince_icloud::photos::Want::Originals);
+        let photo = data
+            .0
+            .lock()
+            .await
+            .photo_to_view(&id)
+            .map_err(|e| e.to_string())?
+            .ok_or("That photo is no longer in the library.")?;
+        // Asked of the zone the photo lives in: its Shared Library's, its shared album's, or the
+        // personal library's.
+        let place = {
+            let library = data.0.lock().await;
+            match quince_sync::photos::library_place(&library, &id)? {
+                Some(p) => Some(p),
+                None => library
+                    .shared_photo(&id)
+                    .map_err(|e| e.to_string())?
+                    .map(|(_, s)| quince_icloud::shared_collections::Place {
+                        database: if s.database == "shared" {
+                            quince_icloud::cloudkit::Database::Shared
+                        } else {
+                            quince_icloud::cloudkit::Database::Private
+                        },
+                        zone: s.zone,
+                        owner: s.owner,
+                    }),
+            }
+        };
+        let (http, root, params) = crate::cloudkit_context(&auth).await?;
+        let zc = quince_icloud::cloudkit::ZoneClient::new(
+            &http,
+            &root,
+            quince_icloud::photos::CONTAINER,
+            params,
+        );
+        let (zc, zone) = match &place {
+            Some(p) => (
+                zc.in_database(p.database).owned_by(p.owner.clone()),
+                p.zone.clone(),
+            ),
+            None => {
+                let zone = quince_icloud::photos::library_zone(&zc).await;
+                (zc, zone)
+            }
+        };
+        let asset = zc
+            .lookup_record(&zone, &id)
+            .await
+            .map_err(|e| e.to_string())?
+            .ok_or("That photo is no longer in iCloud.")?;
+        let master = zc
+            .lookup_record(&zone, &photo.master)
+            .await
+            .map_err(|e| e.to_string())?
+            .ok_or("That photo's file is no longer in iCloud.")?;
+        let video = photo.kind == quince_core::photos::Kind::Video;
+        let (url, name) = quince_icloud::photos::download_choice(&asset, &master, want, video)
+            .ok_or("iCloud has no file of that kind for this photo.")?;
+        let dir = app
+            .path()
+            .download_dir()
+            .map_err(|_| "There is no Downloads folder to save to.")?;
+        // A shared album's file names are other people's: one plain name in Downloads, or none.
+        tokio::fs::create_dir_all(&dir)
+            .await
+            .map_err(|e| e.to_string())?;
+        let fallback = format!("Photo {}", id.chars().take(8).collect::<String>());
+        let path = crate::saving::save_path(&dir, &name, &fallback)?;
+        stream_to_new_file(&http, &url, &path)
+            .await
+            .map_err(String::from)?;
+        crate::saving::mark_from_internet(&path);
+        Ok(path.display().to_string())
+    })
+    .await
 }
 
 pub(crate) use quince_backup::fetch::stream_to_new_file;

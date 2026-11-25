@@ -244,7 +244,11 @@ where
     let n = turns.started.fetch_add(1, Ordering::SeqCst) + 1;
     // A panic inside one service's pass (a record Apple holds that its reader didn't expect)
     // ends that pass as failed, the other services carrying on (`pass::guarded`, issue #14).
-    let report = pass::guarded(service, pass()).await;
+    let report = pass::guarded(
+        service,
+        quince_record::because(quince_record::Why::Sync, pass()),
+    )
+    .await;
     *turns
         .last
         .lock()

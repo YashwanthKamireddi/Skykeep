@@ -4453,6 +4453,7 @@ dependencies = [
  "quince-icloud",
  "quince-link",
  "quince-media",
+ "quince-record",
  "quince-sync",
  "quince-thumbs",
  "quince-vfs",
@@ -4519,6 +4520,7 @@ dependencies = [
  "libc",
  "quince-core",
  "quince-icloud",
+ "quince-record",
  "quince-sync",
  "quince-vfs",
  "reqwest 0.12.28",
@@ -4561,6 +4563,7 @@ dependencies = [
  "plist",
  "quick-xml",
  "quince-core",
+ "quince-record",
  "rand_core 0.6.4",
  "reqwest 0.12.28",
  "serde",
@@ -4651,6 +4654,17 @@ dependencies = [
 ]
 
 [[package]]
+name = "quince-record"
+version = "0.1.40"
+dependencies = [
+ "jiff",
+ "serde",
+ "serde_json",
+ "tempfile",
+ "tokio",
+]
+
+[[package]]
 name = "quince-sync"
 version = "0.1.40"
 dependencies = [
@@ -4686,6 +4700,7 @@ dependencies = [
  "md-5",
  "quince-core",
  "quince-media",
+ "quince-record",
  "quince-thumbs",
  "serde",
  "serde_json",

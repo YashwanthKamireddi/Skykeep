@@ -489,6 +489,7 @@ pub async fn download_with_progress(
         while let Some(chunk) = stream.next().await {
             let chunk = chunk?;
             file.write_all(&chunk).await?;
+            quince_record::landed(chunk.len() as u64);
             received += chunk.len() as u64;
             if let Some(progress) = &progress {
                 progress(received, total.max(received));
