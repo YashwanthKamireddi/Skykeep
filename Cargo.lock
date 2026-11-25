@@ -4655,7 +4655,7 @@ dependencies = [
 
 [[package]]
 name = "quince-record"
-version = "0.1.40"
+version = "0.1.41"
 dependencies = [
  "jiff",
  "serde",
