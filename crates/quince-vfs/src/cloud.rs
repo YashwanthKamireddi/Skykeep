@@ -815,7 +815,11 @@ unsafe extern "system" fn on_fetch_data(
         let offset = u64::try_from(fetch.RequiredFileOffset).unwrap_or(0);
         let len = u64::try_from(fetch.RequiredLength).unwrap_or(0);
         // SAFETY: as above; the program's path is copied out before this call ends.
-        tally_download(unsafe { requester(info) }, len);
+        let asker = unsafe { requester(info) };
+        // What this read makes Skykeep download is counted under the program's name
+        // (quince_record), as the Linux folder's are.
+        let why = quince_record::Why::Folder(crate::downloads::program(&asker));
+        tally_download(asker, len);
         // The version a program is reading here: a save that replaces the file without a word
         // to us goes into it (crate::vacated, #265).
         if let Some(item) = req
@@ -826,7 +830,9 @@ unsafe extern "system" fn on_fetch_data(
             provider.vacated.read(&req.path, item);
         }
         let (remote, rt) = (Arc::clone(&provider.remote), provider.rt.clone());
-        rt.spawn(async move { fetch_data(remote.as_ref(), req, offset, len).await });
+        rt.spawn(quince_record::because(why, async move {
+            fetch_data(remote.as_ref(), req, offset, len).await;
+        }));
     });
     if caught.is_err() {
         crate::note("a file request failed inside Skykeep; it is answered as failed");

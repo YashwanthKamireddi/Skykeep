@@ -28,6 +28,9 @@ import {
   type IphoneStatus,
   PHOTO_CACHE,
   photoCacheApi,
+  downloadRecordApi,
+  RECORD_WHYS,
+  type RecordDay,
   type PhotoCache,
   settingsApi,
 } from "../lib/ipc";
@@ -446,6 +449,67 @@ const capWords = (bytes: number) => (bytes < 1024 ** 3 ? `${Math.round(bytes / 1
 
 /** How much room photos opened here may keep on this computer: one choice, the backend's
  *  steps, sent as it is picked. */
+/** The local date as the record keeps it, `back` days ago: "2026-11-25". */
+function localDate(back: number): string {
+  const d = new Date();
+  d.setDate(d.getDate() - back);
+  const two = (n: number) => String(n).padStart(2, "0");
+  return `${d.getFullYear()}-${two(d.getMonth() + 1)}-${two(d.getDate())}`;
+}
+
+/**
+ * What Skykeep downloaded from iCloud, and why, as iPhone's own Cellular Data list says it:
+ * today and the last seven days, then each reason with its share, largest first, and the
+ * programs that read the Drive and Photos folders by name. Read from the record the backend
+ * keeps on this computer (quince-record); nothing here leaves it.
+ */
+function Downloaded() {
+  const { t } = useI18n();
+  const [days, setDays] = useState<RecordDay[] | null>(null);
+  useEffect(() => {
+    downloadRecordApi.days().then(setDays, () => setDays([]));
+  }, []);
+  if (!days) return null;
+  const week = new Set(Array.from({ length: 7 }, (_, i) => localDate(i)));
+  const recent = days.filter((d) => week.has(d.date));
+  const total = (d: RecordDay) => d.bytes.reduce((a, b) => a + b, 0);
+  const today = recent.find((d) => d.date === localDate(0));
+  const byWhy = RECORD_WHYS.map((why, i) => ({ why, bytes: recent.reduce((a, d) => a + (d.bytes[i] ?? 0), 0) }))
+    .filter((r) => r.bytes >= 1024 ** 2)
+    .sort((a, b) => b.bytes - a.bytes);
+  const programs = new Map<string, number>();
+  for (const d of recent) for (const [name, n] of Object.entries(d.programs)) programs.set(name, (programs.get(name) ?? 0) + n);
+  const readers = [...programs].filter(([, n]) => n >= 1024 ** 2).sort((a, b) => b[1] - a[1]).slice(0, 3);
+  const weekTotal = recent.reduce((a, d) => a + total(d), 0);
+  return (
+    <div className="settings-group" aria-label={t("settings.downloaded")}>
+      <div className="settings-row">
+        <span className="settings-label settings-stack">
+          {t("settings.downloaded")}
+          <span className="settings-hint">
+            {weekTotal < 1024 ** 2
+              ? t("settings.downloadedNone")
+              : t("settings.downloadedHint", { today: size(today ? total(today) : 0), week: size(weekTotal) })}
+          </span>
+        </span>
+      </div>
+      {byWhy.map(({ why, bytes }) => (
+        <div className="settings-row" key={why}>
+          <span className="settings-label settings-stack">
+            {t(`settings.why.${why}`)}
+            {why === "folders" && readers.length > 0 && (
+              <span className="settings-hint">
+                {readers.map(([name, n]) => t("settings.programRead", { program: name, size: size(n) })).join(", ")}
+              </span>
+            )}
+          </span>
+          <span className="settings-value">{size(bytes)}</span>
+        </div>
+      ))}
+    </div>
+  );
+}
+
 function PhotoCacheCap({ onError }: { onError: (m: string) => void }) {
   const { t } = useI18n();
   const [cache, setCache] = useState<PhotoCache | null>(null);
@@ -916,6 +980,7 @@ export function SettingsView({ onSignOut }: { onSignOut: (keep: boolean) => Prom
               </div>
               <PhotoCacheCap onError={setError} />
             </div>
+            <Downloaded />
           </Pane>
         <IphoneCard status={iphone} setStatus={setIphone} shown={pane === "iphone"} />
         <Pane id="notifications" shown={pane === "notifications"} title={t("settings.notifications")}>
