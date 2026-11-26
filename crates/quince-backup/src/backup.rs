@@ -14,7 +14,8 @@
 //!   Apple's push says Photos changed; idle, it costs nothing.
 //!
 //! Layout: `Photos/<year>/<month>/<file>` by the day it was taken, the file dated that day; a
-//! Live Photo's video beside its still, under the same name.
+//! Live Photo's video beside its still, under the same name. Albums as folders of links to
+//! those files, taking no extra space: `Albums/<album>/<file>` (albums.rs).
 
 use crate::fetch::stream_to_new_file;
 use futures_util::future::BoxFuture;
@@ -50,6 +51,9 @@ static CHECKED: AtomicBool = AtomicBool::new(false);
 /// Why the last pass stopped, if it did; and photos iCloud has no file for, left alone this run.
 static PROBLEM: Mutex<Option<String>> = Mutex::new(None);
 static SKIPPED: Mutex<Vec<String>> = Mutex::new(Vec::new());
+
+/// Why album folders were left out or unfinished on the last pass (a drive with no hard links).
+static ALBUMS_NOTE: Mutex<Option<String>> = Mutex::new(None);
 
 /// iCloud Drive's tree is walked folder by folder, so it is gone through only when due: once at
 /// launch, when Drive's change feed says something changed, and when backup is turned on or set
@@ -99,6 +103,8 @@ pub struct Status {
     pub drive_running: bool,
     /// What iCloud Drive's last pass couldn't copy, said in words.
     pub drive_note: Option<String>,
+    /// Why albums aren't folders in the backup, said in words, if they aren't.
+    pub albums_note: Option<String>,
     /// Photos' bytes in the backup, and of all there are.
     pub photos_bytes: i64,
     pub photos_bytes_total: i64,
@@ -182,6 +188,7 @@ pub async fn status<H: Host>(host: &H) -> Status {
         drive,
         drive_running: DRIVE_RUNNING.load(Ordering::SeqCst),
         drive_note: DRIVE_NOTE.lock().ok().and_then(|n| n.clone()),
+        albums_note: ALBUMS_NOTE.lock().ok().and_then(|n| n.clone()),
         photos_bytes: copied_bytes,
         photos_bytes_total: total_bytes,
         drive_files: drive_count.files,
@@ -322,6 +329,7 @@ async fn pass<H: Host>(host: &H) -> Result<(), String> {
         .await
         .map_err(|e| e.to_string())??;
     photos_pass(host, &folder, hidden).await?;
+    albums_pass(host, &folder).await?;
     if drive && DRIVE_DUE.swap(false, Ordering::SeqCst) {
         if let Err(e) = drive_pass(host, &folder).await {
             // Due again: the next pass (two minutes on) carries on where this one stopped.
@@ -459,6 +467,45 @@ async fn drive_pass<H: Host>(host: &H, folder: &Path) -> Result<(), String> {
             }
             _ => format!("{missed} iCloud Drive files couldn't be backed up"),
         });
+    }
+    Ok(())
+}
+
+/// Albums as folders of links to the photos just backed up (albums.rs): only links, made and
+/// taken away as Apple's albums change, after Photos' own pass so every photo has its file.
+async fn albums_pass<H: Host>(host: &H, folder: &Path) -> Result<(), String> {
+    let (albums, members, files) = {
+        let library = host.library().lock().await;
+        (
+            library.albums().map_err(|e| e.to_string())?,
+            library.backup_album_members().map_err(|e| e.to_string())?,
+            library.backup_files().map_err(|e| e.to_string())?,
+        )
+    };
+    let at = folder.to_path_buf();
+    let laid = tokio::task::spawn_blocking(move || {
+        crate::albums::lay_out(
+            &at,
+            &crate::albums::Library {
+                albums: &albums,
+                members: &members,
+                files: &files,
+            },
+        )
+    })
+    .await
+    .map_err(|e| e.to_string())?;
+    if !laid.made.is_empty() || !laid.gone.is_empty() {
+        let mut library = host.library().lock().await;
+        library
+            .backup_forget(&laid.gone)
+            .map_err(|e| e.to_string())?;
+        library
+            .backup_copied(&laid.made)
+            .map_err(|e| e.to_string())?;
+    }
+    if let Ok(mut n) = ALBUMS_NOTE.lock() {
+        *n = laid.note;
     }
     Ok(())
 }

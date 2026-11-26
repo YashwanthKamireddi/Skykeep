@@ -347,6 +347,7 @@ function BackupRow({ onError }: { onError: (m: string) => void }) {
         <span className="settings-label settings-stack">
           {t("sidebar.photos")}
           <span className="settings-hint" aria-live="polite">{photosLine}</span>
+          {on && state?.albumsNote && <span className="settings-hint is-trouble">{state.albumsNote}</span>}
         </span>
       </div>
       {on && photosCopying && state && state.total > 0 && <Progress value={state.copied / state.total} label={t("settings.photosBackupProgress")} />}
