@@ -63,11 +63,9 @@ The build uses `--locked`, so generate from the **committed** lockfiles.
 checksum. The gate and CI run it on every change, so a lockfile changed without them fails
 there rather than in the Flatpak build at release.
 
-`cargo-sources.json` was last regenerated from `Cargo.lock` on 2026-11-15, for the crates the
-iPhone camera and microphone (`crates/quince-link`: PipeWire, GStreamer's app and video
-bindings) added. The Flatpak builds without that part (`--no-default-features`): its sandbox
-can't reach usbmuxd, and its SDK has no libclang for PipeWire's bindings. The crates are still
-listed, because Cargo reads the whole lockfile.
+`cargo-sources.json` follows `Cargo.lock` entry for entry. On 2026-11-26 the iPhone camera's
+crates (PipeWire's bindings and bindgen) left both, with that feature, which moved out of Skykeep
+to become its own app.
 
 `node-sources.json` was checked against `package-lock.json` on 2026-10-22 by running the current
 generator: every one of its 310 entries is identical. The generator's only additions were ten

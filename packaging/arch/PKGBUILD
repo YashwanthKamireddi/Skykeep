@@ -27,14 +27,9 @@ license=('GPL-3.0-only')
 # .mov/.mp4) and videoflip, and gst-libav for the H.264/HEVC decoders. Without them a video
 # shows a black frame and won't play.
 depends=('webkit2gtk-4.1' 'gtk3' 'libsecret' 'libheif' 'gstreamer' 'gst-plugins-base-libs'
-         'gst-plugins-base' 'gst-plugins-good' 'gst-libav' 'libpipewire')
+         'gst-plugins-base' 'gst-plugins-good' 'gst-libav')
 # The iCloud Drive and Photos folders are mounted through fusermount3.
-# The iPhone as camera and microphone comes over the cable through usbmuxd, and is decoded on
-# the graphics chip with the VA plugin (in software through gst-libav without it).
-optdepends=('fuse3: iCloud Drive and Photos as folders in the file manager'
-            'usbmuxd: the iPhone as camera and microphone over the cable'
-            'gst-plugin-va: the iPhone camera decoded on the graphics chip'
-            'gst-plugins-bad: the iPhone camera decoded on the graphics chip')
+optdepends=('fuse3: iCloud Drive and Photos as folders in the file manager')
 makedepends=('rust' 'nodejs' 'npm' 'pkgconf' 'clang')
 
 # makepkg turns link-time optimisation on for everything, which compiles the C and assembly
@@ -138,9 +133,4 @@ package() {
     "$pkgdir/usr/share/nemo/actions/skykeep-send-to-iphone.nemo_action"
   install -Dm644 packaging/file-managers/skykeep_send_to_iphone.py \
     "$pkgdir/usr/share/nautilus-python/extensions/skykeep_send_to_iphone.py"
-  # The iPhone camera as a webcam: the setup the app runs as root through pkexec, and the polkit
-  # action that makes the admin prompt name Skykeep and say what it does (packaging/linux).
-  install -Dm755 packaging/linux/iphone-camera-setup "$pkgdir/usr/lib/skykeep/iphone-camera-setup"
-  install -Dm644 packaging/linux/io.github.yashwanthkamireddi.Skykeep.iphone-camera.policy \
-    "$pkgdir/usr/share/polkit-1/actions/io.github.yashwanthkamireddi.Skykeep.iphone-camera.policy"
 }
