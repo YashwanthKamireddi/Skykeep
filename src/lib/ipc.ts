@@ -1528,6 +1528,10 @@ export type BackupStatus = {
   drive: boolean;
   driveRunning: boolean;
   driveNote: string | null;
+  /** Shared Albums are in the backup too; their photos copied, of all there are. */
+  shared: boolean;
+  sharedCopied: number;
+  sharedTotal: number;
   /** Why albums aren't folders in the backup (a drive with no hard links), if they aren't. */
   albumsNote: string | null;
   /** Photos' bytes in the backup and of all there are; iCloud Drive's files and bytes. */
@@ -1544,6 +1548,8 @@ export const backupApi = {
   /** On into `folder` (from the folder dialog), or off with `null`; the Hidden album, iCloud Drive. */
   set: (folder: string | null, hidden: boolean, drive: boolean) =>
     invoke<BackupStatus>("backup_set", { folder, hidden, drive }),
+  /** Shared Albums in the backup, or left out (nothing copied is removed). */
+  setShared: (on: boolean) => invoke<BackupStatus>("backup_set_shared", { on }),
   /** The backup folder, in the file manager. */
   reveal: () => invoke<void>("backup_reveal"),
 };

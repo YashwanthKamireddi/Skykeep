@@ -22,6 +22,17 @@ pub const LIVE: &str = "live";
 /// An album's folder in the backup (`Albums/<album>/<file>`): a hard link to the photo's own
 /// file under `Photos/`, so no photo is stored twice. Its item is `<album id>/<photo id>`.
 pub const ALBUMS: &str = "albums";
+/// A shared album's photo, copied into `Shared Albums/<album>/`: its item is
+/// `<album zone>/<photo id>` (ids are an album's own, so two albums may share one).
+pub const SHARED: &str = "shared";
+
+/// A shared album's photo waiting to be copied: the photo, where it lives, and its album.
+#[derive(Debug, Clone, PartialEq)]
+pub struct SharedPending {
+    pub photo: Photo,
+    pub place: crate::shared::SharedPlace,
+    pub title: Option<String>,
+}
 
 /// One file in the backup folder: its path relative to the folder, and its size.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -165,6 +176,67 @@ impl Library {
         Ok(rows.collect::<rusqlite::Result<_>>()?)
     }
 
+    /// Up to `limit` shared albums' photos not copied yet, newest first. `skip`: items
+    /// (`<zone>/<id>`) left alone this run.
+    pub fn backup_shared_pending(
+        &self,
+        limit: usize,
+        skip: &[String],
+    ) -> Result<Vec<SharedPending>> {
+        let mut stmt = self.conn.prepare_cached(&format!(
+            "SELECT p.photo, a.zone, a.database, a.owner, a.title FROM shared_album_photos p
+               JOIN shared_albums a ON a.zone = p.zone
+              WHERE NOT EXISTS (SELECT 1 FROM backup_files b
+                                 WHERE b.source = '{SHARED}' AND b.item = p.zone || '/' || p.id
+                                   AND b.part = '{ORIGINAL}')
+              ORDER BY p.taken_at DESC, p.zone, p.id
+              LIMIT ?1"
+        ))?;
+        let rows = stmt.query_map(params![(limit + skip.len()) as i64], |r| {
+            Ok((
+                r.get::<_, String>(0)?,
+                crate::shared::SharedPlace {
+                    zone: r.get(1)?,
+                    database: r.get(2)?,
+                    owner: r.get(3)?,
+                },
+                r.get::<_, Option<String>>(4)?,
+            ))
+        })?;
+        let mut out = Vec::new();
+        for row in rows {
+            let (json, place, title) = row?;
+            let photo: Photo = serde_json::from_str(&json).map_err(|e| {
+                crate::Error::Sqlite(rusqlite::Error::ToSqlConversionFailure(Box::new(e)))
+            })?;
+            if skip.contains(&format!("{}/{}", place.zone, photo.id)) {
+                continue;
+            }
+            out.push(SharedPending {
+                photo,
+                place,
+                title,
+            });
+            if out.len() == limit {
+                break;
+            }
+        }
+        Ok(out)
+    }
+
+    /// Shared albums' photos copied, of all there are.
+    pub fn backup_shared_progress(&self) -> Result<(i64, i64)> {
+        Ok(self.conn.query_row(
+            &format!(
+                "SELECT COUNT(b.item), COUNT(*) FROM shared_album_photos p
+                   LEFT JOIN backup_files b ON b.source = '{SHARED}'
+                         AND b.item = p.zone || '/' || p.id AND b.part = '{ORIGINAL}'"
+            ),
+            [],
+            |r| Ok((r.get(0)?, r.get(1)?)),
+        )?)
+    }
+
     /// Photos copied of all there are to copy.
     pub fn backup_progress(&self, hidden: bool) -> Result<Progress> {
         let (copied, total, total_bytes) = self.conn.query_row(
@@ -274,6 +346,51 @@ mod tests {
         assert!(lib.backup_files().unwrap().iter().all(|f| f.item != "new"));
         lib.backup_clear().unwrap();
         assert!(lib.backup_files().unwrap().is_empty());
+    }
+
+    /// Shared albums' photos waiting, newest first, until each is copied; one photo id in two
+    /// albums is two items.
+    #[test]
+    fn shared_albums_photos_wait_until_copied() {
+        use crate::shared::SharedAlbum;
+        let mut lib = Library::in_memory().unwrap();
+        let album = |zone: &str| SharedAlbum {
+            zone: zone.into(),
+            database: "shared".into(),
+            owner: Some("_owner".into()),
+            title: Some(format!("Trip {zone}")),
+            expires_at: None,
+            count: 0,
+            cover: None,
+        };
+        lib.put_shared_album(&album("z1"), &[photo("a", 10), photo("b", 90)], None)
+            .unwrap();
+        lib.put_shared_album(&album("z2"), &[photo("a", 50)], None)
+            .unwrap();
+        let items = |lib: &Library, skip: &[String]| {
+            lib.backup_shared_pending(10, skip)
+                .unwrap()
+                .into_iter()
+                .map(|p| format!("{}/{}", p.place.zone, p.photo.id))
+                .collect::<Vec<_>>()
+        };
+        assert_eq!(items(&lib, &[]), ["z1/b", "z2/a", "z1/a"]);
+        assert_eq!(items(&lib, &["z2/a".into()]), ["z1/b", "z1/a"]);
+        assert_eq!(lib.backup_shared_progress().unwrap(), (0, 3));
+        lib.backup_copied(&[Copied {
+            source: SHARED.into(),
+            item: "z2/a".into(),
+            part: ORIGINAL.into(),
+            path: "Shared Albums/Trip z2/a.JPG".into(),
+            size: 5,
+            version: None,
+        }])
+        .unwrap();
+        assert_eq!(items(&lib, &[]), ["z1/b", "z1/a"]);
+        assert_eq!(lib.backup_shared_progress().unwrap(), (1, 3));
+        let first = &lib.backup_shared_pending(1, &[]).unwrap()[0];
+        assert_eq!(first.title.as_deref(), Some("Trip z1"));
+        assert_eq!(first.place.owner.as_deref(), Some("_owner"));
     }
 
     /// Albums' photos for their folders, in each album's order: never a hidden or deleted one.
