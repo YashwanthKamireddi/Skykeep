@@ -307,7 +307,7 @@ export function carryRuns(from: string, runs: Run[], to: string): Run[] {
  * joined to anything. The backend has the same rule (notes.rs `canonical_runs`). Null when
  * the runs do not describe the text.
  */
-export function canonicalRuns(text: string, runs: Run[] | null): Run[] | null {
+function canonicalRuns(text: string, runs: Run[] | null): Run[] | null {
   if (!runsFit(text, runs)) return null;
   const units = perUnit(text, runs);
   const out: Run[] = [];

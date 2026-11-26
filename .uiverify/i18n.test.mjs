@@ -15,7 +15,7 @@ test("a key translates to English when English is active", () => {
   setLanguage("en");
   assert.equal(activeLanguage(), "en");
   assert.equal(t("common.cancel"), "Cancel");
-  assert.equal(t("settings.title"), "Settings");
+  assert.equal(t("settings.general"), "General");
   assert.equal(t("settings.appearance"), "Appearance");
 });
 
@@ -23,7 +23,7 @@ test("a key translates to Simplified Chinese when zh-CN is active", () => {
   setLanguage("zh-CN");
   assert.equal(activeLanguage(), "zh-CN");
   assert.equal(t("common.cancel"), "取消");
-  assert.equal(t("settings.title"), "设置");
+  assert.equal(t("settings.general"), "通用");
   assert.equal(t("settings.appearance"), "外观");
 });
 
@@ -31,7 +31,7 @@ test("a key translates to Traditional Chinese when zh-TW is active", () => {
   setLanguage("zh-TW");
   assert.equal(activeLanguage(), "zh-TW");
   assert.equal(t("common.cancel"), "取消");
-  assert.equal(t("settings.title"), "設定");
+  assert.equal(t("settings.general"), "一般");
   assert.equal(t("sync.updatedMinAgo", { count: 5 }), "5 分鐘前更新");
   assert.equal(appName("notes"), "備忘錄");
   assert.equal(appName("drivews"), "雲碟");
@@ -60,7 +60,7 @@ test("a key translates to German when de is active", () => {
   setLanguage("de");
   assert.equal(activeLanguage(), "de");
   assert.equal(t("common.cancel"), "Abbrechen");
-  assert.equal(t("settings.title"), "Einstellungen");
+  assert.equal(t("settings.general"), "Allgemein");
   assert.equal(t("sync.updatedMinAgo", { count: 5 }), "Vor 5 Min. aktualisiert");
   assert.equal(appName("drivews"), "Drive");
   assert.equal(appName("reminders"), "Erinnerungen");
@@ -70,7 +70,7 @@ test("a key translates to Indonesian when id is active", () => {
   setLanguage("id");
   assert.equal(activeLanguage(), "id");
   assert.equal(t("common.cancel"), "Batalkan");
-  assert.equal(t("settings.title"), "Pengaturan");
+  assert.equal(t("settings.general"), "Umum");
   assert.equal(t("sync.updatedMinAgo", { count: 5 }), "Diperbarui 5 mnt lalu");
   assert.equal(appName("drivews"), "Drive");
   assert.equal(appName("reminders"), "Pengingat");

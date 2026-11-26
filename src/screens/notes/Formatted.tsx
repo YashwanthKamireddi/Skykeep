@@ -35,7 +35,7 @@ export type Run = {
 };
 
 /** Apple's paragraph styles. */
-export const STYLE = {
+const STYLE = {
   title: 0,
   heading: 1,
   subheading: 2,
@@ -46,38 +46,6 @@ export const STYLE = {
   numbered: 102,
   checklist: 103,
 } as const;
-
-/**
- * The runs with the paragraph beginning at `start` set to `style` — split at its edges, as
- * the write to Apple splits them — so a change shows the moment it is chosen.
- */
-export function restyle(text: string, runs: Run[], start: number, style: number): Run[] {
-  const nl = text.indexOf("\n", start);
-  const end = nl < 0 ? text.length : nl + 1;
-  const out: Run[] = [];
-  let at = 0;
-  for (const run of runs) {
-    const from = at;
-    const to = at + run.length;
-    at = to;
-    const cuts = [from, ...[start, end].filter((c) => c > from && c < to), to];
-    for (let i = 0; i + 1 < cuts.length; i++) {
-      const a = cuts[i], b = cuts[i + 1];
-      const inside = a >= start && b <= end;
-      out.push({
-        ...run,
-        length: b - a,
-        ...(inside ? { style, checked: style === STYLE.checklist ? (run.style === STYLE.checklist ? run.checked : false) : null } : {}),
-      });
-    }
-  }
-  return out;
-}
-
-/** Whether `runs` describe exactly this text. */
-export function runsFit(text: string, runs: Run[]): boolean {
-  return runs.length > 0 && runs.reduce((n, r) => n + r.length, 0) === text.length;
-}
 
 type Span = { text: string; run: Run };
 type Paragraph = { spans: Span[]; run: Run; start: number };

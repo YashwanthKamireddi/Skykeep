@@ -1,23 +1,19 @@
 {
   "common": {
     "cancel": "Abbrechen",
-    "confirm": "Bestätigen",
     "done": "Fertig",
     "save": "Speichern",
     "delete": "Löschen",
-    "remove": "Entfernen",
     "open": "Öffnen",
     "close": "Schließen",
     "search": "Suchen",
     "notNow": "Nicht jetzt",
     "showInFolder": "Im Ordner zeigen",
-    "copy": "Kopieren",
     "clear": "Leeren",
     "clearing": "Wird geleert …",
     "cancelling": "Wird abgebrochen …",
     "gettingReady": "Wird vorbereitet …",
     "none": "Keine",
-    "error": "Fehler",
     "somethingWentWrong": "Etwas ist schiefgelaufen. Versuch es noch einmal.",
     "checkingSession": "Deine Sitzung wird geprüft …",
     "updateNow": "Jetzt aktualisieren",
@@ -68,8 +64,6 @@
     "appUnavailable": "{name} ist nicht verfügbar"
   },
   "settings": {
-    "title": "Einstellungen",
-    "account": "Account",
     "yourAppleAccount": "Dein Apple Account",
     "storageUsed": "{used} von {total} belegt",
     "storageAvailable": "{available} verfügbar",
@@ -92,7 +86,6 @@
     "readingDrive": "iCloud Drive wird gelesen",
     "notInBackup": "Nicht im Backup",
     "includeHidden": "Album „Ausgeblendet“ einbeziehen",
-    "photos": "Fotos",
     "icloudDrive": "iCloud Drive",
     "driveHint": "Jede Datei, dazu frühere Versionen geänderter Dateien",
     "exportCopy": "Kopie exportieren",
@@ -248,7 +241,6 @@
     "privacyDetail6Text": "Von einem unabhängigen Entwickler gemacht, ohne Verbindung zu Apple. Skykeep nutzt die Webdienste, die auch icloud.com nutzt und die Apple jederzeit ändern kann."
   },
   "codeEntry": {
-    "title": "Zwei-Faktor-Authentifizierung",
     "enterCode": "Code eingeben",
     "securityKeyTitle": "Dieser Account nutzt einen Sicherheitsschlüssel",
     "securityKeyLede": "Dein Apple Account meldet sich mit einem Sicherheitsschlüssel an. Skykeep kann sich noch nicht mit Sicherheitsschlüsseln anmelden und die Anmeldung bei diesem Account deshalb nicht abschließen.",
@@ -278,7 +270,6 @@
     "digitAria": "Ziffer {n}"
   },
   "launcher": {
-    "hint": "Änderungen von deinen anderen Geräten kommen innerhalb von Sekunden an.",
     "syncNow": "Jetzt synchronisieren",
     "appsAria": "Deine Apps",
     "notesCount": "{count} Notizen",
@@ -975,7 +966,6 @@
     },
     "completeReminder": "{title} erledigen",
     "delete": "Löschen",
-    "remove": "Entfernen",
     "unsubscribe": "Abo beenden",
     "deleteTitle": "„{title}“ löschen?",
     "deleted": "„{title}“ gelöscht",
@@ -1066,7 +1056,11 @@
     "showInReminders": "In Erinnerungen zeigen",
     "approveInBrowser": "Bestätige Skykeep auf der Seite, die sich in deinem Browser geöffnet hat. Der Rest geschieht hier von selbst.",
     "weekNumber": "Woche {n}",
-    "go": "Los"
+    "go": "Los",
+    "upToDate": "„{title}“ ist aktuell",
+    "copiedEvent": "„{title}“ kopiert",
+    "addedCalendar": "„{title}“ hinzugefügt",
+    "subscribedTo": "„{title}“ abonniert"
   },
   "contacts": {
     "title": "Kontakte",
@@ -1200,8 +1194,6 @@
     "month": "Monat",
     "year": "Jahr",
     "fieldMonth": "{label}, Monat",
-    "fieldDay": "{label}, Tag",
-    "fieldYear": "{label}, Jahr",
     "photo": {
       "aria": "Kontaktfoto",
       "title": "Kontaktfoto",
@@ -1653,7 +1645,6 @@
     "newAlbum": "Neues Album",
     "newAlbumOrFolder": "Neues Album oder neuer Ordner",
     "newEvent": "Neues Ereignis",
-    "newEvent2": "Neues Ereignis",
     "next": "Weiter",
     "nextcloudServer": "Nextcloud-Server",
     "noFoldersHere": "Hier gibt es keine Ordner.",

@@ -64,7 +64,7 @@ export function holdTyping(key: string, on: boolean) {
   if (had !== on) tell();
 }
 
-export function typingNow(): boolean {
+function typingNow(): boolean {
   return held.size > 0 || Date.now() - lastKey < TYPING_MS;
 }
 

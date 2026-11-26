@@ -288,7 +288,7 @@ const asShown = (r: Reminder): Reminder =>
  * his iPhone as written (2026-10-22). Mirrors `REMINDER_DETAIL_WRITES` in
  * crates/quince-icloud/src/reminders_details.rs: turn both on together.
  */
-export const REMINDER_DETAIL_WRITES = true;
+const REMINDER_DETAIL_WRITES = true;
 
 /** Apple's early-alert units, by its numbering. */
 const ALERT_UNITS = ["minute", "hour", "day", "week", "month"] as const;
@@ -3311,7 +3311,7 @@ const TAG_SUGGESTIONS = 6;
  * The account's tags that fit what is typed, for the tag field: those starting with it first,
  * then those holding it, most used first within each, none the reminder already has.
  */
-export function tagSuggestions(known: string[], typed: string, has: string[]): string[] {
+function tagSuggestions(known: string[], typed: string, has: string[]): string[] {
   const want = typed.replace(/^#+/, "").toLocaleLowerCase();
   const taken = new Set(has.map((x) => x.toLocaleLowerCase()));
   const open = known.filter((name) => !taken.has(name.toLocaleLowerCase()));

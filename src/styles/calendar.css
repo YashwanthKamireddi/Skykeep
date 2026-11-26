@@ -679,7 +679,6 @@
 .cx-popover .cx-pop-notes { min-height: 2.6em; max-height: 9em; padding: 0; font-size: var(--t-13); resize: none; field-sizing: content; }
 .cx-pop-actions { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
 .cx-pop-actions > span { display: flex; gap: 6px; }
-.cx-pop-note { margin: 0; color: var(--text-3); font-size: var(--t-11); }
 
 /* The bottom edge of an event that can be changed: drag it to change when it ends. */
 .cx-block-grip { position: absolute; left: 0; right: 0; bottom: 0; height: 7px; cursor: ns-resize; }
@@ -730,11 +729,6 @@
 .cx:has(.cx-pane-month) .cx-side .cx-minimonth { display: none; }
 
 /* Calendar's question for a repeating event: what it is, then the two answers. */
-.cx-ask { width: min(300px, calc(100vw - 32px)); padding: 20px 18px 16px; text-align: center; }
-.cx-ask h2 { margin: 0 0 6px; font-size: var(--t-15); font-weight: 600; }
-.cx-ask p { margin: 0 0 16px; color: var(--text-2); font-size: var(--t-13); }
-.cx-ask-actions { display: flex; flex-direction: column; gap: 8px; }
-.cx-ask-actions > button { width: 100%; }
 
 /* In the dark the calendar's colour is lifted toward white instead. */
 @media (prefers-color-scheme: dark) {

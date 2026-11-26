@@ -1153,13 +1153,13 @@ export function CalendarView() {
   };
   const refreshSub = (id: string) => {
     calendarFeedsApi.refresh(id).then(
-      (s) => { toast(`\u201c${s.title}\u201d is up to date`); void readNow.current(); },
+      (s) => { toast(t("calendar.upToDate", { title: s.title })); void readNow.current(); },
       (e) => setError(messageOf(e)),
     );
   };
   const refreshAccount = (a: DavAccount) => {
     davApi.refresh(a.id).then(
-      () => { toast(`\u201c${a.title}\u201d is up to date`); void readNow.current(); },
+      () => { toast(t("calendar.upToDate", { title: a.title })); void readNow.current(); },
       (e) => { setError(messageOf(e)); void readNow.current(); },
     );
   };
@@ -1395,7 +1395,7 @@ export function CalendarView() {
         if (plain && e.key === "Enter") { e.preventDefault(); openPicked(event); return; }
         if (plain && (e.key === "Delete" || e.key === "Backspace")) { e.preventDefault(); void deleteAsking(event); return; }
         if (command && k === "d") { e.preventDefault(); void duplicate(event); return; }
-        if (command && k === "c" && !textSelected) { e.preventDefault(); setClip(event); toast(`Copied \u201c${event.title}\u201d`); return; }
+        if (command && k === "c" && !textSelected) { e.preventDefault(); setClip(event); toast(t("calendar.copiedEvent", { title: event.title })); return; }
         if (plain && e.key === "Escape") { setPicked(null); return; }
       }
       if (command && k === "v" && clip && !inMenuNow) { e.preventDefault(); paste(clip); return; }
@@ -1603,7 +1603,7 @@ export function CalendarView() {
               initial={adding.server}
               onDone={(a) => {
                 setAdding(null);
-                toast(`Added \u201c${a.title}\u201d`);
+                toast(t("calendar.addedCalendar", { title: a.title }));
                 void read();
               }}
               // Reached from the CalDAV panel, it goes back there; to sign in again, it just closes.
@@ -1616,7 +1616,7 @@ export function CalendarView() {
               onNextcloud={() => setAdding({ kind: "nextcloud" })}
               onDone={(a) => {
                 setAdding(null);
-                toast(`Added \u201c${a.title}\u201d`);
+                toast(t("calendar.addedCalendar", { title: a.title }));
                 void read();
               }}
               onCancel={() => setAdding(null)}
@@ -1626,7 +1626,7 @@ export function CalendarView() {
             <SubscribeForm
               onDone={(sub) => {
                 setSubscribing(false);
-                toast(`Subscribed to \u201c${sub.title}\u201d`);
+                toast(t("calendar.subscribedTo", { title: sub.title }));
                 void read();
               }}
               onCancel={() => setSubscribing(false)}
@@ -3190,7 +3190,7 @@ const REMINDER_LINE = 18;
 const MIN_BLOCK = ((20 + 2) / HOUR) * 60;
 /** The layout's name for the event being named, which has no guid yet. */
 const PENDING = "\u0000pending";
-export function stackReminders(list: Reminder[]): { reminder: Reminder; top: number }[] {
+function stackReminders(list: Reminder[]): { reminder: Reminder; top: number }[] {
   const LINE = REMINDER_LINE;
   const sorted = [...list].sort((a, b) => (a.dueAt ?? 0) - (b.dueAt ?? 0) || a.title.localeCompare(b.title));
   let lastBottom = -Infinity;

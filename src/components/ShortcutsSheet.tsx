@@ -11,7 +11,7 @@ import { useModalFocus } from "../lib/focus";
 
 /** One action and its keys: each combination pressed together; more than one, either works. */
 type Row = [keys: string[][], action: Key];
-export const SHORTCUTS: { app: Key; key: string; rows: Row[] }[] = [
+const SHORTCUTS: { app: Key; key: string; rows: Row[] }[] = [
   {
     app: "shortcuts.apps.everywhere",
     key: "",

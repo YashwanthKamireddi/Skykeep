@@ -7,7 +7,7 @@ import { t, type Key } from "./i18n";
 const CHANGED = "quince://outbox-changed";
 const REFUSED = "quince://outbox-refused";
 
-export type OutboxService = "notes" | "reminders" | "contacts" | "calendar" | "photos";
+type OutboxService = "notes" | "reminders" | "contacts" | "calendar" | "photos";
 
 /**
  * The network came back (the webview's own `online` event): what waits is sent now, not on the

@@ -540,6 +540,8 @@ pub fn free_space(dir: &Path) -> Option<u64> {
         // SAFETY: a zeroed statvfs is a valid value to be written over; `c` is a NUL-ended
         // path that outlives the call.
         let mut s: libc::statvfs = unsafe { std::mem::zeroed() };
+        // SAFETY: `c` is a NUL-ended path alive for the call, and `s` a valid statvfs for it to
+        // fill; nothing else is read or kept.
         if unsafe { libc::statvfs(c.as_ptr(), &mut s) } != 0 {
             return None;
         }

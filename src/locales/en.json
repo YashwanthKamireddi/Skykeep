@@ -1,23 +1,19 @@
 {
   "common": {
     "cancel": "Cancel",
-    "confirm": "Confirm",
     "done": "Done",
     "save": "Save",
     "delete": "Delete",
-    "remove": "Remove",
     "open": "Open",
     "close": "Close",
     "search": "Search",
     "notNow": "Not Now",
     "showInFolder": "Show in Folder",
-    "copy": "Copy",
     "clear": "Clear",
     "clearing": "Clearing…",
     "cancelling": "Cancelling…",
     "gettingReady": "Getting ready…",
     "none": "None",
-    "error": "Error",
     "somethingWentWrong": "Something went wrong. Try again.",
     "checkingSession": "Checking your session…",
     "updateNow": "Update Now",
@@ -68,8 +64,6 @@
     "appUnavailable": "{name} isn’t available"
   },
   "settings": {
-    "title": "Settings",
-    "account": "Account",
     "yourAppleAccount": "Your Apple Account",
     "storageUsed": "{used} of {total} used",
     "storageAvailable": "{available} available",
@@ -92,7 +86,6 @@
     "readingDrive": "Reading iCloud Drive",
     "notInBackup": "Not in the backup",
     "includeHidden": "Include the Hidden album",
-    "photos": "Photos",
     "icloudDrive": "iCloud Drive",
     "driveHint": "Every file, with earlier versions of changed files kept",
     "exportCopy": "Export a Copy",
@@ -248,7 +241,6 @@
     "privacyDetail6Text": "Made by an independent developer, not affiliated with Apple. It uses the web services icloud.com uses, which Apple can change at any time."
   },
   "codeEntry": {
-    "title": "Two-Factor Authentication",
     "enterCode": "Enter the code",
     "securityKeyTitle": "This account uses a security key",
     "securityKeyLede": "Your Apple Account signs in with a security key. Skykeep can't sign in with security keys yet, so it can't finish signing in to this account.",
@@ -278,7 +270,6 @@
     "digitAria": "Digit {n}"
   },
   "launcher": {
-    "hint": "Changes from your other devices arrive within seconds.",
     "syncNow": "Sync Now",
     "appsAria": "Your apps",
     "notesCount": "{count} notes",
@@ -975,7 +966,6 @@
     },
     "completeReminder": "Complete {title}",
     "delete": "Delete",
-    "remove": "Remove",
     "unsubscribe": "Unsubscribe",
     "deleteTitle": "Delete “{title}”?",
     "deleted": "Deleted “{title}”",
@@ -1066,7 +1056,11 @@
     "showInReminders": "Show in Reminders",
     "approveInBrowser": "Approve Skykeep in the page that opened in your browser. It finishes here by itself.",
     "weekNumber": "Week {n}",
-    "go": "Go"
+    "go": "Go",
+    "upToDate": "“{title}” is up to date",
+    "copiedEvent": "Copied “{title}”",
+    "addedCalendar": "Added “{title}”",
+    "subscribedTo": "Subscribed to “{title}”"
   },
   "contacts": {
     "title": "Contacts",
@@ -1200,8 +1194,6 @@
     "month": "Month",
     "year": "Year",
     "fieldMonth": "{label}, month",
-    "fieldDay": "{label}, day",
-    "fieldYear": "{label}, year",
     "photo": {
       "aria": "Contact photo",
       "title": "Contact Photo",
@@ -1653,7 +1645,6 @@
     "newAlbum": "New Album",
     "newAlbumOrFolder": "New Album or Folder",
     "newEvent": "New Event",
-    "newEvent2": "New event",
     "next": "Next",
     "nextcloudServer": "Nextcloud Server",
     "noFoldersHere": "No folders here.",

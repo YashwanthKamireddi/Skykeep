@@ -10,7 +10,7 @@ const RADIUS = 108;
 /** The longest `data:` URL icloud.com sends for a picture: the image is made to fit under it. */
 const LIMIT = 229_376;
 
-export type ChosenPhoto = {
+type ChosenPhoto = {
   /** The whole picture, as a JPEG `data:` URL — what icloud.com sends. */
   url: string;
   /** The square, `x,y,width,height` in the sent picture's pixels, measured from its bottom left. */

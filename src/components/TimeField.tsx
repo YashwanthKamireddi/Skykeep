@@ -78,13 +78,13 @@ const usesTwelveHour = (() => {
   }
 })();
 
-export function formatTime(hours: number, minutes: number): string {
+function formatTime(hours: number, minutes: number): string {
   const d = new Date(2000, 0, 1, hours, minutes);
   return timeText(d, { hour: "numeric", minute: "2-digit" });
 }
 
 /** `[hours, minutes]`, or null when the text is not a time. */
-export function parseTime(raw: string): [number, number] | null {
+function parseTime(raw: string): [number, number] | null {
   const t = raw.trim().toLowerCase().replace(/\s+/g, " ");
   if (!t) return null;
   if (t === "noon") return [12, 0];

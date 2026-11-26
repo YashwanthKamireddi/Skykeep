@@ -56,7 +56,7 @@ const byAny = new Map<string, [string, string, string]>();
 for (const k of KNOWN) for (const spelling of k) byAny.set(spelling.toLowerCase(), k);
 
 /** The label Apple means, in its service spelling; null for a custom one. */
-export function knownLabel(label: string | null | undefined): string | null {
+function knownLabel(label: string | null | undefined): string | null {
   if (!label) return null;
   return byAny.get(label.trim().toLowerCase())?.[0] ?? null;
 }

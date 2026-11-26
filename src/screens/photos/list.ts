@@ -15,7 +15,7 @@ export const KEEP = 2400;
 const KINDS = ["image", "video", "live"] as const;
 
 /** Whether two reads of one photo are the same in every field. */
-export function samePhoto(a: Photo, b: Photo): boolean {
+function samePhoto(a: Photo, b: Photo): boolean {
   for (const k in b) {
     const x = (a as Record<string, unknown>)[k];
     const y = (b as Record<string, unknown>)[k];

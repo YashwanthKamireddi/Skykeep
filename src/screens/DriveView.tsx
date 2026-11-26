@@ -315,7 +315,7 @@ function DriveRecents({ onClose }: { onClose: () => void }) {
 }
 
 /** Recents' headings, newest first: Today, Yesterday, Previous 7 and 30 Days, then months. */
-export function groupRecents(rows: RecentItem[], now = new Date()): { heading: string; items: RecentItem[] }[] {
+function groupRecents(rows: RecentItem[], now = new Date()): { heading: string; items: RecentItem[] }[] {
   const midnight = (d: Date) => new Date(d.getFullYear(), d.getMonth(), d.getDate()).getTime();
   const today = midnight(now);
   const out: { heading: string; items: RecentItem[] }[] = [];
@@ -410,7 +410,7 @@ function daysLeft(expiresAt: number | null): number | null {
  * or null: not empty, not hidden (a leading dot), no ":" or line break, and not already taken
  * in this folder, whatever the case.
  */
-export function nameProblem(full: string, isFile: boolean, siblings: DriveItem[], self?: DriveItem): string | null {
+function nameProblem(full: string, isFile: boolean, siblings: DriveItem[], self?: DriveItem): string | null {
   if (!full.trim()) return t("drive.nameInvalid", { name: full });
   if (full.startsWith(".")) return t(isFile ? "drive.nameDotFile" : "drive.nameDotFolder");
   if (/[:\n\r]/.test(full)) return t("drive.nameCantUse", { name: full });
@@ -450,7 +450,7 @@ type Clash = "keep" | "replace" | null;
 const KEPT = "kept";
 
 /** A folder changed since it was shown, said as it now stands: what is in it, and what is new. */
-export function folderNowWords(now: FolderNow): string {
+function folderNowWords(now: FolderNow): string {
   const items = (k: number) => t(k === 1 ? "drive.itemOne" : "drive.itemMany", { count: k });
   const since = [
     now.added ? t("drive.nowAdded", { items: items(now.added) }) : "",

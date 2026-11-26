@@ -12,7 +12,7 @@ import { fadeIn } from "./fade";
  * Never on opening a list or going to another one (its rows are all new, none arrived), never
  * for a batch — more than a few at once simply appear — and never with reduced motion.
  */
-export const ARRIVALS = 12;
+const ARRIVALS = 12;
 /** How long after the person's own key or click nothing fades: their own rows land meanwhile. */
 const OWN_MS = 4000;
 const FADE_MS = 120;
