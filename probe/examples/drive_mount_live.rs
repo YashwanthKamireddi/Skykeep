@@ -76,7 +76,7 @@ impl Remote for Apple {
                 .map_err(|e| e.to_string())
         })
     }
-    fn upload(&self, folder: &DriveItem, path: &std::path::Path) -> Fut<DriveItem> {
+    fn upload(&self, folder: &DriveItem, path: &std::path::Path) -> quince_vfs::Sends<DriveItem> {
         let (http, docws, drivews, p, folder, path) = (
             self.http.clone(),
             self.docws.clone(),
@@ -85,7 +85,7 @@ impl Remote for Apple {
             folder.drivewsid.clone(),
             path.to_path_buf(),
         );
-        Box::pin(async move {
+        quince_vfs::sends(async move {
             let progress: quince_icloud::drive::Progress = Arc::new(|_, _| {});
             quince_icloud::drive::upload(
                 &http, &http, &docws, &drivews, p, &folder, &path, progress,
