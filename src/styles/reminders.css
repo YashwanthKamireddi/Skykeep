@@ -15,6 +15,12 @@
 
 /* ---- sidebar ---------------------------------------------------------------- */
 
+/* The sidebar is a column that shrinks what it holds when the window is short: the search
+   field kept its height (an 800×600 window had squeezed it to 16px, its text clipped). */
+.rx-side .search-field {
+  flex: none;
+}
+
 .rx-side {
   display: flex;
   flex-direction: column;

@@ -1089,7 +1089,8 @@
     "moreCount": "{count} more",
     "showInReminders": "Show in Reminders",
     "approveInBrowser": "Approve Skykeep in the page that opened in your browser. It finishes here by itself.",
-    "weekNumber": "Week {n}"
+    "weekNumber": "Week {n}",
+    "go": "Go"
   },
   "contacts": {
     "title": "Contacts",
@@ -1420,7 +1421,8 @@
     "nowHolds": "This folder now has {items}",
     "nowChangedSince": "{holds}, with {said} since it was shown here, on another device. It goes to Recently Deleted with everything in it.",
     "nowChangedPlain": "{holds}. It changed since it was shown here, on another device. It goes to Recently Deleted with everything in it.",
-    "fromPath": "From {path}"
+    "fromPath": "From {path}",
+    "openingFolder": "Opening {name}…"
   },
   "shortcuts": {
     "title": "Keyboard Shortcuts",

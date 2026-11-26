@@ -1089,7 +1089,8 @@
     "moreCount": "{count} weitere",
     "showInReminders": "In Erinnerungen zeigen",
     "approveInBrowser": "Bestätige Skykeep auf der Seite, die sich in deinem Browser geöffnet hat. Der Rest geschieht hier von selbst.",
-    "weekNumber": "Woche {n}"
+    "weekNumber": "Woche {n}",
+    "go": "Los"
   },
   "contacts": {
     "title": "Kontakte",
@@ -1420,7 +1421,8 @@
     "nowHolds": "Dieser Ordner enthält jetzt {items}",
     "nowChangedSince": "{holds}, {said}, seit er hier angezeigt wurde, auf einem anderen Gerät. Er wird mit seinem gesamten Inhalt unter „Zuletzt gelöscht“ abgelegt.",
     "nowChangedPlain": "{holds}. Er hat sich geändert, seit er hier angezeigt wurde, auf einem anderen Gerät. Er wird mit seinem gesamten Inhalt unter „Zuletzt gelöscht“ abgelegt.",
-    "fromPath": "Aus {path}"
+    "fromPath": "Aus {path}",
+    "openingFolder": "{name} wird geöffnet …"
   },
   "shortcuts": {
     "title": "Tastaturkurzbefehle",

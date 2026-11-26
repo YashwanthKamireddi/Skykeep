@@ -21,6 +21,7 @@ export function useNotKept(): boolean {
 }
 import { freshness, useServiceState, useSync } from "../lib/sync";
 import { useI18n } from "../lib/i18n";
+import { shortFailure } from "../lib/failureWords";
 
 /** "Asha Rao" → "AR"; an address → its first letter. */
 export function initialsOf(name: string): string {
@@ -79,7 +80,7 @@ export function AccountCard({ current, onOpen, app }: { current: boolean; onOpen
     status = working
       ? t("common.updating")
       : failed
-        ? own.failure!
+        ? shortFailure(own.failure)
         : own.unavailable
           ? t("sync.notAvailable")
           : freshness(own.lastSyncedAt);

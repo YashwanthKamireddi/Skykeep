@@ -1089,7 +1089,8 @@
     "moreCount": "{count} de plus",
     "showInReminders": "Afficher dans Rappels",
     "approveInBrowser": "Autorisez Skykeep sur la page ouverte dans votre navigateur. La procédure se terminera automatiquement ici.",
-    "weekNumber": "Semaine {n}"
+    "weekNumber": "Semaine {n}",
+    "go": "Aller"
   },
   "contacts": {
     "title": "Contacts",
@@ -1420,7 +1421,8 @@
     "nowHolds": "Ce dossier contient maintenant {items}",
     "nowChangedSince": "{holds}, avec {said} depuis son affichage ici, sur un autre appareil. Il sera placé dans Suppressions récentes avec tout son contenu.",
     "nowChangedPlain": "{holds}. Il a été modifié sur un autre appareil depuis son affichage ici. Il sera placé dans Suppressions récentes avec tout son contenu.",
-    "fromPath": "Depuis {path}"
+    "fromPath": "Depuis {path}",
+    "openingFolder": "Ouverture de {name}…"
   },
   "shortcuts": {
     "title": "Raccourcis clavier",

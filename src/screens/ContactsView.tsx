@@ -1664,7 +1664,7 @@ export function ContactsView() {
                 </button>
               )}
               <button className="quiet" onClick={() => void exportCards(pickedPeople)}>{t("ui.exportVCards")}</button>
-              <button className="quiet danger" disabled={busy} onClick={() => void removeMany(pickedPeople)}>Delete</button>
+              <button className="quiet danger" disabled={busy} onClick={() => void removeMany(pickedPeople)}>{t("contacts.delete")}</button>
             </div>
             {pickMenu && (
               <RowMenu

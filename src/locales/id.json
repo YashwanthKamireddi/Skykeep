@@ -1089,7 +1089,8 @@
     "moreCount": "{count} lainnya",
     "showInReminders": "Tampilkan di Pengingat",
     "approveInBrowser": "Setujui Skykeep pada halaman yang terbuka di browser Anda. Setelah disetujui, proses akan selesai otomatis di sini.",
-    "weekNumber": "Minggu ke-{n}"
+    "weekNumber": "Minggu ke-{n}",
+    "go": "Buka"
   },
   "contacts": {
     "title": "Kontak",
@@ -1420,7 +1421,8 @@
     "nowHolds": "Folder ini sekarang berisi {items}",
     "nowChangedSince": "{holds}. Sejak folder ini terakhir ditampilkan di sini, ada perubahan di perangkat lain: {said}. Folder ini akan dipindahkan ke Baru Dihapus beserta seluruh isinya.",
     "nowChangedPlain": "{holds}. Folder ini telah berubah di perangkat lain sejak terakhir kali ditampilkan di sini. Folder ini akan dipindahkan ke Baru Dihapus beserta seluruh isinya.",
-    "fromPath": "Dari {path}"
+    "fromPath": "Dari {path}",
+    "openingFolder": "Membuka {name}…"
   },
   "shortcuts": {
     "title": "Pintasan Keyboard",
