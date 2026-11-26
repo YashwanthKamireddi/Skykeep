@@ -2512,6 +2512,8 @@ mod win_clipboard {
 
     /// `bytes` in memory the clipboard can own.
     fn global(bytes: &[u8]) -> Result<HGLOBAL, String> {
+        // SAFETY: the block is allocated `bytes.len()` long and locked before anything is
+        // written, exactly that many bytes are copied in, and it is unlocked (or freed) after.
         unsafe {
             let mem = GlobalAlloc(GMEM_MOVEABLE, bytes.len()).map_err(|_| FAILED)?;
             let at = GlobalLock(mem).cast::<u8>();
@@ -2528,6 +2530,8 @@ mod win_clipboard {
     /// One format set; the memory is the clipboard's once it is taken, freed here if not.
     fn set(format: u32, bytes: &[u8]) -> Result<(), String> {
         let mem = global(bytes)?;
+        // SAFETY: called only with the clipboard open (`put`); `mem` is a block of ours, freed
+        // here only when the clipboard didn't take it.
         unsafe {
             if SetClipboardData(format, Some(HANDLE(mem.0))).is_err() {
                 let _ = GlobalFree(Some(mem));
@@ -2538,6 +2542,8 @@ mod win_clipboard {
     }
 
     pub fn put(png: &[u8], dib: &[u8]) -> Result<(), String> {
+        // SAFETY: the clipboard calls in their documented order (open, empty, set, close), on
+        // this thread, with memory `set` hands over.
         unsafe {
             // Another app may hold the clipboard for a moment: tried for half a second.
             let mut opened = false;

@@ -109,6 +109,8 @@ pub struct CloudFolder {
 // SAFETY: the connection key is a plain handle Windows hands out for any thread to use, and the
 // provider behind the pointer is Send + Sync, owned here until the drop disconnects.
 unsafe impl Send for CloudFolder {}
+// SAFETY: as for Send: nothing in it is touched through `&self` but atomics and handles that
+// Windows and the provider allow from any thread.
 unsafe impl Sync for CloudFolder {}
 
 impl Drop for CloudFolder {
@@ -739,8 +741,14 @@ impl Request {
 unsafe impl Send for Request {}
 
 /// The callback's request, and our provider: read whole before the callback returns.
+///
+/// # Safety
+/// `info` is Windows' own, valid for the callback it came with.
 unsafe fn request(info: *const CF_CALLBACK_INFO) -> Option<(Request, &'static Provider)> {
+    // SAFETY: the caller's promise: Windows' pointer, valid for this call (null answers None).
     let info = unsafe { info.as_ref()? };
+    // SAFETY: the context is the Provider this folder registered with Windows, alive until
+    // the folder disconnects, which ends every callback first.
     let provider = unsafe { info.CallbackContext.cast::<Provider>().as_ref()? };
     let identity = if info.FileIdentity.is_null() || info.FileIdentityLength == 0 {
         None
@@ -811,6 +819,8 @@ unsafe extern "system" fn on_fetch_data(
         let Some((req, provider)) = (unsafe { request(info) }) else {
             return;
         };
+        // SAFETY: Windows' parameters for this FETCH_DATA callback, valid for the call; their
+        // union holds FetchData for this callback type.
         let fetch = unsafe { (*params).Anonymous.FetchData };
         let offset = u64::try_from(fetch.RequiredFileOffset).unwrap_or(0);
         let len = u64::try_from(fetch.RequiredLength).unwrap_or(0);
@@ -1404,11 +1414,15 @@ fn transfer_placeholders(
 
 /// A path Windows gives as a volume ("C:") and a path on it ("\\Users\\…"), joined. One
 /// given whole already ("C:\\…", "\\\\?\\…") is taken as it is.
+///
+/// # Safety
+/// `volume` and `path` are null or NUL-ended strings Windows gives, valid for the call.
 unsafe fn full_path(volume: PCWSTR, path: PCWSTR) -> PathBuf {
     let text = |p: PCWSTR| {
         if p.is_null() {
             String::new()
         } else {
+            // SAFETY: the caller's promise: a NUL-ended string Windows gives, valid for the call.
             unsafe { p.to_string() }.unwrap_or_default()
         }
     };

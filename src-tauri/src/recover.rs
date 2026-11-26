@@ -213,8 +213,11 @@ pub fn watch(webview: &tauri::Webview) {
             // WebKit says it on Linux.
             let mut reason = COREWEBVIEW2_PROCESS_FAILED_REASON::default();
             if let Some(args) = args {
+                // SAFETY: `args` is the live COM interface WebView2 hands this handler, and
+                // `kind` a value it writes.
                 unsafe { args.ProcessFailedKind(&mut kind)? };
                 if let Ok(args) = args.cast::<ICoreWebView2ProcessFailedEventArgs2>() {
+                    // SAFETY: as above, on the newer interface the runtime said it has.
                     let _ = unsafe { args.Reason(&mut reason) };
                 }
             }
