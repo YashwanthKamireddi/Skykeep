@@ -102,6 +102,12 @@ pub struct ImportContact {
 /// capture, or files to import. Whether it asked for either; if not, the caller opens what
 /// it would have opened anyway.
 pub fn arrived(app: &AppHandle, args: &[String], cwd: &Path, this_launch: bool) -> bool {
+    // A press on a reminder's toast (Windows): answered here, whether it started Skykeep or
+    // was handed to the copy running, with no window unless it was to open the reminder.
+    if let Some((action, alert)) = crate::alerts::asked(args) {
+        crate::alerts::on_asked(app, action, alert, this_launch);
+        return true;
+    }
     // Send to iPhone, from a file manager: sent, and no window opened for it.
     if let Some(files) = crate::send::asked(args, cwd) {
         crate::send::send(app, files);

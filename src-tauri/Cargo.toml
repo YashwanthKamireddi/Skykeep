@@ -60,11 +60,9 @@ image = { version = "0.25", default-features = false, features = ["png", "jpeg"]
 [target.'cfg(not(target_os = "linux"))'.dependencies]
 tauri = { version = "2", features = ["tray-icon"] }
 
-# Toasts with buttons on Windows (notify-rust sends none there): the same crate notify-rust uses.
 [target.'cfg(windows)'.dependencies]
 # File Explorer's thumbnails for the iCloud Photos folder: the pipe both sides speak (thumbs.rs).
 quince-thumbs = { path = "../crates/quince-thumbs" }
-tauri-winrt-notification = "0.8"
 # A window's page process that crashed heard of, to load the page again (recover.rs): the same
 # build of WebView2's bindings wry already compiles.
 webview2-com = "0.39"
@@ -96,6 +94,10 @@ windows = { version = "0.62", features = [
     "Foundation",
     "Security_Credentials_UI",
     "Win32_System_WinRT",
+    # Reminders' toasts with buttons (alerts.rs, notify-rust sends none on Windows), tagged so
+    # one is taken back once its reminder is done elsewhere.
+    "Data_Xml_Dom",
+    "UI_Notifications",
 ] }
 
 [target.'cfg(target_os = "linux")'.dependencies]

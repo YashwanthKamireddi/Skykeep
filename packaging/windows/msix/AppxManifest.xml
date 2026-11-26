@@ -14,6 +14,7 @@
 <Package
   xmlns="http://schemas.microsoft.com/appx/manifest/foundation/windows10"
   xmlns:uap="http://schemas.microsoft.com/appx/manifest/uap/windows10"
+  xmlns:uap3="http://schemas.microsoft.com/appx/manifest/uap/windows10/3"
   xmlns:uap10="http://schemas.microsoft.com/appx/manifest/uap/windows10/10"
   xmlns:desktop="http://schemas.microsoft.com/appx/manifest/desktop/windows10"
   xmlns:desktop3="http://schemas.microsoft.com/appx/manifest/desktop/windows10/3"
@@ -21,7 +22,7 @@
   xmlns:desktop5="http://schemas.microsoft.com/appx/manifest/desktop/windows10/5"
   xmlns:rescap="http://schemas.microsoft.com/appx/manifest/foundation/windows10/restrictedcapabilities"
   xmlns:com="http://schemas.microsoft.com/appx/manifest/com/windows10"
-  IgnorableNamespaces="uap uap10 desktop desktop3 desktop4 desktop5 rescap">
+  IgnorableNamespaces="uap uap3 uap10 desktop desktop3 desktop4 desktop5 rescap">
 
   <Identity
     Name="__IDENTITY_NAME__"
@@ -99,6 +100,12 @@
         <desktop:Extension Category="windows.startupTask" Executable="skykeep.exe" EntryPoint="Windows.FullTrustApplication" uap10:Parameters="--background">
           <desktop:StartupTask TaskId="SkykeepStartup" Enabled="false" DisplayName="Skykeep" />
         </desktop:Extension>
+        <!-- A press on a reminder's toast, answered whether Skykeep runs or not: every press is
+             a launch with this address (src-tauri/src/alerts.rs, SCHEME), which starts Skykeep
+             or is handed to the copy running. The .exe and .msi register it themselves. -->
+        <uap3:Extension Category="windows.protocol">
+          <uap3:Protocol Name="skykeep-alert" Parameters="&quot;%1&quot;" />
+        </uap3:Extension>
         <uap:Extension Category="windows.fileTypeAssociation">
           <uap:FileTypeAssociation Name="icalendar">
             <uap:DisplayName>Calendar events</uap:DisplayName>

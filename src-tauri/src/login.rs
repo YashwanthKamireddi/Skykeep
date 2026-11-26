@@ -350,7 +350,7 @@ const RUN_VALUE: &str = "Skykeep";
 
 /// Windows' own `reg` tool, with no window flashing up.
 #[cfg(windows)]
-fn reg(args: &[&str]) -> std::io::Result<std::process::ExitStatus> {
+pub(crate) fn reg(args: &[&str]) -> std::io::Result<std::process::ExitStatus> {
     use std::os::windows::process::CommandExt;
     const CREATE_NO_WINDOW: u32 = 0x0800_0000;
     std::process::Command::new("reg")

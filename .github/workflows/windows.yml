@@ -397,6 +397,26 @@ jobs:
             if (-not ($lists | Where-Object { $_.Contains($needle) })) { throw "the jump list has no '$task' task" }
           }
           "jump list: $($tasks -join ', ')"
+          # A press on a reminder's toast is a launch of this address (alerts.rs, offer_answers):
+          # registered for this person as Skykeep starts, it runs skykeep.exe with the address,
+          # which the copy running takes. Opened here as Windows does for a press: the running
+          # copy stays, and no second one is left behind.
+          $alertKey = "HKCU:\Software\Classes\skykeep-alert"
+          $registered = $null
+          for ($i = 0; $i -lt 20 -and -not $registered; $i++) {
+            $registered = (Get-ItemProperty "$alertKey\shell\open\command" -ErrorAction SilentlyContinue).'(default)'
+            if (-not $registered) { Start-Sleep -Milliseconds 500 }
+          }
+          $want = "`"$($exe.FullName)`" `"%1`""
+          if ($registered -ne $want) { throw "skykeep-alert is registered as '$registered', not '$want'" }
+          if ($null -eq (Get-ItemProperty $alertKey -Name "URL Protocol" -ErrorAction SilentlyContinue)) { throw "skykeep-alert is not marked as a URL protocol" }
+          $before = @(Get-Process skykeep -ErrorAction SilentlyContinue).Count
+          Start-Process "skykeep-alert:default?r=smoke&l=smoke&d=1"
+          Start-Sleep -Seconds 5
+          if ($p.HasExited) { throw "Skykeep ended when a toast's address was opened" }
+          $after = @(Get-Process skykeep -ErrorAction SilentlyContinue).Count
+          if ($after -gt $before) { throw "a toast's address left a second Skykeep running ($after, was $before)" }
+          "toast address: registered as $want, handed to the running Skykeep"
           # #62: an app's window made again after it was let go of drew nothing (all white) or
           # did not come back: the window-state plugin restored its size inside Tauri's window-ready
           # hook and froze the app (main.rs, restore_window_state). As a person does it: the app
@@ -478,6 +498,8 @@ jobs:
           if ($left) { throw "uninstalled, but the Start menu still has: $($left.Name -join ', ')" }
           if (Test-Path $exe.FullName) { throw "uninstalled, but skykeep.exe is still there" }
           "uninstalled: no Skykeep entries left in the Start menu"
+          if (Test-Path "HKCU:\Software\Classes\skykeep-alert") { throw "uninstalled, but skykeep-alert is still registered" }
+          "uninstalled: skykeep-alert registration gone"
       - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         if: always()
         with:

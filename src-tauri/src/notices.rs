@@ -129,11 +129,10 @@ fn listen(conn: &zbus::blocking::Connection) {
     }
 }
 
-/// Show `notice`; `answer` is called with the action's key when one is pressed.
-pub fn show(notice: &Notice<'_>, answer: impl FnOnce(&str) + Send + 'static) {
-    let Some(conn) = bus() else {
-        return;
-    };
+/// Show `notice`; `answer` is called with the action's key when one is pressed. Its id, to
+/// take it back with `close`.
+pub fn show(notice: &Notice<'_>, answer: impl FnOnce(&str) + Send + 'static) -> Option<u32> {
+    let conn = bus()?;
     let actions: Vec<&str> = notice
         .actions
         .iter()
@@ -181,8 +180,16 @@ pub fn show(notice: &Notice<'_>, answer: impl FnOnce(&str) + Send + 'static) {
             timeout,
         ),
     );
-    if let Ok(id) = reply.and_then(|r| r.body().deserialize::<u32>()) {
-        held.add(id, Instant::now(), Box::new(answer));
+    let id = reply.and_then(|r| r.body().deserialize::<u32>()).ok()?;
+    held.add(id, Instant::now(), Box::new(answer));
+    Some(id)
+}
+
+/// Take back a notification shown with `show`: gone from the screen and the server's list.
+/// The server says it closed, and its answer is let go of then (`listen`).
+pub fn close(id: u32) {
+    if let Some(conn) = bus() {
+        let _ = conn.call_method(Some(SERVICE), PATH, Some(SERVICE), "CloseNotification", &id);
     }
 }
 
