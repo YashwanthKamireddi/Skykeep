@@ -4433,7 +4433,7 @@ dependencies = [
 
 [[package]]
 name = "quince-app"
-version = "0.1.43"
+version = "0.1.44"
 dependencies = [
  "base64 0.22.1",
  "fuser",
@@ -4483,7 +4483,7 @@ dependencies = [
 
 [[package]]
 name = "quince-auth"
-version = "0.1.43"
+version = "0.1.44"
 dependencies = [
  "aes-gcm",
  "base64 0.22.1",
@@ -4511,7 +4511,7 @@ dependencies = [
 
 [[package]]
 name = "quince-backup"
-version = "0.1.43"
+version = "0.1.44"
 dependencies = [
  "futures-util",
  "icu_normalizer",
@@ -4534,7 +4534,7 @@ dependencies = [
 
 [[package]]
 name = "quince-core"
-version = "0.1.43"
+version = "0.1.44"
 dependencies = [
  "base64 0.22.1",
  "icu_normalizer",
@@ -4548,7 +4548,7 @@ dependencies = [
 
 [[package]]
 name = "quince-icloud"
-version = "0.1.43"
+version = "0.1.44"
 dependencies = [
  "aes",
  "aes-gcm",
@@ -4578,7 +4578,7 @@ dependencies = [
 
 [[package]]
 name = "quince-link"
-version = "0.1.43"
+version = "0.1.44"
 dependencies = [
  "anyhow",
  "gstreamer",
@@ -4594,7 +4594,7 @@ dependencies = [
 
 [[package]]
 name = "quince-media"
-version = "0.1.43"
+version = "0.1.44"
 dependencies = [
  "base64 0.22.1",
  "fast_image_resize",
@@ -4609,7 +4609,7 @@ dependencies = [
 
 [[package]]
 name = "quince-mobile"
-version = "0.1.43"
+version = "0.1.44"
 dependencies = [
  "jiff",
  "quince-auth",
@@ -4654,7 +4654,7 @@ dependencies = [
 
 [[package]]
 name = "quince-record"
-version = "0.1.43"
+version = "0.1.44"
 dependencies = [
  "jiff",
  "serde",
@@ -4665,7 +4665,7 @@ dependencies = [
 
 [[package]]
 name = "quince-sync"
-version = "0.1.43"
+version = "0.1.44"
 dependencies = [
  "futures-util",
  "jiff",
@@ -4683,7 +4683,7 @@ dependencies = [
 
 [[package]]
 name = "quince-thumbs"
-version = "0.1.43"
+version = "0.1.44"
 dependencies = [
  "windows 0.62.2",
  "windows-core 0.62.2",
@@ -4691,7 +4691,7 @@ dependencies = [
 
 [[package]]
 name = "quince-vfs"
-version = "0.1.43"
+version = "0.1.44"
 dependencies = [
  "fuser",
  "image",

@@ -103,6 +103,11 @@
     <color type="primary" scheme_preference="dark">#0B2A4A</color>
   </branding>
   <releases>
+    <release version="0.1.44" date="2026-11-26">
+      <description>
+        <p>On Windows, Mark as Completed and Remind Me in 1 Hour on a reminder's notification now work even after Skykeep was closed or the PC restarted. A reminder's notification goes away on Windows and Linux when you complete, move or delete the reminder on another device.</p>
+      </description>
+    </release>
     <release version="0.1.43" date="2026-11-25">
       <description>
         <p>Skykeep now reads in Traditional Chinese (Taiwan), and systems set to Traditional Chinese, including Hong Kong, get it automatically instead of Simplified Chinese. A file in the Drive or Photos folder that iCloud turns down for good is no longer sent again and again; it waits, with the reason shown, until you change it.</p>
