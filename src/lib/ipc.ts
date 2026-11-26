@@ -1528,6 +1528,8 @@ export type BackupStatus = {
   drive: boolean;
   driveRunning: boolean;
   driveNote: string | null;
+  /** Why albums aren't folders in the backup (a drive with no hard links), if they aren't. */
+  albumsNote: string | null;
   /** Photos' bytes in the backup and of all there are; iCloud Drive's files and bytes. */
   photosBytes: number;
   photosBytesTotal: number;

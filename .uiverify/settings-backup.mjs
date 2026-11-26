@@ -49,12 +49,16 @@ for (const scheme of ["light", "dark"]) {
   ok(await row.getByRole("progressbar", { name: "Photos backup progress" }).isVisible(), `${scheme}: a bar for Photos while it copies`);
   ok(await row.getByRole("progressbar", { name: "iCloud Drive backup progress" }).isVisible(), `${scheme}: and one for iCloud Drive`);
   ok(text.includes("In Backup Drive"), `${scheme}: it says where`);
+  ok(!text.includes("albums as folders"), `${scheme}: no album note while albums are folders`);
   await row.getByRole("button", { name: "Show in Folder" }).click();
   await page.waitForTimeout(100);
   ok((await page.evaluate(() => window.__backupRevealed)) === 1, `${scheme}: Show in Folder opens it`);
   if (shots) await section.screenshot({ path: `${shots}/backup-on-${scheme}.png` });
+  // A drive with no hard links: albums can't be folders, and Photos says why.
+  await page.evaluate(() => { window.__backup.albumsNote = "This backup drive can't keep albums as folders (it has no hard links, as FAT32 and exFAT don't), so photos are kept by date only."; });
   await drive.click();
   await page.waitForTimeout(150);
+  ok((await row.getByRole("group", { name: "Photos in the backup" }).innerText()).includes("can't keep albums as folders"), `${scheme}: a drive with no hard links says albums are kept by date only`);
   ok((await page.evaluate(() => window.__backupArgs.drive)) === false && (await drive.getAttribute("aria-checked")) === "false", `${scheme}: iCloud Drive can be left out`);
   await row.getByRole("switch", { name: "Back Up iCloud" }).click();
   await page.waitForTimeout(150);

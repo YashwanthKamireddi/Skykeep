@@ -19,6 +19,9 @@ pub const PHOTOS: &str = "photos";
 /// The parts of a photo that are copied.
 pub const ORIGINAL: &str = "original";
 pub const LIVE: &str = "live";
+/// An album's folder in the backup (`Albums/<album>/<file>`): a hard link to the photo's own
+/// file under `Photos/`, so no photo is stored twice. Its item is `<album id>/<photo id>`.
+pub const ALBUMS: &str = "albums";
 
 /// One file in the backup folder: its path relative to the folder, and its size.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -150,6 +153,18 @@ impl Library {
         Ok(out)
     }
 
+    /// Every album's photos, in each album's own order: none deleted, and none hidden (an
+    /// album's folder is a plain folder, so the Hidden album's lock would be stepped around).
+    pub fn backup_album_members(&self) -> Result<Vec<(String, String)>> {
+        let mut stmt = self.conn.prepare_cached(
+            "SELECT i.album, i.asset FROM photo_album_items i JOIN photos p ON p.id = i.asset
+             WHERE p.deleted = 0 AND p.hidden = 0
+             ORDER BY i.album, i.position, p.taken_at DESC, p.id",
+        )?;
+        let rows = stmt.query_map([], |r| Ok((r.get(0)?, r.get(1)?)))?;
+        Ok(rows.collect::<rusqlite::Result<_>>()?)
+    }
+
     /// Photos copied of all there are to copy.
     pub fn backup_progress(&self, hidden: bool) -> Result<Progress> {
         let (copied, total, total_bytes) = self.conn.query_row(
@@ -259,5 +274,28 @@ mod tests {
         assert!(lib.backup_files().unwrap().iter().all(|f| f.item != "new"));
         lib.backup_clear().unwrap();
         assert!(lib.backup_files().unwrap().is_empty());
+    }
+
+    /// Albums' photos for their folders, in each album's order: never a hidden or deleted one.
+    #[test]
+    fn album_members_are_in_order_never_hidden_or_deleted() {
+        let mut lib = Library::in_memory().unwrap();
+        let mut hidden = photo("hidden", 50);
+        hidden.hidden = true;
+        let mut gone = photo("gone", 60);
+        gone.deleted = true;
+        lib.put_photos(&[photo("a", 10), photo("b", 20), hidden, gone])
+            .unwrap();
+        lib.put_album_items(&[
+            ("x".into(), "b".into(), 1),
+            ("x".into(), "a".into(), 2),
+            ("x".into(), "hidden".into(), 3),
+            ("x".into(), "gone".into(), 4),
+        ])
+        .unwrap();
+        assert_eq!(
+            lib.backup_album_members().unwrap(),
+            [("x".to_string(), "b".to_string()), ("x".into(), "a".into())]
+        );
     }
 }
