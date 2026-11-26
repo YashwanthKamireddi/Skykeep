@@ -9,7 +9,7 @@
  */
 import type { EventRepeat } from "../../lib/ipc";
 
-export type Quick = {
+type Quick = {
   title: string;
   location: string | null;
   /** Local times, unix seconds. An all-day event runs from midnight to the next. */

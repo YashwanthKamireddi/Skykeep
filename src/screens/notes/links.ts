@@ -6,11 +6,11 @@
 import { followClick } from "../../lib/follow";
 
 // Found and drawn with the rest of what the editor draws over a note (decorations.ts).
-export { addressesIn, autolink, type Found } from "./decorations";
+export { addressesIn, autolink } from "./decorations";
 
 /** A click on a link (its own, or one found) opens it, as a click does in Notes on the Mac —
  * through the window's one checked way out (lib/follow.ts). */
-export { OPEN_NOTE_EVENT, linkedNote } from "../../lib/links";
+export { OPEN_NOTE_EVENT } from "../../lib/links";
 
 export function openLinkAt(event: MouseEvent): boolean {
   return followClick(event);

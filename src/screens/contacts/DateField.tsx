@@ -4,7 +4,7 @@ import { t } from "../../lib/i18n";
 import { Picker } from "../../components/Picker";
 
 /** The year Apple writes for a date given without one. */
-export const NO_YEAR = 1604;
+const NO_YEAR = 1604;
 
 type Parts = { month: number | null; day: number | null; year: number | null };
 

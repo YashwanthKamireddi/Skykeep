@@ -12,7 +12,7 @@
 import type { Contact } from "../../lib/ipc";
 
 /** Case and accents gone, as `quince_core::fold::fold` does: "Émile", "EMILE" and "emile" match. */
-export function fold(text: string): string {
+function fold(text: string): string {
   return text
     .normalize("NFD")
     .replace(/[̀-ͯ᪰-᫿᷀-᷿⃐-⃿︠-︯]/g, "")
@@ -20,7 +20,7 @@ export function fold(text: string): string {
 }
 
 /** The words of a query, folded; none when there is nothing to look for. */
-export function words(query: string): string[] {
+function words(query: string): string[] {
   return query.split(/\s+/).filter(Boolean).map(fold);
 }
 
@@ -45,7 +45,7 @@ function haystack(c: Contact): Haystack {
 }
 
 /** Whether a card is found by these folded words: every word in its names, work or methods. */
-export function matches(c: Contact, found: string[]): boolean {
+function matches(c: Contact, found: string[]): boolean {
   if (found.length === 0) return true;
   const { text, numbers } = haystack(c);
   // A whole number typed or pasted (its words together: "+91 98765 43210") is found however
@@ -83,7 +83,6 @@ function order(c: Contact): Order {
   }
   return o;
 }
-export const sortKey = (c: Contact) => order(c).key;
 export const letterOf = (c: Contact) => order(c).letter;
 export function sortedContacts(list: Contact[]): Contact[] {
   return list

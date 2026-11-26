@@ -21,7 +21,7 @@ export const dayKey = (d: Date) => `${d.getFullYear()}-${d.getMonth()}-${d.getDa
 /* ---- the week, as this computer's region keeps it ---------------------------------------- */
 
 /** Which day a week starts on and which days are the weekend, 0 for Sunday as `getDay` counts. */
-export type WeekInfo = { firstDay: number; weekend: number[] };
+type WeekInfo = { firstDay: number; weekend: number[] };
 
 // For an engine without `Intl.Locale#getWeekInfo` (WebKitGTK's, for one), CLDR's own answer
 // for the regions that differ from a Monday start and a Saturday–Sunday weekend.
@@ -97,7 +97,7 @@ function weekNow(): WeekInfo {
  * day chosen in Settings. One object, kept current in place, so every default that reads it
  * reads the latest; a change is told as `quince:week` for the views to draw again.
  */
-export const WEEK: WeekInfo = weekNow();
+const WEEK: WeekInfo = weekNow();
 const WEEK_CHANGED = "quince:week";
 function refreshWeek() {
   const next = weekNow();
@@ -138,7 +138,7 @@ export function monthDays(anchor: Date, firstDay = WEEK.firstDay): Date[] {
 }
 
 /** Whether this computer's clock is a twelve-hour one, read from its locale's hour cycle. */
-export const TWELVE_HOUR = (() => {
+const TWELVE_HOUR = (() => {
   const o = new Intl.DateTimeFormat(undefined, { hour: "numeric" }).resolvedOptions() as { hourCycle?: string; hour12?: boolean };
   return o.hourCycle ? o.hourCycle === "h12" || o.hourCycle === "h11" : o.hour12 ?? true;
 })();
@@ -162,7 +162,7 @@ export const spansDays = (event: CalendarEvent) =>
   event.allDay || event.endsAt - event.startsAt >= 24 * 3600;
 
 /** One bar in a week row: the columns it covers and the lane it sits in. */
-export type Span = {
+type Span = {
   event: CalendarEvent;
   /** 0–6, the first and last column it covers in this week. */
   from: number;
@@ -215,7 +215,7 @@ export function weekSpans(events: CalendarEvent[], weekStart: Date): Span[] {
 }
 
 /** A timed event placed on a day's hour grid. */
-export type Placed = {
+type Placed = {
   event: CalendarEvent;
   /** Minutes from the day's midnight to where the block starts, and how long it is. */
   top: number;
@@ -226,8 +226,8 @@ export type Placed = {
 };
 
 /** Something else on the hour grid that takes room there — a reminder due at a time. */
-export type Mark = { id: string; top: number; length: number };
-export type PlacedMark = Mark & { column: number; columns: number };
+type Mark = { id: string; top: number; length: number };
+type PlacedMark = Mark & { column: number; columns: number };
 
 /**
  * The timed events of one day, placed and set side by side where they overlap.
@@ -433,7 +433,7 @@ export function weekNumber(weekStart: Date, firstDay = WEEK.firstDay): number {
 }
 
 /** A video call an event holds a link to, and the service it is on. */
-export type Meeting = { href: string; service: string };
+type Meeting = { href: string; service: string };
 
 // Each service by the shape of its join link, never by a word in the text: a link only counts
 // when its host and path are the service's own. Hosts are matched whole (a subdomain may lead,

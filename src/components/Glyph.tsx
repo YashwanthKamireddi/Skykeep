@@ -159,7 +159,7 @@ const EMBLEMS: Record<string, LucideIcon[]> = {
 };
 
 /** A list's emoji, when its icon is one: Apple keeps it as `{"Emoji":"🛒"}`. */
-export function emblemEmoji(emblem: string | null | undefined): string | null {
+function emblemEmoji(emblem: string | null | undefined): string | null {
   if (!emblem || !emblem.trimStart().startsWith("{")) return null;
   try {
     const emoji = (JSON.parse(emblem) as { Emoji?: unknown }).Emoji;

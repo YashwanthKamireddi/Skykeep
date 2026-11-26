@@ -1,23 +1,19 @@
 {
   "common": {
     "cancel": "Annuler",
-    "confirm": "Confirmer",
     "done": "Terminé",
     "save": "Enregistrer",
     "delete": "Supprimer",
-    "remove": "Retirer",
     "open": "Ouvrir",
     "close": "Fermer",
     "search": "Rechercher",
     "notNow": "Plus tard",
     "showInFolder": "Afficher dans le dossier",
-    "copy": "Copier",
     "clear": "Effacer",
     "clearing": "Effacement…",
     "cancelling": "Annulation…",
     "gettingReady": "Préparation…",
     "none": "Aucun",
-    "error": "Erreur",
     "somethingWentWrong": "Un problème est survenu. Réessayez.",
     "checkingSession": "Vérification de votre session…",
     "updateNow": "Mettre à jour maintenant",
@@ -68,8 +64,6 @@
     "appUnavailable": "{name} n’est pas disponible"
   },
   "settings": {
-    "title": "Réglages",
-    "account": "Compte",
     "yourAppleAccount": "Votre compte Apple",
     "storageUsed": "{used} utilisés sur {total}",
     "storageAvailable": "{available} disponibles",
@@ -92,7 +86,6 @@
     "readingDrive": "Lecture d’iCloud Drive",
     "notInBackup": "Non inclus dans la sauvegarde",
     "includeHidden": "Inclure l’album Masquées",
-    "photos": "Photos",
     "icloudDrive": "iCloud Drive",
     "driveHint": "Tous les fichiers, avec conservation des versions antérieures des fichiers modifiés",
     "exportCopy": "Exporter une copie",
@@ -272,7 +265,6 @@
     "privacyDetail6Text": "Développé par un développeur indépendant, non affilié à Apple. Skykeep utilise les services web d’icloud.com, qu’Apple peut modifier à tout moment."
   },
   "codeEntry": {
-    "title": "Authentification à deux facteurs",
     "enterCode": "Saisissez le code",
     "securityKeyTitle": "Ce compte utilise une clé de sécurité",
     "securityKeyLede": "Votre compte Apple utilise une clé de sécurité. Skykeep ne prend pas encore en charge ces clés et ne peut donc pas terminer la connexion à ce compte.",
@@ -302,7 +294,6 @@
     "digitAria": "Chiffre {n}"
   },
   "launcher": {
-    "hint": "Les modifications de vos autres appareils arrivent en quelques secondes.",
     "syncNow": "Synchroniser maintenant",
     "appsAria": "Vos applications",
     "notesCount": "{count} notes",
@@ -999,7 +990,6 @@
     },
     "completeReminder": "Terminer {title}",
     "delete": "Supprimer",
-    "remove": "Retirer",
     "unsubscribe": "Se désabonner",
     "deleteTitle": "Supprimer « {title} » ?",
     "deleted": "« {title} » supprimé",
@@ -1090,7 +1080,11 @@
     "showInReminders": "Afficher dans Rappels",
     "approveInBrowser": "Autorisez Skykeep sur la page ouverte dans votre navigateur. La procédure se terminera automatiquement ici.",
     "weekNumber": "Semaine {n}",
-    "go": "Aller"
+    "go": "Aller",
+    "upToDate": "« {title} » est à jour",
+    "copiedEvent": "« {title} » copié",
+    "addedCalendar": "« {title} » ajouté",
+    "subscribedTo": "Abonné à « {title} »"
   },
   "contacts": {
     "title": "Contacts",
@@ -1224,8 +1218,6 @@
     "month": "Mois",
     "year": "Année",
     "fieldMonth": "{label}, mois",
-    "fieldDay": "{label}, jour",
-    "fieldYear": "{label}, année",
     "photo": {
       "aria": "Photo du contact",
       "title": "Photo du contact",
@@ -1677,7 +1669,6 @@
     "newAlbum": "Nouvel album",
     "newAlbumOrFolder": "Nouvel album ou dossier",
     "newEvent": "Nouvel événement",
-    "newEvent2": "Nouvel événement",
     "next": "Suivant",
     "nextcloudServer": "Serveur Nextcloud",
     "noFoldersHere": "Aucun dossier ici.",

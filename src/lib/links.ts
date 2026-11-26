@@ -12,7 +12,7 @@ import { t } from "./i18n.ts";
  */
 
 /** The kinds of address handed to the computer: everything else is refused. */
-export const OUTSIDE_SCHEMES = ["http:", "https:", "mailto:", "tel:", "geo:"] as const;
+const OUTSIDE_SCHEMES = ["http:", "https:", "mailto:", "tel:", "geo:"] as const;
 
 /** What a refused link says, once, when clicked. */
 /** What a link Skykeep will not open says, in the interface's language. */

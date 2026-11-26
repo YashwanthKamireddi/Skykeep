@@ -24,7 +24,7 @@ export function onFlush(fn: () => Promise<unknown> | unknown): () => void {
 }
 
 /** Every registered save, at once; one that fails does not keep the others from finishing. */
-export async function flushAll(): Promise<void> {
+async function flushAll(): Promise<void> {
   await Promise.allSettled([...flushers].map(async (fn) => fn()));
 }
 

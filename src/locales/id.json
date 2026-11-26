@@ -1,23 +1,19 @@
 {
   "common": {
     "cancel": "Batalkan",
-    "confirm": "Konfirmasi",
     "done": "Selesai",
     "save": "Simpan",
     "delete": "Hapus",
-    "remove": "Hapus",
     "open": "Buka",
     "close": "Tutup",
     "search": "Cari",
     "notNow": "Nanti",
     "showInFolder": "Tampilkan di Folder",
-    "copy": "Salin",
     "clear": "Bersihkan",
     "clearing": "Membersihkan…",
     "cancelling": "Membatalkan…",
     "gettingReady": "Bersiap-siap…",
     "none": "Tidak Ada",
-    "error": "Kesalahan",
     "somethingWentWrong": "Terjadi kesalahan. Coba lagi.",
     "checkingSession": "Memeriksa sesi Anda…",
     "updateNow": "Perbarui Sekarang",
@@ -68,8 +64,6 @@
     "appUnavailable": "{name} tidak tersedia"
   },
   "settings": {
-    "title": "Pengaturan",
-    "account": "Akun",
     "yourAppleAccount": "Akun Apple Anda",
     "storageUsed": "Terpakai {used} dari {total}",
     "storageAvailable": "{available} tersedia",
@@ -92,7 +86,6 @@
     "readingDrive": "Membaca iCloud Drive",
     "notInBackup": "Tidak ada di cadangan",
     "includeHidden": "Sertakan album Tersembunyi",
-    "photos": "Foto",
     "icloudDrive": "iCloud Drive",
     "driveHint": "Setiap file, beserta versi sebelumnya dari file yang diubah",
     "exportCopy": "Ekspor Salinan",
@@ -272,7 +265,6 @@
     "privacyDetail6Text": "Dibuat oleh pengembang independen dan tidak berafiliasi dengan Apple. Skykeep menggunakan layanan web yang sama dengan icloud.com, yang dapat diubah Apple kapan saja."
   },
   "codeEntry": {
-    "title": "Autentikasi Dua Faktor",
     "enterCode": "Masukkan kode",
     "securityKeyTitle": "Akun ini menggunakan kunci keamanan",
     "securityKeyLede": "Akun Apple Anda menggunakan kunci keamanan untuk masuk. Skykeep belum mendukung proses masuk dengan kunci keamanan, sehingga proses masuk ke akun ini tidak dapat diselesaikan.",
@@ -302,7 +294,6 @@
     "digitAria": "Digit {n}"
   },
   "launcher": {
-    "hint": "Perubahan dari perangkat Anda yang lain akan tiba dalam hitungan detik.",
     "syncNow": "Sinkronkan Sekarang",
     "appsAria": "Aplikasi Anda",
     "notesCount": "{count} catatan",
@@ -999,7 +990,6 @@
     },
     "completeReminder": "Selesaikan {title}",
     "delete": "Hapus",
-    "remove": "Hapus",
     "unsubscribe": "Berhenti Berlangganan",
     "deleteTitle": "Hapus “{title}”?",
     "deleted": "“{title}” dihapus",
@@ -1090,7 +1080,11 @@
     "showInReminders": "Tampilkan di Pengingat",
     "approveInBrowser": "Setujui Skykeep pada halaman yang terbuka di browser Anda. Setelah disetujui, proses akan selesai otomatis di sini.",
     "weekNumber": "Minggu ke-{n}",
-    "go": "Buka"
+    "go": "Buka",
+    "upToDate": "“{title}” sudah terbaru",
+    "copiedEvent": "“{title}” disalin",
+    "addedCalendar": "“{title}” ditambahkan",
+    "subscribedTo": "Berlangganan “{title}”"
   },
   "contacts": {
     "title": "Kontak",
@@ -1224,8 +1218,6 @@
     "month": "Bulan",
     "year": "Tahun",
     "fieldMonth": "{label}, bulan",
-    "fieldDay": "{label}, hari",
-    "fieldYear": "{label}, tahun",
     "photo": {
       "aria": "Foto kontak",
       "title": "Foto Kontak",
@@ -1677,7 +1669,6 @@
     "newAlbum": "Album Baru",
     "newAlbumOrFolder": "Album atau Folder Baru",
     "newEvent": "Acara Baru",
-    "newEvent2": "Acara baru",
     "next": "Berikutnya",
     "nextcloudServer": "Server Nextcloud",
     "noFoldersHere": "Tidak ada folder di sini.",

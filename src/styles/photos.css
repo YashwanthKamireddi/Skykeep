@@ -28,8 +28,6 @@
 .px-glyph { flex: none; color: var(--accent-strong); }
 .px-albums { display: flex; flex-direction: column; gap: 1px; }
 .px-side-gap { margin-top: var(--source-gap); }
-.px-side-row { display: flex; align-items: center; justify-content: space-between; margin-top: 10px; }
-.px-side-row .px-side-heading { margin-bottom: 4px; }
 /* The library switcher, under the Photos heading, as wide as a row. */
 .px-library { display: flex; margin: 0 0 6px; }
 .px-library .picker-button { flex: 1; justify-content: space-between; }
@@ -705,7 +703,6 @@
 .px-search { width: 200px; }
 @media (max-width: 1000px) { .px-search { width: 140px; } }
 .px-naming { width: 100%; }
-.px-shared-name { width: 100%; min-height: 34px; font-size: var(--t-15); }
 /* Hidden's password sheet: the field the sheet's width, and a wrong password said under it. */
 .px-unlock .field { width: 100%; min-height: 34px; font-size: var(--t-15); }
 .px-unlock .px-unlock-hello { width: 100%; margin-top: 8px; }

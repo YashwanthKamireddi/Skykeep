@@ -9,7 +9,7 @@
  */
 
 /** The families Apple's own file browser tints apart. */
-export type FileFamily =
+type FileFamily =
   | "folder"
   | "app"
   | "image"
@@ -51,7 +51,7 @@ const TINT: Record<FileFamily, string> = {
   other: "#94a3b8",
 };
 
-export function familyOf(kind: string, extension: string | null): FileFamily {
+function familyOf(kind: string, extension: string | null): FileFamily {
   if (kind === "FOLDER") return "folder";
   if (kind === "APP_LIBRARY") return "app";
   return BY_EXTENSION[(extension ?? "").toLowerCase()] ?? "other";
@@ -110,7 +110,7 @@ export function FileGlyph({ kind, extension }: { kind: string; extension: string
 }
 
 /** Actions on a row, at the same weight as everything else drawn here. */
-export type ActionName = "download" | "rename" | "move" | "delete" | "upload" | "newFolder" | "info";
+type ActionName = "download" | "rename" | "move" | "delete" | "upload" | "newFolder" | "info";
 
 const ACTIONS: Record<ActionName, React.ReactNode> = {
   download: <path d="M8 2.8v7.4M4.8 7.2 8 10.4l3.2-3.2M3.2 12.6h9.6" />,

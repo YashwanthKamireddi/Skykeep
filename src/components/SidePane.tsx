@@ -18,13 +18,13 @@ import { modalOpen } from "../lib/screen";
 import { useI18n } from "../lib/i18n";
 
 /** Every app's sidebar, of which an app's window holds one. */
-export const SIDEBARS = ".notes-folders, .contacts-lists, .rx-side, .px-side, .cx-side, .dx-side";
+const SIDEBARS = ".notes-folders, .contacts-lists, .rx-side, .px-side, .cx-side, .dx-side";
 
 const remembered = (app: string) => `skykeep.sidebar.${app}`;
 
 /** Asked of the window by an app with its own way to the sidebar (Calendar's More menu in a
  *  narrow window); `returnTo` takes the focus back when it is put away. */
-export const SIDEBAR_ASKED = "skykeep:sidebar";
+const SIDEBAR_ASKED = "skykeep:sidebar";
 export const askForSidebar = (returnTo: HTMLElement | null) =>
   window.dispatchEvent(new CustomEvent(SIDEBAR_ASKED, { detail: { returnTo } }));
 

@@ -2,7 +2,7 @@ import { convertFileSrc, invoke } from "@tauri-apps/api/core";
 import { personName } from "./names.ts";
 import { t, type Key } from "./i18n.ts";
 
-export type Status = {
+type Status = {
   hasStoredSession: boolean;
   signedIn: boolean;
   libraryReady: boolean;
@@ -133,7 +133,7 @@ export type DownloadReport = {
 };
 
 /** A download that did not finish, from before — cancelled, stopped, or cut off by quitting. */
-export type UnfinishedDownload = { key: string; title: string; items: DriveItem[]; saved: string[] };
+type UnfinishedDownload = { key: string; title: string; items: DriveItem[]; saved: string[] };
 
 /** Told whenever Skykeep's own update moves on; each window asks for its status again. */
 export const UPDATE = "quince://update";
@@ -594,7 +594,7 @@ export function defaultCalendar(calendars: Calendar[]): Calendar | null {
 }
 
 /** What the app sends to create or change an event. A guid means it already exists. */
-export type EventWrite = {
+type EventWrite = {
   guid: string | null;
   calendarGuid: string;
   title: string;
@@ -656,7 +656,7 @@ export type CalendarEvent = {
   etag: string | null;
 };
 
-export type SyncSummary = { calendars: number; events: number };
+type SyncSummary = { calendars: number; events: number };
 
 export type ReminderList = {
   guid: string;
@@ -712,10 +712,10 @@ export type ReminderCounts = {
 export const MOST_AT_ONCE = 1000;
 
 /** How often a reminder comes back. Frequency: 0 daily, 1 weekly, 2 monthly, 3 yearly. */
-export type Repeat = { frequency: number; interval: number };
+type Repeat = { frequency: number; interval: number };
 
 /** Anything omitted is left untouched; `null` clears a field. */
-export type ReminderEdit = {
+type ReminderEdit = {
   title?: string;
   notes?: string | null;
   dueAt?: number | null;
@@ -911,7 +911,7 @@ export function pictureSrc(id: string, size: "thumb" | "medium" | "full" | "orig
 }
 
 /** The longer sides a picture is made at for the screen (photos.rs FITS). */
-export const FITS = [128, 256, 384, 512, 768, 1024, 1536, 2048, 2560, 3072, 3840];
+const FITS = [128, 256, 384, 512, 768, 1024, 1536, 2048, 2560, 3072, 3840];
 
 /**
  * A photo's picture made `long` device pixels on its longer side — the step at or above it —
@@ -930,7 +930,7 @@ export function fitSrc(photo: string | Pick<Photo, "id" | "master">, long: numbe
  * pixels, so the engine keeps the picture for good (the scheme says so for a marked address)
  * and never asks for it again; a photo whose original changed has a new address and is fetched.
  */
-export function pictureVersion(master: string): string {
+function pictureVersion(master: string): string {
   let h = 0x811c9dc5;
   for (let i = 0; i < master.length; i++) h = Math.imul(h ^ master.charCodeAt(i), 0x01000193) >>> 0;
   return h.toString(36);
@@ -1057,7 +1057,7 @@ function textHash(text: string): string {
 
 /** One thing the search across everything found (search.rs `Hit`): marks are [start, end)
  * in UTF-16 units, where the typed words fall. */
-export type SearchHit = {
+type SearchHit = {
   id: string;
   within: string | null;
   title: string;
@@ -1069,8 +1069,8 @@ export type SearchHit = {
   picture: boolean;
   locked: boolean;
 };
-export type SearchGroup = { app: string; count: number; hits: SearchHit[] };
-export type SearchFound = { seq: number; groups: SearchGroup[] };
+type SearchGroup = { app: string; count: number; hits: SearchHit[] };
+type SearchFound = { seq: number; groups: SearchGroup[] };
 
 export function displayName(c: Contact): string {
   // A company's card goes by the company, as Contacts shows it, whoever is named on it.
@@ -1085,7 +1085,7 @@ export function displayName(c: Contact): string {
 /** A folder as Apple holds it now against how it was shown (`drive::FolderNow`). */
 export type FolderNow = { items: number; added: number; changed: number; gone: number; etag: string | null };
 /** What a delete from the window did: done, or not — the folder changed since it was shown. */
-export type DriveRemoved = { kind: "done" } | ({ kind: "changed" } & FolderNow);
+type DriveRemoved = { kind: "done" } | ({ kind: "changed" } & FolderNow);
 
 export type DriveItem = {
   drivewsid: string;
@@ -1122,7 +1122,7 @@ export const isContainer = (item: DriveItem) =>
   item.kind === "FOLDER" || item.kind === "APP_LIBRARY";
 
 /** The container an item belongs to: the middle of `<TYPE>::<zone>::<id>`. */
-export const zoneOf = (drivewsid: string): string | null =>
+const zoneOf = (drivewsid: string): string | null =>
   drivewsid.split("::")[1] || null;
 
 /**
@@ -1444,10 +1444,10 @@ export type ReminderSmartList = {
 };
 
 /** What a custom smart list holds now, and any part of its rules not read here. */
-export type SmartListContents = { reminders: Reminder[]; unknown: string[] };
+type SmartListContents = { reminders: Reminder[]; unknown: string[] };
 
 /** Each reminder still to do with its tags, and how many each custom smart list holds, by id. */
-export type ReminderExtras = { tagsByReminder: Record<string, string[]>; customCounts: Record<string, number> };
+type ReminderExtras = { tagsByReminder: Record<string, string[]>; customCounts: Record<string, number> };
 
 /** Told as Urgent is read from Apple for rows whose marks came back without it. */
 export const REMINDER_URGENT = "quince://reminder-urgent";
@@ -1486,7 +1486,7 @@ export const remindersApi = {
 export type UnlockedNote = { body: string; runs: import("../screens/notes/Formatted").Run[] };
 
 /** A file added to a note: where it landed and the note's text with it in place. */
-export type NoteAttached = { attachment: string; media: string; uti: string; offset: number; body: string };
+type NoteAttached = { attachment: string; media: string; uti: string; offset: number; body: string };
 
 /** Locked notes and attachments (src-tauri/src/notes_cmds.rs). */
 export const notesLockApi = {
@@ -1523,7 +1523,7 @@ export const EXPORT_CANCELLED = "Export cancelled.";
 export type ExportService = "notes" | "reminders" | "contacts" | "calendar" | "drive" | "photos";
 /** Which service (`step` of `steps`, from 1) and how far through it. */
 export type ExportProgress = { service: ExportService; step: number; steps: number; done: number; total: number };
-export type ExportSummary = {
+type ExportSummary = {
   path: string;
   notes: number;
   reminders: number;

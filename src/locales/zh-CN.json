@@ -1,23 +1,19 @@
 {
   "common": {
     "cancel": "取消",
-    "confirm": "确认",
     "done": "完成",
     "save": "存储",
     "delete": "删除",
-    "remove": "移除",
     "open": "打开",
     "close": "关闭",
     "search": "搜索",
     "notNow": "以后",
     "showInFolder": "在文件夹中显示",
-    "copy": "拷贝",
     "clear": "清理",
     "clearing": "正在清理…",
     "cancelling": "正在取消…",
     "gettingReady": "正在准备…",
     "none": "无",
-    "error": "错误",
     "somethingWentWrong": "发生错误，请重试。",
     "checkingSession": "正在检查您的会话…",
     "updateNow": "现在更新",
@@ -68,8 +64,6 @@
     "appUnavailable": "{name}不可用"
   },
   "settings": {
-    "title": "设置",
-    "account": "账户",
     "yourAppleAccount": "您的 Apple 账户",
     "storageUsed": "已使用 {used}，共 {total}",
     "storageAvailable": "{available} 可用",
@@ -92,7 +86,6 @@
     "readingDrive": "正在读取 iCloud 云盘",
     "notInBackup": "未包含在备份中",
     "includeHidden": "包含“已隐藏”相簿",
-    "photos": "照片",
     "icloudDrive": "iCloud 云盘",
     "driveHint": "所有文件，并保留已更改文件的早期版本",
     "exportCopy": "导出副本",
@@ -272,7 +265,6 @@
     "privacyDetail6Text": "由独立开发者制作，与 Apple 无关。它使用 icloud.com 使用的 Web 服务，Apple 可能随时对其进行更改。"
   },
   "codeEntry": {
-    "title": "双重认证",
     "enterCode": "输入验证码",
     "securityKeyTitle": "此账户使用了安全密钥",
     "securityKeyLede": "您的 Apple 账户使用安全密钥登录。Skykeep 尚不支持安全密钥登录，因此无法完成对此账户的登录。",
@@ -302,7 +294,6 @@
     "digitAria": "第 {n} 位"
   },
   "launcher": {
-    "hint": "来自其他设备的更改将在数秒内同步到达。",
     "syncNow": "立即同步",
     "appsAria": "您的应用",
     "notesCount": "{count} 条备忘录",
@@ -999,7 +990,6 @@
     },
     "completeReminder": "完成“{title}”",
     "delete": "删除",
-    "remove": "移除",
     "unsubscribe": "取消订阅",
     "deleteTitle": "删除“{title}”？",
     "deleted": "已删除“{title}”",
@@ -1090,7 +1080,11 @@
     "showInReminders": "在提醒事项中显示",
     "approveInBrowser": "请在浏览器中打开的页面上批准 Skykeep。之后会在这里自动完成。",
     "weekNumber": "第 {n} 周",
-    "go": "前往"
+    "go": "前往",
+    "upToDate": "“{title}”已是最新",
+    "copiedEvent": "已拷贝“{title}”",
+    "addedCalendar": "已添加“{title}”",
+    "subscribedTo": "已订阅“{title}”"
   },
   "contacts": {
     "title": "通讯录",
@@ -1224,8 +1218,6 @@
     "month": "月",
     "year": "年",
     "fieldMonth": "{label}，月",
-    "fieldDay": "{label}，日",
-    "fieldYear": "{label}，年",
     "photo": {
       "aria": "联系人照片",
       "title": "联系人照片",
@@ -1677,7 +1669,6 @@
     "newAlbum": "新建相簿",
     "newAlbumOrFolder": "新建相簿或文件夹",
     "newEvent": "新日程",
-    "newEvent2": "新日程",
     "next": "下一个",
     "nextcloudServer": "Nextcloud 服务器",
     "noFoldersHere": "这里没有文件夹。",

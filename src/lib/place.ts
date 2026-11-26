@@ -5,7 +5,7 @@
  * that what it finds here still exists before it uses it: a folder deleted meanwhile falls back
  * to the app's own start.
  */
-export type Place<C> = { container: C; item: string | null };
+type Place<C> = { container: C; item: string | null };
 
 const key = (app: string) => `quince.${app}.place`;
 

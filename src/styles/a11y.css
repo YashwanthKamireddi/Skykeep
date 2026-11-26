@@ -208,7 +208,7 @@
   /* Glyphs drawn in an app's or a calendar's colour take the text colour. Colours that are
      the content — a swatch to choose, a calendar's dot — keep theirs, with an edge. */
   svg.lucide { stroke: currentColor; }
-  :is(.cx-dot, .rx-info-colours > *, .fp-colour, .cx-cal-swatch, .rx-tile-glyph, .rx-list-mark) {
+  :is(.cx-dot, .rx-info-colours > *, .fp-colour, .rx-tile-glyph) {
     forced-color-adjust: none;
     border: 1px solid CanvasText;
   }
@@ -222,6 +222,6 @@
 
   /* Separators drawn as a background line. */
   hr { border-color: CanvasText; }
-  .scrim, .modal-veil { background: transparent; }
+  .modal-veil { background: transparent; }
   ::-webkit-scrollbar-thumb { background: CanvasText padding-box; }
 }

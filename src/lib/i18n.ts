@@ -43,7 +43,7 @@ const listeners = new Set<() => void>();
 const notify = () => listeners.forEach((l) => l());
 
 /** Subscribe to language changes (compatible with useSyncExternalStore). */
-export function subscribeLanguage(listener: () => void) {
+function subscribeLanguage(listener: () => void) {
   listeners.add(listener);
   return () => {
     listeners.delete(listener);

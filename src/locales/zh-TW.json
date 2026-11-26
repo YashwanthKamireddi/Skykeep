@@ -1,23 +1,19 @@
 {
   "common": {
     "cancel": "取消",
-    "confirm": "確認",
     "done": "完成",
     "save": "儲存",
     "delete": "刪除",
-    "remove": "移除",
     "open": "打開",
     "close": "關閉",
     "search": "搜尋",
     "notNow": "現在不要",
     "showInFolder": "在檔案夾中顯示",
-    "copy": "拷貝",
     "clear": "清除",
     "clearing": "正在清除…",
     "cancelling": "正在取消…",
     "gettingReady": "正在準備…",
     "none": "無",
-    "error": "錯誤",
     "somethingWentWrong": "發生錯誤。請再試一次。",
     "checkingSession": "正在檢查你的工作階段…",
     "updateNow": "立即更新",
@@ -68,8 +64,6 @@
     "appUnavailable": "{name}無法使用"
   },
   "settings": {
-    "title": "設定",
-    "account": "帳號",
     "yourAppleAccount": "你的 Apple 帳號",
     "storageUsed": "已使用 {used}（共 {total}）",
     "storageAvailable": "{available} 可用",
@@ -92,7 +86,6 @@
     "readingDrive": "正在讀取 iCloud 雲碟",
     "notInBackup": "不在備份中",
     "includeHidden": "包含「已隱藏」相簿",
-    "photos": "照片",
     "icloudDrive": "iCloud 雲碟",
     "driveHint": "所有檔案，並保留已變更檔案的較早版本",
     "exportCopy": "匯出副本",
@@ -272,7 +265,6 @@
     "privacyDetail6Text": "由獨立開發者製作，與 Apple 無關。它使用 icloud.com 所用的網路服務，Apple 隨時可能變更這些服務。"
   },
   "codeEntry": {
-    "title": "雙重認證",
     "enterCode": "輸入驗證碼",
     "securityKeyTitle": "此帳號使用安全金鑰",
     "securityKeyLede": "你的 Apple 帳號使用安全金鑰登入。Skykeep 尚無法使用安全金鑰登入，因此無法完成此帳號的登入。",
@@ -302,7 +294,6 @@
     "digitAria": "第 {n} 位數"
   },
   "launcher": {
-    "hint": "你其他裝置上的變更會在數秒內同步過來。",
     "syncNow": "立即同步",
     "appsAria": "你的 App",
     "notesCount": "{count} 則備忘錄",
@@ -999,7 +990,6 @@
     },
     "completeReminder": "完成「{title}」",
     "delete": "刪除",
-    "remove": "移除",
     "unsubscribe": "取消訂閱",
     "deleteTitle": "要刪除「{title}」嗎？",
     "deleted": "已刪除「{title}」",
@@ -1090,7 +1080,11 @@
     "showInReminders": "在「提醒事項」中顯示",
     "approveInBrowser": "請在瀏覽器打開的頁面中核准 Skykeep，這裡會自動完成剩下的步驟。",
     "weekNumber": "第 {n} 週",
-    "go": "前往"
+    "go": "前往",
+    "upToDate": "「{title}」已是最新",
+    "copiedEvent": "已拷貝「{title}」",
+    "addedCalendar": "已加入「{title}」",
+    "subscribedTo": "已訂閱「{title}」"
   },
   "contacts": {
     "title": "聯絡人",
@@ -1224,8 +1218,6 @@
     "month": "月",
     "year": "年",
     "fieldMonth": "{label}，月",
-    "fieldDay": "{label}，日",
-    "fieldYear": "{label}，年",
     "photo": {
       "aria": "聯絡人照片",
       "title": "聯絡人照片",
@@ -1677,7 +1669,6 @@
     "newAlbum": "新增相簿",
     "newAlbumOrFolder": "新增相簿或檔案夾",
     "newEvent": "新增行程",
-    "newEvent2": "新行程",
     "next": "下一個",
     "nextcloudServer": "Nextcloud 伺服器",
     "noFoldersHere": "這裡沒有檔案夾。",

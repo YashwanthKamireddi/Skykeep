@@ -14,7 +14,7 @@ import { Portal } from "./Portal";
 import { useModalFocus } from "../lib/focus";
 import { useI18n } from "../lib/i18n";
 
-export type Choice<T> = {
+type Choice<T> = {
   label: string;
   value: T;
   /** The filled button: what Return does. */
@@ -100,7 +100,7 @@ export function ConfirmSheet<T>({
   );
 }
 
-export type Question = {
+type Question = {
   title: string;
   body?: string;
   /** The word on the button that goes ahead. */

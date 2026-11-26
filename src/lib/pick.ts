@@ -5,7 +5,7 @@ import { invoke } from "@tauri-apps/api/core";
  * only kind (with one dropped on the window, or opened with Skykeep) that the commands which
  * read or write files will accept: the window itself cannot name a file (src-tauri/src/grants.rs).
  */
-export type PickFilter = { name: string; extensions: string[] };
+type PickFilter = { name: string; extensions: string[] };
 
 /** What was chosen, or null when the dialog was cancelled. */
 export async function pickOpen(options: {

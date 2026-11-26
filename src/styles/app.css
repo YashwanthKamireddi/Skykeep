@@ -285,54 +285,16 @@
 /* Chrome, so it gets the veil. The content pane deliberately does not — a veil never lies
    over content, and a photo grid is exactly the thing it would fight. */
 
-/* One statement of freshness for the whole library, and the one control that refreshes it.
-   Quiet by default — it is status, not an action anyone has to take. */
-/* Nothing to vouch for yet — never synced, or not available: grey, not the all-clear green. */
 
-.sync-label {
-  flex: 1;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
 
-.sync-glyph {
-  flex: none;
-  color: var(--text-3);
-  line-height: 1;
-}
 
-.sync-glyph.spinning { animation: sync-spin 800ms linear infinite; }
 
 @keyframes sync-spin {
   to { transform: rotate(360deg); }
 }
 
-.sync-disclose,
-.sync-trouble {
-  margin: 0;
-  padding: 2px 8px 4px;
-  border: 0;
-  background: none;
-  font: inherit;
-  font-size: var(--t-11);
-  color: var(--danger);
-  text-align: left;
-  cursor: pointer;
-}
 
-.sync-trouble { cursor: default; }
 
-.sync-trouble-list {
-  margin: 0;
-  padding: 0 8px 4px;
-  list-style: none;
-  font-size: var(--t-11);
-  color: var(--text-2);
-  display: flex;
-  flex-direction: column;
-  gap: 4px;
-}
 
 /* Folded: the icons alone, centred, names gone; the foot keeps only its status dot. */
 @media (prefers-reduced-motion: reduce) { .content { transition: none; } }
@@ -957,12 +919,6 @@
      made WebKitGTK build a compositing layer on the first frame, and the menu flashed. */
 }
 
-@keyframes picker-in {
-  from { opacity: 0; transform: translateY(-3px); }
-  to { opacity: 1; transform: none; }
-}
-@media (prefers-reduced-motion: reduce) { .picker-menu { animation: none; } }
-
 /* A menu's rows: 24px, the highlight rounded to 8. */
 .picker-menu li {
   display: flex;
@@ -1140,11 +1096,6 @@
   padding: 18px 2px 10px;
 }
 
-.rem-nolists-line {
-  margin: 0;
-  color: var(--text-2);
-  font-size: var(--t-13);
-}
 
 /* Read aloud but not drawn — the full wording of a repeat, where the row shows the short one. */
 .visually-hidden {
@@ -1519,7 +1470,6 @@
 
 /* ── Settings, as System Settings lays it out ─────────────────────────────────────────── */
 .settings { max-width: 640px; margin: 0 auto; padding-bottom: 40px; }
-.content .settings-title { margin: 0 0 18px; font-size: var(--t-28); font-weight: 700; letter-spacing: -0.02em; }
 .settings-heading { margin: 22px 12px 6px; font-size: var(--t-13); font-weight: 600; color: var(--text-2); }
 .settings-group {
   border-radius: 12px;
@@ -1548,23 +1498,9 @@
 .settings-hint { color: var(--text-2); font-size: var(--t-11); line-height: 1.4; }
 .settings-value { color: var(--text-2); font-variant-numeric: tabular-nums; text-align: right; }
 .settings-value.is-trouble { color: var(--danger); max-width: 60%; }
-/* A section whose figure belongs to all of it carries it on its heading's line. */
-.settings-heading-line { display: flex; justify-content: space-between; gap: 10px; margin-right: 14px; }
-.settings-heading-value { font-weight: 400; font-variant-numeric: tabular-nums; }
-/* The mark of a row no app's icon fits: a plain tile the apps' icons' size and shape. */
-.settings-glyph {
-  flex: none; display: grid; place-items: center; width: 22px; height: 22px; border-radius: 5px;
-  color: #fff; background: linear-gradient(#7a8796, #5a6472);
-}
 .settings-stack .settings-hint.settings-hint-wrap { white-space: normal; }
 .settings-row > .quiet { flex: none; }
 .settings-value { flex: none; }
-.settings-note { margin: 8px 12px 0; color: var(--text-2); font-size: var(--t-11); }
-.settings-account { display: flex; align-items: center; gap: 14px; padding: 14px 16px; }
-.settings-account-text { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 2px; }
-.settings-account-text strong { font-size: var(--t-17); font-weight: 600; }
-.settings-account-text span { color: var(--text-2); font-size: var(--t-13); overflow: hidden; text-overflow: ellipsis; }
-.settings-account-text .settings-account-note { font-size: var(--t-12); overflow: visible; text-overflow: clip; text-wrap: pretty; }
 .storage-bar { height: 8px; border-radius: var(--r-pill); background: color-mix(in srgb, var(--text) 10%, transparent); overflow: hidden; }
 .storage-bar > span { display: block; height: 100%; border-radius: inherit; background: var(--accent); }
 
@@ -1669,17 +1605,6 @@
 }
 .drive-bar .drive-title { flex: 1 1 14ch; }
 
-/* Photos Cache: the cap as a ruler of the sizes offered — the native slider for the hand and the
-   keys, its stops named under it, each placed under the slider's own position for it. */
-.cap-ruler { --thumb: 18px; display: flex; flex-direction: column; gap: 2px; }
-.cap-ruler input[type="range"] { width: 100%; margin: 0; accent-color: var(--accent); cursor: pointer; }
-.cap-ruler-stops { position: relative; height: 16px; margin: 0 calc(var(--thumb) / 2); }
-.cap-ruler-stops button {
-  position: absolute; top: 0; transform: translateX(-50%);
-  padding: 0 2px; border: 0; background: none; cursor: pointer;
-  color: var(--text-2); font: inherit; font-size: var(--t-11); font-variant-numeric: tabular-nums; white-space: nowrap;
-}
-.cap-ruler-stops button.is-here { color: var(--text); font-weight: 600; }
 
 /* ── Contacts: every field, the photo, duplicates ─────────────────────────────────────────
    The editor grows by what a card holds — a nickname or a job title appears only once it is
@@ -1937,10 +1862,6 @@
    moves nothing (motion flickered on WebKitGTK). Only an app updating animates: a small ring
    turned by the compositor. */
 .launcher { margin: 6px 0 26px; }
-.launcher-head {
-  display: flex; align-items: center; justify-content: space-between; gap: 12px;
-  margin: 0 4px 10px;
-}
 .launcher-grid { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 12px; }
 @media (max-width: 640px) { .launcher-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
 .launch-tile {

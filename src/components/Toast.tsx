@@ -15,8 +15,8 @@ import { t as translate } from "../lib/i18n";
  * Every screen used to say these its own way, in its own corner: a red bar floating over a
  * list, a line of blue under a toolbar, a pill at the bottom of the window, a box at the left.
  */
-export type ToastAction = { label: string; run: () => void };
-export type ToastInput = {
+type ToastAction = { label: string; run: () => void };
+type ToastInput = {
   message: string;
   /** "done" carries a check; "error" a warning, and stays until put away. */
   tone?: "info" | "done" | "error";
@@ -211,7 +211,7 @@ function ToastCard({ toast: t }: { toast: Toast }) {
 }
 
 /** Where a file went, as a person names it: the folder, never the whole path from the root. */
-export function folderOf(path: string): string {
+function folderOf(path: string): string {
   const parts = path.split(/[\\/]+/).filter(Boolean);
   return parts.length > 1 ? parts[parts.length - 2] : "your computer";
 }
@@ -236,7 +236,7 @@ export function toastSaved(path: string, count = 1) {
  * action to take), plus about a quarter of a second for each word past the first five, and
  * never more than twelve — a long file name read in four seconds was gone before it was read.
  */
-export function readingTime(message: string, hasAction: boolean): number {
+function readingTime(message: string, hasAction: boolean): number {
   const words = message.trim().split(/\s+/).filter(Boolean).length;
   const base = hasAction ? 8000 : 5000;
   return Math.min(12000, base + Math.max(0, words - 5) * 250);

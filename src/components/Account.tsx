@@ -24,7 +24,7 @@ import { useI18n } from "../lib/i18n";
 import { shortFailure } from "../lib/failureWords";
 
 /** "Asha Rao" → "AR"; an address → its first letter. */
-export function initialsOf(name: string): string {
+function initialsOf(name: string): string {
   const words = name.split(/[\s@._-]+/).filter(Boolean);
   if (words.length === 0) return "";
   if (name.includes("@") || words.length === 1) return words[0][0]!.toUpperCase();
@@ -45,7 +45,7 @@ export function AccountAvatar({ account, large }: { account: AccountInfo | null;
 }
 
 /** The app in front, as the account's footer speaks for it: its sync service and its name. */
-export type FooterApp = { service: string; name: string };
+type FooterApp = { service: string; name: string };
 
 /**
  * The account at the foot of the sidebar — who is signed in and how fresh their iCloud is —

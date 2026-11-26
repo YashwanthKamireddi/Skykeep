@@ -27,7 +27,7 @@ const spans = new WeakMap<Transaction, Span>();
  * move nothing, so their maps are empty); the documents alone miss text replaced by the same
  * text, which still drops what was drawn there. Null when nothing changed.
  */
-export function changedSpan(tr: Transaction): Span {
+function changedSpan(tr: Transaction): Span {
   if (!tr.docChanged) return null;
   // Worked out once a change, for all three drawings.
   if (spans.has(tr)) return spans.get(tr) ?? null;
@@ -113,7 +113,7 @@ function redrawText(tr: Transaction, was: DecorationSet, scan: Scan): Decoration
  * sentence's full stop or a bracket is not part of it. */
 const ADDRESS = /\b(?:https?:\/\/|www\.)[^\s<>"'`]*[^\s<>"'`.,;:!?)\]}]/gi;
 
-export type Found = { from: number; to: number; href: string };
+type Found = { from: number; to: number; href: string };
 
 /** The addresses in a piece of text, with where each starts and ends, and what it opens. */
 export function addressesIn(text: string): Found[] {

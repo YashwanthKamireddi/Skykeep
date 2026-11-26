@@ -52,7 +52,7 @@ type Sync = {
 const Context = createContext<Sync | null>(null);
 
 /** The least time between refreshes brought on by coming back to the window. */
-export const RETURN_THROTTLE_MS = 30_000;
+const RETURN_THROTTLE_MS = 30_000;
 
 /**
  * The service an app's screen is kept by, as the backend names it (`sync_some`). Drive's screen
@@ -309,7 +309,7 @@ export function useItemChanges(service: string, apply: (items: ItemChanges) => v
 }
 
 /** Two passes' items as one: an id named twice is read again once, as changed. */
-export function joinItems(a: ItemChanges | null, b: ItemChanges): ItemChanges {
+function joinItems(a: ItemChanges | null, b: ItemChanges): ItemChanges {
   if (!a) return b;
   const named = new Set([...a.added, ...a.changed, ...a.removed]);
   const twice = new Set([...b.added, ...b.changed, ...b.removed].filter((id) => named.has(id)));
@@ -371,7 +371,7 @@ export function useArriving(service: string): boolean {
 const PREPARING = "Apple is still preparing your photo library. It will appear here when it's ready.";
 
 /** One service as an app shows it: whether it is being fetched, and how it last went. */
-export type ServiceState = {
+type ServiceState = {
   /** Being fetched now — on its own, or as part of a whole-account pass it has not landed from. */
   working: boolean;
   /** Why it did not update, when it did not. */

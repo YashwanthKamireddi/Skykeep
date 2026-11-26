@@ -122,9 +122,9 @@ export function finish(line: DownloadLine, report: DownloadReport | null, error:
   if (report && report.moreFailed > 0) line.failedCount = Math.max(line.failedCount, report.failed.length + report.moreFailed);
 }
 
-export type Tone = "sending" | "done" | "failed" | "cancelled";
+type Tone = "sending" | "done" | "failed" | "cancelled";
 
-export type LineView = {
+type LineView = {
   batch: string;
   title: string;
   running: boolean;
