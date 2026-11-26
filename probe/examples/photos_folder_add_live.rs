@@ -76,9 +76,9 @@ impl Remote for Photos {
     fn accepts(&self, folder: &DriveItem) -> bool {
         folder.drivewsid == LIBRARY
     }
-    fn upload(&self, folder: &DriveItem, path: &std::path::Path) -> Fut<DriveItem> {
+    fn upload(&self, folder: &DriveItem, path: &std::path::Path) -> quince_vfs::Sends<DriveItem> {
         let (me, folder, path) = (self.clone(), folder.drivewsid.clone(), path.to_path_buf());
-        Box::pin(async move {
+        quince_vfs::sends(async move {
             let name = path.file_name().unwrap().to_string_lossy().into_owned();
             let c = &me.ctx;
             let library =

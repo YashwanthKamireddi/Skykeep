@@ -1246,26 +1246,6 @@ export type PhotoCache = {
 };
 /** Told when the cache changed in the background (a trim after the cap was lowered). */
 export const PHOTO_CACHE = "quince://photo-cache";
-/** The iPhone as this computer's camera and microphone (src-tauri/src/iphone.rs). */
-export type IphoneStatus = {
-  /** "unavailable": no iPhone link in this build or system. */
-  state: "unavailable" | "off" | "none" | "plugged" | "inUse" | "cameraPaused" | "micOnly";
-  cameraMs: number | null;
-  microphoneMs: number | null;
-  /** The camera for every program (a webcam device): "setUp" is one admin prompt away. */
-  everyApp: "ready" | "setUp" | "install";
-};
-
-/** Each change of the iPhone's state. */
-export const IPHONE_CHANGED = "quince://iphone";
-
-export const iphoneApi = {
-  status: () => invoke<IphoneStatus>("iphone_status"),
-  /** On or off, kept on this computer; off stops everything at once. */
-  set: (on: boolean) => invoke<IphoneStatus>("iphone_set", { on }),
-  /** One admin prompt; answers what is true after (cancelled leaves "setUp"). */
-  everyApp: () => invoke<IphoneStatus["everyApp"]>("iphone_every_app"),
-};
 
 /** One day of what Skykeep downloaded from Apple (src-tauri download_record, quince-record). */
 export type RecordDay = {
