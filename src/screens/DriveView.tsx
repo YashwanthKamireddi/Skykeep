@@ -2016,7 +2016,7 @@ export function DriveView() {
       </ul>
 
       {items.length === 0 && !creatingFolder && !error && (loading || !loaded) && (
-        <EmptyState busy>Opening {here.name}…</EmptyState>
+        <EmptyState busy>{t("drive.openingFolder", { name: here.name })}</EmptyState>
       )}
       {loaded && !loading && items.length === 0 && !creatingFolder && !error && (
         <EmptyState>{t("drive.emptyFolder")}</EmptyState>

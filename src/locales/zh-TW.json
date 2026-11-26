@@ -1089,7 +1089,8 @@
     "moreCount": "還有 {count} 個",
     "showInReminders": "在「提醒事項」中顯示",
     "approveInBrowser": "請在瀏覽器打開的頁面中核准 Skykeep，這裡會自動完成剩下的步驟。",
-    "weekNumber": "第 {n} 週"
+    "weekNumber": "第 {n} 週",
+    "go": "前往"
   },
   "contacts": {
     "title": "聯絡人",
@@ -1420,7 +1421,8 @@
     "nowHolds": "此檔案夾現在有 {items}",
     "nowChangedSince": "{holds}，在這裡顯示之後，已在另一台裝置上{said}。它會連同其中的所有內容一起移到「最近刪除」。",
     "nowChangedPlain": "{holds}。它在這裡顯示之後，已在另一台裝置上更改。它會連同其中的所有內容一起移到「最近刪除」。",
-    "fromPath": "來自 {path}"
+    "fromPath": "來自 {path}",
+    "openingFolder": "正在打開「{name}」…"
   },
   "shortcuts": {
     "title": "鍵盤快速鍵",

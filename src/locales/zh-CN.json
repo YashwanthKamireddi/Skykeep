@@ -1089,7 +1089,8 @@
     "moreCount": "另外 {count} 个",
     "showInReminders": "在提醒事项中显示",
     "approveInBrowser": "请在浏览器中打开的页面上批准 Skykeep。之后会在这里自动完成。",
-    "weekNumber": "第 {n} 周"
+    "weekNumber": "第 {n} 周",
+    "go": "前往"
   },
   "contacts": {
     "title": "通讯录",
@@ -1420,7 +1421,8 @@
     "nowHolds": "此文件夹现在包含 {items}",
     "nowChangedSince": "{holds}，自此处显示后已在另一台设备上{said}。它将连同其中的所有内容一起移到“最近删除”。",
     "nowChangedPlain": "{holds}。自此处显示后，它已在另一台设备上被更改。它将连同其中的所有内容一起移到“最近删除”。",
-    "fromPath": "来自 {path}"
+    "fromPath": "来自 {path}",
+    "openingFolder": "正在打开“{name}”…"
   },
   "shortcuts": {
     "title": "键盘快捷键",

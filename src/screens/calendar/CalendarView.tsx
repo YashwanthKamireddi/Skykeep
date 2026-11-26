@@ -1736,7 +1736,7 @@ export function CalendarView() {
                     autoFocus
                     defaultValue={`${selected.getFullYear()}-${String(selected.getMonth() + 1).padStart(2, "0")}-${String(selected.getDate()).padStart(2, "0")}`}
                   />
-                  <button type="submit" className="primary">Go</button>
+                  <button type="submit" className="primary">{t("calendar.go")}</button>
                 </form>
               )}
               <button className="tool cx-icon" aria-label={t("ui.next")} onClick={() => shift(1)}>
