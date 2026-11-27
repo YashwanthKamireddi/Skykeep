@@ -141,6 +141,20 @@ fn inflate(data: &[u8]) -> Option<Vec<u8>> {
     }
 }
 
+/// What a cell is keyed by; see [`Doc::who`].
+#[derive(Clone, Copy, PartialEq, Eq, Hash)]
+enum Who {
+    Uuid(usize),
+    Object(usize),
+}
+
+/// A table as rows × columns of text objects; see [`Doc::grid`].
+struct Grid {
+    rows: usize,
+    columns: usize,
+    cells: HashMap<(usize, usize), usize>,
+}
+
 struct Doc<'a> {
     objects: Vec<&'a [u8]>,
     keys: Vec<String>,
@@ -175,31 +189,46 @@ impl<'a> Doc<'a> {
 
     /// A dictionary object (kind 6, or a dictionary message itself): object → object.
     fn dictionary(body: &[u8]) -> Option<HashMap<usize, usize>> {
-        let mut out = HashMap::new();
+        Some(Self::entries(body)?.into_iter().collect())
+    }
+
+    /// A dictionary's entries as written, in order, a key that comes again included.
+    fn entries(body: &[u8]) -> Option<Vec<(usize, usize)>> {
+        let mut out = Vec::new();
         for element in bytes(&fields(body)?, 1) {
             let e = fields(element)?;
             let (Some(k), Some(v)) = (bytes(&e, 1).next(), bytes(&e, 2).next()) else {
                 continue;
             };
             if let (Some(k), Some(v)) = (object_index(k), object_index(v)) {
-                out.insert(k, v);
+                out.push((k, v));
             }
         }
         Some(out)
     }
 
     /// The `NSUUID` object holding each uuid.
+    /// Where two objects hold the same uuid, the later one.
     fn uuid_objects(&self) -> HashMap<&'a [u8], usize> {
+        let mut held: Vec<(usize, usize)> = self.uuid_at().into_iter().collect();
+        held.sort_unstable();
+        held.into_iter()
+            .filter_map(|(i, at)| Some((*self.uuids.get(at)?, i)))
+            .collect()
+    }
+
+    /// Every `NSUUID` object, and the place among the document's uuids of the one it holds.
+    fn uuid_at(&self) -> HashMap<usize, usize> {
         let mut out = HashMap::new();
         for i in 0..self.objects.len() {
             if let Some(entries) = self.custom(i) {
                 if let Some(at) = entries
                     .get("UUIDIndex")
                     .and_then(|id| int(&fields(id)?, 2).or_else(|| int(&fields(id)?, 1)))
+                    .and_then(|at| usize::try_from(at).ok())
+                    .filter(|&at| at < self.uuids.len())
                 {
-                    if let Some(u) = usize::try_from(at).ok().and_then(|at| self.uuids.get(at)) {
-                        out.insert(*u, i);
-                    }
+                    out.insert(i, at);
                 }
             }
         }
@@ -208,6 +237,21 @@ impl<'a> Doc<'a> {
 
     /// An ordered set's members, in order, as the objects the table keys its cells by.
     fn ordered(&self, i: usize, by_uuid: &HashMap<&[u8], usize>) -> Option<Vec<usize>> {
+        Some(
+            self.ordered_pairs(i, by_uuid)?
+                .into_iter()
+                .map(|(_, identity)| identity)
+                .collect(),
+        )
+    }
+
+    /// An ordered set's members, in order: each one's element object and its identity (the
+    /// object the element maps to; the element itself when it maps to none).
+    fn ordered_pairs(
+        &self,
+        i: usize,
+        by_uuid: &HashMap<&[u8], usize>,
+    ) -> Option<Vec<(usize, usize)>> {
         let (_, body) = self.object(i)?;
         let top = fields(body)?;
         let array = fields(bytes(&top, 1).next()?)?;
@@ -227,10 +271,76 @@ impl<'a> Doc<'a> {
                 .into_iter()
                 .filter_map(|(_, u)| {
                     let own = *by_uuid.get(u)?;
-                    Some(members.get(&own).copied().unwrap_or(own))
+                    Some((own, members.get(&own).copied().unwrap_or(own)))
                 })
                 .collect(),
         )
+    }
+
+    /// What an object stands for when the table keys a cell by it: the uuid an `NSUUID`
+    /// object holds — two objects may hold the same one — or, for any other object, itself.
+    fn who(&self, i: usize, uuid_at: &HashMap<usize, usize>) -> Who {
+        uuid_at.get(&i).map_or(Who::Object(i), |&u| Who::Uuid(u))
+    }
+
+    /// The document as a grid: how many rows and columns, and each cell's text object by
+    /// (row, column).
+    ///
+    /// Read as `apple_cloud_notes_parser` reads one: a row (or column) is found in `cellColumns`
+    /// by the uuid of its identity or of its element, and every entry counts (a column or row
+    /// named twice gives its cells from both). A cell keyed by identity wins over one keyed by
+    /// element.
+    /// #289: a table whose two added columns read empty in the rows made before them, and
+    /// whole in the row made after, where the reader matched identity objects alone.
+    fn grid(&self) -> Option<Grid> {
+        let root = self.custom(0)?;
+        let at = |name: &str| root.get(name).and_then(|id| object_index(id));
+        let by_uuid = self.uuid_objects();
+        let uuid_at = self.uuid_at();
+        // Where each identity and each element sits; identities first, so an element that is
+        // also some member's identity is read as that member.
+        let place = |pairs: Vec<(usize, usize)>| {
+            let mut out: HashMap<Who, (usize, bool)> = HashMap::new();
+            for (n, &(element, _)) in pairs.iter().enumerate() {
+                out.insert(self.who(element, &uuid_at), (n, false));
+            }
+            for (n, &(_, identity)) in pairs.iter().enumerate() {
+                out.insert(self.who(identity, &uuid_at), (n, true));
+            }
+            (pairs.len(), out)
+        };
+        let (rows, row_at) = place(self.ordered_pairs(at("crRows")?, &by_uuid)?);
+        let (columns, column_at) = place(self.ordered_pairs(at("crColumns")?, &by_uuid)?);
+        let (_, cells_body) = self.object(at("cellColumns")?)?;
+        let mut cells: HashMap<(usize, usize), (usize, bool)> = HashMap::new();
+        for (column, inner) in Self::entries(cells_body)? {
+            let Some(&(c, column_named)) = column_at.get(&self.who(column, &uuid_at)) else {
+                continue;
+            };
+            let Some(entries) = self.object(inner).and_then(|(_, b)| Self::entries(b)) else {
+                continue;
+            };
+            for (row, cell) in entries {
+                let Some(&(r, row_named)) = row_at.get(&self.who(row, &uuid_at)) else {
+                    continue;
+                };
+                let named = column_named && row_named;
+                match cells.get(&(r, c)) {
+                    Some(&(_, true)) if !named => {}
+                    _ => {
+                        cells.insert((r, c), (cell, named));
+                    }
+                }
+            }
+        }
+        Some(Grid {
+            rows,
+            columns,
+            cells: cells
+                .into_iter()
+                .map(|(at, (cell, _))| (at, cell))
+                .collect(),
+        })
     }
 
     fn text(&self, i: usize) -> String {
@@ -306,16 +416,11 @@ fn cell_object(document: &[u8], row: usize, column: usize) -> Option<usize> {
             .collect(),
         uuids: bytes(&data, 6).collect(),
     };
-    let root = doc.custom(0)?;
-    let at = |name: &str| root.get(name).and_then(|id| object_index(id));
-    let by_uuid = doc.uuid_objects();
-    let rows = doc.ordered(at("crRows")?, &by_uuid)?;
-    let columns = doc.ordered(at("crColumns")?, &by_uuid)?;
-    let (_, cells_body) = doc.object(at("cellColumns")?)?;
-    let by_column = Doc::dictionary(cells_body)?;
-    let inner = *by_column.get(columns.get(column)?)?;
-    let cells = Doc::dictionary(doc.object(inner)?.1)?;
-    let cell = *cells.get(rows.get(row)?)?;
+    let grid = doc.grid()?;
+    if row >= grid.rows || column >= grid.columns {
+        return None;
+    }
+    let cell = *grid.cells.get(&(row, column))?;
     // A text object, as a cell's is.
     (doc.object(cell)?.0 == 10).then_some(cell)
 }
@@ -1699,26 +1804,14 @@ pub fn cells(document: &[u8]) -> Option<Vec<Vec<String>>> {
             .collect(),
         uuids: bytes(&data, 6).collect(),
     };
-    let root = doc.custom(0)?;
-    let at = |name: &str| root.get(name).and_then(|id| object_index(id));
-    let by_uuid = doc.uuid_objects();
-    let rows = doc.ordered(at("crRows")?, &by_uuid)?;
-    let columns = doc.ordered(at("crColumns")?, &by_uuid)?;
-    let (_, cells_body) = doc.object(at("cellColumns")?)?;
-    let by_column = Doc::dictionary(cells_body)?;
-    let column_cells: HashMap<usize, HashMap<usize, usize>> = by_column
-        .iter()
-        .filter_map(|(col, inner)| Some((*col, Doc::dictionary(doc.object(*inner)?.1)?)))
-        .collect();
+    let grid = doc.grid()?;
     Some(
-        rows.iter()
-            .map(|row| {
-                columns
-                    .iter()
-                    .map(|col| {
-                        column_cells
-                            .get(col)
-                            .and_then(|cells| cells.get(row))
+        (0..grid.rows)
+            .map(|r| {
+                (0..grid.columns)
+                    .map(|c| {
+                        grid.cells
+                            .get(&(r, c))
                             .map(|&cell| doc.text(cell))
                             .unwrap_or_default()
                     })
@@ -1915,6 +2008,56 @@ mod tests {
     }
 
     /// Writers that sort before the phone's (as this installation's 6b… does) and after it.
+    /// `document` with the cell at (`row`, `column`) keyed in its column by the row's
+    /// element object instead of its identity: one of the shapes `apple_cloud_notes_parser` takes, and
+    /// one that read as #289's empty cells did.
+    fn keyed_by_element(document: &[u8], row: usize, column: usize) -> Vec<u8> {
+        let version = fields(live_version(document).unwrap().1).unwrap();
+        let data = fields(bytes(&version, 3).next().unwrap()).unwrap();
+        let doc = Doc {
+            objects: bytes(&data, 3).collect(),
+            keys: bytes(&data, 4)
+                .map(|k| String::from_utf8_lossy(k).into_owned())
+                .collect(),
+            uuids: bytes(&data, 6).collect(),
+        };
+        let root = doc.custom(0).unwrap();
+        let at = |name: &str| object_index(root[name]).unwrap();
+        let by_uuid = doc.uuid_objects();
+        let (element, identity) = doc.ordered_pairs(at("crRows"), &by_uuid).unwrap()[row];
+        let column_identity = doc.ordered(at("crColumns"), &by_uuid).unwrap()[column];
+        let inner =
+            Doc::dictionary(doc.object(at("cellColumns")).unwrap().1).unwrap()[&column_identity];
+        let (_, body) = doc.object(inner).unwrap();
+        assert!(
+            element < 128 && identity < 128,
+            "one-byte indexes keep every length"
+        );
+        // An entry's key: field 1, an object id of two bytes, its field 6 the index.
+        let key = [0x0a, 0x02, 0x30, u8::try_from(identity).unwrap()];
+        let found = body.windows(4).position(|w| w == key).unwrap();
+        let start = body.as_ptr() as usize - document.as_ptr() as usize + found + 3;
+        let mut out = document.to_vec();
+        out[start] = u8::try_from(element).unwrap();
+        out
+    }
+
+    /// #289: a cell keyed by its row's element, not the row's identity, reads and edits as the
+    /// same cell — it was read as empty.
+    #[test]
+    fn a_cell_keyed_by_its_rows_element_is_still_that_cell() {
+        let base = phone(PHONE_TYPED);
+        let shown = cells(&base).unwrap();
+        assert!(!shown[0][0].is_empty());
+        let rekeyed = keyed_by_element(&base, 0, 0);
+        assert_ne!(rekeyed, base);
+        assert_eq!(cells(&rekeyed).unwrap(), shown);
+        let edited = with_cell_by(&rekeyed, 0, 0, "Synthetic", &editor(0x10)).unwrap();
+        let mut expected = shown.clone();
+        expected[0][0] = "Synthetic".into();
+        assert_eq!(cells(&edited).unwrap(), expected);
+    }
+
     #[test]
     fn an_edit_to_a_phone_typed_table_reads_back_and_its_clocks_dominate() {
         let base = phone(PHONE_TYPED);
