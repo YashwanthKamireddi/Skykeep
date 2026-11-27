@@ -10,6 +10,8 @@ use tauri::{AppHandle, Emitter, Manager};
 
 /// The window hears how a backup is going here.
 pub const PROGRESS: &str = "quince://backup";
+/// Freeing up space stopped before checking anything: why, in words.
+pub const FREE_UP_FAILED: &str = "quince://free-up-failed";
 
 /// The app, kept at launch for Photos' change notice (refresh.rs has none of its own).
 static APP: std::sync::OnceLock<AppHandle> = std::sync::OnceLock::new();
@@ -52,6 +54,10 @@ impl Host for Desktop {
     fn spawn(&self, work: futures_util::future::BoxFuture<'static, ()>) {
         tauri::async_runtime::spawn(work);
     }
+
+    fn send_changes(&self) {
+        crate::outbox::kick();
+    }
 }
 
 /// The backup folder, shown in the file manager.
@@ -88,6 +94,48 @@ pub async fn backup_set(
     }
     let _ = APP.set(app.clone());
     quince_backup::backup::set(&Desktop(app), folder, hidden, drive).await
+}
+
+/// Free up iCloud space: the photos and videos taken more than `months` ago that may leave
+/// iCloud because the backup has them, and what stays and why (quince_core::free_up).
+#[tauri::command]
+pub async fn free_up_plan(
+    months: u32,
+    app: AppHandle,
+) -> Result<quince_core::free_up::Plan, String> {
+    let before = jiff::Zoned::now()
+        .checked_sub(jiff::Span::new().months(i64::from(months.clamp(1, 120))))
+        .map_err(|e| e.to_string())?
+        .timestamp()
+        .as_second();
+    app.state::<Data>()
+        .inner()
+        .0
+        .read(move |library| library.free_up_plan(before))
+        .await
+        .map_err(|e| e.to_string())
+}
+
+/// Free up iCloud space: `ids` (from [`free_up_plan`], less any the person unticked) leave
+/// iCloud, each only once checked against Apple's own copy (quince_backup::free_up). Runs in
+/// the background; how it goes comes with the backup's own status.
+#[tauri::command]
+pub async fn free_up_start(ids: Vec<String>, app: AppHandle) -> Result<(), String> {
+    let _ = APP.set(app.clone());
+    let host = Desktop(app);
+    let teller = host.clone();
+    tauri::async_runtime::spawn(async move {
+        if let Err(e) = quince_backup::free_up::run(&host, ids).await {
+            teller.0.emit(FREE_UP_FAILED, e).ok();
+        }
+    });
+    Ok(())
+}
+
+/// Stops freeing up space after the photos being checked now.
+#[tauri::command]
+pub fn free_up_stop() {
+    quince_backup::free_up::stop();
 }
 
 /// Shared Albums in the backup, or left out.

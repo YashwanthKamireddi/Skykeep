@@ -25,6 +25,7 @@ quince-vfs = { path = "../crates/quince-vfs" }
 quince-auth = { path = "../crates/quince-auth" }
 quince-core = { path = "../crates/quince-core" }
 quince-icloud = { path = "../crates/quince-icloud" }
+quince-backup = { path = "../crates/quince-backup" }
 quince-media = { workspace = true }
 
 # distro_check's video check plays a file through playbin3, as the window's player does.

@@ -27,7 +27,7 @@ impl Kind {
             Kind::Live => "live",
         }
     }
-    fn parse(s: &str) -> Self {
+    pub(crate) fn parse(s: &str) -> Self {
         match s {
             "video" => Kind::Video,
             "live" => Kind::Live,
