@@ -673,74 +673,50 @@ async fn apple_asking_to_slow_down_while_renewing_is_not_a_sign_in() {
     );
 }
 
-/// A 4xx from `accountLogin` other than 401/421 (a 400, say) is taken as the tokens refused only
-/// when the next try meets one too: once, it may be a passing odd answer, so it is away, never
-/// the password and never a sign-out.
+/// Apple refusing the tokens when they are traded after a refused pass (accountLogin 421, or
+/// any other 4xx) never ends the session or signs in with the password from here: the session
+/// is left as it is, Skykeep says the person should sign in, and Apple is asked nothing more
+/// until the gap is out.
 #[tokio::test]
-async fn a_single_odd_4xx_while_renewing_is_away_never_the_password() {
-    let dir = tempfile::tempdir().unwrap();
-    signed_in(dir.path()).await;
-    let server = MockServer::start().await;
-    validate_ok_and_login(&server, 400).await;
-    mount_init(&server).await;
-    let mut client = client_for(&server, dir.path());
-    assert_eq!(client.ensure_session().await, Kept::Alive);
-    client.session_refused(client.session_generation());
-    assert_eq!(client.ensure_session().await, Kept::Away);
-    let reqs = server.received_requests().await.unwrap();
-    assert!(
-        requests_to(&reqs, "/signin/init").is_empty(),
-        "no password for one odd 400"
-    );
-}
-
-/// Apple refusing the token (accountLogin 421) has ended the session: it is taken up as any lapse
-/// is, with the kept password, quietly, and alive again with no code and nobody asked.
-#[tokio::test]
-async fn the_token_refused_is_taken_up_with_the_kept_password() {
-    let dir = tempfile::tempdir().unwrap();
-    signed_in(dir.path()).await;
-    let server = MockServer::start().await;
-    Mock::given(method("POST"))
-        .and(path("/setup/ws/1/accountLogin"))
-        .respond_with(ResponseTemplate::new(421))
-        .up_to_n_times(1)
-        .mount(&server)
-        .await;
-    validate_ok_and_login(&server, 200).await;
-    mount_init(&server).await;
-    mount_complete(&server, 200).await;
-    mount_trust_and_login(&server).await;
-    let mut client = client_for(&server, dir.path());
-    client.session_refused(client.session_generation());
-    assert_eq!(client.ensure_session().await, Kept::Alive);
-    let reqs = server.received_requests().await.unwrap();
-    assert_eq!(
-        requests_to(&reqs, "/signin/complete").len(),
-        1,
-        "the kept password, once"
-    );
-    assert!(requests_to(&reqs, "/securitycode").is_empty(), "no code");
-}
-
-/// Apple refusing the renewal itself (accountLogin refused, then the kept password refused): the
-/// session is over, said as needing a sign-in, and not asked about again.
-#[tokio::test]
-async fn apple_refusing_the_renewal_is_a_sign_in() {
-    let dir = tempfile::tempdir().unwrap();
-    signed_in(dir.path()).await;
-    let server = MockServer::start().await;
-    validate_ok_and_login(&server, 421).await;
-    mount_init(&server).await;
-    mount_complete(&server, 401).await;
-    let mut client = client_for(&server, dir.path());
-    client.session_refused(client.session_generation());
-    assert_eq!(client.ensure_session().await, Kept::SignIn);
-    let before = asked(&server).await;
-    for _ in 0..5 {
-        assert_eq!(client.ensure_session().await, Kept::SignIn);
+async fn apple_refusing_the_renewal_is_told_never_acted_on() {
+    for status in [421_u16, 401, 400] {
+        let dir = tempfile::tempdir().unwrap();
+        signed_in(dir.path()).await;
+        let server = MockServer::start().await;
+        validate_ok_and_login(&server, status).await;
+        mount_init(&server).await;
+        let mut client = client_for(&server, dir.path());
+        assert_eq!(client.ensure_session().await, Kept::Alive);
+        assert!(!client.session_needs_sign_in());
+        client.session_refused(client.session_generation());
+        assert_eq!(client.ensure_session().await, Kept::Away, "{status}");
+        assert!(
+            client.session_needs_sign_in(),
+            "{status}: the person is told"
+        );
+        let reqs = server.received_requests().await.unwrap();
+        assert!(
+            requests_to(&reqs, "/signin/init").is_empty(),
+            "{status}: never the password"
+        );
+        assert!(
+            client.session().session_token.is_some(),
+            "{status}: the session is left as it is"
+        );
+        let before = asked(&server).await;
+        client.session_refused(client.session_generation());
+        client.ensure_session().await;
+        let reqs = server.received_requests().await.unwrap();
+        assert_eq!(
+            requests_to(&reqs, "/accountLogin").len(),
+            1,
+            "{status}: not again inside the gap"
+        );
+        assert!(
+            asked(&server).await - before <= 1,
+            "{status}: at most a `/validate`"
+        );
     }
-    assert_eq!(asked(&server).await, before, "nothing more asked of Apple");
 }
 
 /// New iCloud terms waiting: Apple answers `accountLogin` 200 but opens the session only part-way,

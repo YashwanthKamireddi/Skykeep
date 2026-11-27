@@ -161,8 +161,8 @@ pub enum Error {
     #[error("this needs a fresh sign-in — Apple won't accept a resumed session for it")]
     ReauthRequired,
     /// `accountLogin` would not open the account for the tokens it was given (a 4xx other than
-    /// 429): the session they carried is over at Apple, and only the password (or a code) brings
-    /// another. Worded for the sign-in screen too, where it can also come up.
+    /// 429). After a refused pass it is said to the person (keep.rs), never acted on alone.
+    /// Worded for the sign-in screen too, where it can also come up.
     #[error("couldn't open the account (HTTP {0})")]
     TokenRefused(u16),
     /// Apple keeps this account on its regional servers and this session has moved there, but
@@ -821,11 +821,9 @@ fn apple_builder(endpoints: &Endpoints, jar: &Arc<CookieStoreMutex>) -> reqwest:
 enum Look {
     /// `/validate`, and nothing more when it answers.
     Validate,
-    /// Straight to trading the tokens for new cookies: a service refused the session.
+    /// Straight to trading the tokens for new cookies, and nothing more: a service refused the
+    /// session.
     Renew,
-    /// [`Look::Renew`] after a 4xx other than 401/421 on the try before: seen twice running,
-    /// it is Apple not taking the tokens, and the password follows.
-    RenewAgain,
 }
 
 impl Client {
@@ -1149,18 +1147,12 @@ impl Client {
         self.resume_from(Look::Validate).await
     }
 
-    /// [`Self::resume`] for a session a service has just refused: `/validate` can go on
-    /// answering 200 while every service answers "sign in again" (421, "Missing
-    /// X-APPLE-WEBAUTH-TOKEN cookie": measured on a real account, 26–27 Nov 2026), so its
-    /// answer is not taken: the cookies are traded afresh for the tokens, then the kept password.
+    /// For a session a service has just refused: `/validate` can go on answering 200 while every
+    /// service answers "sign in again" (421, "Missing X-APPLE-WEBAUTH-TOKEN cookie": measured on
+    /// a real account, 26–27 Nov 2026), so its answer is not taken: the tokens are traded for
+    /// fresh cookies (`accountLogin`), and that is all. `Err` with Apple's answer otherwise.
     pub async fn renew(&mut self) -> Result<bool> {
         self.resume_from(Look::Renew).await
-    }
-
-    /// [`Self::renew`] after Apple answered the last try with a 4xx other than 401/421: a
-    /// second one running is taken as the tokens refused.
-    pub(crate) async fn renew_again(&mut self) -> Result<bool> {
-        self.resume_from(Look::RenewAgain).await
     }
 
     async fn resume_from(&mut self, look: Look) -> Result<bool> {
@@ -1237,18 +1229,12 @@ impl Client {
         // Offline, or Apple down for a while: the session is not dead, only unreachable — it
         // is kept and tried again, rather than a sign-in that ends in "Apple signed you out".
         let away = |e: &Error| matches!(e, Error::Network(_) | Error::Unavailable(_));
-        // Renewing, `/validate` was not asked: Apple refusing the tokens (401, 421) or wanting
-        // the sign-in at its regional servers goes on to the password, as any lapse does:
-        // quietly, when one is kept. Another 4xx does too, but only seen twice running
-        // (`Look::RenewAgain`, keep.rs): once, it may be a passing odd answer. Out of reach, busy,
-        // asking to wait, or this computer's own trouble says nothing about the tokens.
-        let refused = matches!(
-            (look, &logged_in),
-            (Look::Validate, _)
-                | (_, Error::TokenRefused(401 | 421) | Error::Moved)
-                | (Look::RenewAgain, Error::TokenRefused(_))
-        );
-        if !refused {
+        // Renewing after a refused pass, only the cookies are traded: whatever Apple answers
+        // otherwise goes back as it is, and nothing here signs in with the password or ends the
+        // session. A refusal of the tokens is said to the person, who chooses to sign in
+        // (keep.rs `session_needs_sign_in`); a session `/validate` still vouches for is never
+        // ended on a service's word.
+        if look == Look::Renew {
             return Err(logged_in);
         }
         if away(&validated) && away(&logged_in) {

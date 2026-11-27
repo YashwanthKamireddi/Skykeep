@@ -77,9 +77,9 @@ pub(crate) struct Keeping {
     /// The session token last seen: a new session (signed in since) is not doubted for what
     /// the old one met.
     token: Option<String>,
-    /// The last try met a 4xx other than 401/421 from `accountLogin`: a second running is
-    /// taken as the tokens refused ([`Client::renew_again`]).
-    odd: bool,
+    /// The last renewal met Apple refusing the tokens (a 4xx from `accountLogin`, or the
+    /// sign-in wanted at its regional servers): the person is told, and signs in if they choose.
+    refused_by_apple: bool,
 }
 
 impl Client {
@@ -117,18 +117,18 @@ impl Client {
         self.keeping.urgent = false;
         if self.keeping.doubt && due {
             self.keeping.tried_at = Some(Instant::now());
-            let renewed = if self.keeping.odd {
-                self.renew_again().await
-            } else {
-                self.renew().await
+            // Only the cookies traded: taken, alive. Any other answer leaves the session as it
+            // is, the doubt standing for the next try; Apple refusing the tokens is said to the
+            // person ([`Self::session_needs_sign_in`]), never acted on here.
+            return match self.renew().await {
+                Ok(true) => self.settle(Kept::Alive),
+                Ok(false) => Kept::Away,
+                Err(e) => {
+                    self.keeping.refused_by_apple =
+                        matches!(e, crate::Error::TokenRefused(_) | crate::Error::Moved);
+                    Kept::Away
+                }
             };
-            self.keeping.odd = matches!(renewed, Err(crate::Error::TokenRefused(code)) if code != 401 && code != 421);
-            let kept = self.looked(renewed);
-            // Apple out of reach: the doubt stands, for the next look.
-            if kept != Kept::Away {
-                self.keeping.doubt = false;
-            }
-            return self.settle(kept);
         }
         if self
             .keeping
@@ -166,8 +166,7 @@ impl Client {
         if self.keeping.token != token {
             if self.keeping.token.is_some() {
                 self.keeping.doubt = false;
-                self.keeping.odd = false;
-                self.keeping.tried_at = None;
+                self.keeping.refused_by_apple = false;
             }
             self.keeping.token = token;
         }
@@ -220,7 +219,14 @@ impl Client {
         self.keeping.generation += 1;
         self.keeping.doubt = false;
         self.keeping.urgent = false;
-        self.keeping.odd = false;
+        self.keeping.refused_by_apple = false;
+    }
+
+    /// Apple refused the tokens when renewing after a refused pass: nothing syncs until the
+    /// person signs in again, and they are told so. The session is left as it is.
+    #[must_use]
+    pub fn session_needs_sign_in(&self) -> bool {
+        self.keeping.refused_by_apple
     }
 
     /// A person's request was answered without a look at the session (renewed since, or the
