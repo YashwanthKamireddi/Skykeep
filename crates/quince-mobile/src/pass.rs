@@ -71,8 +71,6 @@ pub(crate) struct Apple {
     pub cloudkit: Option<String>,
     pub account: String,
     pub waiting: Vec<&'static str>,
-    /// How many times the cookies had been renewed when these were read (quince_auth keep.rs).
-    pub generation: u64,
 }
 
 /// What the phone does with what a pass found beside its rows.
@@ -113,17 +111,11 @@ impl Account {
     /// The session asked about afresh, as a pass after a refusal asks: alive again or not.
     fn renewed(&self, sent: u64) -> bool {
         let mut c = self.client();
-        // The person is waiting on this request: renewed now, not after the gap. Neither due nor
-        // renewed since it went out, Apple is asked nothing more for it, not even `/validate`.
+        // The person is waiting on this request: the session renewed now (the cookies traded
+        // afresh) when that is due, and otherwise asked about as it always was; alive, the
+        // request is sent again, as before renewing existed (#234).
         c.session_refused_now(sent);
-        if c.session_generation() == sent && !c.session_renewal_due() {
-            return false;
-        }
-        // Sent again only once the session has been renewed since the call was sent (by this
-        // look or a pass's): alive by `/validate`, or inside the renewal gap with nothing renewed
-        // since, the same cookies would be refused again.
         runtime().block_on(c.ensure_session()) == quince_auth::Kept::Alive
-            && c.session_generation() > sent
     }
 
     /// [`Apple`], in one look at the session; `what` names the app for "sign in" wording.
@@ -138,7 +130,6 @@ impl Account {
             waiting: c.data_access_missing(),
             params,
             account,
-            generation: c.session_generation(),
         })
     }
 
@@ -159,14 +150,15 @@ impl Account {
             waiting: apple.waiting.clone(),
             hooks: &hooks,
         };
-        let generation = apple.generation;
         let report = pass::run(service, &ctx, library, lock).await;
         // Apple answered "sign in again" to the pass itself: the next pass asks about the
         // session rather than trusting the last look.
         if report.outcome == Outcome::Failed
             && report.detail.as_deref() == Some(&quince_icloud::Error::ReauthRequired.to_string())
         {
-            self.client().session_refused(generation);
+            // One service: asked about afresh at the next look, as it always was; a renewal is
+            // for refusals the person waits on, or two services at once on the desktop.
+            self.client().session_look_again();
         }
         report
     }

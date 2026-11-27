@@ -674,10 +674,10 @@ async fn apple_asking_to_slow_down_while_renewing_is_not_a_sign_in() {
 }
 
 /// Apple refusing the tokens when they are traded after a refused pass (accountLogin 421, 401 or
-/// another 4xx) changes nothing from here: no password, no sign-out, the session left as it is,
-/// and Apple asked nothing more until the gap is out. The look every pass makes goes on deciding.
+/// another 4xx): the look every pass makes decides, as on main. `/validate` vouching, the session
+/// stays as it is: no password, no sign-out, and no renewal again until the gap is out.
 #[tokio::test]
-async fn apple_refusing_the_renewal_changes_nothing_from_here() {
+async fn apple_refusing_the_renewal_falls_back_to_the_usual_look() {
     for status in [421_u16, 401, 400] {
         let dir = tempfile::tempdir().unwrap();
         signed_in(dir.path()).await;
@@ -687,7 +687,11 @@ async fn apple_refusing_the_renewal_changes_nothing_from_here() {
         let mut client = client_for(&server, dir.path());
         assert_eq!(client.ensure_session().await, Kept::Alive);
         client.session_refused(client.session_generation());
-        assert_eq!(client.ensure_session().await, Kept::Away, "{status}");
+        assert_eq!(
+            client.ensure_session().await,
+            Kept::Alive,
+            "{status}: as `/validate` says"
+        );
         let reqs = server.received_requests().await.unwrap();
         assert!(
             requests_to(&reqs, "/signin/init").is_empty(),
@@ -778,9 +782,8 @@ async fn an_ordinary_lapse_after_a_refused_pass_is_mended_quietly() {
     let mut client = client_for(&server, dir.path());
     assert_eq!(client.ensure_session().await, Kept::Alive);
     client.session_refused(client.session_generation());
-    // The renewal's tokens refused: nothing decided there. The next look, as on every pass,
-    // finds `/validate` failing and resumes, quietly.
-    assert_eq!(client.ensure_session().await, Kept::Away);
+    // The renewal's tokens refused: the look every pass makes decides at once, finding
+    // `/validate` failing and resuming, quietly.
     assert_eq!(client.ensure_session().await, Kept::Alive);
     let reqs = server.received_requests().await.unwrap();
     assert!(requests_to(&reqs, "/securitycode").is_empty(), "no code");

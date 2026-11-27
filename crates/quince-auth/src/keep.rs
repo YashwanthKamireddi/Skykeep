@@ -123,7 +123,19 @@ impl Client {
                     }
                     self.settle(Kept::Alive)
                 }
-                _ => Kept::Away,
+                // Out of reach, busy or asking to wait: nothing known, the doubt stands.
+                Err(
+                    crate::Error::Network(_)
+                    | crate::Error::Unavailable(_)
+                    | crate::Error::RateLimited,
+                ) => Kept::Away,
+                // Any other answer: the look every pass makes decides, now, as it always has
+                // (`/validate`, and when that fails the resume with the kept password).
+                _ => {
+                    let looked = self.heartbeat().await;
+                    let kept = self.looked(looked);
+                    self.settle(kept)
+                }
             };
         }
         if self
@@ -218,6 +230,13 @@ impl Client {
         self.keeping.generation += 1;
         self.keeping.doubt = false;
         self.keeping.urgent = false;
+    }
+
+    /// A pass of one service was refused (the phone's passes are one service each): the next
+    /// look asks Apple rather than trusting the last one, and renews nothing on its word alone,
+    /// as before renewing existed. One service refusing may be its own doing.
+    pub fn session_look_again(&mut self) {
+        self.keeping.alive_at = None;
     }
 
     /// A person's request was answered without a look at the session (renewed since, or the

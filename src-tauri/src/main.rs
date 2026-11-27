@@ -1346,7 +1346,7 @@ async fn again_if_renewed(
     let moved = |c: &Client| c.session_generation() > result.generation;
     {
         let mut c = client.lock().await;
-        if person {
+        if person && refresh::session_wide(&result.services) {
             c.session_refused_now(result.generation);
         }
         if moved(&c) || !c.session_renewal_due() {
@@ -1393,9 +1393,10 @@ async fn again_if_renewed(
     result.as_of = refresh::as_of(data, &result.services).await;
 }
 
-/// [`refresh::some`], with a refused pass renewed and its refused services passed again
-/// ([`again_if_renewed`]): for every pass started outside the window's own commands (a push,
-/// Photos, data access opening), so none of them is left failing until the next timer.
+/// [`refresh::some`], with its refused services passed again once the session has been renewed
+/// since they went out (by any pass): for passes started outside the window's own commands (a
+/// push, Photos, data access opening). A pass of one service never renews the session itself
+/// (one refusal may be that service's own); the next whole pass does when two or more refuse.
 pub(crate) async fn refreshed_some(
     app: &tauri::AppHandle,
     client: &Arc<Mutex<Client>>,
