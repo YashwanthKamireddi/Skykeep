@@ -1,7 +1,7 @@
 // The appearance chosen in Settings reaches the windows' own title bars, not just the page: the
 // app is asked for it as each window starts, and again with each choice (appearance.rs).
 import { engine } from "./engine.mjs";
-import { SERVICES, installStub, openSettings } from "./stub.mjs";
+import { SERVICES, installStub, openSettings, openPane } from "./stub.mjs";
 const b = await engine.launch();
 let failures = 0;
 const ok = (p, m) => { console.log(`${p ? "PASS" : "FAIL"} ${m}`); if (!p) failures++; };
@@ -14,6 +14,8 @@ await page.goto(process.env.URL ?? process.env.BASE ?? "http://localhost:4173", 
 await openSettings(page);
 ok(JSON.stringify(await asks()) === '["auto"]', `as it starts, the system's appearance is asked for  ${JSON.stringify(await asks())}`);
 
+// Appearance lives in Settings › General since Settings became a sidebar of sections (#53).
+await openPane(page, "General");
 const appearance = page.getByRole("group", { name: "Appearance" });
 for (const [label, theme] of [["Dark", "dark"], ["Light", "light"], ["Automatic", "auto"]]) {
   await page.evaluate(() => { window.__themeAsks = []; });
