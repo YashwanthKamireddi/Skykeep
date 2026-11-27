@@ -210,25 +210,42 @@ async fn settle_and_send(
                     .collect();
                 for path in due {
                     touched.remove(&path);
-                    if let Err(e) = sync_path(remote.as_ref(), &staging, &path, add_only, &vacated).await {
+                    let went = sync_path(remote.as_ref(), &staging, &path, add_only, &vacated).await;
+                    if let Err(e) = &went {
                         crate::note_about(&format!("sending a saved file: {e}"), &path.display().to_string());
-                        // Tried again in a while; the file itself stays as it is. Apple's last
-                        // word on these bytes is not asked again: the file written again comes
-                        // back through the watcher and goes afresh.
-                        // A save noticed while it was being sent is already waiting, for the
-                        // usual settle: it goes then, not 25 seconds on. The wait is for Apple
-                        // being unable to take it; laid over that newer save, every save typed
-                        // during an upload reached iCloud half a minute late.
-                        if !e.settled {
-                            touched
-                                .entry(path)
-                                .or_insert_with(|| Instant::now() + std::time::Duration::from_secs(25));
-                        }
+                    }
+                    if let Some(at) = again_at(&went, Instant::now()) {
+                        // A save noticed meanwhile keeps its own, nearer, time.
+                        let at = touched.get(&path).map_or(at, |&noticed| noticed.min(at));
+                        touched.insert(path, at);
                     }
                 }
             }
         }
     }
+}
+
+/// When a path goes again after a send, if it does: a save made while it went goes after the
+/// usual settle, as any save does (it waited the 25 seconds meant for Apple being unable to
+/// take a file, so a save typed during an upload reached iCloud half a minute late). Apple
+/// unable to take it: in 25 seconds; the file itself stays as it is. Apple's last word on these
+/// bytes: not again — the file written again comes back through the watcher and goes afresh.
+fn again_at(went: &Result<Went, crate::Failed>, now: Instant) -> Option<Instant> {
+    match went {
+        Ok(Went::Done) => None,
+        Ok(Went::ChangedMeanwhile) => Some(now),
+        Err(e) if e.settled => None,
+        Err(_) => Some(now + std::time::Duration::from_secs(25)),
+    }
+}
+
+/// What sending a path came to.
+#[derive(Debug, PartialEq, Eq)]
+enum Went {
+    /// Sent, or nothing to send.
+    Done,
+    /// Sent, and saved again while it went: the newer save is still to go.
+    ChangedMeanwhile,
 }
 
 /// One path made Apple's: a new folder made there, a new or saved file sent.
@@ -238,43 +255,43 @@ async fn sync_path(
     path: &Path,
     add_only: bool,
     vacated: &Vacated,
-) -> Result<(), crate::Failed> {
+) -> Result<Went, crate::Failed> {
     let Some(name) = path
         .file_name()
         .and_then(|n| n.to_str())
         .map(str::to_string)
     else {
-        return Ok(());
+        return Ok(Went::Done);
     };
     if scratch(&name) || !path.exists() {
-        return Ok(());
+        return Ok(Went::Done);
     }
     let state = placeholder_state(path);
     if windows_own(&name) {
         if state.is_none() {
             let _ = convert(path, None);
         }
-        return Ok(());
+        return Ok(Went::Done);
     }
     let Some(parent) = path.parent() else {
-        return Ok(());
+        return Ok(Went::Done);
     };
     let folder = match folder_item(parent) {
         Some(f) => f,
         // Its folder isn't at Apple yet: it is sent with that folder's contents once it is.
-        None => return Ok(()),
+        None => return Ok(Went::Done),
     };
     if path.is_dir() {
         if state.is_some() {
             // A folder of ours whose own attributes changed: kept or freed, with what is in it.
             let _ = mark_in_sync(path);
             keep_or_free(path).await;
-            return Ok(());
+            return Ok(Went::Done);
         }
         if add_only {
             // Photos has no folders to make: it stays here, marked so it never shows waiting.
             let _ = convert(path, None);
-            return Ok(());
+            return Ok(Went::Done);
         }
         let made = remote.mkdir(&folder, &name).await?;
         convert(path, Some(&made)).map_err(|e| e.to_string())?;
@@ -282,15 +299,17 @@ async fn sync_path(
         for entry in std::fs::read_dir(path).into_iter().flatten().flatten() {
             Box::pin(sync_path(remote, staging, &entry.path(), add_only, vacated)).await?;
         }
-        return Ok(());
+        return Ok(Went::Done);
     }
     let edited_here = matches!(&state, Some((st, _)) if *st != CF_IN_SYNC_STATE_IN_SYNC);
     if add_only && edited_here {
-        return save_as_new_photo(remote, staging, path, &name, &folder).await;
+        return save_as_new_photo(remote, staging, path, &name, &folder)
+            .await
+            .map(|()| Went::Done);
     }
     if add_only && state.is_none() && !remote.accepts(&folder) {
         // Photos: a view (Favorites, Videos) is no place to add a photo. Left as it is.
-        return Ok(());
+        return Ok(Went::Done);
     }
     // Not a placeholder, at a path a placeholder left a moment ago: a save that replaced the
     // file. It goes into the Apple file that left (its version then is the base, so a change
@@ -303,7 +322,7 @@ async fn sync_path(
         Some((s, _)) if *s == CF_IN_SYNC_STATE_IN_SYNC => {
             // In sync: only "Free up space" or "Always keep on this device" can have changed.
             keep_or_free(path).await;
-            return Ok(());
+            return Ok(Went::Done);
         }
         Some(_) => identity_of(path),
         None => match &claimed {
@@ -356,12 +375,12 @@ async fn sync_path(
         // sent, which is ours. Left naming the version before it, the next send found Apple's
         // file "changed elsewhere" (it was this send) and put a conflicted copy beside it: an
         // app saving every few seconds (Obsidian, #169) made a new copy each time a save landed
-        // during an upload. So the file now names what was sent, and stays waiting.
+        // during an upload. So the file now names what was sent, and goes again once it settles.
         if !sent.conflicted && !add_only {
             remember_sent(path, &sent.item, state.is_some()).map_err(|e| e.to_string())?;
             vacated.read(path, &sent.item);
         }
-        return Err("changed while sending; sending again".into());
+        return Ok(Went::ChangedMeanwhile);
     }
     let mut here = path.to_path_buf();
     if sent.conflicted {
@@ -383,7 +402,7 @@ async fn sync_path(
         // The bytes here are this version now: a save replacing the file next goes over it.
         vacated.read(&here, &sent.item);
     }
-    Ok(())
+    Ok(Went::Done)
 }
 
 /// The Apple file a plain file at `path` is the next version of, when no delete or rename was
@@ -704,4 +723,24 @@ fn hydrate(path: &Path) -> windows::core::Result<()> {
     let handle = crate::cloud::open_attributes(path)?;
     // SAFETY: our handle; the whole file (length -1).
     unsafe { CfHydratePlaceholder(handle.0, 0, -1, CF_HYDRATE_FLAG_NONE, None) }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// A save made while the last one went goes after the usual settle, whether or not the
+    /// watcher reports it again; a send Apple could not take waits 25 seconds; Apple's last word
+    /// is not tried again.
+    #[test]
+    fn a_save_made_while_sending_goes_after_the_usual_settle() {
+        let now = Instant::now();
+        assert_eq!(again_at(&Ok(Went::ChangedMeanwhile), now), Some(now));
+        assert_eq!(again_at(&Ok(Went::Done), now), None);
+        assert_eq!(
+            again_at(&Err("Apple busy".into()), now),
+            Some(now + std::time::Duration::from_secs(25))
+        );
+        assert_eq!(again_at(&Err(crate::Failed::settled("refused")), now), None);
+    }
 }
