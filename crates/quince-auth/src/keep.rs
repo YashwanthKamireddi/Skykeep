@@ -23,9 +23,9 @@ use std::time::{Duration, Instant};
 /// How long a session found alive is taken to stay so without asking Apple again.
 pub const ALIVE_FOR: Duration = Duration::from_secs(60);
 
-/// A session renewed after a service refused it, and refused again within this, is not
-/// renewed again: only a sign-in helps, and it is said so rather than asked about each pass.
-pub const RENEWED_FOR: Duration = Duration::from_secs(600);
+/// Renewals after a refusal are at least this far apart: a refusal within it waits for the next
+/// look, so a service that keeps refusing never has Apple asked to renew every pass.
+pub const RENEW_GAP: Duration = Duration::from_secs(120);
 
 /// Where the session stands before a pass.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -59,10 +59,17 @@ pub(crate) struct Keeping {
     alive_at: Option<Instant>,
     /// The session Apple ended, by its token, and what it wanted: not asked about again.
     ended: Option<(Option<String>, Kept)>,
-    /// A service refused the session since the last look: the next look renews it.
-    doubted: bool,
-    /// When it was last renewed after a refusal, and by which token.
-    renewed: Option<(Option<String>, Instant)>,
+    /// A pass was refused since the last look (`true`: every service it asked): the next look
+    /// renews the session (see [`Client::session_refused`]).
+    doubt: Option<bool>,
+    /// Renewals so far this run: a pass says which it started under, so a refusal from before
+    /// the latest renewal (the old cookies, still in flight) is not taken for one after it.
+    generation: u64,
+    /// When the session was last renewed.
+    renewed_at: Option<Instant>,
+    /// How far renewing has gone since a pass last got through: the cookies (1), then the kept
+    /// password (2). Past that, telling the person to sign in again would not help either.
+    level: u8,
 }
 
 impl Client {
@@ -82,28 +89,40 @@ impl Client {
             // Signed in since: a new session, asked about afresh.
             self.keeping.ended = None;
         }
-        // A service refused the session: `/validate` can go on vouching for it while every
-        // service says "sign in again" (26–27 Nov 2026: a window failed every sync for a day,
-        // saying nothing), so it is renewed, not looked at. Refused again soon after a renewal
-        // for the same token, only a sign-in helps: said so, not renewed again each pass.
-        if std::mem::take(&mut self.keeping.doubted) {
-            let again = self
+        // A pass was refused: `/validate` can go on vouching for a session every service
+        // refuses (26–27 Nov 2026: a window failed every sync for a day, saying nothing), so it
+        // is renewed, not looked at. Only Apple's answer to the renewal decides: it takes the
+        // tokens (fresh cookies) or the kept password, or it says the session is over. A service
+        // refusing on its own never signs the account out.
+        if let Some(all) = self.keeping.doubt {
+            let recent = self
                 .keeping
-                .renewed
-                .as_ref()
-                .is_some_and(|(was, at)| *was == token && at.elapsed() < RENEWED_FOR);
-            let kept = if again {
-                Kept::SignIn
-            } else {
-                let renewed = self.renew().await;
-                let kept = self.looked(renewed);
-                if kept == Kept::Alive {
-                    self.keeping.renewed =
-                        Some((self.session.session_token.clone(), Instant::now()));
+                .renewed_at
+                .is_some_and(|at| at.elapsed() < RENEW_GAP);
+            // Every service refused straight after the cookies were renewed: the kept password,
+            // once. After that, nothing more is asked of Apple until a pass gets through.
+            let level = if all { self.keeping.level + 1 } else { 1 };
+            if !recent && level <= 2 {
+                let answer = if level == 2 {
+                    self.renew_with_password().await
+                } else {
+                    self.renew().await
+                };
+                let kept = self.looked(answer);
+                // Apple out of reach: the doubt stands, for the next look.
+                if kept != Kept::Away {
+                    self.keeping.doubt = None;
                 }
-                kept
-            };
-            return self.settle(kept);
+                if kept == Kept::Alive {
+                    self.keeping.generation += 1;
+                    self.keeping.renewed_at = Some(Instant::now());
+                    self.keeping.level = self.keeping.level.max(level);
+                }
+                return self.settle(kept);
+            }
+            if level > 2 {
+                self.keeping.doubt = None;
+            }
         }
         if self
             .keeping
@@ -146,10 +165,35 @@ impl Client {
         kept
     }
 
-    /// A pass found the session refused after all (Apple answered "sign in again" to a service
-    /// call): the next [`Self::ensure_session`] renews it rather than trusting the last look.
-    pub fn session_doubted(&mut self) {
+    /// Which renewal passes start under now: given back with [`Self::session_refused`] and
+    /// [`Self::session_through`].
+    #[must_use]
+    pub fn session_generation(&self) -> u64 {
+        self.keeping.generation
+    }
+
+    /// A pass started under `generation` was answered "sign in again" (`every`: by every
+    /// service it asked): the next [`Self::ensure_session`] renews the session rather than
+    /// trusting `/validate`. A pass from before the latest renewal is not counted: it was
+    /// refused for the old cookies.
+    pub fn session_refused(&mut self, generation: u64, every: bool) {
+        if generation < self.keeping.generation {
+            return;
+        }
         self.keeping.alive_at = None;
-        self.keeping.doubted = true;
+        self.keeping.doubt = Some(self.keeping.doubt.unwrap_or(false) || every);
+    }
+
+    /// A request or pass was just refused (one service): [`Self::session_refused`] as now.
+    pub fn session_doubted(&mut self) {
+        self.session_refused(self.keeping.generation, false);
+    }
+
+    /// A pass started under `generation` got through: renewing starts again from the cookies
+    /// the next time anything is refused.
+    pub fn session_through(&mut self, generation: u64) {
+        if generation == self.keeping.generation && self.keeping.doubt.is_none() {
+            self.keeping.level = 0;
+        }
     }
 }

@@ -528,17 +528,8 @@ async fn an_unreadable_signin_start_waits_before_the_next() {
     );
 }
 
-/// `/validate` vouching for a session every service refuses (measured 26–27 Nov 2026: 200 from
-/// `/validate`, 421 "Missing X-APPLE-WEBAUTH-TOKEN cookie" from every service, every sync failing
-/// quietly for a day). A pass refused marks it doubted, and the next look trades the tokens for
-/// fresh cookies (`accountLogin`) instead of asking `/validate` again. Refused again soon after,
-/// only a sign-in helps: said so at once, and Apple is not asked again each pass.
-#[tokio::test]
-async fn a_session_validate_vouches_for_but_services_refuse_is_renewed_then_said() {
-    let dir = tempfile::tempdir().unwrap();
-    signed_in(dir.path()).await;
-
-    let server = MockServer::start().await;
+/// `/validate` answering 200 for a session; `accountLogin` as `login` says.
+async fn validate_ok_and_login(server: &MockServer, login: u16) {
     Mock::given(method("POST"))
         .and(path("/setup/ws/1/validate"))
         .respond_with(ResponseTemplate::new(200).set_body_json(json!({
@@ -547,9 +538,34 @@ async fn a_session_validate_vouches_for_but_services_refuse_is_renewed_then_said
                 "ckdatabasews": { "url": "https://p00-ckdatabasews.test.invalid:443", "status": "active" }
             }
         })))
-        .mount(&server)
+        .mount(server)
         .await;
-    mount_trust_and_login(&server).await;
+    Mock::given(method("POST"))
+        .and(path("/setup/ws/1/accountLogin"))
+        .respond_with(if login == 200 {
+            ResponseTemplate::new(200).set_body_json(json!({
+                "dsInfo": { "dsid": "1234567890" },
+                "webservices": {
+                    "ckdatabasews": { "url": "https://p00-ckdatabasews.test.invalid:443", "status": "active" }
+                }
+            }))
+        } else {
+            ResponseTemplate::new(login)
+        })
+        .mount(server)
+        .await;
+}
+
+/// `/validate` vouching for a session every service refuses (measured 26–27 Nov 2026: 200 from
+/// `/validate`, 421 "Missing X-APPLE-WEBAUTH-TOKEN cookie" from every service, every sync failing
+/// quietly for a day). A refused pass has the next look trade the tokens for fresh cookies
+/// (`accountLogin`) instead of asking `/validate` again; Apple taking them is the session alive.
+#[tokio::test]
+async fn a_session_validate_vouches_for_but_services_refuse_is_renewed() {
+    let dir = tempfile::tempdir().unwrap();
+    signed_in(dir.path()).await;
+    let server = MockServer::start().await;
+    validate_ok_and_login(&server, 200).await;
 
     let mut client = client_for(&server, dir.path());
     assert_eq!(client.ensure_session().await, Kept::Alive);
@@ -559,8 +575,8 @@ async fn a_session_validate_vouches_for_but_services_refuse_is_renewed_then_said
         "alive by `/validate`"
     );
 
-    // A pass met "sign in again": renewed, not looked at.
-    client.session_doubted();
+    let g = client.session_generation();
+    client.session_refused(g, true);
     assert_eq!(client.ensure_session().await, Kept::Alive);
     let reqs = server.received_requests().await.unwrap();
     assert_eq!(
@@ -568,11 +584,102 @@ async fn a_session_validate_vouches_for_but_services_refuse_is_renewed_then_said
         1,
         "the cookies traded afresh"
     );
+    assert_eq!(client.session_generation(), g + 1);
+}
 
-    // Refused again straight after the renewal: only a sign-in helps, said once and kept.
-    client.session_doubted();
-    let kept = client.ensure_session().await;
-    assert_eq!(kept, Kept::SignIn);
+/// A pass that started before the renewal comes back refused (the old cookies, in flight): it
+/// is not taken for a refusal after it. Nothing more is asked of Apple, nothing is said.
+#[tokio::test]
+async fn a_refusal_from_before_the_renewal_is_not_counted() {
+    let dir = tempfile::tempdir().unwrap();
+    signed_in(dir.path()).await;
+    let server = MockServer::start().await;
+    validate_ok_and_login(&server, 200).await;
+    let mut client = client_for(&server, dir.path());
+    let before = client.session_generation();
+    client.session_refused(before, true);
+    assert_eq!(client.ensure_session().await, Kept::Alive);
+    let asked_after_renewal = asked(&server).await;
+    // The slower pass, started under the old generation, lands now.
+    client.session_refused(before, true);
+    assert_eq!(client.ensure_session().await, Kept::Alive);
+    assert_eq!(
+        asked(&server).await,
+        asked_after_renewal,
+        "not renewed again for it"
+    );
+}
+
+/// One service refusing (Photos alone, say) never signs the account out: its cookies are
+/// renewed (at most once every two minutes), the password is never used for it, and the session
+/// stays alive.
+#[tokio::test]
+async fn one_service_refusing_never_signs_the_account_out() {
+    let dir = tempfile::tempdir().unwrap();
+    signed_in(dir.path()).await;
+    let server = MockServer::start().await;
+    validate_ok_and_login(&server, 200).await;
+    mount_init(&server).await;
+    let mut client = client_for(&server, dir.path());
+    for _ in 0..5 {
+        let g = client.session_generation();
+        client.session_refused(g, false);
+        assert_eq!(client.ensure_session().await, Kept::Alive);
+    }
+    let reqs = server.received_requests().await.unwrap();
+    assert_eq!(
+        requests_to(&reqs, "/accountLogin").len(),
+        1,
+        "renewed once in two minutes"
+    );
+    assert!(
+        requests_to(&reqs, "/signin/init").is_empty(),
+        "the password never used for it"
+    );
+}
+
+/// Apple out of reach while renewing (accountLogin 503): not a reason to sign in again with
+/// the password, and not forgotten: the doubt stands for the next look.
+#[tokio::test]
+async fn apple_out_of_reach_while_renewing_is_away_and_remembered() {
+    let dir = tempfile::tempdir().unwrap();
+    signed_in(dir.path()).await;
+    let server = MockServer::start().await;
+    validate_ok_and_login(&server, 503).await;
+    mount_init(&server).await;
+    let mut client = client_for(&server, dir.path());
+    let g = client.session_generation();
+    client.session_refused(g, true);
+    assert_eq!(client.ensure_session().await, Kept::Away);
+    let reqs = server.received_requests().await.unwrap();
+    assert!(
+        requests_to(&reqs, "/signin/init").is_empty(),
+        "no password sign-in for a 503"
+    );
+    // The next look renews again rather than trusting `/validate`.
+    assert_eq!(client.ensure_session().await, Kept::Away);
+    let reqs = server.received_requests().await.unwrap();
+    assert_eq!(
+        requests_to(&reqs, "/accountLogin").len(),
+        2,
+        "renewed again, not vouched for"
+    );
+}
+
+/// Apple refusing the renewal itself (accountLogin refused, then the kept password refused): the
+/// session is over, said as needing a sign-in, and not asked about again.
+#[tokio::test]
+async fn apple_refusing_the_renewal_is_a_sign_in() {
+    let dir = tempfile::tempdir().unwrap();
+    signed_in(dir.path()).await;
+    let server = MockServer::start().await;
+    validate_ok_and_login(&server, 421).await;
+    mount_init(&server).await;
+    mount_complete(&server, 401).await;
+    let mut client = client_for(&server, dir.path());
+    let g = client.session_generation();
+    client.session_refused(g, true);
+    assert_eq!(client.ensure_session().await, Kept::SignIn);
     let before = asked(&server).await;
     for _ in 0..5 {
         assert_eq!(client.ensure_session().await, Kept::SignIn);

@@ -1246,7 +1246,7 @@ const NEEDS_SIGNIN: &str = "quince://needs-signin";
 /// A window left open past the life of Apple's cookies, or of its session token, had every
 /// refresh failing quietly from then on. Checked here, a lapse is mended before it is felt;
 /// one that needs a code brings the code screen up instead.
-async fn keep_signed_in(app: &tauri::AppHandle, client: &Arc<Mutex<Client>>) {
+async fn keep_signed_in(app: &tauri::AppHandle, client: &Arc<Mutex<Client>>) -> quince_auth::Kept {
     // Said once per lapse, not on every pass after it.
     static TOLD: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
     // And once per wait at icloud.com, apart from a lapse: one never hides the other.
@@ -1255,7 +1255,8 @@ async fn keep_signed_in(app: &tauri::AppHandle, client: &Arc<Mutex<Client>>) {
     // The heartbeat, and the resume when Apple says the session lapsed, shared with the phone
     // and never hammering Apple (quince_auth::keep).
     use quince_auth::Kept;
-    match guard.ensure_session().await {
+    let kept = guard.ensure_session().await;
+    match kept {
         Kept::SignedOut => {}
         // Apple wants a code before it trusts this computer again. None has been asked for:
         // the window says so calmly, and the code is sent once the person opens the code
@@ -1322,21 +1323,36 @@ async fn keep_signed_in(app: &tauri::AppHandle, client: &Arc<Mutex<Client>>) {
         // Not reaching Apple says nothing about the session.
         Kept::Away => {}
     }
+    kept
 }
 
-/// A pass Apple answered "sign in again": the session renewed now (the pass marked it doubted),
-/// so the person is told at once when only a sign-in helps, and the pass runs once more when
-/// the renewal took. Answers whether it did.
-async fn renewed_after_refusal(
+/// A pass Apple answered "sign in again": the session renewed now (the pass marked it), so a
+/// session over is said at once, and the refused services alone are passed again when the
+/// renewal took, their reports put in place of the refused ones.
+async fn again_if_renewed(
     app: &tauri::AppHandle,
     client: &Arc<Mutex<Client>>,
-    result: &refresh::Refresh,
-) -> bool {
-    if !refresh::refused(&result.services) {
-        return false;
+    data: &quince_sync::library_lock::LibraryLock,
+    result: &mut refresh::Refresh,
+) {
+    let refused = refresh::refused_services(&result.services);
+    if refused.is_empty() {
+        return;
     }
-    keep_signed_in(app, client).await;
-    client.lock().await.ensure_session().await == quince_auth::Kept::Alive
+    if keep_signed_in(app, client).await != quince_auth::Kept::Alive {
+        return;
+    }
+    let again = refresh::some(client, data, &refused).await;
+    for report in again.services {
+        if let Some(slot) = result
+            .services
+            .iter_mut()
+            .find(|r| r.service == report.service)
+        {
+            *slot = report;
+        }
+    }
+    result.as_of = again.as_of.or(result.as_of);
 }
 
 /// Whose data the library holds: a hash of Apple's account id, never the id itself.
@@ -5969,9 +5985,7 @@ async fn sync_all(
         data_access::check(&app, &client, data_access::Ask::Person).await;
     }
     let mut result = refresh::all(&client, &data.0).await;
-    if renewed_after_refusal(&app, &client, &result).await {
-        result = refresh::all(&client, &data.0).await;
-    }
+    again_if_renewed(&app, &client, &data.0, &mut result).await;
     data_access::after_pass(&app, &client).await;
     alerts::changed();
     warm_contact_photos(app.clone());
@@ -6001,9 +6015,7 @@ async fn sync_some(
     }
     let names: Vec<&str> = services.iter().map(String::as_str).collect();
     let mut result = refresh::some(&client, &data.0, &names).await;
-    if renewed_after_refusal(&app, &client, &result).await {
-        result = refresh::some(&client, &data.0, &names).await;
-    }
+    again_if_renewed(&app, &client, &data.0, &mut result).await;
     data_access::after_pass(&app, &client).await;
     alerts::changed();
     if names.contains(&"contacts") {
@@ -6043,9 +6055,7 @@ fn spawn_auto_sync(app: tauri::AppHandle, client: Arc<Mutex<Client>>) {
                 calendar_read = Some(std::time::Instant::now());
             }
             let mut result = refresh::routine(&client, &data.0, calendar).await;
-            if renewed_after_refusal(&app, &client, &result).await {
-                result = refresh::routine(&client, &data.0, calendar).await;
-            }
+            again_if_renewed(&app, &client, &data.0, &mut result).await;
             data_access::after_pass(&app, &client).await;
             alerts::changed();
             warm_contact_photos(app.clone());

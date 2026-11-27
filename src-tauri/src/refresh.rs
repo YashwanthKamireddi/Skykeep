@@ -299,18 +299,38 @@ pub async fn some(client: &Arc<Mutex<Client>>, data: &LibraryLock, wanted: &[&st
     run(client, data, wanted).await
 }
 
-/// Whether Apple answered "sign in again" to any of these passes.
+/// Whether Apple answered "sign in again" to this pass.
+fn was_refused(r: &ServiceReport) -> bool {
+    r.outcome == Outcome::Failed
+        && r.detail.as_deref() == Some(quince_icloud::Error::ReauthRequired.to_string().as_str())
+}
+
+/// The services Apple answered "sign in again".
 #[must_use]
-pub fn refused(reports: &[ServiceReport]) -> bool {
-    let words = quince_icloud::Error::ReauthRequired.to_string();
+pub fn refused_services(reports: &[ServiceReport]) -> Vec<&'static str> {
     reports
         .iter()
-        .any(|r| r.outcome == Outcome::Failed && r.detail.as_deref() == Some(words.as_str()))
+        .filter(|r| was_refused(r))
+        .map(|r| r.service)
+        .collect()
+}
+
+/// Whether every service the pass asked Apple about was refused (none it could not ask).
+#[must_use]
+pub fn every_refused(reports: &[ServiceReport]) -> bool {
+    let asked: Vec<&ServiceReport> = reports
+        .iter()
+        .filter(|r| r.outcome != Outcome::Unavailable)
+        .collect();
+    !asked.is_empty() && asked.iter().all(|r| was_refused(r))
 }
 
 async fn run(client: &Arc<Mutex<Client>>, data: &LibraryLock, services: &[&str]) -> Refresh {
     let wanted = |service: &str| services.contains(&service);
     let started = std::time::Instant::now();
+    // Which renewal this pass runs under: a refusal it meets is not taken for one after a
+    // renewal made while it ran (quince_auth keep.rs).
+    let generation = client.lock().await.session_generation();
     let ctx = context(client).await;
     let (from, to, zone) = default_window();
 
@@ -530,8 +550,14 @@ async fn run(client: &Arc<Mutex<Client>>, data: &LibraryLock, services: &[&str])
         .collect();
     // Apple answered "sign in again" to a pass: the session is renewed at the next look rather
     // than vouched for by `/validate` again (quince_auth keep.rs), as the phone's passes do.
-    if refused(&reports) {
-        client.lock().await.session_doubted();
+    // Every service refusing is the session's doing; one alone, that service's.
+    {
+        let mut c = client.lock().await;
+        if !refused_services(&reports).is_empty() {
+            c.session_refused(generation, every_refused(&reports));
+        } else if reports.iter().any(|r| r.outcome == Outcome::Ok) {
+            c.session_through(generation);
+        }
     }
 
     let available: Vec<&str> = reports
