@@ -112,7 +112,7 @@ impl Account {
     fn renewed(&self, sent: u64) -> bool {
         let mut c = self.client();
         // The person is waiting on this request: renewed now, not after the gap.
-        c.session_refused_now();
+        c.session_refused_now(sent);
         // Sent again only once the session has been renewed since the call was sent (by this
         // look or a pass's): alive by `/validate`, or inside the renewal gap with nothing renewed
         // since, the same cookies would be refused again.
@@ -152,13 +152,14 @@ impl Account {
             waiting: apple.waiting.clone(),
             hooks: &hooks,
         };
+        let generation = self.client().session_generation();
         let report = pass::run(service, &ctx, library, lock).await;
         // Apple answered "sign in again" to the pass itself: the next pass asks about the
         // session rather than trusting the last look.
         if report.outcome == Outcome::Failed
             && report.detail.as_deref() == Some(&quince_icloud::Error::ReauthRequired.to_string())
         {
-            self.client().session_refused();
+            self.client().session_refused(generation);
         }
         report
     }

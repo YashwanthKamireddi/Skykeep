@@ -154,7 +154,7 @@ async fn a_lapsed_session_is_taken_up_again_and_asked_about_once() {
         "five passes starting together cost no more requests"
     );
     // A pass that met "sign in again" anyway has the next one ask.
-    client.session_refused();
+    client.session_refused(client.session_generation());
     client.ensure_session().await;
     assert!(asked(&server).await > before);
 }
@@ -576,7 +576,7 @@ async fn a_session_validate_vouches_for_but_services_refuse_is_renewed() {
     );
 
     let g = client.session_generation();
-    client.session_refused();
+    client.session_refused(client.session_generation());
     assert_eq!(client.ensure_session().await, Kept::Alive);
     let reqs = server.received_requests().await.unwrap();
     assert_eq!(
@@ -601,18 +601,19 @@ async fn a_refusal_straight_after_a_renewal_waits_out_the_gap() {
     let server = MockServer::start().await;
     validate_ok_and_login(&server, 200).await;
     let mut client = client_for(&server, dir.path());
-    client.session_refused();
+    client.session_refused(client.session_generation());
     assert_eq!(client.ensure_session().await, Kept::Alive);
     let logins = |reqs: &[Request]| requests_to(reqs, "/accountLogin").len();
     assert_eq!(logins(&server.received_requests().await.unwrap()), 1);
-    client.session_refused();
+    client.session_refused(client.session_generation());
     assert_eq!(client.ensure_session().await, Kept::Alive);
     assert_eq!(
         logins(&server.received_requests().await.unwrap()),
         1,
         "not renewed again at once: looked at with `/validate`"
     );
-    client.session_refused_now();
+    let g = client.session_generation();
+    client.session_refused_now(g);
     client.ensure_session().await;
     let reqs = server.received_requests().await.unwrap();
     assert_eq!(
@@ -624,7 +625,7 @@ async fn a_refusal_straight_after_a_renewal_waits_out_the_gap() {
 
 /// Apple out of reach while renewing (accountLogin 503): not a reason to sign in again with
 /// the password, and not forgotten; and not asked again at every look either: the next try waits
-/// out the two minutes, as after any try.
+/// out the gap, as after any try.
 #[tokio::test]
 async fn apple_out_of_reach_while_renewing_is_away_and_not_asked_again_at_once() {
     let dir = tempfile::tempdir().unwrap();
@@ -635,7 +636,7 @@ async fn apple_out_of_reach_while_renewing_is_away_and_not_asked_again_at_once()
     let mut client = client_for(&server, dir.path());
     // A first look takes up the session as it is (`/validate`), as at launch.
     assert_eq!(client.ensure_session().await, Kept::Alive);
-    client.session_refused();
+    client.session_refused(client.session_generation());
     assert_eq!(client.ensure_session().await, Kept::Away);
     for _ in 0..5 {
         client.ensure_session().await;
@@ -648,7 +649,7 @@ async fn apple_out_of_reach_while_renewing_is_away_and_not_asked_again_at_once()
     assert_eq!(
         requests_to(&reqs, "/accountLogin").len(),
         1,
-        "one try in two minutes"
+        "one try in the gap"
     );
 }
 
@@ -663,7 +664,7 @@ async fn apple_asking_to_slow_down_while_renewing_is_not_a_sign_in() {
     mount_init(&server).await;
     let mut client = client_for(&server, dir.path());
     assert_eq!(client.ensure_session().await, Kept::Alive);
-    client.session_refused();
+    client.session_refused(client.session_generation());
     assert_eq!(client.ensure_session().await, Kept::Away);
     let reqs = server.received_requests().await.unwrap();
     assert!(
@@ -672,34 +673,25 @@ async fn apple_asking_to_slow_down_while_renewing_is_not_a_sign_in() {
     );
 }
 
-/// Apple not opening the account for the tokens with any other 4xx (a 400, say) has ended the
-/// session as a 421 does: taken up with the kept password, quietly, no code.
+/// A 4xx from `accountLogin` other than 401/421 (a 400, say) is taken as the tokens refused only
+/// when the next try meets one too: once, it may be a passing odd answer, so it is away, never
+/// the password and never a sign-out.
 #[tokio::test]
-async fn a_4xx_while_renewing_is_taken_up_with_the_kept_password() {
+async fn a_single_odd_4xx_while_renewing_is_away_never_the_password() {
     let dir = tempfile::tempdir().unwrap();
     signed_in(dir.path()).await;
     let server = MockServer::start().await;
-    Mock::given(method("POST"))
-        .and(path("/setup/ws/1/accountLogin"))
-        .respond_with(ResponseTemplate::new(400))
-        .up_to_n_times(1)
-        .mount(&server)
-        .await;
-    validate_ok_and_login(&server, 200).await;
+    validate_ok_and_login(&server, 400).await;
     mount_init(&server).await;
-    mount_complete(&server, 200).await;
-    mount_trust_and_login(&server).await;
     let mut client = client_for(&server, dir.path());
     assert_eq!(client.ensure_session().await, Kept::Alive);
-    client.session_refused();
-    assert_eq!(client.ensure_session().await, Kept::Alive);
+    client.session_refused(client.session_generation());
+    assert_eq!(client.ensure_session().await, Kept::Away);
     let reqs = server.received_requests().await.unwrap();
-    assert_eq!(
-        requests_to(&reqs, "/signin/complete").len(),
-        1,
-        "the kept password, once"
+    assert!(
+        requests_to(&reqs, "/signin/init").is_empty(),
+        "no password for one odd 400"
     );
-    assert!(requests_to(&reqs, "/securitycode").is_empty(), "no code");
 }
 
 /// Apple refusing the token (accountLogin 421) has ended the session: it is taken up as any lapse
@@ -720,7 +712,7 @@ async fn the_token_refused_is_taken_up_with_the_kept_password() {
     mount_complete(&server, 200).await;
     mount_trust_and_login(&server).await;
     let mut client = client_for(&server, dir.path());
-    client.session_refused();
+    client.session_refused(client.session_generation());
     assert_eq!(client.ensure_session().await, Kept::Alive);
     let reqs = server.received_requests().await.unwrap();
     assert_eq!(
@@ -742,7 +734,7 @@ async fn apple_refusing_the_renewal_is_a_sign_in() {
     mount_init(&server).await;
     mount_complete(&server, 401).await;
     let mut client = client_for(&server, dir.path());
-    client.session_refused();
+    client.session_refused(client.session_generation());
     assert_eq!(client.ensure_session().await, Kept::SignIn);
     let before = asked(&server).await;
     for _ in 0..5 {

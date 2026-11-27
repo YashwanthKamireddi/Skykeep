@@ -77,6 +77,9 @@ pub(crate) struct Keeping {
     /// The session token last seen: a new session (signed in since) is not doubted for what
     /// the old one met.
     token: Option<String>,
+    /// The last try met a 4xx other than 401/421 from `accountLogin`: a second running is
+    /// taken as the tokens refused ([`Client::renew_again`]).
+    odd: bool,
 }
 
 impl Client {
@@ -99,10 +102,10 @@ impl Client {
         // A pass was refused: `/validate` can go on vouching for a session every service
         // refuses (26–27 Nov 2026: a window failed every sync for a day, saying nothing), so it is
         // renewed, not looked at: the tokens traded for fresh cookies (`accountLogin`), at most
-        // once every two minutes. Apple's answer decides: taken, the session is alive; Apple out
-        // of reach, the doubt stands for the next look; the token refused, Apple has ended the
-        // session, and it is taken up as any lapse is (the kept password, quietly), or said to
-        // need a sign-in. A service refusing never decides it.
+        // once every ten minutes (`RENEW_GAP`). Apple's answer decides: taken, the session is
+        // alive; Apple out of reach, the doubt stands for the next look; the token refused,
+        // Apple has ended the session, and it is taken up as any lapse is (the kept password,
+        // quietly), or said to need a sign-in. A service refusing never decides it.
         self.note_session();
         let gap = if self.keeping.urgent {
             RENEW_GAP_NOW
@@ -110,10 +113,16 @@ impl Client {
             RENEW_GAP
         };
         let due = !self.keeping.tried_at.is_some_and(|at| at.elapsed() < gap);
+        // A person's request asks for one try sooner, this look's: not every look after it.
+        self.keeping.urgent = false;
         if self.keeping.doubt && due {
             self.keeping.tried_at = Some(Instant::now());
-            self.keeping.urgent = false;
-            let renewed = self.renew().await;
+            let renewed = if self.keeping.odd {
+                self.renew_again().await
+            } else {
+                self.renew().await
+            };
+            self.keeping.odd = matches!(renewed, Err(crate::Error::TokenRefused(code)) if code != 401 && code != 421);
             let kept = self.looked(renewed);
             // Apple out of reach: the doubt stands, for the next look.
             if kept != Kept::Away {
@@ -187,16 +196,21 @@ impl Client {
 
     /// A pass or request was answered "sign in again": the next [`Self::ensure_session`] renews
     /// the session rather than trusting `/validate`, once the gap since the last try is out.
-    pub fn session_refused(&mut self) {
+    pub fn session_refused(&mut self, generation: u64) {
+        // Refused under cookies renewed since: a pass still in flight on the old ones, already
+        // mended, is no reason to ask Apple again.
+        if generation < self.keeping.generation {
+            return;
+        }
         self.keeping.alive_at = None;
         self.keeping.doubt = true;
     }
 
     /// [`Self::session_refused`] for a request the person is waiting on (opening a folder, a
     /// file): renewed at the next look without waiting out the gap.
-    pub fn session_refused_now(&mut self) {
-        self.session_refused();
-        self.keeping.urgent = true;
+    pub fn session_refused_now(&mut self, generation: u64) {
+        self.session_refused(generation);
+        self.keeping.urgent = self.keeping.doubt;
     }
 
     /// Apple took the tokens for fresh cookies (`accountLogin`), by a renewal or by any resume:

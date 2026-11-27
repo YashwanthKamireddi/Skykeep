@@ -823,6 +823,9 @@ enum Look {
     Validate,
     /// Straight to trading the tokens for new cookies: a service refused the session.
     Renew,
+    /// [`Look::Renew`] after a 4xx other than 401/421 on the try before: seen twice running,
+    /// it is Apple not taking the tokens, and the password follows.
+    RenewAgain,
 }
 
 impl Client {
@@ -1154,6 +1157,12 @@ impl Client {
         self.resume_from(Look::Renew).await
     }
 
+    /// [`Self::renew`] after Apple answered the last try with a 4xx other than 401/421: a
+    /// second one running is taken as the tokens refused.
+    pub(crate) async fn renew_again(&mut self) -> Result<bool> {
+        self.resume_from(Look::RenewAgain).await
+    }
+
     async fn resume_from(&mut self, look: Look) -> Result<bool> {
         // A sign-out the keyring was locked for is never undone by resuming: its entries are
         // erased now if it answers, and until they are, `try_load` (below, and at startup)
@@ -1228,11 +1237,18 @@ impl Client {
         // Offline, or Apple down for a while: the session is not dead, only unreachable — it
         // is kept and tried again, rather than a sign-in that ends in "Apple signed you out".
         let away = |e: &Error| matches!(e, Error::Network(_) | Error::Unavailable(_));
-        // Renewing, `/validate` was not asked: Apple not opening the account for the tokens (a
-        // 4xx, or a sign-in wanted at its regional servers) goes on to the password, as any lapse
-        // does: quietly, when one is kept. Out of reach, busy, asking to wait, or this computer's
-        // own trouble says nothing about the tokens: away, tried again later.
-        if look == Look::Renew && !matches!(logged_in, Error::TokenRefused(_) | Error::Moved) {
+        // Renewing, `/validate` was not asked: Apple refusing the tokens (401, 421) or wanting
+        // the sign-in at its regional servers goes on to the password, as any lapse does:
+        // quietly, when one is kept. Another 4xx does too, but only seen twice running
+        // (`Look::RenewAgain`, keep.rs): once, it may be a passing odd answer. Out of reach, busy,
+        // asking to wait, or this computer's own trouble says nothing about the tokens.
+        let refused = matches!(
+            (look, &logged_in),
+            (Look::Validate, _)
+                | (_, Error::TokenRefused(401 | 421) | Error::Moved)
+                | (Look::RenewAgain, Error::TokenRefused(_))
+        );
+        if !refused {
             return Err(logged_in);
         }
         if away(&validated) && away(&logged_in) {

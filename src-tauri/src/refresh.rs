@@ -559,7 +559,7 @@ async fn run(client: &Arc<Mutex<Client>>, data: &LibraryLock, services: &[&str])
     // Apple answered "sign in again" to a pass: the session is renewed at the next look rather
     // than vouched for by `/validate` again (quince_auth keep.rs), as the phone's passes do.
     if !refused_services(&reports).is_empty() {
-        client.lock().await.session_refused();
+        client.lock().await.session_refused(generation);
     }
 
     let as_of = as_of(data, &reports).await;
