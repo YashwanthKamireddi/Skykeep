@@ -792,6 +792,7 @@ export function SettingsView({ onSignOut }: { onSignOut: (keep: boolean) => Prom
             aria-selected={pane === "home"}
             tabIndex={pane === "home" ? 0 : -1}
             onClick={() => choose("home")}
+            title={t("settings.home")}
           >
             <House className="prefs-icon" size={16} strokeWidth={1.75} aria-hidden="true" />
             <span className="source-name">{t("settings.home")}</span>
@@ -810,6 +811,7 @@ export function SettingsView({ onSignOut }: { onSignOut: (keep: boolean) => Prom
                 aria-selected={pane === n.id}
                 tabIndex={pane === n.id ? 0 : -1}
                 onClick={() => choose(n.id)}
+                title={n.label}
               >
                 <NavTile pane={n.id} />
                 <span className="source-name">{n.label}</span>

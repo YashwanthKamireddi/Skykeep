@@ -1982,14 +1982,25 @@
 .prefs-pane .settings-row > :is(button, a).quiet { min-width: 84px; justify-content: center; }
 .prefs-app-icon { width: 24px; height: 24px; flex: none; }
 
-/* Narrow: the sections in a row along the top, scrolled sideways. */
+/* Narrow: the sections in one row along the top. Each is its symbol, the one open is its symbol
+   and its name, so all seven fit a window a third of a screen wide with nothing cut off at the
+   edge (they were all named, and the row ran out of the window: "G…"). The names stay for screen
+   readers and as each one's tooltip. */
 @container settings-page (max-width: 700px) {
   .settings.prefs { grid-template-columns: minmax(0, 1fr); grid-template-rows: auto minmax(0, 1fr); }
   .prefs-side {
-    flex-direction: row; gap: 2px; overflow-x: auto; overflow-y: hidden; margin: 8px 8px 0; padding: 6px;
+    flex-direction: row; gap: 2px; overflow-x: auto; overflow-y: hidden;
+    margin: 8px 8px 0; padding: 6px; scrollbar-width: none;
   }
+  /* Centred by margins, not justify-content: in a window too narrow even for the symbols, a
+     centred row cut its first ones off out of reach; auto margins give way and it scrolls. */
+  .prefs-side > .prefs-group:first-child { margin-inline-start: auto; }
+  .prefs-side > .prefs-group:last-child { margin-inline-end: auto; }
   .prefs-group { flex-direction: row; gap: 2px; }
   .prefs-side .source-row { width: auto; flex: none; }
+  .prefs-side .source-row:not([aria-selected="true"]) { padding-inline: 8px; }
+  .prefs-side .source-row:not([aria-selected="true"]) .source-name {
+    position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); white-space: nowrap; }
   .prefs-main { padding: 16px 16px 32px; }
   .prefs-hero { flex-wrap: wrap; }
 }
