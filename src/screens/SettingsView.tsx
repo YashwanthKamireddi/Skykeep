@@ -363,12 +363,14 @@ function BackupRow({ onError }: { onError: (m: string) => void }) {
         <span className="settings-label settings-stack">
           {t("settings.includeShared")}
           <span className="settings-hint" aria-live="polite">
-            {state?.shared && state.sharedTotal > 0
-              ? t(state.sharedTotal === 1 ? "settings.sharedProgressOne" : "settings.sharedProgressMany", {
-                  copied: state.sharedCopied.toLocaleString(),
-                  total: state.sharedTotal.toLocaleString(),
-                })
-              : t("settings.sharedHint")}
+            {!state?.shared
+              ? t("settings.sharedHint")
+              : on && state.sharedTotal > 0
+                ? t(state.sharedTotal === 1 ? "settings.sharedProgressOne" : "settings.sharedProgressMany", {
+                    copied: state.sharedCopied.toLocaleString(),
+                    total: state.sharedTotal.toLocaleString(),
+                  })
+                : t("settings.sharedIncluded")}
           </span>
         </span>
         <button

@@ -57,7 +57,8 @@ for (const scheme of ["light", "dark"]) {
   // Shared Albums: off until asked for (other people's photos), then how far, as shared.
   const shared = row.getByRole("switch", { name: "Include Shared Albums" });
   const sharedRow = shared.locator("xpath=..");
-  ok((await shared.getAttribute("aria-checked")) === "false" && (await sharedRow.innerText()).includes("Each at the size it was shared"), `${scheme}: Shared Albums are left out until asked for, and say how they're kept`);
+  const offText = await sharedRow.innerText();
+  ok((await shared.getAttribute("aria-checked")) === "false" && offText.includes("Each photo at the size it was shared") && !offText.includes("Included"), `${scheme}: Shared Albums are left out until asked for, and say how they'd be kept`);
   // An option of Photos, beside the Hidden album: before iCloud Drive, indented as Hidden is.
   const order = await row.evaluate((card) => {
     const at = (el) => [...card.querySelectorAll("*")].indexOf(el);
@@ -79,6 +80,8 @@ for (const scheme of ["light", "dark"]) {
   await row.getByRole("switch", { name: "Back Up iCloud" }).click();
   await page.waitForTimeout(150);
   ok((await page.evaluate(() => window.__backupArgs.folder)) === null, `${scheme}: the switch turns it off`);
+  const sharedAfter = await row.getByRole("switch", { name: "Include Shared Albums" }).locator("xpath=..").innerText();
+  ok(sharedAfter.includes("Included, each photo at the size it was shared") && !sharedAfter.includes("of 318"), `${scheme}: backup off, Shared Albums say they're included, with no copying shown`);
   await ctx.close();
 }
 await b.close();
