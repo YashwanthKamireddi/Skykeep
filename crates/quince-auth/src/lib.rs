@@ -1144,7 +1144,8 @@ impl Client {
     /// For a session a service has just refused: `/validate` can go on answering 200 while every
     /// service answers "sign in again" (421, "Missing X-APPLE-WEBAUTH-TOKEN cookie": measured on
     /// a real account, 26–27 Nov 2026), so its answer is not taken: the tokens are traded for
-    /// fresh cookies (`accountLogin`), and that is all. `Err` with Apple's answer otherwise.
+    /// fresh cookies (`accountLogin`), and that is all. `Ok(false)` when there is nothing to renew
+    /// from (no session kept); `Err` with Apple's answer otherwise.
     pub async fn renew(&mut self) -> Result<bool> {
         self.resume_from(Look::Renew).await
     }

@@ -99,9 +99,8 @@ impl Account {
         &self,
         call: impl Fn() -> Result<T, E>,
     ) -> Result<T, EngineError> {
-        let sent = self.client().session_generation();
         match call() {
-            Err(e) if lapsed(&e.to_string()) && self.renewed(sent) => {
+            Err(e) if lapsed(&e.to_string()) && self.renewed() => {
                 call().map_err(|e| failed(e.to_string()))
             }
             r => r.map_err(|e| failed(e.to_string())),
@@ -109,12 +108,9 @@ impl Account {
     }
 
     /// The session asked about afresh, as a pass after a refusal asks: alive again or not.
-    fn renewed(&self, sent: u64) -> bool {
+    fn renewed(&self) -> bool {
         let mut c = self.client();
-        // The person is waiting on this request: the session renewed now (the cookies traded
-        // afresh) when that is due, and otherwise asked about as it always was; alive, the
-        // request is sent again, as before renewing existed (#234).
-        c.session_refused_now(sent);
+        c.session_look_again();
         runtime().block_on(c.ensure_session()) == quince_auth::Kept::Alive
     }
 
@@ -156,8 +152,6 @@ impl Account {
         if report.outcome == Outcome::Failed
             && report.detail.as_deref() == Some(&quince_icloud::Error::ReauthRequired.to_string())
         {
-            // One service: asked about afresh at the next look, as it always was; a renewal is
-            // for refusals the person waits on, or two services at once on the desktop.
             self.client().session_look_again();
         }
         report

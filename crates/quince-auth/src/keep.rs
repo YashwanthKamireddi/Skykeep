@@ -131,7 +131,10 @@ impl Client {
                 ) => Kept::Away,
                 // Any other answer: the look every pass makes decides, now, as it always has
                 // (`/validate`, and when that fails the resume with the kept password).
+                // The doubt goes with it: that look has had its say, and Apple is not asked to
+                // renew again every gap while the session works.
                 _ => {
+                    self.keeping.doubt = false;
                     let looked = self.heartbeat().await;
                     let kept = self.looked(looked);
                     self.settle(kept)
