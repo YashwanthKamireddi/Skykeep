@@ -113,8 +113,12 @@ impl Account {
     /// The session asked about afresh, as a pass after a refusal asks: alive again or not.
     fn renewed(&self, sent: u64) -> bool {
         let mut c = self.client();
-        // The person is waiting on this request: renewed now, not after the gap.
+        // The person is waiting on this request: renewed now, not after the gap. Neither due nor
+        // renewed since it went out, Apple is asked nothing more for it, not even `/validate`.
         c.session_refused_now(sent);
+        if c.session_generation() == sent && !c.session_renewal_due() {
+            return false;
+        }
         // Sent again only once the session has been renewed since the call was sent (by this
         // look or a pass's): alive by `/validate`, or inside the renewal gap with nothing renewed
         // since, the same cookies would be refused again.

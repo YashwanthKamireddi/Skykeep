@@ -312,6 +312,13 @@ fn was_refused(r: &ServiceReport) -> bool {
         && r.detail.as_deref() == Some(quince_icloud::Error::ReauthRequired.to_string().as_str())
 }
 
+/// Whether a pass's refusals are the session's doing: two services or more answered "sign in
+/// again". One alone may be its own (another account's CalDAV password, a service's own 450).
+#[must_use]
+pub fn session_wide(reports: &[ServiceReport]) -> bool {
+    refused_services(reports).len() >= 2
+}
+
 /// The services Apple answered "sign in again".
 #[must_use]
 pub fn refused_services(reports: &[ServiceReport]) -> Vec<&'static str> {
@@ -561,7 +568,10 @@ async fn run(client: &Arc<Mutex<Client>>, data: &LibraryLock, services: &[&str])
         .collect();
     // Apple answered "sign in again" to a pass: the session is renewed at the next look rather
     // than vouched for by `/validate` again (quince_auth keep.rs), as the phone's passes do.
-    if !refused_services(&reports).is_empty() {
+    // Two services or more refused in one pass is the session's doing; one alone may be its own
+    // (another account's CalDAV password, a service's own 450), and is not a reason to renew the
+    // iCloud session every ten minutes. A pass of one service leaves it to the next whole pass.
+    if session_wide(&reports) {
         client.lock().await.session_refused(generation);
     }
 
@@ -698,6 +708,41 @@ fn unavailable(service: &'static str, label: &'static str) -> ServiceReport {
 
 #[cfg(test)]
 mod tests {
+    /// The iCloud session is doubted only when two services or more are refused in one pass:
+    /// one alone (a CalDAV account's password, say) never has the session renewed every ten
+    /// minutes. Other failures are not refusals.
+    #[test]
+    fn only_two_refused_services_or_more_doubt_the_session() {
+        let words = quince_icloud::Error::ReauthRequired.to_string();
+        let report = |service: &'static str, outcome: super::Outcome, detail: Option<&str>| {
+            let mut r = super::unavailable(service, service);
+            r.outcome = outcome;
+            r.detail = detail.map(str::to_string);
+            r
+        };
+        let refused = |s| report(s, super::Outcome::Failed, Some(words.as_str()));
+        let ok = |s| report(s, super::Outcome::Ok, None);
+        let offline = |s| report(s, super::Outcome::Failed, Some("offline"));
+        assert!(!super::session_wide(&[
+            refused("calendar"),
+            ok("notes"),
+            ok("photos")
+        ]));
+        assert!(!super::session_wide(&[
+            refused("calendar"),
+            offline("notes")
+        ]));
+        assert!(super::session_wide(&[
+            refused("notes"),
+            refused("photos"),
+            ok("calendar")
+        ]));
+        assert_eq!(
+            super::refused_services(&[refused("notes"), offline("drive")]),
+            ["notes"]
+        );
+    }
+
     use quince_sync::pass::{joined, MOST_ITEMS};
 
     /// The Photos report while Apple prepares the library, with another look set for later,

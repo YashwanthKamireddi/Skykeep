@@ -87,6 +87,8 @@ impl Client {
             return Kept::SignedOut;
         }
         let token = self.session.session_token.clone();
+        // A person's request asks for one sooner try, this look's, whatever this look does.
+        let urgent = std::mem::take(&mut self.keeping.urgent);
         if let Some((was, kept)) = &self.keeping.ended {
             // The code entered since (it no longer waits on one) is a session taken up again.
             let code_given = *kept == Kept::Code && !self.awaiting_code();
@@ -103,21 +105,24 @@ impl Client {
         // changes nothing here: the look every pass makes decides the session as it always has.
         // A service refusing never ends a session.
         self.note_session();
-        let gap = if self.keeping.urgent {
-            RENEW_GAP_NOW
-        } else {
-            RENEW_GAP
-        };
+        let gap = if urgent { RENEW_GAP_NOW } else { RENEW_GAP };
         let due = !self.keeping.tried_at.is_some_and(|at| at.elapsed() < gap);
-        // A person's request asks for one try sooner, this look's: not every look after it.
-        self.keeping.urgent = false;
         if self.keeping.doubt && due {
             self.keeping.tried_at = Some(Instant::now());
             // Only the cookies traded: taken, alive. Any other answer leaves the session as it is,
             // the doubt standing for the next try, and the look every pass makes (`/validate`, then
             // the resume with the kept password) goes on deciding the session, as it always has.
+            let before = self.keeping.generation;
             return match self.renew().await {
-                Ok(true) => self.settle(Kept::Alive),
+                // Taken. Held part-way by new terms or a repair (no cookies, the count not moved),
+                // it is alive too, and the window's own notice for those says what to do; the
+                // doubt goes either way, so Apple is not asked again every gap for it.
+                Ok(true) => {
+                    if self.keeping.generation == before {
+                        self.keeping.doubt = false;
+                    }
+                    self.settle(Kept::Alive)
+                }
                 _ => Kept::Away,
             };
         }

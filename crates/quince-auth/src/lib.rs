@@ -160,11 +160,6 @@ pub enum Error {
     CoolingDown { seconds: u64 },
     #[error("this needs a fresh sign-in — Apple won't accept a resumed session for it")]
     ReauthRequired,
-    /// `accountLogin` would not open the account for the tokens it was given (a 4xx other than
-    /// 429). After a refused pass it is said to the person (keep.rs), never acted on alone.
-    /// Worded for the sign-in screen too, where it can also come up.
-    #[error("couldn't open the account (HTTP {0})")]
-    TokenRefused(u16),
     /// Apple keeps this account on its regional servers and this session has moved there, but
     /// Apple wants a sign-in made there: whoever holds the password signs in again (issue #10).
     #[error("Apple keeps this Apple Account on your region's iCloud servers. Sign in again to continue there.")]
@@ -221,7 +216,6 @@ impl Error {
             | Error::Protocol(_)
             | Error::NoTrustToken
             | Error::ReauthRequired
-            | Error::TokenRefused(_)
             | Error::Moved
             | Error::BadCode
             | Error::Keyring(_)
@@ -2052,11 +2046,6 @@ impl Client {
             }
         }
         if !status.is_success() {
-            // Apple not opening the account for these tokens (a 4xx other than "slow down"):
-            // said as that, so a renewal can tell it from Apple out of reach or busy.
-            if status.is_client_error() && status.as_u16() != 429 {
-                return Err(Error::TokenRefused(status.as_u16()));
-            }
             return Err(transient(status).unwrap_or_else(|| {
                 Error::Protocol(format!("couldn't open the account ({status})"))
             }));
