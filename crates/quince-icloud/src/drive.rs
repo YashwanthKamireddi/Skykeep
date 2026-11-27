@@ -9,6 +9,7 @@ use quince_core::drive::{
     SHARED_READ_ONLY,
 };
 use serde_json::{json, Value};
+use std::collections::HashMap;
 
 fn string(v: &Value, key: &str) -> Option<String> {
     v.get(key)
@@ -1311,6 +1312,98 @@ pub async fn thumbnails(
                     out.push((item.drivewsid.clone(), bytes.to_vec()));
                 }
             }
+        }
+    }
+    Ok(out)
+}
+
+/// Apple's checksum of each file's bytes now (`data_token.signature`, the AppleChecksum an
+/// upload's receipt gives), by document id lower-cased, for files in iCloud Drive's own zone:
+/// `None` for one Apple still has but with no single checksum (a package — a Pages, Numbers or
+/// Keynote bundle — answers `package_token`). A file Apple no longer has is left out of its
+/// answer (measured 27 Nov 2026: an unknown id is simply not answered), so it is not in the
+/// map. Ids are sent exactly as given (Apple's are case-sensitive) and the map is keyed by
+/// them lower-cased. Asked 200 at a time.
+///
+/// # Errors
+/// When Apple cannot be reached or refuses the question.
+pub async fn checksums(
+    http: &reqwest::Client,
+    docws_root: &str,
+    params: Vec<(String, String)>,
+    document_ids: &[String],
+) -> Result<HashMap<String, Option<String>>> {
+    let url = format!(
+        "{}/ws/com.apple.CloudDocs/download/batch",
+        docws_root.trim_end_matches('/')
+    );
+    let mut out = HashMap::new();
+    for chunk in document_ids.chunks(200) {
+        let body: Vec<Value> = chunk.iter().map(|d| json!({ "document_id": d })).collect();
+        let response = http.post(&url).query(&params).json(&body).send().await?;
+        if crate::session_lapsed(response.status()) {
+            return Err(Error::ReauthRequired);
+        }
+        // A batch none of whose files Apple has answers 404 (measured 27 Nov 2026): none of
+        // them is there, which is what leaving them out of the map says.
+        if response.status() == reqwest::StatusCode::NOT_FOUND {
+            continue;
+        }
+        if !response.status().is_success() {
+            let status = response.status();
+            let text = crate::bounded::reply(response).await?;
+            crate::approval_needed(status, &text)?;
+            return Err(Error::Protocol(format!("checksums returned {status}")));
+        }
+        let answer: Value = response
+            .json()
+            .await
+            .map_err(|e| Error::Protocol(format!("checksums: {e}")))?;
+        for entry in answer.as_array().into_iter().flatten() {
+            if let Some(doc) = entry.get("document_id").and_then(Value::as_str) {
+                let sum = entry
+                    .pointer("/data_token/signature")
+                    .and_then(Value::as_str)
+                    .map(str::to_string);
+                out.insert(doc.to_lowercase(), sum);
+            }
+        }
+    }
+    Ok(out)
+}
+
+/// Moves files to Recently Deleted only as the versions given: `(drivewsid, etag)`, the way
+/// icloud.com's Delete sends them. Apple refuses a file changed since (`ETAG_CONFLICT`), so it
+/// stays. Answers each file's status: `OK` moved; anything else not.
+///
+/// # Errors
+/// When Apple cannot be reached or refuses the request as a whole.
+pub async fn trash_versions(
+    http: &reqwest::Client,
+    root: &str,
+    params: Vec<(String, String)>,
+    files: &[(String, String)],
+) -> Result<HashMap<String, String>> {
+    let url = format!("{}/moveItemsToTrash", root.trim_end_matches('/'));
+    let mut out = HashMap::new();
+    for chunk in files.chunks(50) {
+        let items: Vec<Value> = chunk
+            .iter()
+            .map(|(id, etag)| json!({ "drivewsid": id, "etag": etag, "clientId": id }))
+            .collect();
+        let reply = post_json(http, &url, &params, &json!({ "items": items })).await?;
+        for (id, _) in chunk {
+            let status = reply
+                .get("items")
+                .and_then(Value::as_array)
+                .and_then(|all| {
+                    all.iter()
+                        .find(|i| i.get("drivewsid").and_then(Value::as_str) == Some(id.as_str()))
+                })
+                .and_then(|a| a.get("status"))
+                .and_then(Value::as_str)
+                .unwrap_or("UNANSWERED");
+            out.insert(id.clone(), status.to_string());
         }
     }
     Ok(out)
@@ -4990,6 +5083,96 @@ mod storage_tests {
             ]
         );
         assert!(got.full && got.almost_full);
+    }
+}
+
+#[cfg(test)]
+mod free_up_tests {
+    use super::*;
+    use wiremock::matchers::{method, path};
+    use wiremock::{Mock, MockServer, ResponseTemplate};
+
+    /// Each file's checksum, as `download/batch` answered on a real account (27 Nov 2026): a
+    /// file Apple no longer has is not in the answer, so not in the map; ids compared
+    /// ignoring case.
+    #[tokio::test]
+    async fn checksums_are_read_and_a_gone_file_is_left_out() {
+        let server = MockServer::start().await;
+        Mock::given(method("POST"))
+            .and(path("/ws/com.apple.CloudDocs/download/batch"))
+            .respond_with(ResponseTemplate::new(200).set_body_json(json!([
+                { "document_id": "AAA-1", "item_id": "x", "owner_dsid": 1, "double_etag": "1::2",
+                  "data_token": { "url": "u", "token": "t", "signature": "AToxVp", "wrapping_key": "w",
+                                  "reference_signature": "r" } },
+                { "document_id": "BBB-2", "package_token": { "url": "u" } }
+            ])))
+            .mount(&server)
+            .await;
+        let got = checksums(
+            &reqwest::Client::new(),
+            &server.uri(),
+            vec![],
+            &["aaa-1".into(), "bbb-2".into(), "gone".into()],
+        )
+        .await
+        .unwrap();
+        assert_eq!(got["aaa-1"].as_deref(), Some("AToxVp"));
+        assert_eq!(
+            got["bbb-2"], None,
+            "a package: still there, no one checksum"
+        );
+        assert!(!got.contains_key("gone"));
+    }
+
+    /// A batch Apple knows none of answers 404: none of them is there, not an error.
+    #[tokio::test]
+    async fn a_batch_of_files_apple_no_longer_has_is_empty() {
+        let server = MockServer::start().await;
+        Mock::given(method("POST"))
+            .and(path("/ws/com.apple.CloudDocs/download/batch"))
+            .respond_with(ResponseTemplate::new(404))
+            .mount(&server)
+            .await;
+        let got = checksums(
+            &reqwest::Client::new(),
+            &server.uri(),
+            vec![],
+            &["GONE".into()],
+        )
+        .await
+        .unwrap();
+        assert!(got.is_empty());
+    }
+
+    /// Files moved only as the versions given: Apple's word on each, a changed one refused.
+    #[tokio::test]
+    async fn files_go_to_recently_deleted_only_as_the_versions_given() {
+        let server = MockServer::start().await;
+        Mock::given(method("POST"))
+            .and(path("/moveItemsToTrash"))
+            .and(wiremock::matchers::body_partial_json(json!({
+                "items": [{ "drivewsid": "FILE::com.apple.CloudDocs::a", "etag": "e1",
+                            "clientId": "FILE::com.apple.CloudDocs::a" }]
+            })))
+            .respond_with(ResponseTemplate::new(200).set_body_json(json!({ "items": [
+                { "drivewsid": "FILE::com.apple.CloudDocs::a", "status": "OK" },
+                { "drivewsid": "FILE::com.apple.CloudDocs::b", "status": "ETAG_CONFLICT" }
+            ] })))
+            .mount(&server)
+            .await;
+        let got = trash_versions(
+            &reqwest::Client::new(),
+            &server.uri(),
+            vec![],
+            &[
+                ("FILE::com.apple.CloudDocs::a".into(), "e1".into()),
+                ("FILE::com.apple.CloudDocs::b".into(), "e2".into()),
+            ],
+        )
+        .await
+        .unwrap();
+        assert_eq!(got["FILE::com.apple.CloudDocs::a"], "OK");
+        assert_eq!(got["FILE::com.apple.CloudDocs::b"], "ETAG_CONFLICT");
     }
 }
 
