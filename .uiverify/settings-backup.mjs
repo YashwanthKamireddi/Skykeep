@@ -56,8 +56,18 @@ for (const scheme of ["light", "dark"]) {
   if (shots) await section.screenshot({ path: `${shots}/backup-on-${scheme}.png` });
   // Shared Albums: off until asked for (other people's photos), then how far, as shared.
   const shared = row.getByRole("switch", { name: "Include Shared Albums" });
-  const sharedRow = row.getByRole("group", { name: "Shared Albums in the backup" });
-  ok((await shared.getAttribute("aria-checked")) === "false" && (await sharedRow.innerText()).includes("Not in the backup"), `${scheme}: Shared Albums are left out until asked for`);
+  const sharedRow = shared.locator("xpath=..");
+  const offText = await sharedRow.innerText();
+  ok((await shared.getAttribute("aria-checked")) === "false" && offText.includes("Each photo at the size it was shared") && !offText.includes("Included"), `${scheme}: Shared Albums are left out until asked for, and say how they'd be kept`);
+  // An option of Photos, beside the Hidden album: before iCloud Drive, indented as Hidden is.
+  const order = await row.evaluate((card) => {
+    const at = (el) => [...card.querySelectorAll("*")].indexOf(el);
+    const sw = (name) => card.querySelector(`[role=switch][aria-label="${name}"]`);
+    return [at(sw("Include the Hidden album")), at(sw("Include Shared Albums")), at(sw("Include iCloud Drive"))];
+  });
+  ok(order[0] < order[1] && order[1] < order[2], `${scheme}: Shared Albums sit under Photos, after the Hidden album, before iCloud Drive`);
+  const indent = await row.evaluate((card) => ["Include the Hidden album", "Include Shared Albums"].map((n) => card.querySelector(`[role=switch][aria-label="${n}"]`).parentElement.getBoundingClientRect().left));
+  ok(Math.abs(indent[0] - indent[1]) < 1, `${scheme}: indented alike`);
   await shared.click();
   await page.waitForTimeout(150);
   ok((await shared.getAttribute("aria-checked")) === "true" && (await sharedRow.innerText()).includes("120 of 318 photos, at the size they were shared"), `${scheme}: included, it says how far, at the size shared`);
@@ -70,6 +80,8 @@ for (const scheme of ["light", "dark"]) {
   await row.getByRole("switch", { name: "Back Up iCloud" }).click();
   await page.waitForTimeout(150);
   ok((await page.evaluate(() => window.__backupArgs.folder)) === null, `${scheme}: the switch turns it off`);
+  const sharedAfter = await row.getByRole("switch", { name: "Include Shared Albums" }).locator("xpath=..").innerText();
+  ok(sharedAfter.includes("Included, each photo at the size it was shared") && !sharedAfter.includes("of 318"), `${scheme}: backup off, Shared Albums say they're included, with no copying shown`);
   await ctx.close();
 }
 await b.close();
