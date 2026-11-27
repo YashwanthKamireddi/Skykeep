@@ -1339,11 +1339,11 @@ async fn again_if_renewed(
     if refused.is_empty() {
         return;
     }
-    // Passed again only when the session was renewed just now: alive by `/validate`, or still
-    // inside the renewal gap, the same cookies would be refused again.
-    let before = client.lock().await.session_generation();
+    // Passed again only once the session has been renewed since this pass started (by this
+    // look or by another pass's): alive by `/validate`, or still inside the renewal gap, the
+    // same cookies would be refused again.
     if keep_signed_in(app, client).await != quince_auth::Kept::Alive
-        || client.lock().await.session_generation() == before
+        || client.lock().await.session_generation() <= result.generation
     {
         return;
     }
@@ -1357,7 +1357,24 @@ async fn again_if_renewed(
             *slot = report;
         }
     }
-    // The whole library's freshness, not the retried services' alone.
+    // What the second pass changed joins the first's, and its time; the whole library's
+    // freshness is read again, not the retried services' alone.
+    if let Some(more) = again.changed {
+        let changed = result.changed.get_or_insert_with(Vec::new);
+        for service in more {
+            if !changed.contains(&service) {
+                changed.push(service);
+            }
+        }
+    }
+    if let Some(more) = again.items {
+        result
+            .items
+            .get_or_insert_with(Default::default)
+            .extend(more);
+    }
+    result.took_ms = result.took_ms.saturating_add(again.took_ms);
+    result.generation = again.generation;
     result.as_of = refresh::as_of(data, &result.services).await;
 }
 

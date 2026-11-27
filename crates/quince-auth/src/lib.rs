@@ -160,6 +160,10 @@ pub enum Error {
     CoolingDown { seconds: u64 },
     #[error("this needs a fresh sign-in — Apple won't accept a resumed session for it")]
     ReauthRequired,
+    /// `accountLogin` refused the stored tokens themselves (401, 421): the session they carried
+    /// is over at Apple, and only the password (or a code) brings another.
+    #[error("Apple no longer takes this session (HTTP {0})")]
+    TokenRefused(u16),
     /// Apple keeps this account on its regional servers and this session has moved there, but
     /// Apple wants a sign-in made there: whoever holds the password signs in again (issue #10).
     #[error("Apple keeps this Apple Account on your region's iCloud servers. Sign in again to continue there.")]
@@ -216,6 +220,7 @@ impl Error {
             | Error::Protocol(_)
             | Error::NoTrustToken
             | Error::ReauthRequired
+            | Error::TokenRefused(_)
             | Error::Moved
             | Error::BadCode
             | Error::Keyring(_)
@@ -1222,9 +1227,10 @@ impl Client {
         // Offline, or Apple down for a while: the session is not dead, only unreachable — it
         // is kept and tried again, rather than a sign-in that ends in "Apple signed you out".
         let away = |e: &Error| matches!(e, Error::Network(_) | Error::Unavailable(_));
-        // Renewing, `/validate` was not asked: only Apple refusing the token itself (a 4xx) goes
-        // on to the password. Apple out of reach, busy or asking to wait is no such answer.
-        if look == Look::Renew && (away(&logged_in) || matches!(logged_in, Error::RateLimited)) {
+        // Renewing, `/validate` was not asked: only Apple refusing the tokens themselves (401,
+        // 421) goes on to the password. Any other answer (out of reach, busy, asking to wait, an
+        // odd 4xx, a regional redirect, this computer's own trouble) says nothing about them.
+        if look == Look::Renew && !matches!(logged_in, Error::TokenRefused(_)) {
             return Err(logged_in);
         }
         if away(&validated) && away(&logged_in) {
@@ -2044,6 +2050,11 @@ impl Client {
             }
         }
         if !status.is_success() {
+            // Apple refusing the tokens themselves (401, 421): said as that, so a renewal can
+            // tell it from any other answer (`resume_from`, `Look::Renew`).
+            if matches!(status.as_u16(), 401 | 421) {
+                return Err(Error::TokenRefused(status.as_u16()));
+            }
             return Err(transient(status).unwrap_or_else(|| {
                 Error::Protocol(format!("couldn't open the account ({status})"))
             }));

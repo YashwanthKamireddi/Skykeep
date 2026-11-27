@@ -65,8 +65,12 @@ pub(crate) struct Keeping {
     /// Renewals so far this run: a pass says which it started under, so a refusal from before
     /// the latest renewal (the old cookies, still in flight) is not taken for one after it.
     generation: u64,
-    /// When the session was last renewed.
-    renewed_at: Option<Instant>,
+    /// When renewing was last tried, whatever Apple answered: tries are at least
+    /// [`RENEW_GAP`] apart, so a busy or rate-limiting Apple is not asked again every look.
+    tried_at: Option<Instant>,
+    /// The session token the doubt is about: a new session (signed in since) is not doubted
+    /// for what the old one met.
+    token: Option<String>,
 }
 
 impl Client {
@@ -93,12 +97,24 @@ impl Client {
         // of reach, the doubt stands for the next look; the token refused, Apple has ended the
         // session, and it is taken up as any lapse is (the kept password, quietly), or said to
         // need a sign-in. A service refusing never decides it.
+        // Signed in since the doubt: a new session, renewed by nothing the old one met. Passes
+        // still in flight under the old cookies count as before it.
+        if self.keeping.token != token {
+            // The first look of the run only notes the session; a change from one to another
+            // is a sign-in since.
+            if self.keeping.token.is_some() {
+                self.keeping.doubt = false;
+                self.keeping.generation += 1;
+            }
+            self.keeping.token = token.clone();
+        }
         if self.keeping.doubt
             && !self
                 .keeping
-                .renewed_at
+                .tried_at
                 .is_some_and(|at| at.elapsed() < RENEW_GAP)
         {
+            self.keeping.tried_at = Some(Instant::now());
             let renewed = self.renew().await;
             let kept = self.looked(renewed);
             if kept != Kept::Away {
@@ -106,8 +122,8 @@ impl Client {
             }
             if kept == Kept::Alive {
                 self.keeping.generation += 1;
-                self.keeping.renewed_at = Some(Instant::now());
             }
+            self.keeping.token = self.session.session_token.clone();
             return self.settle(kept);
         }
         if self

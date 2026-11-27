@@ -639,30 +639,54 @@ async fn one_service_refusing_never_signs_the_account_out() {
 }
 
 /// Apple out of reach while renewing (accountLogin 503): not a reason to sign in again with
-/// the password, and not forgotten: the doubt stands for the next look.
+/// the password, and not forgotten; and not asked again at every look either: the next try waits
+/// out the two minutes, as after any try.
 #[tokio::test]
-async fn apple_out_of_reach_while_renewing_is_away_and_remembered() {
+async fn apple_out_of_reach_while_renewing_is_away_and_not_asked_again_at_once() {
     let dir = tempfile::tempdir().unwrap();
     signed_in(dir.path()).await;
     let server = MockServer::start().await;
     validate_ok_and_login(&server, 503).await;
     mount_init(&server).await;
     let mut client = client_for(&server, dir.path());
+    // A first look takes up the session as it is (`/validate`), as at launch.
+    assert_eq!(client.ensure_session().await, Kept::Alive);
+    let g = client.session_generation();
+    client.session_refused(g);
+    assert_eq!(client.ensure_session().await, Kept::Away);
+    for _ in 0..5 {
+        client.ensure_session().await;
+    }
+    let reqs = server.received_requests().await.unwrap();
+    assert!(
+        requests_to(&reqs, "/signin/init").is_empty(),
+        "no password sign-in for a 503"
+    );
+    assert_eq!(
+        requests_to(&reqs, "/accountLogin").len(),
+        1,
+        "one try in two minutes"
+    );
+}
+
+/// An answer from `accountLogin` that is not Apple refusing the tokens (an odd 400, say) says
+/// nothing about them: away, never the password, never a sign-out.
+#[tokio::test]
+async fn an_odd_answer_while_renewing_is_not_a_sign_out() {
+    let dir = tempfile::tempdir().unwrap();
+    signed_in(dir.path()).await;
+    let server = MockServer::start().await;
+    validate_ok_and_login(&server, 400).await;
+    mount_init(&server).await;
+    let mut client = client_for(&server, dir.path());
+    assert_eq!(client.ensure_session().await, Kept::Alive);
     let g = client.session_generation();
     client.session_refused(g);
     assert_eq!(client.ensure_session().await, Kept::Away);
     let reqs = server.received_requests().await.unwrap();
     assert!(
         requests_to(&reqs, "/signin/init").is_empty(),
-        "no password sign-in for a 503"
-    );
-    // The next look renews again rather than trusting `/validate`.
-    assert_eq!(client.ensure_session().await, Kept::Away);
-    let reqs = server.received_requests().await.unwrap();
-    assert_eq!(
-        requests_to(&reqs, "/accountLogin").len(),
-        2,
-        "renewed again, not vouched for"
+        "no password sign-in for a 400"
     );
 }
 

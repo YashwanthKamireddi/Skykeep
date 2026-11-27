@@ -110,8 +110,12 @@ impl Account {
     /// The session asked about afresh, as a pass after a refusal asks: alive again or not.
     fn renewed(&self) -> bool {
         let mut c = self.client();
+        let before = c.session_generation();
         c.session_doubted();
+        // Asked again only once the session was really renewed: alive by `/validate`, or inside
+        // the renewal gap, the same cookies would be refused again.
         runtime().block_on(c.ensure_session()) == quince_auth::Kept::Alive
+            && c.session_generation() > before
     }
 
     /// [`Apple`], in one look at the session; `what` names the app for "sign in" wording.
@@ -146,13 +150,16 @@ impl Account {
             waiting: apple.waiting.clone(),
             hooks: &hooks,
         };
+        // Which renewal the pass runs under: a refusal it meets is not taken for one after a
+        // renewal made while it ran.
+        let generation = self.client().session_generation();
         let report = pass::run(service, &ctx, library, lock).await;
         // Apple answered "sign in again" to the pass itself: the next pass asks about the
         // session rather than trusting the last look.
         if report.outcome == Outcome::Failed
             && report.detail.as_deref() == Some(&quince_icloud::Error::ReauthRequired.to_string())
         {
-            self.client().session_doubted();
+            self.client().session_refused(generation);
         }
         report
     }

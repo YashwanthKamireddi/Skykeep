@@ -47,6 +47,10 @@ pub struct Refresh {
     /// removed, by id. A service in `changed` and not here is read whole.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub items: Option<BTreeMap<&'static str, Items>>,
+    /// The session renewal this pass ran under (quince_auth keep.rs): a renewal since, made by
+    /// any pass, is what a retry of its refused services waits for.
+    #[serde(skip)]
+    pub generation: u64,
 }
 
 /// The services one pass covers, in the order a person would notice them going stale.
@@ -558,16 +562,7 @@ async fn run(client: &Arc<Mutex<Client>>, data: &LibraryLock, services: &[&str])
         client.lock().await.session_refused(generation);
     }
 
-    let available: Vec<&str> = reports
-        .iter()
-        .filter(|r| r.outcome != Outcome::Unavailable)
-        .map(|r| r.service)
-        .collect();
-    let as_of = data
-        .read(|library| library.oldest_sync(&available))
-        .await
-        .ok()
-        .flatten();
+    let as_of = as_of(data, &reports).await;
     let changed: Vec<_> = reports
         .iter()
         .filter(|r| r.changed)
@@ -599,6 +594,7 @@ async fn run(client: &Arc<Mutex<Client>>, data: &LibraryLock, services: &[&str])
         took_ms: u64::try_from(started.elapsed().as_millis()).unwrap_or(u64::MAX),
         changed: Some(changed),
         items: Some(items),
+        generation,
     }
 }
 
@@ -675,6 +671,7 @@ pub async fn status(data: &LibraryLock) -> Refresh {
         took_ms: 0,
         changed: None,
         items: None,
+        generation: 0,
     }
 }
 
