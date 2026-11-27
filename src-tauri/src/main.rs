@@ -1287,7 +1287,10 @@ async fn keep_signed_in(app: &tauri::AppHandle, client: &Arc<Mutex<Client>>) -> 
             }
         }
         Kept::Alive => {
-            TOLD.store(false, std::sync::atomic::Ordering::Relaxed);
+            // Told once per refusal: a look `/validate` vouches for in between is no mending.
+            if !guard.session_needs_sign_in() {
+                TOLD.store(false, std::sync::atomic::Ordering::Relaxed);
+            }
             // New iCloud terms waiting at icloud.com (or the account to finish there): asked
             // again each pass, so the whole session opens by itself once the person has agreed
             // — one request every few minutes, and only while they are waiting. The session

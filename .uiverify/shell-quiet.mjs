@@ -74,6 +74,12 @@ const logCalls = () => {
   ok((await page.locator(".library").evaluate((e) => e.getBoundingClientRect().top)) === top, "and the window is not pushed down by it");
   const foot = await page.locator(".app-foot").boundingBox();
   ok(foot && foot.y + foot.height <= 800, `the sidebar's foot is still in the window  ${JSON.stringify(foot)}`);
+  // A sync that gets through after it (the session renewed after all): the notice goes.
+  await page.evaluate(() => window.__emit("quince://synced", { services: [{ service: "notes", outcome: "ok" }], asOf: null, tookMs: 0 }));
+  await page.waitForTimeout(300);
+  ok((await notice.count()) === 0, "a sync that gets through takes the notice away: never 'signed out' over a working session");
+  await page.evaluate(() => window.__emit("quince://needs-signin", null));
+  await page.waitForTimeout(300);
   await notice.getByRole("button", { name: "Sign In" }).click();
   await page.waitForTimeout(300);
   ok((await page.locator(".shell form.sheet").count()) === 1 && (await page.locator(".library").count()) === 0,

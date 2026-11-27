@@ -123,11 +123,22 @@ impl Client {
             return match self.renew().await {
                 Ok(true) => self.settle(Kept::Alive),
                 Ok(false) => Kept::Away,
-                Err(e) => {
-                    self.keeping.refused_by_apple =
-                        matches!(e, crate::Error::TokenRefused(_) | crate::Error::Moved);
-                    Kept::Away
+                // Apple refused the tokens: the look every pass makes decides, as it always has
+                // (`/validate`, and when that fails the resume: the kept password, quietly). It
+                // mending the session is the end of it; `/validate` still vouching for a session
+                // whose tokens Apple refuses is the stuck one, and the person is told.
+                Err(crate::Error::TokenRefused(_) | crate::Error::Moved) => {
+                    let before = self.keeping.generation;
+                    let looked = self.heartbeat().await;
+                    let kept = self.looked(looked);
+                    if kept == Kept::Alive && self.keeping.generation == before {
+                        self.keeping.refused_by_apple = true;
+                        self.keeping.alive_at = None;
+                        return Kept::Away;
+                    }
+                    self.settle(kept)
                 }
+                Err(_) => Kept::Away,
             };
         }
         if self
@@ -209,8 +220,11 @@ impl Client {
     /// [`Self::session_refused`] for a request the person is waiting on (opening a folder, a
     /// file): renewed at the next look without waiting out the gap.
     pub fn session_refused_now(&mut self, generation: u64) {
-        self.session_refused(generation);
-        self.keeping.urgent = self.keeping.doubt;
+        // Urgent only for a refusal that counts: one from before a renewal is not the person's.
+        if generation >= self.keeping.generation {
+            self.session_refused(generation);
+            self.keeping.urgent = true;
+        }
     }
 
     /// Apple took the tokens for fresh cookies (`accountLogin`), by a renewal or by any resume:

@@ -761,3 +761,40 @@ async fn a_session_held_by_new_terms_is_not_counted_as_renewed() {
         "held by the terms, not renewed"
     );
 }
+
+/// An ordinary lapse met after a refused pass (the cookies and the session token both run out,
+/// so `/validate` fails too): taken up as every lapse always has been, with the kept password,
+/// quietly; no notice, no code.
+#[tokio::test]
+async fn an_ordinary_lapse_after_a_refused_pass_is_mended_quietly() {
+    let dir = tempfile::tempdir().unwrap();
+    signed_in(dir.path()).await;
+    let server = MockServer::start().await;
+    // Alive at first; then every look refused, until the password signs in again.
+    Mock::given(method("POST"))
+        .and(path("/setup/ws/1/validate"))
+        .respond_with(ResponseTemplate::new(200).set_body_json(json!({
+            "dsInfo": { "dsid": "1234567890" },
+            "webservices": {
+                "ckdatabasews": { "url": "https://p00-ckdatabasews.test.invalid:443", "status": "active" }
+            }
+        })))
+        .up_to_n_times(1)
+        .with_priority(1)
+        .mount(&server)
+        .await;
+    lapsed(&server).await;
+    mount_complete(&server, 200).await;
+    mount_trust_and_login(&server).await;
+    let mut client = client_for(&server, dir.path());
+    assert_eq!(client.ensure_session().await, Kept::Alive);
+    client.session_refused(client.session_generation());
+    assert_eq!(client.ensure_session().await, Kept::Alive);
+    assert!(!client.session_needs_sign_in(), "nothing to tell");
+    let reqs = server.received_requests().await.unwrap();
+    assert!(requests_to(&reqs, "/securitycode").is_empty(), "no code");
+    assert!(
+        requests_to(&reqs, "/validate").len() >= 2,
+        "the look every pass makes decided, as it always has"
+    );
+}

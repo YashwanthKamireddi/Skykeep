@@ -7,7 +7,7 @@ import { StatusLine } from "./components/StatusLine";
 import { dismissToast, toast } from "./components/Toast";
 import { invoke } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
-import { api, messageOf, NEEDS_CODE, NEEDS_SIGNIN } from "./lib/ipc";
+import { api, messageOf, NEEDS_CODE, NEEDS_SIGNIN, SYNCED } from "./lib/ipc";
 import { useI18n } from "./lib/i18n";
 
 type Phase = "checking" | "signin" | "code" | "library";
@@ -112,8 +112,14 @@ export default function App() {
   const [lapsed, setLapsed] = useState(false);
   useEffect(() => {
     const stop = listen(NEEDS_SIGNIN, () => setLapsed(true));
+    // A sync that gets through says the session works again (a renewal took after all): the
+    // notice goes, rather than saying "signed out" over a working session.
+    const synced = listen<{ services?: { outcome: string }[] }>(SYNCED, (e) => {
+      if (e.payload?.services?.some((s) => s.outcome === "ok")) setLapsed(false);
+    });
     return () => {
       void stop.then((unlisten) => unlisten()).catch(() => {});
+      void synced.then((unlisten) => unlisten()).catch(() => {});
     };
   }, []);
   // Said where everything passing is said, over the foot of the content: drawn above the
