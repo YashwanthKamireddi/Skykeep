@@ -58,6 +58,20 @@ for (const [scheme, width, height] of [["light", 1180, 820], ["dark", 1180, 820]
     await ctx.close();
   }
 }
+// Apple refusing the question (a lapsed sign-in): said, never "Reading storage…" for ever.
+{
+  const ctx = await b.newContext({ viewport: { width: 1180, height: 820 } });
+  await ctx.addInitScript(() => { window.__TAURI_EVENT_PLUGIN_INTERNALS__ = { unregisterListener: () => {} }; window.__storageFails = true; });
+  await ctx.addInitScript(installStub, { screen: "library", services: SERVICES, twoFactor: null });
+  const page = await ctx.newPage();
+  await page.goto(process.env.URL ?? process.env.BASE ?? "http://localhost:4173", { waitUntil: "networkidle" });
+  await openSettings(page);
+  await page.waitForSelector(".prefs-storage");
+  await page.waitForTimeout(300);
+  const text = await page.locator(".prefs-storage").innerText();
+  ok(text.includes("iCloud storage couldn't be read.") && !text.includes("Reading storage"), "a refused storage question is said, not left reading");
+  await ctx.close();
+}
 await b.close();
 if (failures) { console.log(`${failures} failed`); process.exit(1); }
 console.log("all passed");

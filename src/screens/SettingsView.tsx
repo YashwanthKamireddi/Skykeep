@@ -353,9 +353,34 @@ function BackupRow({ onError }: { onError: (m: string) => void }) {
         </span>
       </div>
       {on && photosCopying && state && state.total > 0 && <Progress value={state.copied / state.total} label={t("settings.photosBackupProgress")} />}
-      <div className="settings-row-line backup-option" style={{ alignItems: "center" }}>
-        <span className="settings-hint">{t("settings.includeHidden")}</span>
+      <div className="backup-option">
+        <span className="settings-label">{t("settings.includeHidden")}</span>
         <button className="switch" role="switch" aria-checked={state?.hidden ?? false} aria-label={t("settings.includeHidden")} disabled={!state} onClick={hidden}>
+          <span className="switch-knob" />
+        </button>
+      </div>
+      <div className="backup-option">
+        <span className="settings-label settings-stack">
+          {t("settings.includeShared")}
+          <span className="settings-hint" aria-live="polite">
+            {!state?.shared
+              ? t("settings.sharedHint")
+              : on && state.sharedTotal > 0
+                ? t(state.sharedTotal === 1 ? "settings.sharedProgressOne" : "settings.sharedProgressMany", {
+                    copied: state.sharedCopied.toLocaleString(),
+                    total: state.sharedTotal.toLocaleString(),
+                  })
+                : t("settings.sharedIncluded")}
+          </span>
+        </span>
+        <button
+          className="switch"
+          role="switch"
+          aria-checked={state?.shared ?? false}
+          aria-label={t("settings.includeShared")}
+          disabled={!state}
+          onClick={() => state && void backupApi.setShared(!state.shared).then(setState, (e) => onError(messageOf(e)))}
+        >
           <span className="switch-knob" />
         </button>
       </div>
@@ -381,32 +406,6 @@ function BackupRow({ onError }: { onError: (m: string) => void }) {
       {on && state?.driveRunning && state.driveFilesTotal > 0 && (
         <Progress value={state.driveFiles / state.driveFilesTotal} label={t("settings.driveBackupProgress")} />
       )}
-      <div className="backup-source" aria-label={t("settings.sharedInBackup")} role="group">
-        <AppMark app="photos" />
-        <span className="settings-label settings-stack">
-          {t("photos.sharedAlbums")}
-          <span className="settings-hint" aria-live="polite">
-            {!state
-              ? ""
-              : !state.shared
-                ? t("settings.notInBackup")
-                : t(state.sharedTotal === 1 ? "settings.sharedProgressOne" : "settings.sharedProgressMany", {
-                    copied: state.sharedCopied.toLocaleString(),
-                    total: state.sharedTotal.toLocaleString(),
-                  })}
-          </span>
-        </span>
-        <button
-          className="switch"
-          role="switch"
-          aria-checked={state?.shared ?? false}
-          aria-label={t("settings.includeShared")}
-          disabled={!state}
-          onClick={() => state && void backupApi.setShared(!state.shared).then(setState, (e) => onError(messageOf(e)))}
-        >
-          <span className="switch-knob" />
-        </button>
-      </div>
       {unlocking && (
         <UnlockSheet
           onCancel={() => setUnlocking(false)}
@@ -634,6 +633,7 @@ export function SettingsView({ onSignOut }: { onSignOut: (keep: boolean) => Prom
   const { t } = useI18n();
   const [account, setAccount] = useState<AccountInfo | null>(null);
   const [storage, setStorage] = useState<ICloudStorage | null>(null);
+  const [storageUnread, setStorageUnread] = useState(false);
   const [local, setLocal] = useState<LocalStorage | null>(null);
   const [clearing, setClearing] = useState(false);
   const [freed, setFreed] = useState<number | null>(null);
@@ -664,7 +664,9 @@ export function SettingsView({ onSignOut }: { onSignOut: (keep: boolean) => Prom
 
   useEffect(() => {
     api.accountInfo().then(setAccount, () => setAccount({ name: null, email: null }));
-    api.storageInfo().then(setStorage, () => {});
+    // Apple refusing the question (a lapsed sign-in, offline) is said as that, never left
+    // reading for ever.
+    api.storageInfo().then(setStorage, () => setStorageUnread(true));
     api.settingsGet().then(setAlerts, (e) => setError(messageOf(e)));
     settingsApi.alertsShown().then(setAlertsShown, () => {});
     settingsApi.localStorage().then(setLocal, () => {});
@@ -789,6 +791,7 @@ export function SettingsView({ onSignOut }: { onSignOut: (keep: boolean) => Prom
             aria-selected={pane === "home"}
             tabIndex={pane === "home" ? 0 : -1}
             onClick={() => choose("home")}
+            title={t("settings.home")}
           >
             <House className="prefs-icon" size={16} strokeWidth={1.75} aria-hidden="true" />
             <span className="source-name">{t("settings.home")}</span>
@@ -807,6 +810,7 @@ export function SettingsView({ onSignOut }: { onSignOut: (keep: boolean) => Prom
                 aria-selected={pane === n.id}
                 tabIndex={pane === n.id ? 0 : -1}
                 onClick={() => choose(n.id)}
+                title={n.label}
               >
                 <NavTile pane={n.id} />
                 <span className="source-name">{n.label}</span>
@@ -829,7 +833,7 @@ export function SettingsView({ onSignOut }: { onSignOut: (keep: boolean) => Prom
                     <span>
                       {storage
                         ? t("settings.storageUsed", { used: icloudSize(storage.usedBytes), total: icloudSize(storage.totalBytes) })
-                        : t("settings.readingStorage")}
+                        : t(storageUnread ? "settings.storageUnread" : "settings.readingStorage")}
                     </span>
                     {storage && (
                       <span className="settings-value">

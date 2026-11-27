@@ -1587,6 +1587,15 @@ export type FreeUpPlan = {
   stays: { favourites: number; hidden: number; sharedLibrary: number; notBackedUp: number; undated: number };
 };
 
+/** An iCloud Drive file that may leave iCloud: the backup holds it and Apple still has it. */
+export type DriveFreeItem = { id: string; name: string; folder: string; bytes: number };
+
+/** Freeing up iCloud Drive: the files that may leave, largest first, and what stays and why. */
+export type DriveFreePlan = {
+  items: DriveFreeItem[];
+  stays: { packages: number; appLibraries: number; sharedWithYou: number };
+};
+
 export const FREE_UP_FAILED = "quince://free-up-failed";
 
 export const freeUpApi = {
@@ -1594,6 +1603,10 @@ export const freeUpApi = {
   plan: (months: number) => invoke<FreeUpPlan>("free_up_plan", { months }),
   /** These leave iCloud, each once checked against Apple's own copy; progress comes with the backup's status. */
   start: (ids: string[]) => invoke<void>("free_up_start", { ids }),
+  /** iCloud Drive's backed-up files Apple still has, largest first (asks Apple which still exist). */
+  drivePlan: () => invoke<DriveFreePlan>("free_up_drive_plan"),
+  /** These iCloud Drive files to Recently Deleted, each once checked; progress as for photos. */
+  driveStart: (ids: string[]) => invoke<void>("free_up_drive_start", { ids }),
   /** Stops after the photos being checked now. */
   stop: () => invoke<void>("free_up_stop"),
 };

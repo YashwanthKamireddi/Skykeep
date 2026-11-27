@@ -1114,7 +1114,7 @@ export function installStub({ screen, services, twoFactor, calendarFixture, note
         case "clipboard_read":
         case "clipboard_paste": return { files: window.__clipFiles ?? [], text: window.__clipText ?? null };
         case "drive_upload": (window.__driveUploads ??= []).push(args); return [];
-        case "storage_info": return window.__storage ?? { usedBytes: 182196857, totalBytes: 5368709120, kinds: [], full: false, almostFull: false };
+        case "storage_info": if (window.__storageFails) throw "this needs a fresh sign-in"; return window.__storage ?? { usedBytes: 182196857, totalBytes: 5368709120, kinds: [], full: false, almostFull: false };
         // The local copy's room, as settings.rs measures it; clearing takes away only the cached pictures.
         case "local_storage": return (window.__local ??= { library: 13_800_000, photos: 4_812_000_000, notes: 456_000_000, drive: 24_000, other: 7_400_000, total: 5_289_224_000, clearable: 4_480_000_000 });
         case "local_storage_clear": {
@@ -1444,6 +1444,8 @@ export function installStub({ screen, services, twoFactor, calendarFixture, note
         case "free_up_plan": return (window.__freeUpPlan ?? (() => ({ items: [], stays: { favourites: 0, hidden: 0, sharedLibrary: 0, notBackedUp: 0, undated: 0 } })))(args.months);
         case "free_up_start": window.__freeUpStarted = args.ids; return null;
         case "free_up_stop": window.__freeUpStopped = true; return null;
+        case "free_up_drive_plan": return window.__driveFreePlan ?? { items: [], stays: { packages: 0, appLibraries: 0, sharedWithYou: 0 } };
+        case "free_up_drive_start": window.__freeUpDriveStarted = args.ids; return null;
         case "backup_set_shared":
           window.__backup = { ...window.__backup, shared: args.on, sharedCopied: args.on ? 120 : window.__backup.sharedCopied };
           return { ...window.__backup, hiddenLocked: !window.__hiddenOpen };

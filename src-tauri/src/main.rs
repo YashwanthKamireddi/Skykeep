@@ -7886,6 +7886,8 @@ fn main() {
             backup::free_up_plan,
             backup::free_up_start,
             backup::free_up_stop,
+            backup::free_up_drive_plan,
+            backup::free_up_drive_start,
             backup::backup_reveal,
             intake::intake_capture_close,
             intake::intake_open_main,
