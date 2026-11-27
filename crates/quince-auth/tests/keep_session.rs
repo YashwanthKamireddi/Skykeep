@@ -154,7 +154,7 @@ async fn a_lapsed_session_is_taken_up_again_and_asked_about_once() {
         "five passes starting together cost no more requests"
     );
     // A pass that met "sign in again" anyway has the next one ask.
-    client.session_doubted();
+    client.session_refused(client.session_generation());
     client.ensure_session().await;
     assert!(asked(&server).await > before);
 }
@@ -525,5 +525,270 @@ async fn an_unreadable_signin_start_waits_before_the_next() {
         requests_to(&reqs, "/signin/init").len(),
         1,
         "one sign-in started"
+    );
+}
+
+/// `/validate` answering 200 for a session; `accountLogin` as `login` says.
+async fn validate_ok_and_login(server: &MockServer, login: u16) {
+    Mock::given(method("POST"))
+        .and(path("/setup/ws/1/validate"))
+        .respond_with(ResponseTemplate::new(200).set_body_json(json!({
+            "dsInfo": { "dsid": "1234567890" },
+            "webservices": {
+                "ckdatabasews": { "url": "https://p00-ckdatabasews.test.invalid:443", "status": "active" }
+            }
+        })))
+        .mount(server)
+        .await;
+    Mock::given(method("POST"))
+        .and(path("/setup/ws/1/accountLogin"))
+        .respond_with(if login == 200 {
+            ResponseTemplate::new(200).set_body_json(json!({
+                "dsInfo": { "dsid": "1234567890" },
+                "webservices": {
+                    "ckdatabasews": { "url": "https://p00-ckdatabasews.test.invalid:443", "status": "active" }
+                }
+            }))
+        } else {
+            ResponseTemplate::new(login)
+        })
+        .mount(server)
+        .await;
+}
+
+/// `/validate` vouching for a session every service refuses (measured 26–27 Nov 2026: 200 from
+/// `/validate`, 421 "Missing X-APPLE-WEBAUTH-TOKEN cookie" from every service, every sync failing
+/// quietly for a day). A refused pass has the next look trade the tokens for fresh cookies
+/// (`accountLogin`) instead of asking `/validate` again; Apple taking them is the session alive.
+#[tokio::test]
+async fn a_session_validate_vouches_for_but_services_refuse_is_renewed() {
+    let dir = tempfile::tempdir().unwrap();
+    signed_in(dir.path()).await;
+    let server = MockServer::start().await;
+    validate_ok_and_login(&server, 200).await;
+
+    let mut client = client_for(&server, dir.path());
+    assert_eq!(client.ensure_session().await, Kept::Alive);
+    let reqs = server.received_requests().await.unwrap();
+    assert!(
+        requests_to(&reqs, "/accountLogin").is_empty(),
+        "alive by `/validate`"
+    );
+
+    let g = client.session_generation();
+    client.session_refused(client.session_generation());
+    assert_eq!(client.ensure_session().await, Kept::Alive);
+    let reqs = server.received_requests().await.unwrap();
+    assert_eq!(
+        requests_to(&reqs, "/accountLogin").len(),
+        1,
+        "the cookies traded afresh"
+    );
+    assert_eq!(
+        client.session_generation(),
+        g + 1,
+        "counted, so a refused pass is sent again"
+    );
+}
+
+/// Another refusal straight after a renewal (a slow pass still on the old cookies, or a service
+/// refusing for its own reasons) waits out the gap: Apple is not asked to renew again at once.
+/// A request the person is waiting on may try sooner, but never at every request.
+#[tokio::test]
+async fn a_refusal_straight_after_a_renewal_waits_out_the_gap() {
+    let dir = tempfile::tempdir().unwrap();
+    signed_in(dir.path()).await;
+    let server = MockServer::start().await;
+    validate_ok_and_login(&server, 200).await;
+    let mut client = client_for(&server, dir.path());
+    client.session_refused(client.session_generation());
+    assert_eq!(client.ensure_session().await, Kept::Alive);
+    let logins = |reqs: &[Request]| requests_to(reqs, "/accountLogin").len();
+    assert_eq!(logins(&server.received_requests().await.unwrap()), 1);
+    client.session_refused(client.session_generation());
+    assert_eq!(client.ensure_session().await, Kept::Alive);
+    assert_eq!(
+        logins(&server.received_requests().await.unwrap()),
+        1,
+        "not renewed again at once: looked at with `/validate`"
+    );
+    let g = client.session_generation();
+    client.session_refused_now(g);
+    client.ensure_session().await;
+    let reqs = server.received_requests().await.unwrap();
+    assert_eq!(
+        requests_to(&reqs, "/accountLogin").len(),
+        1,
+        "the person's request too waits the short gap"
+    );
+}
+
+/// Apple out of reach while renewing (accountLogin 503): not a reason to sign in again with
+/// the password, and not forgotten; and not asked again at every look either: the next try waits
+/// out the gap, as after any try.
+#[tokio::test]
+async fn apple_out_of_reach_while_renewing_is_away_and_not_asked_again_at_once() {
+    let dir = tempfile::tempdir().unwrap();
+    signed_in(dir.path()).await;
+    let server = MockServer::start().await;
+    validate_ok_and_login(&server, 503).await;
+    mount_init(&server).await;
+    let mut client = client_for(&server, dir.path());
+    // A first look takes up the session as it is (`/validate`), as at launch.
+    assert_eq!(client.ensure_session().await, Kept::Alive);
+    client.session_refused(client.session_generation());
+    assert_eq!(client.ensure_session().await, Kept::Away);
+    for _ in 0..5 {
+        client.ensure_session().await;
+    }
+    let reqs = server.received_requests().await.unwrap();
+    assert!(
+        requests_to(&reqs, "/signin/init").is_empty(),
+        "no password sign-in for a 503"
+    );
+    assert_eq!(
+        requests_to(&reqs, "/accountLogin").len(),
+        1,
+        "one try in the gap"
+    );
+}
+
+/// Apple asking to slow down while renewing (accountLogin 429) says nothing about the tokens:
+/// away, never the password, never a sign-out.
+#[tokio::test]
+async fn apple_asking_to_slow_down_while_renewing_is_not_a_sign_in() {
+    let dir = tempfile::tempdir().unwrap();
+    signed_in(dir.path()).await;
+    let server = MockServer::start().await;
+    validate_ok_and_login(&server, 429).await;
+    mount_init(&server).await;
+    let mut client = client_for(&server, dir.path());
+    assert_eq!(client.ensure_session().await, Kept::Alive);
+    client.session_refused(client.session_generation());
+    assert_eq!(client.ensure_session().await, Kept::Away);
+    let reqs = server.received_requests().await.unwrap();
+    assert!(
+        requests_to(&reqs, "/signin/init").is_empty(),
+        "no password sign-in for a 429"
+    );
+}
+
+/// Apple refusing the tokens when they are traded after a refused pass (accountLogin 421, 401 or
+/// another 4xx): the look every pass makes decides, as on main. `/validate` vouching, the session
+/// stays as it is: no password, no sign-out, and no renewal again until the gap is out.
+#[tokio::test]
+async fn apple_refusing_the_renewal_falls_back_to_the_usual_look() {
+    for status in [421_u16, 401, 400] {
+        let dir = tempfile::tempdir().unwrap();
+        signed_in(dir.path()).await;
+        let server = MockServer::start().await;
+        validate_ok_and_login(&server, status).await;
+        mount_init(&server).await;
+        let mut client = client_for(&server, dir.path());
+        assert_eq!(client.ensure_session().await, Kept::Alive);
+        client.session_refused(client.session_generation());
+        assert_eq!(
+            client.ensure_session().await,
+            Kept::Alive,
+            "{status}: as `/validate` says"
+        );
+        let reqs = server.received_requests().await.unwrap();
+        assert!(
+            requests_to(&reqs, "/signin/init").is_empty(),
+            "{status}: never the password"
+        );
+        assert!(
+            client.session().session_token.is_some(),
+            "{status}: the session left as it is"
+        );
+        client.session_refused(client.session_generation());
+        client.ensure_session().await;
+        let reqs = server.received_requests().await.unwrap();
+        assert_eq!(
+            requests_to(&reqs, "/accountLogin").len(),
+            1,
+            "{status}: not again inside the gap"
+        );
+    }
+}
+
+/// New iCloud terms waiting: Apple answers `accountLogin` 200 but opens the session only part-way,
+/// with no web cookies. That is no renewal: the count does not move, so the refused services are
+/// not passed again for nothing at every pass.
+#[tokio::test]
+async fn a_session_held_by_new_terms_is_not_counted_as_renewed() {
+    let dir = tempfile::tempdir().unwrap();
+    signed_in(dir.path()).await;
+    let server = MockServer::start().await;
+    Mock::given(method("POST"))
+        .and(path("/setup/ws/1/validate"))
+        .respond_with(ResponseTemplate::new(200).set_body_json(json!({
+            "dsInfo": { "dsid": "1234567890" },
+            "webservices": {
+                "ckdatabasews": { "url": "https://p00-ckdatabasews.test.invalid:443", "status": "active" }
+            }
+        })))
+        .mount(&server)
+        .await;
+    Mock::given(method("POST"))
+        .and(path("/setup/ws/1/accountLogin"))
+        .respond_with(ResponseTemplate::new(200).set_body_json(json!({
+            "dsInfo": { "dsid": "1234567890" },
+            "termsUpdateNeeded": true,
+            "webservices": {
+                "ckdatabasews": { "url": "https://p00-ckdatabasews.test.invalid:443", "status": "active" }
+            }
+        })))
+        .mount(&server)
+        .await;
+    let mut client = client_for(&server, dir.path());
+    assert_eq!(client.ensure_session().await, Kept::Alive);
+    let g = client.session_generation();
+    client.session_refused(g);
+    client.ensure_session().await;
+    let reqs = server.received_requests().await.unwrap();
+    assert_eq!(requests_to(&reqs, "/accountLogin").len(), 1);
+    assert_eq!(
+        client.session_generation(),
+        g,
+        "held by the terms, not renewed"
+    );
+}
+
+/// An ordinary lapse met after a refused pass (the cookies and the session token both run out,
+/// so `/validate` fails too): the next look takes it up as every lapse always has been, quietly;
+/// no code.
+#[tokio::test]
+async fn an_ordinary_lapse_after_a_refused_pass_is_mended_quietly() {
+    let dir = tempfile::tempdir().unwrap();
+    signed_in(dir.path()).await;
+    let server = MockServer::start().await;
+    // Alive at first; then every look refused, until the password signs in again.
+    Mock::given(method("POST"))
+        .and(path("/setup/ws/1/validate"))
+        .respond_with(ResponseTemplate::new(200).set_body_json(json!({
+            "dsInfo": { "dsid": "1234567890" },
+            "webservices": {
+                "ckdatabasews": { "url": "https://p00-ckdatabasews.test.invalid:443", "status": "active" }
+            }
+        })))
+        .up_to_n_times(1)
+        .with_priority(1)
+        .mount(&server)
+        .await;
+    lapsed(&server).await;
+    mount_complete(&server, 200).await;
+    mount_trust_and_login(&server).await;
+    let mut client = client_for(&server, dir.path());
+    assert_eq!(client.ensure_session().await, Kept::Alive);
+    client.session_refused(client.session_generation());
+    // The renewal's tokens refused: the look every pass makes decides at once, finding
+    // `/validate` failing and resuming, quietly.
+    assert_eq!(client.ensure_session().await, Kept::Alive);
+    let reqs = server.received_requests().await.unwrap();
+    assert!(requests_to(&reqs, "/securitycode").is_empty(), "no code");
+    assert!(
+        requests_to(&reqs, "/validate").len() >= 2,
+        "the look every pass makes decided, as it always has"
     );
 }

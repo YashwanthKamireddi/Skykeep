@@ -3562,7 +3562,7 @@ async fn refresh_photos(app: &AppHandle) {
     use tauri::Emitter;
     let auth = app.state::<Auth>();
     let data = app.state::<Data>();
-    crate::refresh::some(&auth.client, &data.0, &["photos"]).await;
+    crate::refreshed_some(app, &auth.client, &data.0, &["photos"]).await;
     // What it stored was told as it landed (refresh::on_landed); this brings the freshness.
     app.emit(
         crate::SYNCED,
