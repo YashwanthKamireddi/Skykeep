@@ -1043,6 +1043,16 @@ pub const MIGRATIONS: &[&str] = &[
     r#"
     ALTER TABLE photo_uploads ADD COLUMN refused INTEGER NOT NULL DEFAULT 0;
     "#,
+    // 59 — Free up iCloud space: a photo Skykeep removed from iCloud because the backup has it,
+    // checked against Apple's own checksum, and the albums it was in at that moment. The backup
+    // keeps it and its album folders keep linking it, as against a photo deleted on a device.
+    r#"
+    CREATE TABLE backup_freed (
+        asset TEXT PRIMARY KEY,
+        albums TEXT NOT NULL DEFAULT '[]',
+        freed_at INTEGER NOT NULL
+    );
+    "#,
 ];
 
 /// Migrations that need more than SQL, run in the same transaction as the one numbered.

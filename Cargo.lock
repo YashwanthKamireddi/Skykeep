@@ -4487,6 +4487,7 @@ dependencies = [
  "keyring",
  "plist",
  "quince-auth",
+ "quince-backup",
  "quince-core",
  "quince-icloud",
  "quince-media",

@@ -14,6 +14,7 @@ pub mod drive;
 pub mod export;
 pub mod files;
 pub mod fold;
+pub mod free_up;
 pub mod health;
 pub mod notes;
 pub mod outbox;

@@ -1532,6 +1532,8 @@ export type BackupStatus = {
   shared: boolean;
   sharedCopied: number;
   sharedTotal: number;
+  /** Freeing up iCloud space: how it goes, or how it last ended. */
+  freeUp: FreeUpProgress;
   /** Why albums aren't folders in the backup (a drive with no hard links), if they aren't. */
   albumsNote: string | null;
   /** Photos' bytes in the backup and of all there are; iCloud Drive's files and bytes. */
@@ -1562,6 +1564,38 @@ export const backupApi = {
   setShared: (on: boolean) => invoke<BackupStatus>("backup_set_shared", { on }),
   /** The backup folder, in the file manager. */
   reveal: () => invoke<void>("backup_reveal"),
+};
+
+/** Freeing up iCloud space: photos checked of all asked for, removed and their bytes, and those kept and why. */
+export type FreeUpProgress = {
+  running: boolean;
+  checked: number;
+  total: number;
+  freed: number;
+  freedBytes: number;
+  edited: number;
+  notSame: number;
+  gone: number;
+};
+
+/** A photo or video that may leave iCloud because the backup has it. */
+export type FreeItem = { id: string; takenAt: number; bytes: number; video: boolean };
+
+/** What freeing up space would do: what may leave, newest first, and what stays and why. */
+export type FreeUpPlan = {
+  items: FreeItem[];
+  stays: { favourites: number; hidden: number; sharedLibrary: number; notBackedUp: number; undated: number };
+};
+
+export const FREE_UP_FAILED = "quince://free-up-failed";
+
+export const freeUpApi = {
+  /** Photos taken more than `months` ago that may leave iCloud, and what stays. */
+  plan: (months: number) => invoke<FreeUpPlan>("free_up_plan", { months }),
+  /** These leave iCloud, each once checked against Apple's own copy; progress comes with the backup's status. */
+  start: (ids: string[]) => invoke<void>("free_up_start", { ids }),
+  /** Stops after the photos being checked now. */
+  stop: () => invoke<void>("free_up_stop"),
 };
 
 export const exportApi = {

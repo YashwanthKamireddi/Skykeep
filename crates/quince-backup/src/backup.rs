@@ -112,6 +112,8 @@ pub struct Status {
     pub shared: bool,
     pub shared_copied: i64,
     pub shared_total: i64,
+    /// Freeing up iCloud space: how it goes, or how it last ended.
+    pub free_up: crate::free_up::Progress,
     /// Why albums aren't folders in the backup, said in words, if they aren't.
     pub albums_note: Option<String>,
     /// Photos' bytes in the backup, and of all there are.
@@ -210,6 +212,7 @@ pub async fn status<H: Host>(host: &H) -> Status {
         shared,
         shared_copied,
         shared_total,
+        free_up: crate::free_up::progress(),
         albums_note: ALBUMS_NOTE.lock().ok().and_then(|n| n.clone()),
         photos_bytes: copied_bytes,
         photos_bytes_total: total_bytes,
@@ -238,6 +241,8 @@ pub trait Host: Clone + Send + Sync + 'static {
     /// How the backup is going, for the window: about once a second while it runs, and once
     /// when a pass ends.
     fn tell(&self, status: Status);
+    /// Changes just recorded in the library go to Apple now (the outbox worker woken).
+    fn send_changes(&self);
     /// Runs `work` in the background, on the app's runtime.
     fn spawn(&self, work: BoxFuture<'static, ()>);
 }
@@ -617,7 +622,17 @@ async fn albums_pass<H: Host>(host: &H, folder: &Path) -> Result<(), String> {
         let library = host.library().lock().await;
         (
             library.albums().map_err(|e| e.to_string())?,
-            library.backup_album_members().map_err(|e| e.to_string())?,
+            {
+                // Photos Skykeep freed from iCloud stay in their albums' folders.
+                let mut members = library.backup_album_members().map_err(|e| e.to_string())?;
+                let mut seen: HashSet<(String, String)> = members.iter().cloned().collect();
+                for m in library.freed_album_members().map_err(|e| e.to_string())? {
+                    if seen.insert(m.clone()) {
+                        members.push(m);
+                    }
+                }
+                members
+            },
             library.backup_files().map_err(|e| e.to_string())?,
         )
     };
@@ -650,7 +665,7 @@ async fn albums_pass<H: Host>(host: &H, folder: &Path) -> Result<(), String> {
 }
 
 /// The file that says a folder is the backup: made when the backup is first written there.
-const MARKER: &str = ".skykeep-backup";
+pub(crate) const MARKER: &str = ".skykeep-backup";
 
 /// Whether `folder` is the backup the library records (`recorded`), there to be written to.
 ///

@@ -9,5 +9,6 @@ pub mod backup;
 pub mod export;
 pub mod fetch;
 pub mod folder_download;
+pub mod free_up;
 pub mod names;
 pub mod saving;

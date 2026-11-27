@@ -44,6 +44,7 @@ import { AccountAvatar, useNotKept } from "../components/Account";
 import { Picker } from "../components/Picker";
 import { localeFirstDay, setWeekStart, weekStartChoice, type WeekStartChoice } from "./calendar/model";
 import { icloudSize } from "../lib/icloudSize";
+import { FreeUpEntry } from "../components/FreeUp";
 import { appName, t, useI18n, LANGUAGES, type Key, type LanguageChoice, type Translate, systemLanguage, languageName } from "../lib/i18n";
 
 // Its licence texts are some 400 kB: loaded when the sheet is first opened, not with Settings.
@@ -837,6 +838,7 @@ export function SettingsView({ onSignOut }: { onSignOut: (keep: boolean) => Prom
                     )}
                   </div>
                   <StorageBar storage={storage} used={used} />
+                  <FreeUpEntry storage={storage} onFreed={() => void api.storageInfo().then(setStorage, () => {})} />
                 </div>
               </div>
               <div className="prefs-hero-actions">
