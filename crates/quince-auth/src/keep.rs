@@ -166,7 +166,7 @@ impl Client {
         if self.keeping.token != token {
             if self.keeping.token.is_some() {
                 self.keeping.doubt = false;
-                self.keeping.generation += 1;
+                self.keeping.odd = false;
             }
             self.keeping.token = token;
         }
@@ -219,5 +219,18 @@ impl Client {
         self.keeping.generation += 1;
         self.keeping.doubt = false;
         self.keeping.urgent = false;
+        self.keeping.odd = false;
+    }
+
+    /// Whether the next look would renew the session: refused since the last look, and the
+    /// gap since the last try out. A pass that need not wait on the session asks first.
+    #[must_use]
+    pub fn session_renewal_due(&self) -> bool {
+        let gap = if self.keeping.urgent {
+            RENEW_GAP_NOW
+        } else {
+            RENEW_GAP
+        };
+        self.keeping.doubt && !self.keeping.tried_at.is_some_and(|at| at.elapsed() < gap)
     }
 }

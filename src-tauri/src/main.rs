@@ -1334,16 +1334,28 @@ async fn again_if_renewed(
     client: &Arc<Mutex<Client>>,
     data: &quince_sync::library_lock::LibraryLock,
     result: &mut refresh::Refresh,
+    person: bool,
 ) {
     let refused = refresh::refused_services(&result.services);
     if refused.is_empty() {
         return;
     }
-    // Passed again only once the session has been renewed since this pass started (by this
-    // look or by another pass's): alive by `/validate`, or still inside the renewal gap, the
-    // same cookies would be refused again.
-    if keep_signed_in(app, client).await != quince_auth::Kept::Alive
-        || client.lock().await.session_generation() <= result.generation
+    // Passed again once the cookies have been renewed since this pass's were read (by any
+    // look). Not yet: renewed now when that is due (sooner for someone pressing Sync Now);
+    // otherwise Apple is asked nothing more for it, not even `/validate`.
+    let moved = |c: &Client| c.session_generation() > result.generation;
+    {
+        let mut c = client.lock().await;
+        if person {
+            c.session_refused_now(result.generation);
+        }
+        if !moved(&c) && !c.session_renewal_due() {
+            return;
+        }
+    }
+    if !moved(&*client.lock().await)
+        && (keep_signed_in(app, client).await != quince_auth::Kept::Alive
+            || !moved(&*client.lock().await))
     {
         return;
     }
@@ -1388,7 +1400,7 @@ pub(crate) async fn refreshed_some(
     services: &[&str],
 ) -> refresh::Refresh {
     let mut result = refresh::some(client, data, services).await;
-    again_if_renewed(app, client, data, &mut result).await;
+    again_if_renewed(app, client, data, &mut result, false).await;
     result
 }
 
@@ -2130,7 +2142,7 @@ async fn account_refresh(
     if !waiting {
         let client = Arc::clone(&auth.client);
         let mut result = refresh::all(&client, &data.0).await;
-        again_if_renewed(&app, &client, &data.0, &mut result).await;
+        again_if_renewed(&app, &client, &data.0, &mut result, true).await;
         alerts::changed();
         app.emit(SYNCED, told(&result)).ok();
     }
@@ -6023,7 +6035,7 @@ async fn sync_all(
         data_access::check(&app, &client, data_access::Ask::Person).await;
     }
     let mut result = refresh::all(&client, &data.0).await;
-    again_if_renewed(&app, &client, &data.0, &mut result).await;
+    again_if_renewed(&app, &client, &data.0, &mut result, asked == Some(true)).await;
     data_access::after_pass(&app, &client).await;
     alerts::changed();
     warm_contact_photos(app.clone());
@@ -6053,7 +6065,7 @@ async fn sync_some(
     }
     let names: Vec<&str> = services.iter().map(String::as_str).collect();
     let mut result = refresh::some(&client, &data.0, &names).await;
-    again_if_renewed(&app, &client, &data.0, &mut result).await;
+    again_if_renewed(&app, &client, &data.0, &mut result, asked == Some(true)).await;
     data_access::after_pass(&app, &client).await;
     alerts::changed();
     if names.contains(&"contacts") {
@@ -6093,7 +6105,7 @@ fn spawn_auto_sync(app: tauri::AppHandle, client: Arc<Mutex<Client>>) {
                 calendar_read = Some(std::time::Instant::now());
             }
             let mut result = refresh::routine(&client, &data.0, calendar).await;
-            again_if_renewed(&app, &client, &data.0, &mut result).await;
+            again_if_renewed(&app, &client, &data.0, &mut result, false).await;
             data_access::after_pass(&app, &client).await;
             alerts::changed();
             warm_contact_photos(app.clone());

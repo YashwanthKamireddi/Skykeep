@@ -71,6 +71,8 @@ pub(crate) struct Apple {
     pub cloudkit: Option<String>,
     pub account: String,
     pub waiting: Vec<&'static str>,
+    /// How many times the cookies had been renewed when these were read (quince_auth keep.rs).
+    pub generation: u64,
 }
 
 /// What the phone does with what a pass found beside its rows.
@@ -132,6 +134,7 @@ impl Account {
             waiting: c.data_access_missing(),
             params,
             account,
+            generation: c.session_generation(),
         })
     }
 
@@ -152,7 +155,7 @@ impl Account {
             waiting: apple.waiting.clone(),
             hooks: &hooks,
         };
-        let generation = self.client().session_generation();
+        let generation = apple.generation;
         let report = pass::run(service, &ctx, library, lock).await;
         // Apple answered "sign in again" to the pass itself: the next pass asks about the
         // session rather than trusting the last look.

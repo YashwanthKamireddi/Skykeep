@@ -2062,6 +2062,9 @@ impl Client {
                     Err(e @ (Error::Network(_) | Error::Unavailable(_) | Error::RateLimited)) => {
                         Err(e)
                     }
+                    // An odd 4xx there is one, as at home (a renewal takes one only twice
+                    // running); 401/421 is the sign-in made at iCloud.com not taken there.
+                    Err(e @ Error::TokenRefused(code)) if code != 401 && code != 421 => Err(e),
                     // A sign-in made at iCloud.com that Apple won't take there: made again.
                     Err(_) => Err(Error::Moved),
                 };

@@ -115,6 +115,8 @@ pub(crate) fn apps_offered(webservices: &[String]) -> Vec<String> {
 /// before any network work starts. The CloudKit services' part is the shared pass's context:
 /// its account is the one its parameters ask as, read in the same lock.
 struct Context {
+    /// How many times the cookies had been renewed as this context's were read (keep.rs).
+    generation: u64,
     shared: pass::Ctx<'static>,
     calendar: Option<String>,
     contacts: Option<String>,
@@ -144,6 +146,7 @@ async fn context(client: &Arc<Mutex<Client>>) -> Context {
     let guard = client.lock().await;
     let session = guard.session();
     Context {
+        generation: guard.session_generation(),
         shared: pass::Ctx::new(
             guard.http().clone(),
             guard.service_params(),
@@ -336,10 +339,10 @@ pub async fn as_of(data: &LibraryLock, reports: &[ServiceReport]) -> Option<i64>
 async fn run(client: &Arc<Mutex<Client>>, data: &LibraryLock, services: &[&str]) -> Refresh {
     let wanted = |service: &str| services.contains(&service);
     let started = std::time::Instant::now();
-    // How many times the cookies had been renewed as this pass started: its refused services
-    // are passed again once that has moved (main.rs `again_if_renewed`).
-    let generation = client.lock().await.session_generation();
     let ctx = context(client).await;
+    // How many times the cookies had been renewed when this pass's were read: its refused
+    // services are passed again once that has moved (main.rs `again_if_renewed`).
+    let generation = ctx.generation;
     let (from, to, zone) = default_window();
 
     // The services fetched side by side, not one after another: each has its own pass lock,
