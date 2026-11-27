@@ -68,6 +68,7 @@
     "storageUsed": "{used} utilisés sur {total}",
     "storageAvailable": "{available} disponibles",
     "readingStorage": "Lecture du stockage…",
+    "storageUnread": "Le stockage iCloud n'a pas pu être lu.",
     "storageAria": "Stockage iCloud utilisé",
     "storagePhotos": "Photos",
     "storageBackups": "Sauvegardes",

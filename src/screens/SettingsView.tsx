@@ -634,6 +634,7 @@ export function SettingsView({ onSignOut }: { onSignOut: (keep: boolean) => Prom
   const { t } = useI18n();
   const [account, setAccount] = useState<AccountInfo | null>(null);
   const [storage, setStorage] = useState<ICloudStorage | null>(null);
+  const [storageUnread, setStorageUnread] = useState(false);
   const [local, setLocal] = useState<LocalStorage | null>(null);
   const [clearing, setClearing] = useState(false);
   const [freed, setFreed] = useState<number | null>(null);
@@ -664,7 +665,9 @@ export function SettingsView({ onSignOut }: { onSignOut: (keep: boolean) => Prom
 
   useEffect(() => {
     api.accountInfo().then(setAccount, () => setAccount({ name: null, email: null }));
-    api.storageInfo().then(setStorage, () => {});
+    // Apple refusing the question (a lapsed sign-in, offline) is said as that, never left
+    // reading for ever.
+    api.storageInfo().then(setStorage, () => setStorageUnread(true));
     api.settingsGet().then(setAlerts, (e) => setError(messageOf(e)));
     settingsApi.alertsShown().then(setAlertsShown, () => {});
     settingsApi.localStorage().then(setLocal, () => {});
@@ -829,7 +832,7 @@ export function SettingsView({ onSignOut }: { onSignOut: (keep: boolean) => Prom
                     <span>
                       {storage
                         ? t("settings.storageUsed", { used: icloudSize(storage.usedBytes), total: icloudSize(storage.totalBytes) })
-                        : t("settings.readingStorage")}
+                        : t(storageUnread ? "settings.storageUnread" : "settings.readingStorage")}
                     </span>
                     {storage && (
                       <span className="settings-value">

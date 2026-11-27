@@ -68,6 +68,7 @@
     "storageUsed": "Terpakai {used} dari {total}",
     "storageAvailable": "{available} tersedia",
     "readingStorage": "Membaca penyimpanan…",
+    "storageUnread": "Penyimpanan iCloud tidak bisa dibaca.",
     "storageAria": "Penyimpanan iCloud yang digunakan",
     "storagePhotos": "Foto",
     "storageBackups": "Cadangan",
