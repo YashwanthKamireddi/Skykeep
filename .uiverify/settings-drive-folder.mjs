@@ -49,5 +49,22 @@ ok((await ph.getAttribute("aria-checked")) === "true" && (await sw.getAttribute(
 ok(/\/home\/test\/iCloud Photos/.test(await page.locator(".settings-row", { has: ph }).innerText()), "and says where it is");
 await page.locator(".settings-row", { has: ph }).getByRole("button", { name: "Open" }).click();
 ok((await page.evaluate(() => window.__opened)).includes("photos"), "Open shows it");
+// A folder's state that can't be read is said on its row, never a switch left grey for no reason.
+{
+  const c2 = await b.newContext({ viewport: { width: 1200, height: 900 } });
+  await c2.addInitScript(() => { window.__folderStatusFails = "Skykeep couldn't read the folder's state."; });
+  await c2.addInitScript(installStub, { screen: "library", services: SERVICES, twoFactor: null });
+  const p2 = await c2.newPage();
+  await p2.goto(process.env.URL ?? process.env.BASE ?? "http://localhost:4173", { waitUntil: "networkidle" });
+  await openSettings(p2);
+  await openPane(p2, "This Computer");
+  await p2.waitForTimeout(300);
+  for (const name of ["Drive folder", "Photos folder"]) {
+    const row = p2.locator(".settings-row", { has: p2.getByRole("switch", { name }) });
+    const text = await row.innerText();
+    ok(/couldn't read the folder's state/.test(text), `${name}: a state that can't be read is said  "${text.replace(/\n/g, " ")}"`);
+  }
+  await c2.close();
+}
 await b.close();
 process.exitCode = failures ? 1 : (process.exitCode ?? 0);
