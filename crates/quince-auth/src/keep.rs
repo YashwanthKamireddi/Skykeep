@@ -27,6 +27,10 @@ pub const ALIVE_FOR: Duration = Duration::from_secs(60);
 /// look, so a service that keeps refusing never has Apple asked to renew every pass.
 pub const RENEW_GAP: Duration = Duration::from_secs(120);
 
+/// The longest the gap grows to while renewals Apple takes change nothing (a service refusing
+/// for its own reasons): doubled from [`RENEW_GAP`] each time, until a pass gets through.
+pub const RENEW_GAP_MAX: Duration = Duration::from_secs(3600);
+
 /// Where the session stands before a pass.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Kept {
@@ -65,9 +69,14 @@ pub(crate) struct Keeping {
     /// Renewals so far this run: a pass says which it started under, so a refusal from before
     /// the latest renewal (the old cookies, still in flight) is not taken for one after it.
     generation: u64,
-    /// When renewing was last tried, whatever Apple answered: tries are at least
-    /// [`RENEW_GAP`] apart, so a busy or rate-limiting Apple is not asked again every look.
+    /// When renewing was last tried, whatever Apple answered: tries are at least `gap` apart, so
+    /// a busy or rate-limiting Apple is not asked again every look.
     tried_at: Option<Instant>,
+    /// The gap between tries now: [`RENEW_GAP`], doubled for each renewal that changed nothing.
+    gap: Option<Duration>,
+    /// A renewal Apple took has been made since a pass last got through: another refusal means
+    /// renewing is not what that service needs, and the gap doubles.
+    fruitless: bool,
     /// The session token the doubt is about: a new session (signed in since) is not doubted
     /// for what the old one met.
     token: Option<String>,
@@ -97,23 +106,12 @@ impl Client {
         // of reach, the doubt stands for the next look; the token refused, Apple has ended the
         // session, and it is taken up as any lapse is (the kept password, quietly), or said to
         // need a sign-in. A service refusing never decides it.
-        // Signed in since the doubt: a new session, renewed by nothing the old one met. Passes
-        // still in flight under the old cookies count as before it.
-        if self.keeping.token != token {
-            // The first look of the run only notes the session; a change from one to another
-            // is a sign-in since.
-            if self.keeping.token.is_some() {
-                self.keeping.doubt = false;
-                self.keeping.generation += 1;
+        self.note_session();
+        let gap = self.keeping.gap.unwrap_or(RENEW_GAP);
+        if self.keeping.doubt && !self.keeping.tried_at.is_some_and(|at| at.elapsed() < gap) {
+            if self.keeping.fruitless {
+                self.keeping.gap = Some((gap * 2).min(RENEW_GAP_MAX));
             }
-            self.keeping.token = token.clone();
-        }
-        if self.keeping.doubt
-            && !self
-                .keeping
-                .tried_at
-                .is_some_and(|at| at.elapsed() < RENEW_GAP)
-        {
             self.keeping.tried_at = Some(Instant::now());
             let renewed = self.renew().await;
             let kept = self.looked(renewed);
@@ -122,8 +120,8 @@ impl Client {
             }
             if kept == Kept::Alive {
                 self.keeping.generation += 1;
+                self.keeping.fruitless = true;
             }
-            self.keeping.token = self.session.session_token.clone();
             return self.settle(kept);
         }
         if self
@@ -153,8 +151,24 @@ impl Client {
         }
     }
 
+    /// A session other than the one last seen (signed in since, by the person or by a resume
+    /// with the kept password) is noted at once: passes still in flight under the old cookies
+    /// count as before it, and nothing the old one met is held against it. The run's first look
+    /// only notes it.
+    fn note_session(&mut self) {
+        let token = self.session.session_token.clone();
+        if self.keeping.token != token {
+            if self.keeping.token.is_some() {
+                self.keeping.doubt = false;
+                self.keeping.generation += 1;
+            }
+            self.keeping.token = token;
+        }
+    }
+
     /// Remembers what a look found (see the module's notes), and answers it.
     fn settle(&mut self, kept: Kept) -> Kept {
+        self.note_session();
         match kept {
             Kept::Alive => self.keeping.alive_at = Some(Instant::now()),
             Kept::Code | Kept::SignIn => {
@@ -187,5 +201,14 @@ impl Client {
     /// A request or pass was just refused: [`Self::session_refused`] as now.
     pub fn session_doubted(&mut self) {
         self.session_refused(self.keeping.generation);
+    }
+
+    /// A pass started under `generation` got through with nothing refused: renewing, when next
+    /// needed, starts again from the shortest gap.
+    pub fn session_through(&mut self, generation: u64) {
+        if generation == self.keeping.generation && !self.keeping.doubt {
+            self.keeping.fruitless = false;
+            self.keeping.gap = None;
+        }
     }
 }

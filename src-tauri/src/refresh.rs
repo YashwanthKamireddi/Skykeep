@@ -560,6 +560,8 @@ async fn run(client: &Arc<Mutex<Client>>, data: &LibraryLock, services: &[&str])
     // than vouched for by `/validate` again (quince_auth keep.rs), as the phone's passes do.
     if !refused_services(&reports).is_empty() {
         client.lock().await.session_refused(generation);
+    } else if reports.iter().any(|r| r.outcome == Outcome::Ok) {
+        client.lock().await.session_through(generation);
     }
 
     let as_of = as_of(data, &reports).await;

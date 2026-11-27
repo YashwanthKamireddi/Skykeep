@@ -1378,6 +1378,20 @@ async fn again_if_renewed(
     result.as_of = refresh::as_of(data, &result.services).await;
 }
 
+/// [`refresh::some`], with a refused pass renewed and its refused services passed again
+/// ([`again_if_renewed`]): for every pass started outside the window's own commands (a push,
+/// Photos, data access opening), so none of them is left failing until the next timer.
+pub(crate) async fn refreshed_some(
+    app: &tauri::AppHandle,
+    client: &Arc<Mutex<Client>>,
+    data: &quince_sync::library_lock::LibraryLock,
+    services: &[&str],
+) -> refresh::Refresh {
+    let mut result = refresh::some(client, data, services).await;
+    again_if_renewed(app, client, data, &mut result).await;
+    result
+}
+
 /// Whose data the library holds: a hash of Apple's account id, never the id itself.
 /// Where the library names whose it is (shared with the queue that checks it).
 pub use quince_sync::queue::ACCOUNT_KEY;
@@ -2115,7 +2129,8 @@ async fn account_refresh(
     };
     if !waiting {
         let client = Arc::clone(&auth.client);
-        let result = refresh::all(&client, &data.0).await;
+        let mut result = refresh::all(&client, &data.0).await;
+        again_if_renewed(&app, &client, &data.0, &mut result).await;
         alerts::changed();
         app.emit(SYNCED, told(&result)).ok();
     }

@@ -669,14 +669,14 @@ async fn apple_out_of_reach_while_renewing_is_away_and_not_asked_again_at_once()
     );
 }
 
-/// An answer from `accountLogin` that is not Apple refusing the tokens (an odd 400, say) says
-/// nothing about them: away, never the password, never a sign-out.
+/// Apple asking to slow down while renewing (accountLogin 429) says nothing about the tokens:
+/// away, never the password, never a sign-out.
 #[tokio::test]
-async fn an_odd_answer_while_renewing_is_not_a_sign_out() {
+async fn apple_asking_to_slow_down_while_renewing_is_not_a_sign_in() {
     let dir = tempfile::tempdir().unwrap();
     signed_in(dir.path()).await;
     let server = MockServer::start().await;
-    validate_ok_and_login(&server, 400).await;
+    validate_ok_and_login(&server, 429).await;
     mount_init(&server).await;
     let mut client = client_for(&server, dir.path());
     assert_eq!(client.ensure_session().await, Kept::Alive);
@@ -686,8 +686,39 @@ async fn an_odd_answer_while_renewing_is_not_a_sign_out() {
     let reqs = server.received_requests().await.unwrap();
     assert!(
         requests_to(&reqs, "/signin/init").is_empty(),
-        "no password sign-in for a 400"
+        "no password sign-in for a 429"
     );
+}
+
+/// Apple not opening the account for the tokens with any other 4xx (a 400, say) has ended the
+/// session as a 421 does: taken up with the kept password, quietly, no code.
+#[tokio::test]
+async fn a_4xx_while_renewing_is_taken_up_with_the_kept_password() {
+    let dir = tempfile::tempdir().unwrap();
+    signed_in(dir.path()).await;
+    let server = MockServer::start().await;
+    Mock::given(method("POST"))
+        .and(path("/setup/ws/1/accountLogin"))
+        .respond_with(ResponseTemplate::new(400))
+        .up_to_n_times(1)
+        .mount(&server)
+        .await;
+    validate_ok_and_login(&server, 200).await;
+    mount_init(&server).await;
+    mount_complete(&server, 200).await;
+    mount_trust_and_login(&server).await;
+    let mut client = client_for(&server, dir.path());
+    assert_eq!(client.ensure_session().await, Kept::Alive);
+    let g = client.session_generation();
+    client.session_refused(g);
+    assert_eq!(client.ensure_session().await, Kept::Alive);
+    let reqs = server.received_requests().await.unwrap();
+    assert_eq!(
+        requests_to(&reqs, "/signin/complete").len(),
+        1,
+        "the kept password, once"
+    );
+    assert!(requests_to(&reqs, "/securitycode").is_empty(), "no code");
 }
 
 /// Apple refusing the token (accountLogin 421) has ended the session: it is taken up as any lapse

@@ -99,8 +99,9 @@ impl Account {
         &self,
         call: impl Fn() -> Result<T, E>,
     ) -> Result<T, EngineError> {
+        let sent = self.client().session_generation();
         match call() {
-            Err(e) if lapsed(&e.to_string()) && self.renewed() => {
+            Err(e) if lapsed(&e.to_string()) && self.renewed(sent) => {
                 call().map_err(|e| failed(e.to_string()))
             }
             r => r.map_err(|e| failed(e.to_string())),
@@ -108,14 +109,14 @@ impl Account {
     }
 
     /// The session asked about afresh, as a pass after a refusal asks: alive again or not.
-    fn renewed(&self) -> bool {
+    fn renewed(&self, sent: u64) -> bool {
         let mut c = self.client();
-        let before = c.session_generation();
-        c.session_doubted();
-        // Asked again only once the session was really renewed: alive by `/validate`, or inside
-        // the renewal gap, the same cookies would be refused again.
+        c.session_refused(sent);
+        // Sent again only once the session has been renewed since the call was sent (by this
+        // look or a pass's): alive by `/validate`, or inside the renewal gap with nothing renewed
+        // since, the same cookies would be refused again.
         runtime().block_on(c.ensure_session()) == quince_auth::Kept::Alive
-            && c.session_generation() > before
+            && c.session_generation() > sent
     }
 
     /// [`Apple`], in one look at the session; `what` names the app for "sign in" wording.
@@ -160,6 +161,8 @@ impl Account {
             && report.detail.as_deref() == Some(&quince_icloud::Error::ReauthRequired.to_string())
         {
             self.client().session_refused(generation);
+        } else if report.outcome == Outcome::Ok {
+            self.client().session_through(generation);
         }
         report
     }
