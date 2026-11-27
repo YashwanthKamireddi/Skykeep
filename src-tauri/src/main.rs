@@ -1287,10 +1287,7 @@ async fn keep_signed_in(app: &tauri::AppHandle, client: &Arc<Mutex<Client>>) -> 
             }
         }
         Kept::Alive => {
-            // Told once per refusal: a look `/validate` vouches for in between is no mending.
-            if !guard.session_needs_sign_in() {
-                TOLD.store(false, std::sync::atomic::Ordering::Relaxed);
-            }
+            TOLD.store(false, std::sync::atomic::Ordering::Relaxed);
             // New iCloud terms waiting at icloud.com (or the account to finish there): asked
             // again each pass, so the whole session opens by itself once the person has agreed
             // — one request every few minutes, and only while they are waiting. The session
@@ -1323,21 +1320,8 @@ async fn keep_signed_in(app: &tauri::AppHandle, client: &Arc<Mutex<Client>>) -> 
             drop(guard);
             data_access::check(app, client, data_access::Ask::Background).await;
         }
-        // Not reaching Apple says nothing about the session. Apple refusing its tokens when
-        // they were traded for fresh cookies after a refused pass does: nothing syncs until a
-        // sign-in, so the person is told, with Sign In; the session is left as it is.
-        Kept::Away => {
-            if guard.session_needs_sign_in() {
-                app.emit(NEEDS_SIGNIN, ()).ok();
-                if !TOLD.swap(true, std::sync::atomic::Ordering::Relaxed) {
-                    alerts::tell(
-                        app,
-                        "Sign in to keep iCloud up to date",
-                        "Apple stopped taking Skykeep's session. Your copy on this computer is still here.",
-                    );
-                }
-            }
-        }
+        // Not reaching Apple says nothing about the session.
+        Kept::Away => {}
     }
     kept
 }

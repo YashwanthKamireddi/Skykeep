@@ -673,12 +673,11 @@ async fn apple_asking_to_slow_down_while_renewing_is_not_a_sign_in() {
     );
 }
 
-/// Apple refusing the tokens when they are traded after a refused pass (accountLogin 421, or
-/// any other 4xx) never ends the session or signs in with the password from here: the session
-/// is left as it is, Skykeep says the person should sign in, and Apple is asked nothing more
-/// until the gap is out.
+/// Apple refusing the tokens when they are traded after a refused pass (accountLogin 421, 401 or
+/// another 4xx) changes nothing from here: no password, no sign-out, the session left as it is,
+/// and Apple asked nothing more until the gap is out. The look every pass makes goes on deciding.
 #[tokio::test]
-async fn apple_refusing_the_renewal_is_told_never_acted_on() {
+async fn apple_refusing_the_renewal_changes_nothing_from_here() {
     for status in [421_u16, 401, 400] {
         let dir = tempfile::tempdir().unwrap();
         signed_in(dir.path()).await;
@@ -687,13 +686,8 @@ async fn apple_refusing_the_renewal_is_told_never_acted_on() {
         mount_init(&server).await;
         let mut client = client_for(&server, dir.path());
         assert_eq!(client.ensure_session().await, Kept::Alive);
-        assert!(!client.session_needs_sign_in());
         client.session_refused(client.session_generation());
         assert_eq!(client.ensure_session().await, Kept::Away, "{status}");
-        assert!(
-            client.session_needs_sign_in(),
-            "{status}: the person is told"
-        );
         let reqs = server.received_requests().await.unwrap();
         assert!(
             requests_to(&reqs, "/signin/init").is_empty(),
@@ -701,9 +695,8 @@ async fn apple_refusing_the_renewal_is_told_never_acted_on() {
         );
         assert!(
             client.session().session_token.is_some(),
-            "{status}: the session is left as it is"
+            "{status}: the session left as it is"
         );
-        let before = asked(&server).await;
         client.session_refused(client.session_generation());
         client.ensure_session().await;
         let reqs = server.received_requests().await.unwrap();
@@ -711,10 +704,6 @@ async fn apple_refusing_the_renewal_is_told_never_acted_on() {
             requests_to(&reqs, "/accountLogin").len(),
             1,
             "{status}: not again inside the gap"
-        );
-        assert!(
-            asked(&server).await - before <= 1,
-            "{status}: at most a `/validate`"
         );
     }
 }
@@ -763,8 +752,8 @@ async fn a_session_held_by_new_terms_is_not_counted_as_renewed() {
 }
 
 /// An ordinary lapse met after a refused pass (the cookies and the session token both run out,
-/// so `/validate` fails too): taken up as every lapse always has been, with the kept password,
-/// quietly; no notice, no code.
+/// so `/validate` fails too): the next look takes it up as every lapse always has been, quietly;
+/// no code.
 #[tokio::test]
 async fn an_ordinary_lapse_after_a_refused_pass_is_mended_quietly() {
     let dir = tempfile::tempdir().unwrap();
@@ -789,8 +778,10 @@ async fn an_ordinary_lapse_after_a_refused_pass_is_mended_quietly() {
     let mut client = client_for(&server, dir.path());
     assert_eq!(client.ensure_session().await, Kept::Alive);
     client.session_refused(client.session_generation());
+    // The renewal's tokens refused: nothing decided there. The next look, as on every pass,
+    // finds `/validate` failing and resumes, quietly.
+    assert_eq!(client.ensure_session().await, Kept::Away);
     assert_eq!(client.ensure_session().await, Kept::Alive);
-    assert!(!client.session_needs_sign_in(), "nothing to tell");
     let reqs = server.received_requests().await.unwrap();
     assert!(requests_to(&reqs, "/securitycode").is_empty(), "no code");
     assert!(

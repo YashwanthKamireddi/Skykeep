@@ -77,9 +77,6 @@ pub(crate) struct Keeping {
     /// The session token last seen: a new session (signed in since) is not doubted for what
     /// the old one met.
     token: Option<String>,
-    /// The last renewal met Apple refusing the tokens (a 4xx from `accountLogin`, or the
-    /// sign-in wanted at its regional servers): the person is told, and signs in if they choose.
-    refused_by_apple: bool,
 }
 
 impl Client {
@@ -102,10 +99,9 @@ impl Client {
         // A pass was refused: `/validate` can go on vouching for a session every service
         // refuses (26–27 Nov 2026: a window failed every sync for a day, saying nothing), so it is
         // renewed, not looked at: the tokens traded for fresh cookies (`accountLogin`), at most
-        // once every ten minutes (`RENEW_GAP`). Apple's answer decides: taken, the session is
-        // alive; Apple out of reach, the doubt stands for the next look; the token refused,
-        // Apple has ended the session, and it is taken up as any lapse is (the kept password,
-        // quietly), or said to need a sign-in. A service refusing never decides it.
+        // once every ten minutes (`RENEW_GAP`). Taken, the session is alive. Anything else
+        // changes nothing here: the look every pass makes decides the session as it always has.
+        // A service refusing never ends a session.
         self.note_session();
         let gap = if self.keeping.urgent {
             RENEW_GAP_NOW
@@ -117,28 +113,12 @@ impl Client {
         self.keeping.urgent = false;
         if self.keeping.doubt && due {
             self.keeping.tried_at = Some(Instant::now());
-            // Only the cookies traded: taken, alive. Any other answer leaves the session as it
-            // is, the doubt standing for the next try; Apple refusing the tokens is said to the
-            // person ([`Self::session_needs_sign_in`]), never acted on here.
+            // Only the cookies traded: taken, alive. Any other answer leaves the session as it is,
+            // the doubt standing for the next try, and the look every pass makes (`/validate`, then
+            // the resume with the kept password) goes on deciding the session, as it always has.
             return match self.renew().await {
                 Ok(true) => self.settle(Kept::Alive),
-                Ok(false) => Kept::Away,
-                // Apple refused the tokens: the look every pass makes decides, as it always has
-                // (`/validate`, and when that fails the resume: the kept password, quietly). It
-                // mending the session is the end of it; `/validate` still vouching for a session
-                // whose tokens Apple refuses is the stuck one, and the person is told.
-                Err(crate::Error::TokenRefused(_) | crate::Error::Moved) => {
-                    let before = self.keeping.generation;
-                    let looked = self.heartbeat().await;
-                    let kept = self.looked(looked);
-                    if kept == Kept::Alive && self.keeping.generation == before {
-                        self.keeping.refused_by_apple = true;
-                        self.keeping.alive_at = None;
-                        return Kept::Away;
-                    }
-                    self.settle(kept)
-                }
-                Err(_) => Kept::Away,
+                _ => Kept::Away,
             };
         }
         if self
@@ -177,7 +157,7 @@ impl Client {
         if self.keeping.token != token {
             if self.keeping.token.is_some() {
                 self.keeping.doubt = false;
-                self.keeping.refused_by_apple = false;
+                self.keeping.tried_at = None;
             }
             self.keeping.token = token;
         }
@@ -233,14 +213,6 @@ impl Client {
         self.keeping.generation += 1;
         self.keeping.doubt = false;
         self.keeping.urgent = false;
-        self.keeping.refused_by_apple = false;
-    }
-
-    /// Apple refused the tokens when renewing after a refused pass: nothing syncs until the
-    /// person signs in again, and they are told so. The session is left as it is.
-    #[must_use]
-    pub fn session_needs_sign_in(&self) -> bool {
-        self.keeping.refused_by_apple
     }
 
     /// A person's request was answered without a look at the session (renewed since, or the

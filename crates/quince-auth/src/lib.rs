@@ -1231,9 +1231,7 @@ impl Client {
         let away = |e: &Error| matches!(e, Error::Network(_) | Error::Unavailable(_));
         // Renewing after a refused pass, only the cookies are traded: whatever Apple answers
         // otherwise goes back as it is, and nothing here signs in with the password or ends the
-        // session. A refusal of the tokens is said to the person, who chooses to sign in
-        // (keep.rs `session_needs_sign_in`); a session `/validate` still vouches for is never
-        // ended on a service's word.
+        // session; the look every pass makes goes on deciding that, as it always has.
         if look == Look::Renew {
             return Err(logged_in);
         }
