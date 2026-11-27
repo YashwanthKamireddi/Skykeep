@@ -103,6 +103,11 @@
     <color type="primary" scheme_preference="dark">#0B2A4A</color>
   </branding>
   <releases>
+    <release version="0.1.45" date="2026-11-27">
+      <description>
+        <p>Backup now keeps your albums as folders: every album appears under Albums in the backup folder, as links to the photos already there, so it takes no extra space and follows your albums as they change. Shared Albums can be backed up too, each in a folder of its own: turn on Include Shared Albums in Settings, Backup. Calendar's messages are translated, an app window says a failed update in a few words, and Reminders' search keeps its size in small windows. The iPhone camera and microphone have moved out of Skykeep into an app of their own.</p>
+      </description>
+    </release>
     <release version="0.1.44" date="2026-11-26">
       <description>
         <p>On Windows, Mark as Completed and Remind Me in 1 Hour on a reminder's notification now work even after Skykeep was closed or the PC restarted. A reminder's notification goes away on Windows and Linux when you complete, move or delete the reminder on another device.</p>
