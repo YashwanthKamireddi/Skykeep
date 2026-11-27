@@ -167,6 +167,7 @@ impl Client {
             if self.keeping.token.is_some() {
                 self.keeping.doubt = false;
                 self.keeping.odd = false;
+                self.keeping.tried_at = None;
             }
             self.keeping.token = token;
         }
@@ -220,6 +221,12 @@ impl Client {
         self.keeping.doubt = false;
         self.keeping.urgent = false;
         self.keeping.odd = false;
+    }
+
+    /// A person's request was answered without a look at the session (renewed since, or the
+    /// short gap not out): the urgency goes with it, never to a later background look.
+    pub fn session_urgency_spent(&mut self) {
+        self.keeping.urgent = false;
     }
 
     /// Whether the next look would renew the session: refused since the last look, and the

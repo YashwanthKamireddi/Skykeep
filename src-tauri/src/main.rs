@@ -1349,6 +1349,9 @@ async fn again_if_renewed(
         if person {
             c.session_refused_now(result.generation);
         }
+        if moved(&c) || !c.session_renewal_due() {
+            c.session_urgency_spent();
+        }
         if !moved(&c) && !c.session_renewal_due() {
             return;
         }

@@ -742,3 +742,46 @@ async fn apple_refusing_the_renewal_is_a_sign_in() {
     }
     assert_eq!(asked(&server).await, before, "nothing more asked of Apple");
 }
+
+/// New iCloud terms waiting: Apple answers `accountLogin` 200 but opens the session only part-way,
+/// with no web cookies. That is no renewal: the count does not move, so the refused services are
+/// not passed again for nothing at every pass.
+#[tokio::test]
+async fn a_session_held_by_new_terms_is_not_counted_as_renewed() {
+    let dir = tempfile::tempdir().unwrap();
+    signed_in(dir.path()).await;
+    let server = MockServer::start().await;
+    Mock::given(method("POST"))
+        .and(path("/setup/ws/1/validate"))
+        .respond_with(ResponseTemplate::new(200).set_body_json(json!({
+            "dsInfo": { "dsid": "1234567890" },
+            "webservices": {
+                "ckdatabasews": { "url": "https://p00-ckdatabasews.test.invalid:443", "status": "active" }
+            }
+        })))
+        .mount(&server)
+        .await;
+    Mock::given(method("POST"))
+        .and(path("/setup/ws/1/accountLogin"))
+        .respond_with(ResponseTemplate::new(200).set_body_json(json!({
+            "dsInfo": { "dsid": "1234567890" },
+            "termsUpdateNeeded": true,
+            "webservices": {
+                "ckdatabasews": { "url": "https://p00-ckdatabasews.test.invalid:443", "status": "active" }
+            }
+        })))
+        .mount(&server)
+        .await;
+    let mut client = client_for(&server, dir.path());
+    assert_eq!(client.ensure_session().await, Kept::Alive);
+    let g = client.session_generation();
+    client.session_refused(g);
+    client.ensure_session().await;
+    let reqs = server.received_requests().await.unwrap();
+    assert_eq!(requests_to(&reqs, "/accountLogin").len(), 1);
+    assert_eq!(
+        client.session_generation(),
+        g,
+        "held by the terms, not renewed"
+    );
+}

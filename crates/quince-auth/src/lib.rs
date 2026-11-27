@@ -2062,9 +2062,6 @@ impl Client {
                     Err(e @ (Error::Network(_) | Error::Unavailable(_) | Error::RateLimited)) => {
                         Err(e)
                     }
-                    // An odd 4xx there is one, as at home (a renewal takes one only twice
-                    // running); 401/421 is the sign-in made at iCloud.com not taken there.
-                    Err(e @ Error::TokenRefused(code)) if code != 401 && code != 421 => Err(e),
                     // A sign-in made at iCloud.com that Apple won't take there: made again.
                     Err(_) => Err(Error::Moved),
                 };
@@ -2082,8 +2079,14 @@ impl Client {
         }
         let data: Value = serde_json::from_str(&text)?;
         diag::account("accountLogin", &data);
-        // Fresh cookies, whichever path asked for them (a renewal, a resume, a sign-in).
-        self.cookies_renewed();
+        // Fresh cookies, whichever path asked for them (a renewal, a resume, a sign-in): only
+        // when Apple opened the session all the way. Held part-way by new terms (below), it set
+        // none, and counting it had every refused service passed twice each pass.
+        let held = data.get("termsUpdateNeeded").and_then(Value::as_bool) == Some(true)
+            || data.get("isRepairNeeded").and_then(Value::as_bool) == Some(true);
+        if !held {
+            self.cookies_renewed();
+        }
         // New iCloud terms not yet accepted: Apple answers 200 but opens the session only
         // part-way, without the web cookies every service needs (rclone/rclone#9919). Not an
         // error: a sign-in that met them is complete — the password proved itself, and is no
