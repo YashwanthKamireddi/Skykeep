@@ -1343,9 +1343,16 @@ fn a_save_during_an_upload_makes_no_conflicted_copy() {
     std::thread::sleep(std::time::Duration::from_millis(500));
     std::fs::write(&note, "abc").unwrap();
     wait("replace note.md 3");
-    // And once more after that, as typing goes on.
+    // And once more after that, as typing goes on: sent once it settles, not held 25 seconds as
+    // a send Apple could not take is (a save landing while the last one was sent was).
     std::fs::write(&note, "abcdef").unwrap();
+    let typed = std::time::Instant::now();
     wait("replace note.md 6");
+    assert!(
+        typed.elapsed() < std::time::Duration::from_secs(15),
+        "a save made during a send reached Apple only after {:?}",
+        typed.elapsed()
+    );
     std::thread::sleep(std::time::Duration::from_secs(3));
 
     let said = log.lock().unwrap().clone();
