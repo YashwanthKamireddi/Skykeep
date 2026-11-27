@@ -2063,6 +2063,8 @@ impl Client {
         }
         let data: Value = serde_json::from_str(&text)?;
         diag::account("accountLogin", &data);
+        // Fresh cookies, whichever path asked for them (a renewal, a resume, a sign-in).
+        self.cookies_renewed();
         // New iCloud terms not yet accepted: Apple answers 200 but opens the session only
         // part-way, without the web cookies every service needs (rclone/rclone#9919). Not an
         // error: a sign-in that met them is complete — the password proved itself, and is no

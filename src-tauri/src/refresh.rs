@@ -336,8 +336,8 @@ pub async fn as_of(data: &LibraryLock, reports: &[ServiceReport]) -> Option<i64>
 async fn run(client: &Arc<Mutex<Client>>, data: &LibraryLock, services: &[&str]) -> Refresh {
     let wanted = |service: &str| services.contains(&service);
     let started = std::time::Instant::now();
-    // Which renewal this pass runs under: a refusal it meets is not taken for one after a
-    // renewal made while it ran (quince_auth keep.rs).
+    // How many times the cookies had been renewed as this pass started: its refused services
+    // are passed again once that has moved (main.rs `again_if_renewed`).
     let generation = client.lock().await.session_generation();
     let ctx = context(client).await;
     let (from, to, zone) = default_window();
@@ -559,9 +559,7 @@ async fn run(client: &Arc<Mutex<Client>>, data: &LibraryLock, services: &[&str])
     // Apple answered "sign in again" to a pass: the session is renewed at the next look rather
     // than vouched for by `/validate` again (quince_auth keep.rs), as the phone's passes do.
     if !refused_services(&reports).is_empty() {
-        client.lock().await.session_refused(generation);
-    } else if reports.iter().any(|r| r.outcome == Outcome::Ok) {
-        client.lock().await.session_through(generation);
+        client.lock().await.session_refused();
     }
 
     let as_of = as_of(data, &reports).await;

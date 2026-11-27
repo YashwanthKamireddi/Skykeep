@@ -154,7 +154,7 @@ async fn a_lapsed_session_is_taken_up_again_and_asked_about_once() {
         "five passes starting together cost no more requests"
     );
     // A pass that met "sign in again" anyway has the next one ask.
-    client.session_doubted();
+    client.session_refused();
     client.ensure_session().await;
     assert!(asked(&server).await > before);
 }
@@ -576,7 +576,7 @@ async fn a_session_validate_vouches_for_but_services_refuse_is_renewed() {
     );
 
     let g = client.session_generation();
-    client.session_refused(g);
+    client.session_refused();
     assert_eq!(client.ensure_session().await, Kept::Alive);
     let reqs = server.received_requests().await.unwrap();
     assert_eq!(
@@ -584,57 +584,41 @@ async fn a_session_validate_vouches_for_but_services_refuse_is_renewed() {
         1,
         "the cookies traded afresh"
     );
-    assert_eq!(client.session_generation(), g + 1);
-}
-
-/// A pass that started before the renewal comes back refused (the old cookies, in flight): it
-/// is not taken for a refusal after it. Nothing more is asked of Apple, nothing is said.
-#[tokio::test]
-async fn a_refusal_from_before_the_renewal_is_not_counted() {
-    let dir = tempfile::tempdir().unwrap();
-    signed_in(dir.path()).await;
-    let server = MockServer::start().await;
-    validate_ok_and_login(&server, 200).await;
-    let mut client = client_for(&server, dir.path());
-    let before = client.session_generation();
-    client.session_refused(before);
-    assert_eq!(client.ensure_session().await, Kept::Alive);
-    let asked_after_renewal = asked(&server).await;
-    // The slower pass, started under the old generation, lands now.
-    client.session_refused(before);
-    assert_eq!(client.ensure_session().await, Kept::Alive);
     assert_eq!(
-        asked(&server).await,
-        asked_after_renewal,
-        "not renewed again for it"
+        client.session_generation(),
+        g + 1,
+        "counted, so a refused pass is sent again"
     );
 }
 
-/// A service that keeps refusing (Photos alone, say) never signs the account out, and never
-/// has Apple asked to renew every pass: the cookies are renewed at most once every two minutes,
-/// and while Apple takes them the password is never used.
+/// Another refusal straight after a renewal (a slow pass still on the old cookies, or a service
+/// refusing for its own reasons) waits out the gap: Apple is not asked to renew again at once.
+/// A request the person is waiting on may try sooner, but never at every request.
 #[tokio::test]
-async fn one_service_refusing_never_signs_the_account_out() {
+async fn a_refusal_straight_after_a_renewal_waits_out_the_gap() {
     let dir = tempfile::tempdir().unwrap();
     signed_in(dir.path()).await;
     let server = MockServer::start().await;
     validate_ok_and_login(&server, 200).await;
-    mount_init(&server).await;
     let mut client = client_for(&server, dir.path());
-    for _ in 0..5 {
-        let g = client.session_generation();
-        client.session_refused(g);
-        assert_eq!(client.ensure_session().await, Kept::Alive);
-    }
+    client.session_refused();
+    assert_eq!(client.ensure_session().await, Kept::Alive);
+    let logins = |reqs: &[Request]| requests_to(reqs, "/accountLogin").len();
+    assert_eq!(logins(&server.received_requests().await.unwrap()), 1);
+    client.session_refused();
+    assert_eq!(client.ensure_session().await, Kept::Alive);
+    assert_eq!(
+        logins(&server.received_requests().await.unwrap()),
+        1,
+        "not renewed again at once: looked at with `/validate`"
+    );
+    client.session_refused_now();
+    client.ensure_session().await;
     let reqs = server.received_requests().await.unwrap();
     assert_eq!(
         requests_to(&reqs, "/accountLogin").len(),
         1,
-        "renewed once in two minutes"
-    );
-    assert!(
-        requests_to(&reqs, "/signin/init").is_empty(),
-        "the password never used for it"
+        "the person's request too waits the short gap"
     );
 }
 
@@ -651,8 +635,7 @@ async fn apple_out_of_reach_while_renewing_is_away_and_not_asked_again_at_once()
     let mut client = client_for(&server, dir.path());
     // A first look takes up the session as it is (`/validate`), as at launch.
     assert_eq!(client.ensure_session().await, Kept::Alive);
-    let g = client.session_generation();
-    client.session_refused(g);
+    client.session_refused();
     assert_eq!(client.ensure_session().await, Kept::Away);
     for _ in 0..5 {
         client.ensure_session().await;
@@ -680,8 +663,7 @@ async fn apple_asking_to_slow_down_while_renewing_is_not_a_sign_in() {
     mount_init(&server).await;
     let mut client = client_for(&server, dir.path());
     assert_eq!(client.ensure_session().await, Kept::Alive);
-    let g = client.session_generation();
-    client.session_refused(g);
+    client.session_refused();
     assert_eq!(client.ensure_session().await, Kept::Away);
     let reqs = server.received_requests().await.unwrap();
     assert!(
@@ -709,8 +691,7 @@ async fn a_4xx_while_renewing_is_taken_up_with_the_kept_password() {
     mount_trust_and_login(&server).await;
     let mut client = client_for(&server, dir.path());
     assert_eq!(client.ensure_session().await, Kept::Alive);
-    let g = client.session_generation();
-    client.session_refused(g);
+    client.session_refused();
     assert_eq!(client.ensure_session().await, Kept::Alive);
     let reqs = server.received_requests().await.unwrap();
     assert_eq!(
@@ -739,8 +720,7 @@ async fn the_token_refused_is_taken_up_with_the_kept_password() {
     mount_complete(&server, 200).await;
     mount_trust_and_login(&server).await;
     let mut client = client_for(&server, dir.path());
-    let g = client.session_generation();
-    client.session_refused(g);
+    client.session_refused();
     assert_eq!(client.ensure_session().await, Kept::Alive);
     let reqs = server.received_requests().await.unwrap();
     assert_eq!(
@@ -762,8 +742,7 @@ async fn apple_refusing_the_renewal_is_a_sign_in() {
     mount_init(&server).await;
     mount_complete(&server, 401).await;
     let mut client = client_for(&server, dir.path());
-    let g = client.session_generation();
-    client.session_refused(g);
+    client.session_refused();
     assert_eq!(client.ensure_session().await, Kept::SignIn);
     let before = asked(&server).await;
     for _ in 0..5 {
