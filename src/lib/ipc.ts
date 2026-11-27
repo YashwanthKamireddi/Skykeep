@@ -534,7 +534,7 @@ export const api = {
   driveTrash: () => invoke<TrashItem[]>("drive_trash"),
   driveThumbnails: (folderId: string) => invoke<Record<string, string>>("drive_thumbnails", { folderId }),
   driveDuplicate: (drivewsid: string) => invoke<void>("drive_duplicate", { drivewsid }),
-  storageInfo: () => invoke<{ usedBytes: number; totalBytes: number }>("storage_info"),
+  storageInfo: () => invoke<ICloudStorage>("storage_info"),
   /** Who is signed in, as Apple names them. */
   accountInfo: () => invoke<AccountInfo>("account_info"),
   /** Ask Apple for the account again, after something was done at icloud.com. */
@@ -1541,6 +1541,16 @@ export type BackupStatus = {
   driveFilesTotal: number;
   driveBytes: number;
   driveBytesTotal: number;
+};
+
+/** The account's iCloud storage, and what fills it as Apple's own storage bar splits it. */
+export type ICloudStorage = {
+  usedBytes: number;
+  totalBytes: number;
+  /** Largest first: Apple's key (photos, backup, docs, mail, messages, family), its own name and colour. */
+  kinds: { key: string; label: string; color: string | null; bytes: number }[];
+  full: boolean;
+  almostFull: boolean;
 };
 
 export const backupApi = {

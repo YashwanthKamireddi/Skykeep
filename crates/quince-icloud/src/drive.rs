@@ -4819,16 +4819,38 @@ mod download_zone_tests {
     }
 }
 
-/// The account's iCloud storage, as icloud.com's "X GB available" reads it.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Serialize)]
+/// The account's iCloud storage, as icloud.com's "X GB available" reads it, and what fills it,
+/// as Apple's own storage bar splits it.
+#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct Storage {
     pub used_bytes: u64,
     pub total_bytes: u64,
+    /// What fills it, largest first: Apple's own kinds (`photos`, `backup`, `docs`, `mail`,
+    /// `messages`, `family`), each with Apple's colour for it. Empty when Apple gave none.
+    pub kinds: Vec<StorageKind>,
+    /// Apple says the storage is full (nothing more uploads), or nearly.
+    pub full: bool,
+    pub almost_full: bool,
+}
+
+/// One kind of what fills iCloud storage.
+#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct StorageKind {
+    /// Apple's key for it: what the window names it by, in the person's language.
+    pub key: String,
+    /// Apple's own name for it, for a kind the window has no name of its own for.
+    pub label: String,
+    /// Apple's colour for it on its storage bar (`#RRGGBB`), when it gives a valid one.
+    pub color: Option<String>,
+    pub bytes: u64,
 }
 
 /// `POST {setup}/storageUsageInfo`, no body — what icloud.com's shell asks. Measured on a real
-/// account: `storageUsageInfo.{usedStorageInBytes,totalStorageInBytes}`.
+/// account: `storageUsageInfo.{usedStorageInBytes,totalStorageInBytes}`; the split by kind,
+/// `storageUsageByMedia[{mediaKey, displayLabel, displayColor, usageInBytes}]`, and
+/// `quotaStatus` as icloud.com's own code reads them (docs/icloud-web/drive.md, Storage quota).
 pub async fn storage(
     http: &reqwest::Client,
     setup_root: &str,
@@ -4851,13 +4873,51 @@ pub async fn storage(
         body.pointer(&format!("/storageUsageInfo/{k}"))
             .and_then(Value::as_u64)
     };
-    match (n("usedStorageInBytes"), n("totalStorageInBytes")) {
-        (Some(used_bytes), Some(total_bytes)) => Ok(Storage {
-            used_bytes,
-            total_bytes,
-        }),
-        _ => Err(Error::Protocol("storage: no usage in the answer".into())),
-    }
+    let (Some(used_bytes), Some(total_bytes)) = (n("usedStorageInBytes"), n("totalStorageInBytes"))
+    else {
+        return Err(Error::Protocol("storage: no usage in the answer".into()));
+    };
+    let mut kinds: Vec<StorageKind> = body
+        .get("storageUsageByMedia")
+        .and_then(Value::as_array)
+        .into_iter()
+        .flatten()
+        .filter_map(|m| {
+            let key = m.get("mediaKey")?.as_str()?.to_string();
+            let bytes = m.get("usageInBytes")?.as_u64()?;
+            let label = m
+                .get("displayLabel")
+                .and_then(Value::as_str)
+                .unwrap_or(&key)
+                .to_string();
+            // Only a plain colour goes on to the window's style, never whatever text came.
+            let color = m
+                .get("displayColor")
+                .and_then(Value::as_str)
+                .map(|c| c.trim_start_matches('#'))
+                .filter(|c| c.len() == 6 && c.chars().all(|ch| ch.is_ascii_hexdigit()))
+                .map(|c| format!("#{c}"));
+            (bytes > 0).then_some(StorageKind {
+                key,
+                label,
+                color,
+                bytes,
+            })
+        })
+        .collect();
+    kinds.sort_by(|a, b| b.bytes.cmp(&a.bytes).then_with(|| a.key.cmp(&b.key)));
+    let flag = |k: &str| {
+        body.pointer(&format!("/quotaStatus/{k}"))
+            .and_then(Value::as_bool)
+            .unwrap_or(false)
+    };
+    Ok(Storage {
+        used_bytes,
+        total_bytes,
+        kinds,
+        full: flag("overQuota"),
+        almost_full: flag("almost-full"),
+    })
 }
 
 #[cfg(test)]
@@ -4886,9 +4946,50 @@ mod storage_tests {
             got,
             Storage {
                 used_bytes: 182_196_857,
-                total_bytes: 5_368_709_120
+                total_bytes: 5_368_709_120,
+                kinds: vec![],
+                full: false,
+                almost_full: false,
             }
         );
+    }
+
+    /// What fills it, as icloud.com's own code reads Apple's answer: largest first, Apple's
+    /// colours kept only when they are plain colours, empty kinds left out, full said.
+    #[tokio::test]
+    async fn what_fills_storage_is_read_largest_first() {
+        let server = MockServer::start().await;
+        Mock::given(method("POST"))
+            .and(path("/storageUsageInfo"))
+            .respond_with(ResponseTemplate::new(200).set_body_json(serde_json::json!({
+                "storageUsageByMedia": [
+                    { "mediaKey": "docs", "displayLabel": "Documents", "displayColor": "ffa500", "usageInBytes": 300 },
+                    { "mediaKey": "photos", "displayLabel": "Photos", "displayColor": "#FFCC00", "usageInBytes": 4000 },
+                    { "mediaKey": "mail", "displayLabel": "Mail", "displayColor": "red;background:url(x)", "usageInBytes": 50 },
+                    { "mediaKey": "messages", "displayLabel": "Messages", "displayColor": "00ff00", "usageInBytes": 0 }
+                ],
+                "storageUsageInfo": { "usedStorageInBytes": 5000_u64, "totalStorageInBytes": 5000_u64 },
+                "quotaStatus": { "overQuota": true, "almost-full": true }
+            })))
+            .mount(&server)
+            .await;
+        let got = storage(&reqwest::Client::new(), &server.uri(), vec![])
+            .await
+            .unwrap();
+        let keys: Vec<(&str, u64, Option<&str>)> = got
+            .kinds
+            .iter()
+            .map(|k| (k.key.as_str(), k.bytes, k.color.as_deref()))
+            .collect();
+        assert_eq!(
+            keys,
+            [
+                ("photos", 4000, Some("#FFCC00")),
+                ("docs", 300, Some("#ffa500")),
+                ("mail", 50, None),
+            ]
+        );
+        assert!(got.full && got.almost_full);
     }
 }
 
