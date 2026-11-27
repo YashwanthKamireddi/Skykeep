@@ -56,8 +56,17 @@ for (const scheme of ["light", "dark"]) {
   if (shots) await section.screenshot({ path: `${shots}/backup-on-${scheme}.png` });
   // Shared Albums: off until asked for (other people's photos), then how far, as shared.
   const shared = row.getByRole("switch", { name: "Include Shared Albums" });
-  const sharedRow = row.getByRole("group", { name: "Shared Albums in the backup" });
-  ok((await shared.getAttribute("aria-checked")) === "false" && (await sharedRow.innerText()).includes("Not in the backup"), `${scheme}: Shared Albums are left out until asked for`);
+  const sharedRow = shared.locator("xpath=..");
+  ok((await shared.getAttribute("aria-checked")) === "false" && (await sharedRow.innerText()).includes("Each at the size it was shared"), `${scheme}: Shared Albums are left out until asked for, and say how they're kept`);
+  // An option of Photos, beside the Hidden album: before iCloud Drive, indented as Hidden is.
+  const order = await row.evaluate((card) => {
+    const at = (el) => [...card.querySelectorAll("*")].indexOf(el);
+    const sw = (name) => card.querySelector(`[role=switch][aria-label="${name}"]`);
+    return [at(sw("Include the Hidden album")), at(sw("Include Shared Albums")), at(sw("Include iCloud Drive"))];
+  });
+  ok(order[0] < order[1] && order[1] < order[2], `${scheme}: Shared Albums sit under Photos, after the Hidden album, before iCloud Drive`);
+  const indent = await row.evaluate((card) => ["Include the Hidden album", "Include Shared Albums"].map((n) => card.querySelector(`[role=switch][aria-label="${n}"]`).parentElement.getBoundingClientRect().left));
+  ok(Math.abs(indent[0] - indent[1]) < 1, `${scheme}: indented alike`);
   await shared.click();
   await page.waitForTimeout(150);
   ok((await shared.getAttribute("aria-checked")) === "true" && (await sharedRow.innerText()).includes("120 of 318 photos, at the size they were shared"), `${scheme}: included, it says how far, at the size shared`);

@@ -1492,7 +1492,11 @@
 .backup .backup-source { display: flex; align-items: center; gap: 10px; padding-top: 8px;
   border-top: var(--hairline) solid color-mix(in srgb, var(--text) 7%, transparent); }
 .backup .backup-source .settings-label { flex: 1; }
-.backup .backup-option { padding-left: 32px; align-items: center; }
+/* A source's options, indented to its name: each its own line, its words at reading size (they
+   are choices, not footnotes), a hairline between, as System Settings lists a group's options. */
+.backup .backup-option { display: flex; align-items: center; gap: 10px; margin-left: 32px; padding-top: 8px;
+  border-top: var(--hairline) solid color-mix(in srgb, var(--text) 5%, transparent); }
+.backup .backup-option .settings-label { font-size: var(--t-13); }
 .backup .progress { margin-left: 32px; }
 .settings-label { flex: 1; min-width: 0; }
 .settings-hint { color: var(--text-2); font-size: var(--t-11); line-height: 1.4; }
