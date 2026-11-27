@@ -810,6 +810,15 @@ fn apple_builder(endpoints: &Endpoints, jar: &Arc<CookieStoreMutex>) -> reqwest:
         .tcp_keepalive(std::time::Duration::from_secs(30))
 }
 
+/// How a resume first looks at the session.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum Look {
+    /// `/validate`, and nothing more when it answers.
+    Validate,
+    /// Straight to trading the tokens for new cookies: a service refused the session.
+    Renew,
+}
+
 impl Client {
     pub fn new(state_dir: &Path) -> Result<Self> {
         Self::with(state_dir, Endpoints::default(), Store::keyring(state_dir)?)
@@ -1128,6 +1137,18 @@ impl Client {
     /// product promises. `Ok(false)` means Apple rejected it and a full sign-in is needed;
     /// that is an expected outcome (roughly every 60 days), not a failure.
     pub async fn resume(&mut self) -> Result<bool> {
+        self.resume_from(Look::Validate).await
+    }
+
+    /// [`Self::resume`] for a session a service has just refused: `/validate` can go on
+    /// answering 200 while every service answers "sign in again" (421, "Missing
+    /// X-APPLE-WEBAUTH-TOKEN cookie": measured on a real account, 26–27 Nov 2026), so its
+    /// answer is not taken: the cookies are traded afresh for the tokens, then the kept password.
+    pub async fn renew(&mut self) -> Result<bool> {
+        self.resume_from(Look::Renew).await
+    }
+
+    async fn resume_from(&mut self, look: Look) -> Result<bool> {
         // A sign-out the keyring was locked for is never undone by resuming: its entries are
         // erased now if it answers, and until they are, `try_load` (below, and at startup)
         // reads nothing stored. A session signed in since lives in memory and stays.
@@ -1154,8 +1175,13 @@ impl Client {
         if !self.session.is_resumable() {
             return Ok(false);
         }
-        // Cheap path: the cookies are still good, so nothing needs re-establishing.
-        let validated = match self.validate().await {
+        // Cheap path: the cookies are still good, so nothing needs re-establishing. Not for a
+        // session a service has just refused (`renew`): `/validate` vouches for it regardless.
+        let validated = match if look == Look::Validate {
+            self.validate().await
+        } else {
+            Err(Error::Protocol("a service refused the session".into()))
+        } {
             Ok(data) => {
                 self.absorb(&data);
                 self.keep();
@@ -1245,6 +1271,8 @@ impl Client {
     }
 
     /// `POST /validate` — cheap liveness check. Doubles as the session heartbeat.
+    ///
+    /// Not proof the services will take the session: see [`Self::renew`].
     async fn validate(&mut self) -> Result<Value> {
         let r = self
             .http

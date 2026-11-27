@@ -23,6 +23,10 @@ use std::time::{Duration, Instant};
 /// How long a session found alive is taken to stay so without asking Apple again.
 pub const ALIVE_FOR: Duration = Duration::from_secs(60);
 
+/// A session renewed after a service refused it, and refused again within this, is not
+/// renewed again: only a sign-in helps, and it is said so rather than asked about each pass.
+pub const RENEWED_FOR: Duration = Duration::from_secs(600);
+
 /// Where the session stands before a pass.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Kept {
@@ -55,6 +59,10 @@ pub(crate) struct Keeping {
     alive_at: Option<Instant>,
     /// The session Apple ended, by its token, and what it wanted: not asked about again.
     ended: Option<(Option<String>, Kept)>,
+    /// A service refused the session since the last look: the next look renews it.
+    doubted: bool,
+    /// When it was last renewed after a refusal, and by which token.
+    renewed: Option<(Option<String>, Instant)>,
 }
 
 impl Client {
@@ -74,6 +82,29 @@ impl Client {
             // Signed in since: a new session, asked about afresh.
             self.keeping.ended = None;
         }
+        // A service refused the session: `/validate` can go on vouching for it while every
+        // service says "sign in again" (26–27 Nov 2026: a window failed every sync for a day,
+        // saying nothing), so it is renewed, not looked at. Refused again soon after a renewal
+        // for the same token, only a sign-in helps: said so, not renewed again each pass.
+        if std::mem::take(&mut self.keeping.doubted) {
+            let again = self
+                .keeping
+                .renewed
+                .as_ref()
+                .is_some_and(|(was, at)| *was == token && at.elapsed() < RENEWED_FOR);
+            let kept = if again {
+                Kept::SignIn
+            } else {
+                let renewed = self.renew().await;
+                let kept = self.looked(renewed);
+                if kept == Kept::Alive {
+                    self.keeping.renewed =
+                        Some((self.session.session_token.clone(), Instant::now()));
+                }
+                kept
+            };
+            return self.settle(kept);
+        }
         if self
             .keeping
             .alive_at
@@ -81,7 +112,14 @@ impl Client {
         {
             return Kept::Alive;
         }
-        let kept = match self.heartbeat().await {
+        let looked = self.heartbeat().await;
+        let kept = self.looked(looked);
+        self.settle(kept)
+    }
+
+    /// What Apple's answer to a look at the session says about it.
+    fn looked(&self, answer: crate::Result<bool>) -> Kept {
+        match answer {
             Ok(true) => Kept::Alive,
             Ok(false) if self.awaiting_code() => Kept::Code,
             Ok(false) => Kept::SignIn,
@@ -91,7 +129,11 @@ impl Client {
             // understood, a keyring that would not answer: none says whether Apple still holds
             // the session, and none is a reason to ask again sooner than the next pass.
             Err(_) => Kept::Away,
-        };
+        }
+    }
+
+    /// Remembers what a look found (see the module's notes), and answers it.
+    fn settle(&mut self, kept: Kept) -> Kept {
         match kept {
             Kept::Alive => self.keeping.alive_at = Some(Instant::now()),
             Kept::Code | Kept::SignIn => {
@@ -105,8 +147,9 @@ impl Client {
     }
 
     /// A pass found the session refused after all (Apple answered "sign in again" to a service
-    /// call): the next [`Self::ensure_session`] asks Apple rather than trusting the last look.
+    /// call): the next [`Self::ensure_session`] renews it rather than trusting the last look.
     pub fn session_doubted(&mut self) {
         self.keeping.alive_at = None;
+        self.keeping.doubted = true;
     }
 }

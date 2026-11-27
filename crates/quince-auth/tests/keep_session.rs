@@ -527,3 +527,55 @@ async fn an_unreadable_signin_start_waits_before_the_next() {
         "one sign-in started"
     );
 }
+
+/// `/validate` vouching for a session every service refuses (measured 26–27 Nov 2026: 200 from
+/// `/validate`, 421 "Missing X-APPLE-WEBAUTH-TOKEN cookie" from every service, every sync failing
+/// quietly for a day). A pass refused marks it doubted, and the next look trades the tokens for
+/// fresh cookies (`accountLogin`) instead of asking `/validate` again. Refused again soon after,
+/// only a sign-in helps: said so at once, and Apple is not asked again each pass.
+#[tokio::test]
+async fn a_session_validate_vouches_for_but_services_refuse_is_renewed_then_said() {
+    let dir = tempfile::tempdir().unwrap();
+    signed_in(dir.path()).await;
+
+    let server = MockServer::start().await;
+    Mock::given(method("POST"))
+        .and(path("/setup/ws/1/validate"))
+        .respond_with(ResponseTemplate::new(200).set_body_json(json!({
+            "dsInfo": { "dsid": "1234567890" },
+            "webservices": {
+                "ckdatabasews": { "url": "https://p00-ckdatabasews.test.invalid:443", "status": "active" }
+            }
+        })))
+        .mount(&server)
+        .await;
+    mount_trust_and_login(&server).await;
+
+    let mut client = client_for(&server, dir.path());
+    assert_eq!(client.ensure_session().await, Kept::Alive);
+    let reqs = server.received_requests().await.unwrap();
+    assert!(
+        requests_to(&reqs, "/accountLogin").is_empty(),
+        "alive by `/validate`"
+    );
+
+    // A pass met "sign in again": renewed, not looked at.
+    client.session_doubted();
+    assert_eq!(client.ensure_session().await, Kept::Alive);
+    let reqs = server.received_requests().await.unwrap();
+    assert_eq!(
+        requests_to(&reqs, "/accountLogin").len(),
+        1,
+        "the cookies traded afresh"
+    );
+
+    // Refused again straight after the renewal: only a sign-in helps, said once and kept.
+    client.session_doubted();
+    let kept = client.ensure_session().await;
+    assert_eq!(kept, Kept::SignIn);
+    let before = asked(&server).await;
+    for _ in 0..5 {
+        assert_eq!(client.ensure_session().await, Kept::SignIn);
+    }
+    assert_eq!(asked(&server).await, before, "nothing more asked of Apple");
+}

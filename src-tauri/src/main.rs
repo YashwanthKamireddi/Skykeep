@@ -1324,6 +1324,21 @@ async fn keep_signed_in(app: &tauri::AppHandle, client: &Arc<Mutex<Client>>) {
     }
 }
 
+/// A pass Apple answered "sign in again": the session renewed now (the pass marked it doubted),
+/// so the person is told at once when only a sign-in helps, and the pass runs once more when
+/// the renewal took. Answers whether it did.
+async fn renewed_after_refusal(
+    app: &tauri::AppHandle,
+    client: &Arc<Mutex<Client>>,
+    result: &refresh::Refresh,
+) -> bool {
+    if !refresh::refused(&result.services) {
+        return false;
+    }
+    keep_signed_in(app, client).await;
+    client.lock().await.ensure_session().await == quince_auth::Kept::Alive
+}
+
 /// Whose data the library holds: a hash of Apple's account id, never the id itself.
 /// Where the library names whose it is (shared with the queue that checks it).
 pub use quince_sync::queue::ACCOUNT_KEY;
@@ -5953,7 +5968,10 @@ async fn sync_all(
     if asked == Some(true) {
         data_access::check(&app, &client, data_access::Ask::Person).await;
     }
-    let result = refresh::all(&client, &data.0).await;
+    let mut result = refresh::all(&client, &data.0).await;
+    if renewed_after_refusal(&app, &client, &result).await {
+        result = refresh::all(&client, &data.0).await;
+    }
     data_access::after_pass(&app, &client).await;
     alerts::changed();
     warm_contact_photos(app.clone());
@@ -5982,7 +6000,10 @@ async fn sync_some(
         data_access::check(&app, &client, data_access::Ask::Person).await;
     }
     let names: Vec<&str> = services.iter().map(String::as_str).collect();
-    let result = refresh::some(&client, &data.0, &names).await;
+    let mut result = refresh::some(&client, &data.0, &names).await;
+    if renewed_after_refusal(&app, &client, &result).await {
+        result = refresh::some(&client, &data.0, &names).await;
+    }
     data_access::after_pass(&app, &client).await;
     alerts::changed();
     if names.contains(&"contacts") {
@@ -6021,7 +6042,10 @@ fn spawn_auto_sync(app: tauri::AppHandle, client: Arc<Mutex<Client>>) {
             if calendar {
                 calendar_read = Some(std::time::Instant::now());
             }
-            let result = refresh::routine(&client, &data.0, calendar).await;
+            let mut result = refresh::routine(&client, &data.0, calendar).await;
+            if renewed_after_refusal(&app, &client, &result).await {
+                result = refresh::routine(&client, &data.0, calendar).await;
+            }
             data_access::after_pass(&app, &client).await;
             alerts::changed();
             warm_contact_photos(app.clone());

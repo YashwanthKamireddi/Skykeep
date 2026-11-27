@@ -299,6 +299,15 @@ pub async fn some(client: &Arc<Mutex<Client>>, data: &LibraryLock, wanted: &[&st
     run(client, data, wanted).await
 }
 
+/// Whether Apple answered "sign in again" to any of these passes.
+#[must_use]
+pub fn refused(reports: &[ServiceReport]) -> bool {
+    let words = quince_icloud::Error::ReauthRequired.to_string();
+    reports
+        .iter()
+        .any(|r| r.outcome == Outcome::Failed && r.detail.as_deref() == Some(words.as_str()))
+}
+
 async fn run(client: &Arc<Mutex<Client>>, data: &LibraryLock, services: &[&str]) -> Refresh {
     let wanted = |service: &str| services.contains(&service);
     let started = std::time::Instant::now();
@@ -519,6 +528,11 @@ async fn run(client: &Arc<Mutex<Client>>, data: &LibraryLock, services: &[&str])
         .into_iter()
         .flatten()
         .collect();
+    // Apple answered "sign in again" to a pass: the session is renewed at the next look rather
+    // than vouched for by `/validate` again (quince_auth keep.rs), as the phone's passes do.
+    if refused(&reports) {
+        client.lock().await.session_doubted();
+    }
 
     let available: Vec<&str> = reports
         .iter()
