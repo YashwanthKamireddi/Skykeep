@@ -576,7 +576,7 @@ async fn a_session_validate_vouches_for_but_services_refuse_is_renewed() {
     );
 
     let g = client.session_generation();
-    client.session_refused(g, true);
+    client.session_refused(g);
     assert_eq!(client.ensure_session().await, Kept::Alive);
     let reqs = server.received_requests().await.unwrap();
     assert_eq!(
@@ -597,11 +597,11 @@ async fn a_refusal_from_before_the_renewal_is_not_counted() {
     validate_ok_and_login(&server, 200).await;
     let mut client = client_for(&server, dir.path());
     let before = client.session_generation();
-    client.session_refused(before, true);
+    client.session_refused(before);
     assert_eq!(client.ensure_session().await, Kept::Alive);
     let asked_after_renewal = asked(&server).await;
     // The slower pass, started under the old generation, lands now.
-    client.session_refused(before, true);
+    client.session_refused(before);
     assert_eq!(client.ensure_session().await, Kept::Alive);
     assert_eq!(
         asked(&server).await,
@@ -610,9 +610,9 @@ async fn a_refusal_from_before_the_renewal_is_not_counted() {
     );
 }
 
-/// One service refusing (Photos alone, say) never signs the account out: its cookies are
-/// renewed (at most once every two minutes), the password is never used for it, and the session
-/// stays alive.
+/// A service that keeps refusing (Photos alone, say) never signs the account out, and never
+/// has Apple asked to renew every pass: the cookies are renewed at most once every two minutes,
+/// and while Apple takes them the password is never used.
 #[tokio::test]
 async fn one_service_refusing_never_signs_the_account_out() {
     let dir = tempfile::tempdir().unwrap();
@@ -623,7 +623,7 @@ async fn one_service_refusing_never_signs_the_account_out() {
     let mut client = client_for(&server, dir.path());
     for _ in 0..5 {
         let g = client.session_generation();
-        client.session_refused(g, false);
+        client.session_refused(g);
         assert_eq!(client.ensure_session().await, Kept::Alive);
     }
     let reqs = server.received_requests().await.unwrap();
@@ -649,7 +649,7 @@ async fn apple_out_of_reach_while_renewing_is_away_and_remembered() {
     mount_init(&server).await;
     let mut client = client_for(&server, dir.path());
     let g = client.session_generation();
-    client.session_refused(g, true);
+    client.session_refused(g);
     assert_eq!(client.ensure_session().await, Kept::Away);
     let reqs = server.received_requests().await.unwrap();
     assert!(
@@ -666,6 +666,36 @@ async fn apple_out_of_reach_while_renewing_is_away_and_remembered() {
     );
 }
 
+/// Apple refusing the token (accountLogin 421) has ended the session: it is taken up as any lapse
+/// is, with the kept password, quietly, and alive again with no code and nobody asked.
+#[tokio::test]
+async fn the_token_refused_is_taken_up_with_the_kept_password() {
+    let dir = tempfile::tempdir().unwrap();
+    signed_in(dir.path()).await;
+    let server = MockServer::start().await;
+    Mock::given(method("POST"))
+        .and(path("/setup/ws/1/accountLogin"))
+        .respond_with(ResponseTemplate::new(421))
+        .up_to_n_times(1)
+        .mount(&server)
+        .await;
+    validate_ok_and_login(&server, 200).await;
+    mount_init(&server).await;
+    mount_complete(&server, 200).await;
+    mount_trust_and_login(&server).await;
+    let mut client = client_for(&server, dir.path());
+    let g = client.session_generation();
+    client.session_refused(g);
+    assert_eq!(client.ensure_session().await, Kept::Alive);
+    let reqs = server.received_requests().await.unwrap();
+    assert_eq!(
+        requests_to(&reqs, "/signin/complete").len(),
+        1,
+        "the kept password, once"
+    );
+    assert!(requests_to(&reqs, "/securitycode").is_empty(), "no code");
+}
+
 /// Apple refusing the renewal itself (accountLogin refused, then the kept password refused): the
 /// session is over, said as needing a sign-in, and not asked about again.
 #[tokio::test]
@@ -678,7 +708,7 @@ async fn apple_refusing_the_renewal_is_a_sign_in() {
     mount_complete(&server, 401).await;
     let mut client = client_for(&server, dir.path());
     let g = client.session_generation();
-    client.session_refused(g, true);
+    client.session_refused(g);
     assert_eq!(client.ensure_session().await, Kept::SignIn);
     let before = asked(&server).await;
     for _ in 0..5 {

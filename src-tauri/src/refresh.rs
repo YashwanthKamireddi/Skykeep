@@ -315,14 +315,18 @@ pub fn refused_services(reports: &[ServiceReport]) -> Vec<&'static str> {
         .collect()
 }
 
-/// Whether every service the pass asked Apple about was refused (none it could not ask).
-#[must_use]
-pub fn every_refused(reports: &[ServiceReport]) -> bool {
-    let asked: Vec<&ServiceReport> = reports
+/// The library's freshness over `reports`' services Apple could be asked about: the oldest
+/// last sync among them, as a pass reports it.
+pub async fn as_of(data: &LibraryLock, reports: &[ServiceReport]) -> Option<i64> {
+    let available: Vec<&str> = reports
         .iter()
         .filter(|r| r.outcome != Outcome::Unavailable)
+        .map(|r| r.service)
         .collect();
-    !asked.is_empty() && asked.iter().all(|r| was_refused(r))
+    data.read(|library| library.oldest_sync(&available))
+        .await
+        .ok()
+        .flatten()
 }
 
 async fn run(client: &Arc<Mutex<Client>>, data: &LibraryLock, services: &[&str]) -> Refresh {
@@ -550,14 +554,8 @@ async fn run(client: &Arc<Mutex<Client>>, data: &LibraryLock, services: &[&str])
         .collect();
     // Apple answered "sign in again" to a pass: the session is renewed at the next look rather
     // than vouched for by `/validate` again (quince_auth keep.rs), as the phone's passes do.
-    // Every service refusing is the session's doing; one alone, that service's.
-    {
-        let mut c = client.lock().await;
-        if !refused_services(&reports).is_empty() {
-            c.session_refused(generation, every_refused(&reports));
-        } else if reports.iter().any(|r| r.outcome == Outcome::Ok) {
-            c.session_through(generation);
-        }
+    if !refused_services(&reports).is_empty() {
+        client.lock().await.session_refused(generation);
     }
 
     let available: Vec<&str> = reports

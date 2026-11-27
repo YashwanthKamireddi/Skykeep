@@ -1339,7 +1339,12 @@ async fn again_if_renewed(
     if refused.is_empty() {
         return;
     }
-    if keep_signed_in(app, client).await != quince_auth::Kept::Alive {
+    // Passed again only when the session was renewed just now: alive by `/validate`, or still
+    // inside the renewal gap, the same cookies would be refused again.
+    let before = client.lock().await.session_generation();
+    if keep_signed_in(app, client).await != quince_auth::Kept::Alive
+        || client.lock().await.session_generation() == before
+    {
         return;
     }
     let again = refresh::some(client, data, &refused).await;
@@ -1352,7 +1357,8 @@ async fn again_if_renewed(
             *slot = report;
         }
     }
-    result.as_of = again.as_of.or(result.as_of);
+    // The whole library's freshness, not the retried services' alone.
+    result.as_of = refresh::as_of(data, &result.services).await;
 }
 
 /// Whose data the library holds: a hash of Apple's account id, never the id itself.

@@ -1148,37 +1148,6 @@ impl Client {
         self.resume_from(Look::Renew).await
     }
 
-    /// The session taken up again with the kept password, quietly (no code asked for): for a
-    /// session every service went on refusing after its cookies were renewed. `Ok(false)` with
-    /// no password kept, or when Apple wants a code first.
-    pub async fn renew_with_password(&mut self) -> Result<bool> {
-        let (Some(apple_id), Some(password)) =
-            (self.session.apple_id.clone(), self.session.password.clone())
-        else {
-            return Ok(false);
-        };
-        let before = self.session.clone();
-        match self.sign_in_as(&apple_id, &password, Code::Wait).await {
-            Ok(SignInOutcome::Complete) => Ok(true),
-            Ok(SignInOutcome::NeedsTwoFactor) => {
-                self.sign.wants_code(true);
-                Ok(false)
-            }
-            Err(Error::BadCredentials) => {
-                self.session.password = None;
-                self.keep();
-                Ok(false)
-            }
-            Err(e) if e.ends_session() => Ok(false),
-            // Out of reach or an answer not understood: put back as it was, tried later.
-            Err(e) => {
-                self.session = before;
-                self.save();
-                Err(e)
-            }
-        }
-    }
-
     async fn resume_from(&mut self, look: Look) -> Result<bool> {
         // A sign-out the keyring was locked for is never undone by resuming: its entries are
         // erased now if it answers, and until they are, `try_load` (below, and at startup)
@@ -1253,9 +1222,12 @@ impl Client {
         // Offline, or Apple down for a while: the session is not dead, only unreachable — it
         // is kept and tried again, rather than a sign-in that ends in "Apple signed you out".
         let away = |e: &Error| matches!(e, Error::Network(_) | Error::Unavailable(_));
-        // Renewing, `/validate` was not asked: Apple out of reach for the cookies is out of
-        // reach, never a reason to sign in again with the password.
-        if away(&logged_in) && (look == Look::Renew || away(&validated)) {
+        // Renewing, `/validate` was not asked: only Apple refusing the token itself (a 4xx) goes
+        // on to the password. Apple out of reach, busy or asking to wait is no such answer.
+        if look == Look::Renew && (away(&logged_in) || matches!(logged_in, Error::RateLimited)) {
+            return Err(logged_in);
+        }
+        if away(&validated) && away(&logged_in) {
             return Err(logged_in);
         }
 
