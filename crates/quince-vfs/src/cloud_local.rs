@@ -215,8 +215,14 @@ async fn settle_and_send(
                         // Tried again in a while; the file itself stays as it is. Apple's last
                         // word on these bytes is not asked again: the file written again comes
                         // back through the watcher and goes afresh.
+                        // A save noticed while it was being sent is already waiting, for the
+                        // usual settle: it goes then, not 25 seconds on. The wait is for Apple
+                        // being unable to take it; laid over that newer save, every save typed
+                        // during an upload reached iCloud half a minute late.
                         if !e.settled {
-                            touched.insert(path, Instant::now() + std::time::Duration::from_secs(25));
+                            touched
+                                .entry(path)
+                                .or_insert_with(|| Instant::now() + std::time::Duration::from_secs(25));
                         }
                     }
                 }
