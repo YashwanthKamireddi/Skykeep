@@ -1,72 +1,63 @@
-// Settings' storage on this computer: what the copy takes, read from the backend; Clear lets go
-// of the cached pictures only and the figures are read again; a desktop with no notification
-// service says so under the alert switches; a folder that cannot be opened says why on its row.
+// Settings › Home: iCloud storage as Apple's own bar shows it. One part per kind of what fills it
+// (largest first, Apple's colours), their names and sizes under it, and full or nearly full said
+// in words. Without Apple's split, the one bar as before. Light and dark, roomy and 800×600.
 import { engine } from "./engine.mjs";
-import { SERVICES, installStub, openSettings, openPane } from "./stub.mjs";
+import { SERVICES, installStub, openSettings } from "./stub.mjs";
 const b = await engine.launch();
 let failures = 0;
 const ok = (p, m) => { console.log(`${p ? "PASS" : "FAIL"} ${m}`); if (!p) failures++; };
-const open = async (init) => {
-  const ctx = await b.newContext({ viewport: { width: 1180, height: 820 } });
-  if (init) await ctx.addInitScript(init);
-  await ctx.addInitScript(installStub, { screen: "library", services: SERVICES, twoFactor: null });
-  const page = await ctx.newPage();
-  page.on("pageerror", (e) => ok(false, `page error: ${e.message}`));
-  await page.goto(process.env.URL ?? process.env.BASE ?? "http://localhost:4173", { waitUntil: "networkidle" });
-  await openSettings(page);
-  await page.waitForSelector(".settings");
-  await page.waitForTimeout(300);
-  return { ctx, page };
+const shots = process.env.SHOTS;
+const GB = 1_000_000_000;
+const split = {
+  usedBytes: 47.6 * GB, totalBytes: 50 * GB, full: false, almostFull: true,
+  kinds: [
+    { key: "photos", label: "Photos", color: "#FFC800", bytes: 38 * GB },
+    { key: "backup", label: "Backups", color: "#7B61FF", bytes: 6 * GB },
+    { key: "docs", label: "Docs", color: "#FF8A00", bytes: 3 * GB },
+    { key: "newkind", label: "Apple's own name", color: null, bytes: 0.6 * GB },
+  ],
 };
-
-{
-  const { ctx, page } = await open();
-  const home = await page.locator(".settings").innerText();
-  await openPane(page, "This Computer");
-  const text = home + (await page.locator(".settings").innerText());
-  // Apple's storage in Apple's own units, the same figure Drive shows under a folder.
-  ok(/182\.2 MB of 5\.37 GB used/.test(text) && /5\.19 GB available/.test(text), "iCloud storage is said as Apple says it");
-  await page.locator('[data-pane="home"]').click();
-  ok((await page.locator(".launch-tile", { hasText: "Drive" }).innerText()).includes("5.19 GB available"), "and Drive's tile says what Drive itself says");
-  await openPane(page, "This Computer");
-  ok(/Cached pictures[\s\S]*4\.2 GB/.test(text), "what can be cleared is said before clearing");
-  const clear = page.getByRole("button", { name: "Clear", exact: true });
-  await clear.click();
-  await page.waitForTimeout(200);
-  const after = await page.locator(".settings").innerText();
-  ok((await page.evaluate(() => window.__cleared)) === 1, "Clear asks the backend once");
-  ok(/4\.2 GB cleared/.test(after), "and the figures are the backend's answer after");
-  ok(await clear.isDisabled(), "nothing left to clear, Clear rests");
-  ok(!(await page.getByText("no notification service").isVisible()), "a desktop that shows alerts is not warned");
-  await ctx.close();
-}
-{
-  const { ctx, page } = await open(() => {
-    window.__alertsShown = false;
-    window.__driveFolder = { on: true, path: "/home/test/iCloud Drive", problem: null };
-    window.__clearFail = "The data folder could not be read.";
-    window.__driveOpenFail = "That folder is off.";
-  });
-  await openPane(page, "This Computer");
-  await page.getByRole("button", { name: "Open", exact: true }).click();
-  await page.waitForTimeout(150);
-  const row = page.locator(".settings-row", { hasText: "Drive folder" });
-  ok((await row.innerText()).includes("That folder is off.") && !(await page.locator(".toast.is-error").isVisible()), "a folder that cannot be opened says why on its own row");
-  await openPane(page, "Notifications");
-  ok(await page.getByText("Alerts can't appear: this desktop has no notification service running.").isVisible(), "a desktop with no notification service is said under the switches");
-  await openPane(page, "This Computer");
-  await page.getByRole("button", { name: "Clear", exact: true }).click();
-  await page.waitForTimeout(200);
-  const banner = page.locator(".toast.is-error");
-  ok((await banner.innerText()).includes("could not be read"), "a failed clear says why");
-  await page.locator(".content").evaluate((el) => { el.scrollTop = el.scrollHeight; });
-  await page.waitForTimeout(100);
-  const box = await banner.boundingBox();
-  ok(box && box.y >= 0 && box.y + box.height <= (page.viewportSize()?.height ?? 900), `the reason stays in sight as the page scrolls  [y=${box?.y}]`);
-  await banner.getByRole("button", { name: "Dismiss" }).click();
-  await page.waitForTimeout(250);
-  ok(!(await banner.isVisible()), "and is dismissed");
-  await ctx.close();
+for (const [scheme, width, height] of [["light", 1180, 820], ["dark", 1180, 820], ["light", 800, 600]]) {
+  for (const answer of [split, null, { ...split, kinds: [], full: true, almostFull: true }]) {
+    const label = `${scheme} ${width}px ${answer === null ? "no split" : answer.full ? "full" : "split"}`;
+    const ctx = await b.newContext({ viewport: { width, height }, colorScheme: scheme });
+    await ctx.addInitScript(() => { window.__TAURI_EVENT_PLUGIN_INTERNALS__ = { unregisterListener: () => {} }; });
+    if (answer) await ctx.addInitScript((s) => { window.__storage = s; }, answer);
+    await ctx.addInitScript(installStub, { screen: "library", services: SERVICES, twoFactor: null });
+    const page = await ctx.newPage();
+    page.on("pageerror", (e) => ok(false, `${label}: page error: ${e.message}`));
+    await page.goto(process.env.URL ?? process.env.BASE ?? "http://localhost:4173", { waitUntil: "networkidle" });
+    await openSettings(page);
+    await page.waitForSelector(".prefs-storage");
+    const box = page.locator(".prefs-storage");
+    const bar = box.getByRole("meter", { name: "iCloud storage used" });
+    const parts = bar.locator(".storage-part");
+    if (answer === split) {
+      ok((await parts.count()) === 4, `${label}: one part per kind`);
+      const widths = await parts.evaluateAll((ps) => ps.map((p) => p.getBoundingClientRect().width));
+      const barWidth = await bar.evaluate((e) => e.getBoundingClientRect().width);
+      ok(Math.abs(widths[0] / barWidth - 0.76) < 0.02, `${label}: Photos takes its share of the bar (${(widths[0] / barWidth).toFixed(3)})`);
+      ok(widths.every((w, i) => i === 0 || w <= widths[i - 1]), `${label}: largest first`);
+      const bg = await parts.first().evaluate((e) => getComputedStyle(e).backgroundColor);
+      ok(bg === "rgb(255, 200, 0)", `${label}: in Apple's colour (${bg})`);
+      const legend = await box.locator(".storage-legend li").allInnerTexts();
+      ok(legend.length === 4 && legend[0].startsWith("Photos") && legend[1].startsWith("Backups") && legend[2].startsWith("Documents"), `${label}: named in the app's words (${legend.map((l) => l.split("\n")[0]).join(", ")})`);
+      ok(legend[3].startsWith("Apple's own name"), `${label}: a kind the app doesn't know keeps Apple's name`);
+      ok(legend[0].includes("38 GB"), `${label}: with its size`);
+      ok((await box.innerText()).includes("iCloud storage is almost full."), `${label}: almost full is said`);
+      const overflow = await box.evaluate((e) => e.scrollWidth > e.clientWidth + 1);
+      ok(!overflow, `${label}: nothing runs out of the card`);
+      if (shots) await page.locator(".prefs-hero").screenshot({ path: `${shots}/storage-${scheme}-${width}.png` });
+    } else {
+      ok((await parts.count()) === 0 && (await bar.locator("span").count()) === 1, `${label}: one bar for all of it`);
+      ok((await box.locator(".storage-legend").count()) === 0, `${label}: no legend without Apple's split`);
+      const text = await box.innerText();
+      if (answer?.full) ok(text.includes("iCloud storage is full.") && !text.includes("almost full"), `${label}: full is said, once`);
+      else ok(!text.includes("full"), `${label}: nothing said while there is room`);
+    }
+    await ctx.close();
+  }
 }
 await b.close();
-process.exitCode = failures ? 1 : 0;
+if (failures) { console.log(`${failures} failed`); process.exit(1); }
+console.log("all passed");

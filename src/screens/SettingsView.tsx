@@ -18,6 +18,7 @@ import {
   backupApi,
   type BackupStatus,
   type AccountInfo,
+  type ICloudStorage,
   type DriveFolder,
   type ExportProgress,
   type LocalStorage,
@@ -43,7 +44,7 @@ import { AccountAvatar, useNotKept } from "../components/Account";
 import { Picker } from "../components/Picker";
 import { localeFirstDay, setWeekStart, weekStartChoice, type WeekStartChoice } from "./calendar/model";
 import { icloudSize } from "../lib/icloudSize";
-import { appName, t, useI18n, LANGUAGES, type LanguageChoice, type Translate, systemLanguage, languageName } from "../lib/i18n";
+import { appName, t, useI18n, LANGUAGES, type Key, type LanguageChoice, type Translate, systemLanguage, languageName } from "../lib/i18n";
 
 // Its licence texts are some 400 kB: loaded when the sheet is first opened, not with Settings.
 const LicencesSheet = lazy(() => import("../components/LicencesSheet").then((m) => ({ default: m.LicencesSheet })));
@@ -565,10 +566,73 @@ function PhotoCacheCap({ onError }: { onError: (m: string) => void }) {
   );
 }
 
+/** The kinds Skykeep names itself, in the person's language; any other keeps Apple's own name. */
+const STORAGE_KINDS: Record<string, Key> = {
+  photos: "settings.storagePhotos",
+  backup: "settings.storageBackups",
+  docs: "settings.storageDocs",
+  mail: "settings.storageMail",
+  messages: "settings.storageMessages",
+  family: "settings.storageFamily",
+};
+
+/**
+ * iCloud storage as Apple's own bar shows it: one part per kind of what fills it, in Apple's
+ * colours, and their names and sizes under it. Without Apple's split, one part for all of it.
+ * Full, or nearly, said in words: nothing more goes up to iCloud once it is full.
+ */
+function StorageBar({ storage, used }: { storage: ICloudStorage | null; used: number }) {
+  const { t } = useI18n();
+  const total = storage?.totalBytes ?? 0;
+  const kinds = storage && total > 0 ? storage.kinds : [];
+  const named = (k: ICloudStorage["kinds"][number]) => (STORAGE_KINDS[k.key] ? t(STORAGE_KINDS[k.key]) : k.label);
+  return (
+    <>
+      <div
+        className="storage-bar"
+        role="meter"
+        aria-label={t("settings.storageAria")}
+        aria-valuemin={0}
+        aria-valuemax={100}
+        aria-valuenow={Math.round(used * 100)}
+        aria-valuetext={kinds.map((k) => `${named(k)} ${icloudSize(k.bytes)}`).join(", ") || undefined}
+      >
+        {kinds.length === 0 ? (
+          <span style={{ width: `${used * 100}%` }} />
+        ) : (
+          kinds.map((k) => (
+            <span
+              key={k.key}
+              className="storage-part"
+              style={{ width: `${Math.min(100, (k.bytes / total) * 100)}%`, background: k.color ?? undefined }}
+            />
+          ))
+        )}
+      </div>
+      {kinds.length > 0 && (
+        <ul className="storage-legend">
+          {kinds.map((k) => (
+            <li key={k.key}>
+              <span className="storage-dot" style={{ background: k.color ?? undefined }} aria-hidden="true" />
+              {named(k)}
+              <span className="storage-size">{icloudSize(k.bytes)}</span>
+            </li>
+          ))}
+        </ul>
+      )}
+      {storage && (storage.full || storage.almostFull) && (
+        <span className="settings-hint is-trouble" role="status">
+          {t(storage.full ? "settings.storageFull" : "settings.storageAlmostFull")}
+        </span>
+      )}
+    </>
+  );
+}
+
 export function SettingsView({ onSignOut }: { onSignOut: (keep: boolean) => Promise<void> }) {
   const { t } = useI18n();
   const [account, setAccount] = useState<AccountInfo | null>(null);
-  const [storage, setStorage] = useState<{ usedBytes: number; totalBytes: number } | null>(null);
+  const [storage, setStorage] = useState<ICloudStorage | null>(null);
   const [local, setLocal] = useState<LocalStorage | null>(null);
   const [clearing, setClearing] = useState(false);
   const [freed, setFreed] = useState<number | null>(null);
@@ -772,16 +836,7 @@ export function SettingsView({ onSignOut }: { onSignOut: (keep: boolean) => Prom
                       </span>
                     )}
                   </div>
-                  <div
-                    className="storage-bar"
-                    role="meter"
-                    aria-label={t("settings.storageAria")}
-                    aria-valuemin={0}
-                    aria-valuemax={100}
-                    aria-valuenow={Math.round(used * 100)}
-                  >
-                    <span style={{ width: `${used * 100}%` }} />
-                  </div>
+                  <StorageBar storage={storage} used={used} />
                 </div>
               </div>
               <div className="prefs-hero-actions">

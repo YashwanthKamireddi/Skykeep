@@ -1503,6 +1503,14 @@
 .settings-value { flex: none; }
 .storage-bar { height: 8px; border-radius: var(--r-pill); background: color-mix(in srgb, var(--text) 10%, transparent); overflow: hidden; }
 .storage-bar > span { display: block; height: 100%; border-radius: inherit; background: var(--accent); }
+/* What fills iCloud, Apple's way: parts side by side in one rounded bar, a hairline between. */
+.storage-bar:has(.storage-part) { display: flex; gap: 1px; }
+.storage-bar > .storage-part { border-radius: 0; flex: none; min-width: 2px; }
+.storage-legend { display: flex; flex-wrap: wrap; gap: 4px 14px; margin: 8px 0 0; padding: 0; list-style: none;
+  font-size: var(--t-12); color: var(--text-2); }
+.storage-legend li { display: inline-flex; align-items: center; gap: 6px; }
+.storage-dot { width: 8px; height: 8px; border-radius: 50%; background: var(--accent); flex: none; }
+.storage-size { color: var(--text-3); font-variant-numeric: tabular-nums; }
 
 /* Advanced Data Protection with web access off: one plain answer, Apple's own switch. */
 .web-access-off { max-width: 520px; margin: 12vh auto 0; text-align: center; }
