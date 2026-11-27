@@ -103,6 +103,11 @@
     <color type="primary" scheme_preference="dark">#0B2A4A</color>
   </branding>
   <releases>
+    <release version="0.1.46" date="2026-11-27">
+      <description>
+        <p>Free up iCloud space: Settings shows what fills your iCloud, and photos, videos and iCloud Drive files that are already in your backup can leave iCloud, each one checked byte for byte against Apple's own copy first, to Recently Deleted so you can undo for 30 days. Favourites, Hidden, edited photos and the Shared Library stay. Skykeep now notices when iCloud's services stop taking its session and renews it by itself, instead of every app quietly saying "Didn't update". Notes tables no longer show some of their cells empty (#289). On Windows, saving a file again while it is still uploading no longer leaves a conflicted copy. The Backup card keeps Shared Albums under Photos, its switches no longer ask you to choose the folder again, Settings fits a narrow window, and storage or a folder whose status can't be read says so.</p>
+      </description>
+    </release>
     <release version="0.1.45" date="2026-11-27">
       <description>
         <p>Backup now keeps your albums as folders: every album appears under Albums in the backup folder, as links to the photos already there, so it takes no extra space and follows your albums as they change. Shared Albums can be backed up too, each in a folder of its own: turn on Include Shared Albums in Settings, Backup. Calendar's messages are translated, an app window says a failed update in a few words, and Reminders' search keeps its size in small windows. The iPhone camera and microphone have moved out of Skykeep into an app of their own.</p>
