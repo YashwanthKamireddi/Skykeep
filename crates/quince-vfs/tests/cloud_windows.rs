@@ -1263,7 +1263,11 @@ fn a_save_during_an_upload_makes_no_conflicted_copy() {
                     *i = now.clone();
                 }
             }
-            quince_vfs::sends(async move { Ok(Some(now)) })
+            // As long as a real one takes: a save lands while it goes.
+            quince_vfs::sends(async move {
+                tokio::time::sleep(std::time::Duration::from_secs(2)).await;
+                Ok(Some(now))
+            })
         }
         fn rename(&self, _: &DriveItem, _: &str) -> Fut<()> {
             Box::pin(async { Ok(()) })
@@ -1343,9 +1347,17 @@ fn a_save_during_an_upload_makes_no_conflicted_copy() {
     std::thread::sleep(std::time::Duration::from_millis(500));
     std::fs::write(&note, "abc").unwrap();
     wait("replace note.md 3");
-    // And once more after that, as typing goes on.
+    // And once more while that replacement is on its way: sent once it settles, not held the 25
+    // seconds a send Apple could not take waits (it was, when the watcher did not report it
+    // again: Windows run 45992730521).
     std::fs::write(&note, "abcdef").unwrap();
+    let typed = std::time::Instant::now();
     wait("replace note.md 6");
+    assert!(
+        typed.elapsed() < std::time::Duration::from_secs(15),
+        "a save made during a send reached Apple only after {:?}",
+        typed.elapsed()
+    );
     std::thread::sleep(std::time::Duration::from_secs(3));
 
     let said = log.lock().unwrap().clone();
