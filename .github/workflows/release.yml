@@ -101,6 +101,9 @@ jobs:
             git -C source fetch --depth=1 origin "+refs/tags/$GITHUB_REF_NAME:refs/tags/$GITHUB_REF_NAME"
             git -C source log -1 --format=%B "refs/tags/$GITHUB_REF_NAME" > "$RUNNER_TEMP/notes-full"
           fi
+          # A squash merge's title ends " (#n)" and its message may carry trailers
+          # (Co-authored-by): neither is part of the notes.
+          sed -i -E '1s/ \(#[0-9]+\)$//; /^(Co-authored-by|Signed-off-by): /d' "$RUNNER_TEMP/notes-full"
           if [ "$(head -n1 "$RUNNER_TEMP/notes-full")" != "Skykeep ${GITHUB_REF_NAME#v}" ]; then
             echo "::error::the notes' commit isn't \"Skykeep ${GITHUB_REF_NAME#v}\": $(head -n1 "$RUNNER_TEMP/notes-full")"; exit 1
           fi

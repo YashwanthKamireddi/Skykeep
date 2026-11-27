@@ -66,7 +66,10 @@ jobs:
           if [ "$AUTO" = true ]; then
             [ "$SHA" = "$(git rev-parse HEAD)" ] || pass "$SHA is no longer main's newest commit"
             v=$(git show "$SHA:src-tauri/tauri.conf.json" | jq -r .version)
-            [ "$(git log -1 --format=%s "$SHA")" = "Skykeep $v" ] || pass "$SHA is not a release commit"
+            # "Skykeep x.y.z", or as a squash merge titles it, "Skykeep x.y.z (#n)" (0.1.46: the
+            # second was taken for no release at all, and nothing was tagged).
+            subject=$(git log -1 --format=%s "$SHA")
+            [[ "$subject" =~ ^Skykeep\ ${v//./\\.}(\ \(#[0-9]+\))?$ ]] || pass "$SHA is not a release commit"
             ! git ls-remote --exit-code --tags origin "refs/tags/v$v" >/dev/null || pass "v$v is already tagged"
           fi
           if ! git merge-base --is-ancestor "$SHA" HEAD; then echo "::error::$SHA is not on main"; exit 1; fi
@@ -97,7 +100,7 @@ jobs:
           # what gets tagged, and its own message isn't the release's. Its commit is
           # tag, passed to release.yml, which reads it as the notes. No such commit, no tag.
           version="${TAG#v}"
-          release=$(git log --format=%H -1 --grep="^Skykeep ${version//./\\.}\$" "$SHA")
+          release=$(git log --format=%H -1 -E --grep="^Skykeep ${version//./\\.}( \(#[0-9]+\))?\$" "$SHA")
           if [ -z "$release" ]; then echo "::error::no commit \"Skykeep $version\" in the history of $SHA: bump the version with .github/scripts/bump-version.py first"; exit 1; fi
           git log -1 --format=%B "$release" > "$RUNNER_TEMP/notes"
           echo "notes from $release:"; cat "$RUNNER_TEMP/notes"
