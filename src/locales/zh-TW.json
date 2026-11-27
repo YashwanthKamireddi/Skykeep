@@ -68,6 +68,7 @@
     "storageUsed": "已使用 {used}（共 {total}）",
     "storageAvailable": "{available} 可用",
     "readingStorage": "正在讀取儲存空間…",
+    "storageUnread": "無法讀取 iCloud 儲存空間。",
     "storageAria": "已使用的 iCloud 儲存空間",
     "storagePhotos": "照片",
     "storageBackups": "備份",

@@ -1114,7 +1114,7 @@ export function installStub({ screen, services, twoFactor, calendarFixture, note
         case "clipboard_read":
         case "clipboard_paste": return { files: window.__clipFiles ?? [], text: window.__clipText ?? null };
         case "drive_upload": (window.__driveUploads ??= []).push(args); return [];
-        case "storage_info": return window.__storage ?? { usedBytes: 182196857, totalBytes: 5368709120, kinds: [], full: false, almostFull: false };
+        case "storage_info": if (window.__storageFails) throw "this needs a fresh sign-in"; return window.__storage ?? { usedBytes: 182196857, totalBytes: 5368709120, kinds: [], full: false, almostFull: false };
         // The local copy's room, as settings.rs measures it; clearing takes away only the cached pictures.
         case "local_storage": return (window.__local ??= { library: 13_800_000, photos: 4_812_000_000, notes: 456_000_000, drive: 24_000, other: 7_400_000, total: 5_289_224_000, clearable: 4_480_000_000 });
         case "local_storage_clear": {
