@@ -86,6 +86,13 @@ const PARTS: [(&str, &str); 2] = [
     (LIVE, "resOriginalVidComplRes"),
 ];
 
+/// Whether a photo the sheet listed may still leave, as the library has it now: not deleted,
+/// favourited or hidden on a device since, not in a Shared Library, its date known.
+#[must_use]
+pub fn still_may_leave(p: &quince_core::photos::Photo, in_shared_library: bool) -> bool {
+    !p.deleted && !p.favorite && !p.hidden && !in_shared_library && p.taken_at > 0
+}
+
 /// Whether a photo was edited on a device: its asset carries an adjustment (`adjustmentType`)
 /// or the edit's own full picture (`resJPEGFullRes`, as icloud.com and the grid read an edit,
 /// `links_with_edit`). Not `adjustmentRenderType` or `adjustmentSourceType`: measured on a real
@@ -206,9 +213,15 @@ async fn run_inner<H: Host>(host: &H, ids: Vec<String>) -> Result<(), String> {
         }
         let (photos, files) = {
             let library = host.library().lock().await;
+            // Asked again now, not as the sheet saw it: a photo favourited, hidden, deleted or
+            // moved into a Shared Library on a device since stays.
             let mut photos = Vec::new();
             for id in batch {
-                if let Some(p) = library.photo(id).map_err(|e| e.to_string())? {
+                let Some(p) = library.photo(id).map_err(|e| e.to_string())? else {
+                    continue;
+                };
+                let shared = library.photo_zone(id).map_err(|e| e.to_string())?.is_some();
+                if still_may_leave(&p, shared) {
                     photos.push(p);
                 }
             }
@@ -275,7 +288,7 @@ async fn run_inner<H: Host>(host: &H, ids: Vec<String>) -> Result<(), String> {
                     Some(Verdict::Free) => {}
                 }
             }
-            // Asked for but no longer in the library: gone already.
+            // Asked for but no longer in the library, or no longer one that may leave.
             p.gone += (batch.len() - judged.len()) as u64;
         }
         host.tell(crate::backup::status(host).await);
@@ -287,6 +300,33 @@ async fn run_inner<H: Host>(host: &H, ids: Vec<String>) -> Result<(), String> {
 mod tests {
     use super::*;
     use serde_json::json;
+
+    /// A photo favourited, hidden, deleted or put in a Shared Library on a device after the
+    /// sheet listed it stays in iCloud.
+    #[test]
+    fn a_photo_changed_since_the_sheet_opened_stays() {
+        let base: quince_core::photos::Photo = serde_json::from_value(json!({
+            "id": "p", "master": "m", "takenAt": 100, "addedAt": null, "kind": "image",
+            "width": 1, "height": 1, "duration": null, "filename": null, "size": null,
+            "uti": null, "favorite": false, "hidden": false, "deleted": false,
+            "deletedAt": null, "expungeAt": null, "title": null, "caption": null, "rating": 0,
+            "keywords": [], "latitude": null, "longitude": null, "rendered": 0, "subtype": 0,
+            "burst": null, "burstPick": false, "burstCount": 0, "liveSize": null,
+            "changeTag": null
+        }))
+        .unwrap();
+        assert!(still_may_leave(&base, false));
+        assert!(!still_may_leave(&base, true), "in a Shared Library");
+        for change in ["favorite", "hidden", "deleted"] {
+            let mut v = serde_json::to_value(&base).unwrap();
+            v[change] = json!(true);
+            let p: quince_core::photos::Photo = serde_json::from_value(v).unwrap();
+            assert!(!still_may_leave(&p, false), "{change}");
+        }
+        let mut undated = base.clone();
+        undated.taken_at = 0;
+        assert!(!still_may_leave(&undated, false), "no date");
+    }
 
     /// Apple's checksum, as `sha1sum` makes it independently: base64(0x01 || SHA-1(salt ||
     /// bytes)). Proven live on 27 Nov 2026 against Apple's own for six files, 10 KB to 372 MB.
