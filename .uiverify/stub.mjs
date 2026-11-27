@@ -1051,6 +1051,7 @@ export function installStub({ screen, services, twoFactor, calendarFixture, note
         case "contact_set_me": await new Promise((r) => setTimeout(r, 600)); window.__me = args.guid; return null;
         case "contacts_export": (window.__exports ??= []).push(args); return `/home/test/Downloads/${args.fileName}`;
         case "drive_folder_status": {
+          if (window.__folderStatusFails) throw window.__folderStatusFails;
           const f = (window.__driveFolder ??= { on: false, path: "/home/test/iCloud Drive", problem: null });
           return f.on && window.__driveWaiting ? { ...f, waiting: window.__driveWaiting } : f;
         }
@@ -1058,7 +1059,7 @@ export function installStub({ screen, services, twoFactor, calendarFixture, note
           if (window.__driveFolderRefuse) return { ...window.__driveFolder, on: false, problem: window.__driveFolderRefuse };
           return (window.__driveFolder = { on: args.on, path: "/home/test/iCloud Drive", problem: null, waiting: args.on ? { files: 0, sending: 0, failure: null } : null });
         case "drive_folder_open": if (window.__driveOpenFail) throw window.__driveOpenFail; (window.__opened ??= []).push("drive"); return null;
-        case "photos_folder_status": return window.__photosFolder ??= { on: false, path: "/home/test/iCloud Photos", problem: null };
+        case "photos_folder_status": if (window.__folderStatusFails) throw window.__folderStatusFails; return window.__photosFolder ??= { on: false, path: "/home/test/iCloud Photos", problem: null };
         case "photos_folder_set": return (window.__photosFolder = { on: args.on, path: "/home/test/iCloud Photos", problem: null });
         case "photos_folder_open": (window.__opened ??= []).push("photos"); return null;
         case "photo_video_zoom": return window.__zoom ?? 1;

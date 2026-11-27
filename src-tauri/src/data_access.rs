@@ -228,7 +228,7 @@ fn opened(app: &tauri::AppHandle, client: &Arc<Mutex<Client>>, was: &Access) {
     tauri::async_runtime::spawn(async move {
         crate::outbox::kick();
         let data = app.state::<crate::Data>();
-        crate::refresh::some(&client, &data.0, &services).await;
+        crate::refreshed_some(&app, &client, &data.0, &services).await;
         crate::alerts::changed();
         let mut status = crate::refresh::status(&data.0).await;
         status.changed = Some(Vec::new());

@@ -110,7 +110,7 @@ impl Account {
     /// The session asked about afresh, as a pass after a refusal asks: alive again or not.
     fn renewed(&self) -> bool {
         let mut c = self.client();
-        c.session_doubted();
+        c.session_look_again();
         runtime().block_on(c.ensure_session()) == quince_auth::Kept::Alive
     }
 
@@ -152,7 +152,7 @@ impl Account {
         if report.outcome == Outcome::Failed
             && report.detail.as_deref() == Some(&quince_icloud::Error::ReauthRequired.to_string())
         {
-            self.client().session_doubted();
+            self.client().session_look_again();
         }
         report
     }

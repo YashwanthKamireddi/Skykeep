@@ -351,7 +351,7 @@ async fn refresher(
             let (app, client) = (app.clone(), Arc::clone(&client));
             tauri::async_runtime::spawn(async move {
                 let data = app.state::<Data>();
-                refresh::some(&client, &data.0, &[service]).await;
+                crate::refreshed_some(&app, &client, &data.0, &[service]).await;
                 alerts::changed();
                 if service == "contacts" {
                     crate::warm_contact_photos(app.clone());

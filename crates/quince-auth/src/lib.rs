@@ -810,6 +810,16 @@ fn apple_builder(endpoints: &Endpoints, jar: &Arc<CookieStoreMutex>) -> reqwest:
         .tcp_keepalive(std::time::Duration::from_secs(30))
 }
 
+/// How a resume first looks at the session.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum Look {
+    /// `/validate`, and nothing more when it answers.
+    Validate,
+    /// Straight to trading the tokens for new cookies, and nothing more: a service refused the
+    /// session.
+    Renew,
+}
+
 impl Client {
     pub fn new(state_dir: &Path) -> Result<Self> {
         Self::with(state_dir, Endpoints::default(), Store::keyring(state_dir)?)
@@ -1128,6 +1138,19 @@ impl Client {
     /// product promises. `Ok(false)` means Apple rejected it and a full sign-in is needed;
     /// that is an expected outcome (roughly every 60 days), not a failure.
     pub async fn resume(&mut self) -> Result<bool> {
+        self.resume_from(Look::Validate).await
+    }
+
+    /// For a session a service has just refused: `/validate` can go on answering 200 while every
+    /// service answers "sign in again" (421, "Missing X-APPLE-WEBAUTH-TOKEN cookie": measured on
+    /// a real account, 26–27 Nov 2026), so its answer is not taken: the tokens are traded for
+    /// fresh cookies (`accountLogin`), and that is all. `Ok(false)` when there is nothing to renew
+    /// from (no session kept); `Err` with Apple's answer otherwise.
+    pub async fn renew(&mut self) -> Result<bool> {
+        self.resume_from(Look::Renew).await
+    }
+
+    async fn resume_from(&mut self, look: Look) -> Result<bool> {
         // A sign-out the keyring was locked for is never undone by resuming: its entries are
         // erased now if it answers, and until they are, `try_load` (below, and at startup)
         // reads nothing stored. A session signed in since lives in memory and stays.
@@ -1154,8 +1177,13 @@ impl Client {
         if !self.session.is_resumable() {
             return Ok(false);
         }
-        // Cheap path: the cookies are still good, so nothing needs re-establishing.
-        let validated = match self.validate().await {
+        // Cheap path: the cookies are still good, so nothing needs re-establishing. Not for a
+        // session a service has just refused (`renew`): `/validate` vouches for it regardless.
+        let validated = match if look == Look::Validate {
+            self.validate().await
+        } else {
+            Err(Error::Protocol("a service refused the session".into()))
+        } {
             Ok(data) => {
                 self.absorb(&data);
                 self.keep();
@@ -1196,6 +1224,12 @@ impl Client {
         // Offline, or Apple down for a while: the session is not dead, only unreachable — it
         // is kept and tried again, rather than a sign-in that ends in "Apple signed you out".
         let away = |e: &Error| matches!(e, Error::Network(_) | Error::Unavailable(_));
+        // Renewing after a refused pass, only the cookies are traded: whatever Apple answers
+        // otherwise goes back as it is, and nothing here signs in with the password or ends the
+        // session; the look every pass makes goes on deciding that, as it always has.
+        if look == Look::Renew {
+            return Err(logged_in);
+        }
         if away(&validated) && away(&logged_in) {
             return Err(logged_in);
         }
@@ -1245,6 +1279,8 @@ impl Client {
     }
 
     /// `POST /validate` — cheap liveness check. Doubles as the session heartbeat.
+    ///
+    /// Not proof the services will take the session: see [`Self::renew`].
     async fn validate(&mut self) -> Result<Value> {
         let r = self
             .http
@@ -2017,6 +2053,14 @@ impl Client {
         }
         let data: Value = serde_json::from_str(&text)?;
         diag::account("accountLogin", &data);
+        // Fresh cookies, whichever path asked for them (a renewal, a resume, a sign-in): only
+        // when Apple opened the session all the way. Held part-way by new terms (below), it set
+        // none, and counting it had every refused service passed twice each pass.
+        let held = data.get("termsUpdateNeeded").and_then(Value::as_bool) == Some(true)
+            || data.get("isRepairNeeded").and_then(Value::as_bool) == Some(true);
+        if !held {
+            self.cookies_renewed();
+        }
         // New iCloud terms not yet accepted: Apple answers 200 but opens the session only
         // part-way, without the web cookies every service needs (rclone/rclone#9919). Not an
         // error: a sign-in that met them is complete — the password proved itself, and is no

@@ -142,11 +142,14 @@ function FolderRow({
   line,
   onOpen,
   onSet,
+  unread,
 }: {
   app: string;
   label: string;
   off: string;
   folder: DriveFolder | null;
+  /** Why the folder's state couldn't be read, when it couldn't: said, never a switch left grey. */
+  unread?: string | null;
   busy: boolean;
   line: (f: DriveFolder) => string;
   onOpen: () => Promise<unknown>;
@@ -155,7 +158,7 @@ function FolderRow({
   const { t } = useI18n();
   // Why the folder could not be opened, said on its own row until it is tried again.
   const [openFailed, setOpenFailed] = useState<string | null>(null);
-  const problem = openFailed ?? folder?.problem;
+  const problem = openFailed ?? folder?.problem ?? (folder ? null : unread) ?? null;
   const trouble = Boolean(problem || folder?.waiting?.failure);
   return (
     <div className="settings-row">
@@ -647,6 +650,8 @@ export function SettingsView({ onSignOut }: { onSignOut: (keep: boolean) => Prom
   const [folder, setFolder] = useState<DriveFolder | null>(null);
   const [folderBusy, setFolderBusy] = useState(false);
   const [photosFolder, setPhotosFolder] = useState<DriveFolder | null>(null);
+  const [folderUnread, setFolderUnread] = useState<string | null>(null);
+  const [photosFolderUnread, setPhotosFolderUnread] = useState<string | null>(null);
   const [photosBusy, setPhotosBusy] = useState(false);
   const [login, setLogin] = useState<LoginItem | null>(null);
   const [loginBusy, setLoginBusy] = useState(false);
@@ -671,8 +676,10 @@ export function SettingsView({ onSignOut }: { onSignOut: (keep: boolean) => Prom
     settingsApi.alertsShown().then(setAlertsShown, () => {});
     settingsApi.localStorage().then(setLocal, () => {});
     getVersion().then(setVersion, () => {});
-    api.driveFolderStatus().then(setFolder, () => {});
-    api.photosFolderStatus().then(setPhotosFolder, () => {});
+    // A folder's state that couldn't be read is said on its row, never a switch left grey for
+    // no reason.
+    api.driveFolderStatus().then(setFolder, (e) => setFolderUnread(messageOf(e)));
+    api.photosFolderStatus().then(setPhotosFolder, (e) => setPhotosFolderUnread(messageOf(e)));
     api.loginItem().then(setLogin, () => {});
   }, []);
   // While the Drive folder is up, what it has still to send is read every two seconds (a
@@ -883,6 +890,7 @@ export function SettingsView({ onSignOut }: { onSignOut: (keep: boolean) => Prom
                     busy={folderBusy}
                     line={(f) => folderState(f, t)}
                     onOpen={api.driveFolderOpen}
+                    unread={folderUnread}
                     onSet={(on) => folder && setFolderOn(folder, on, setFolder, setFolderBusy, api.driveFolderSet)}
                   />
                 )}
@@ -895,6 +903,7 @@ export function SettingsView({ onSignOut }: { onSignOut: (keep: boolean) => Prom
                     busy={photosBusy}
                     line={(f) => f.path}
                     onOpen={api.photosFolderOpen}
+                    unread={photosFolderUnread}
                     onSet={(on) =>
                       photosFolder && setFolderOn(photosFolder, on, setPhotosFolder, setPhotosBusy, api.photosFolderSet)
                     }

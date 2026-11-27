@@ -1246,7 +1246,7 @@ const NEEDS_SIGNIN: &str = "quince://needs-signin";
 /// A window left open past the life of Apple's cookies, or of its session token, had every
 /// refresh failing quietly from then on. Checked here, a lapse is mended before it is felt;
 /// one that needs a code brings the code screen up instead.
-async fn keep_signed_in(app: &tauri::AppHandle, client: &Arc<Mutex<Client>>) {
+async fn keep_signed_in(app: &tauri::AppHandle, client: &Arc<Mutex<Client>>) -> quince_auth::Kept {
     // Said once per lapse, not on every pass after it.
     static TOLD: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
     // And once per wait at icloud.com, apart from a lapse: one never hides the other.
@@ -1255,7 +1255,8 @@ async fn keep_signed_in(app: &tauri::AppHandle, client: &Arc<Mutex<Client>>) {
     // The heartbeat, and the resume when Apple says the session lapsed, shared with the phone
     // and never hammering Apple (quince_auth::keep).
     use quince_auth::Kept;
-    match guard.ensure_session().await {
+    let kept = guard.ensure_session().await;
+    match kept {
         Kept::SignedOut => {}
         // Apple wants a code before it trusts this computer again. None has been asked for:
         // the window says so calmly, and the code is sent once the person opens the code
@@ -1322,6 +1323,89 @@ async fn keep_signed_in(app: &tauri::AppHandle, client: &Arc<Mutex<Client>>) {
         // Not reaching Apple says nothing about the session.
         Kept::Away => {}
     }
+    kept
+}
+
+/// A pass Apple answered "sign in again": the session renewed now (the pass marked it), so a
+/// session over is said at once, and the refused services alone are passed again when the
+/// renewal took, their reports put in place of the refused ones.
+async fn again_if_renewed(
+    app: &tauri::AppHandle,
+    client: &Arc<Mutex<Client>>,
+    data: &quince_sync::library_lock::LibraryLock,
+    result: &mut refresh::Refresh,
+    person: bool,
+) {
+    let refused = refresh::refused_services(&result.services);
+    if refused.is_empty() {
+        return;
+    }
+    // Passed again once the cookies have been renewed since this pass's were read (by any
+    // look). Not yet: renewed now when that is due (sooner for someone pressing Sync Now);
+    // otherwise Apple is asked nothing more for it, not even `/validate`.
+    let moved = |c: &Client| c.session_generation() > result.generation;
+    {
+        let mut c = client.lock().await;
+        if person && refresh::session_wide(&result.services) {
+            c.session_refused_now(result.generation);
+        }
+        if moved(&c) || !c.session_renewal_due() {
+            c.session_urgency_spent();
+        }
+        if !moved(&c) && !c.session_renewal_due() {
+            return;
+        }
+    }
+    if !moved(&*client.lock().await)
+        && (keep_signed_in(app, client).await != quince_auth::Kept::Alive
+            || !moved(&*client.lock().await))
+    {
+        return;
+    }
+    let again = refresh::some(client, data, &refused).await;
+    for report in again.services {
+        if let Some(slot) = result
+            .services
+            .iter_mut()
+            .find(|r| r.service == report.service)
+        {
+            *slot = report;
+        }
+    }
+    // What the second pass changed joins the first's, and its time; the whole library's
+    // freshness is read again, not the retried services' alone.
+    if let Some(more) = again.changed {
+        let changed = result.changed.get_or_insert_with(Vec::new);
+        for service in more {
+            if !changed.contains(&service) {
+                changed.push(service);
+            }
+        }
+    }
+    if let Some(more) = again.items {
+        result
+            .items
+            .get_or_insert_with(Default::default)
+            .extend(more);
+    }
+    result.took_ms = result.took_ms.saturating_add(again.took_ms);
+    result.generation = again.generation;
+    result.as_of = refresh::as_of(data, &result.services).await;
+}
+
+/// [`refresh::some`], with its refused services passed again once the session has been renewed
+/// since they went out (by any pass): for passes started outside the window's own commands (a
+/// push, Photos, data access opening). A pass of one service never renews the session itself
+/// (one refusal may be that service's own); the next whole pass does when two or more refuse.
+pub(crate) async fn refreshed_some(
+    app: &tauri::AppHandle,
+    client: &Arc<Mutex<Client>>,
+    data: &quince_sync::library_lock::LibraryLock,
+    services: &[&str],
+) -> refresh::Refresh {
+    let mut result = refresh::some(client, data, services).await;
+    again_if_renewed(app, client, data, &mut result, false).await;
+    result
 }
 
 /// Whose data the library holds: a hash of Apple's account id, never the id itself.
@@ -2061,7 +2145,8 @@ async fn account_refresh(
     };
     if !waiting {
         let client = Arc::clone(&auth.client);
-        let result = refresh::all(&client, &data.0).await;
+        let mut result = refresh::all(&client, &data.0).await;
+        again_if_renewed(&app, &client, &data.0, &mut result, true).await;
         alerts::changed();
         app.emit(SYNCED, told(&result)).ok();
     }
@@ -5953,7 +6038,8 @@ async fn sync_all(
     if asked == Some(true) {
         data_access::check(&app, &client, data_access::Ask::Person).await;
     }
-    let result = refresh::all(&client, &data.0).await;
+    let mut result = refresh::all(&client, &data.0).await;
+    again_if_renewed(&app, &client, &data.0, &mut result, asked == Some(true)).await;
     data_access::after_pass(&app, &client).await;
     alerts::changed();
     warm_contact_photos(app.clone());
@@ -5982,7 +6068,8 @@ async fn sync_some(
         data_access::check(&app, &client, data_access::Ask::Person).await;
     }
     let names: Vec<&str> = services.iter().map(String::as_str).collect();
-    let result = refresh::some(&client, &data.0, &names).await;
+    let mut result = refresh::some(&client, &data.0, &names).await;
+    again_if_renewed(&app, &client, &data.0, &mut result, asked == Some(true)).await;
     data_access::after_pass(&app, &client).await;
     alerts::changed();
     if names.contains(&"contacts") {
@@ -6021,7 +6108,8 @@ fn spawn_auto_sync(app: tauri::AppHandle, client: Arc<Mutex<Client>>) {
             if calendar {
                 calendar_read = Some(std::time::Instant::now());
             }
-            let result = refresh::routine(&client, &data.0, calendar).await;
+            let mut result = refresh::routine(&client, &data.0, calendar).await;
+            again_if_renewed(&app, &client, &data.0, &mut result, false).await;
             data_access::after_pass(&app, &client).await;
             alerts::changed();
             warm_contact_photos(app.clone());
