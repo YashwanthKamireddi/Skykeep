@@ -65,7 +65,7 @@ for (const [scheme, width, height] of [["light", 1180, 820], ["dark", 1180, 820]
   ok(/Recently Deleted keeps them until \S/.test(text), `${at}: and until when they can come back`);
   ok((await sheet.locator(".storage-part.is-leaving").count()) === 1, `${at}: the leaving part is drawn on the bar`);
   ok(text.includes("47.6 GB used now, 33.1 GB after") && text.includes("14.5 GB freed of 50 GB"), `${at}: now, after and freed`);
-  ok((await sheet.locator(".segment[aria-pressed=true]").innerText()) === "1 year", `${at}: a year by default`);
+  ok((await sheet.getByRole("group", { name: "Older than" }).locator(".segment[aria-pressed=true]").innerText()) === "1 year" && (await sheet.getByRole("group", { name: "What to free up" }).locator(".segment[aria-pressed=true]").innerText()) === "Photos", `${at}: photos, a year, by default`);
   const tiles = sheet.locator(".free-up-tile");
   await page.waitForTimeout(300);
   ok((await tiles.count()) > 0, `${at}: the photos show (${await tiles.count()} drawn)`);
@@ -109,6 +109,48 @@ for (const [scheme, width, height] of [["light", 1180, 820], ["dark", 1180, 820]
   await sheet.getByRole("button", { name: "Done" }).click();
   await page.waitForTimeout(150);
   ok((await page.getByRole("dialog", { name: "Free up iCloud space" }).count()) === 0, `${at}: Done closes it`);
+  await ctx.close();
+}
+
+// iCloud Drive: chosen at the top; its files largest first with their folders, untickable; what
+// stays and why; started with exactly the ticked files; the result in files. Light and dark.
+for (const scheme of ["light", "dark"]) {
+  const { ctx, page } = await open(scheme, 1180, 820);
+  await page.evaluate(() => {
+    window.__driveFreePlan = {
+      items: [
+        { id: "FILE::com.apple.CloudDocs::a", name: "Wedding.mov", folder: "Videos", bytes: 4.2e9 },
+        { id: "FILE::com.apple.CloudDocs::b", name: "Thesis draft.pdf", folder: "", bytes: 0.3e9 },
+        { id: "FILE::com.apple.CloudDocs::c", name: "Scans.zip", folder: "Docs/2024", bytes: 0.1e9 },
+      ],
+      stays: { packages: 4, appLibraries: 2, sharedWithYou: 0 },
+    };
+  });
+  await page.locator(".free-up-entry button").click();
+  const sheet = page.getByRole("dialog", { name: "Free up iCloud space" });
+  await sheet.waitFor();
+  await sheet.getByRole("button", { name: "iCloud Drive" }).click();
+  await page.waitForTimeout(250);
+  const at = `${scheme} drive`;
+  ok((await sheet.getByRole("button", { name: "1 year" }).count()) === 0, `${at}: no age choice for files`);
+  const rows = sheet.locator(".free-up-file");
+  ok((await rows.count()) === 3 && (await rows.first().innerText()).includes("Wedding.mov") && (await rows.first().innerText()).includes("Videos"), `${at}: largest first, with its folder`);
+  ok((await rows.nth(1).innerText()).includes("iCloud Drive"), `${at}: a file at the top says so`);
+  const text = await sheet.innerText();
+  ok(text.includes("They leave iCloud Drive on every device signed in to it"), `${at}: it says where files go`);
+  ok(text.includes("Pages, Numbers and Keynote") && text.includes("App folders") && !text.includes("Shared with you"), `${at}: what stays and why`);
+  ok(text.includes("4.6 GB freed of 50 GB"), `${at}: the bar counts the files`);
+  ok((await sheet.locator(".storage-part.is-leaving").count()) === 1, `${at}: the leaving files are drawn on the bar even with no Documents part in Apple's split`);
+  await rows.nth(1).click();
+  const remove = sheet.getByRole("button", { name: /^Remove \d+ from iCloud$/ });
+  ok((await remove.innerText()) === "Remove 2 from iCloud", `${at}: an unticked file stays`);
+  if (shots) await page.screenshot({ path: `${shots}/free-up-drive-${scheme}.png` });
+  await remove.click();
+  const sent = await page.evaluate(() => window.__freeUpDriveStarted);
+  ok(Array.isArray(sent) && sent.length === 2 && !sent.includes("FILE::com.apple.CloudDocs::b") && (await page.evaluate(() => window.__freeUpStarted)) === undefined, `${at}: only the ticked files, through Drive's own start`);
+  await page.evaluate(() => window.__emit("quince://backup", { ...window.__backup, freeUp: { running: false, checked: 2, total: 2, freed: 2, freedBytes: 4.3e9, edited: 0, notSame: 0, gone: 0 } }));
+  await page.waitForTimeout(100);
+  ok((await sheet.innerText()).includes("4.3 GB freed. 2 files went to Recently Deleted."), `${at}: the result in files`);
   await ctx.close();
 }
 

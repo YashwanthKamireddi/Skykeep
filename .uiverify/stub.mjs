@@ -1444,6 +1444,8 @@ export function installStub({ screen, services, twoFactor, calendarFixture, note
         case "free_up_plan": return (window.__freeUpPlan ?? (() => ({ items: [], stays: { favourites: 0, hidden: 0, sharedLibrary: 0, notBackedUp: 0, undated: 0 } })))(args.months);
         case "free_up_start": window.__freeUpStarted = args.ids; return null;
         case "free_up_stop": window.__freeUpStopped = true; return null;
+        case "free_up_drive_plan": return window.__driveFreePlan ?? { items: [], stays: { packages: 0, appLibraries: 0, sharedWithYou: 0 } };
+        case "free_up_drive_start": window.__freeUpDriveStarted = args.ids; return null;
         case "backup_set_shared":
           window.__backup = { ...window.__backup, shared: args.on, sharedCopied: args.on ? 120 : window.__backup.sharedCopied };
           return { ...window.__backup, hiddenLocked: !window.__hiddenOpen };

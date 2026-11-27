@@ -22,6 +22,7 @@ import {
   pictureSrc,
   FREE_UP_FAILED,
   type BackupStatus,
+  type DriveFreePlan,
   type FreeItem,
   type FreeUpPlan,
   type ICloudStorage,
@@ -79,8 +80,10 @@ function FreeUpSheet({
   const { t } = useI18n();
   const sheetRef = useRef<HTMLDivElement | null>(null);
   useModalFocus(sheetRef);
+  const [what, setWhat] = useState<"photos" | "drive">("photos");
   const [months, setMonths] = useState(12);
   const [plan, setPlan] = useState<FreeUpPlan | null>(null);
+  const [drivePlan, setDrivePlan] = useState<DriveFreePlan | null>(null);
   const [kept, setKept] = useState<Set<string>>(new Set());
   const [progress, setProgress] = useState<BackupStatus["freeUp"] | null>(null);
   const [problem, setProblem] = useState<string | null>(null);
@@ -94,6 +97,15 @@ function FreeUpSheet({
       live = false;
     };
   }, [months]);
+  // iCloud Drive's plan asks Apple which backed-up files still exist: read once, when chosen.
+  useEffect(() => {
+    if (what !== "drive" || drivePlan) return undefined;
+    let live = true;
+    freeUpApi.drivePlan().then((p) => live && setDrivePlan(p), (e) => live && setProblem(messageOf(e)));
+    return () => {
+      live = false;
+    };
+  }, [what, drivePlan]);
   useEffect(() => {
     let live = true;
     const offs = [
@@ -110,10 +122,16 @@ function FreeUpSheet({
     };
   }, []);
 
-  const leaving = useMemo(() => (plan?.items ?? []).filter((i) => !kept.has(i.id)), [plan, kept]);
+  const leaving = useMemo<{ id: string; bytes: number }[]>(
+    () => (what === "photos" ? (plan?.items ?? []) : (drivePlan?.items ?? [])).filter((i) => !kept.has(i.id)),
+    [what, plan, drivePlan, kept],
+  );
   // Before a run, what is ticked; once one has run, what it actually freed.
   const leavingBytes = started && progress ? progress.freedBytes : leaving.reduce((sum, i) => sum + i.bytes, 0);
   const total = storage.totalBytes;
+  // The part of Apple's split the leaving bytes come out of; drawn at the end when Apple's split
+  // has no such part, so the bar always says what the figures say.
+  const kindKey = what === "photos" ? "photos" : "docs";
   const after = Math.max(0, storage.usedBytes - leavingBytes);
   const months_ = useMemo(() => byMonth(plan?.items ?? []), [plan]);
   const until = new Date(Date.now() + 30 * 86_400_000).toLocaleDateString(dateLocale(), { day: "numeric", month: "long" });
@@ -121,22 +139,32 @@ function FreeUpSheet({
   const running = started && (progress?.running ?? true);
   const done = started && progress && !progress.running && progress.checked > 0;
   const stays = plan?.stays;
-  const staysRows: [Key, number, Key | null][] = stays
-    ? [
-        ["settings.freeUpFavourites", stays.favourites, null],
-        ["settings.freeUpHidden", stays.hidden, null],
-        ["settings.freeUpSharedLibrary", stays.sharedLibrary, "settings.freeUpSharedWhy"],
-        ["settings.freeUpNotBacked", stays.notBackedUp, "settings.freeUpNotBackedWhy"],
-        ["settings.freeUpUndated", stays.undated, "settings.freeUpUndatedWhy"],
-      ]
-    : [];
+  const driveStays = drivePlan?.stays;
+  const staysRows: [Key, number, Key | null][] =
+    what === "photos"
+      ? stays
+        ? [
+            ["settings.freeUpFavourites", stays.favourites, null],
+            ["settings.freeUpHidden", stays.hidden, null],
+            ["settings.freeUpSharedLibrary", stays.sharedLibrary, "settings.freeUpSharedWhy"],
+            ["settings.freeUpNotBacked", stays.notBackedUp, "settings.freeUpNotBackedWhy"],
+            ["settings.freeUpUndated", stays.undated, "settings.freeUpUndatedWhy"],
+          ]
+        : []
+      : driveStays
+        ? [
+            ["settings.freeUpPackages", driveStays.packages, "settings.freeUpPackagesWhy"],
+            ["settings.freeUpAppLibraries", driveStays.appLibraries, "settings.freeUpAppLibrariesWhy"],
+            ["settings.freeUpSharedWithYou", driveStays.sharedWithYou, "settings.freeUpSharedWithYouWhy"],
+          ]
+        : [];
   const staysTotal = staysRows.reduce((sum, [, n]) => sum + n, 0);
 
   const start = () => {
     setProblem(null);
     setStarted(true);
     setProgress(null);
-    freeUpApi.start(leaving.map((i) => i.id)).catch((e) => {
+    (what === "photos" ? freeUpApi.start : freeUpApi.driveStart)(leaving.map((i) => i.id)).catch((e) => {
       setProblem(messageOf(e));
       setStarted(false);
     });
@@ -165,7 +193,7 @@ function FreeUpSheet({
         >
           <header className="free-up-head">
             <h2>{t("settings.freeUpTitle")}</h2>
-            <p>{t("settings.freeUpBody", { drive, date: until })}</p>
+            <p>{t(what === "photos" ? "settings.freeUpBody" : "settings.freeUpBodyDrive", { drive, date: until })}</p>
             <div className="storage-bar free-up-bar" role="meter" aria-label={t("settings.freeUpAfterAria")}
               aria-valuemin={0} aria-valuemax={100} aria-valuenow={Math.round((after / Math.max(1, total)) * 100)}>
               {storage.kinds.length === 0 ? (
@@ -174,8 +202,8 @@ function FreeUpSheet({
                   <span className="storage-part is-leaving" style={{ width: `${(leavingBytes / Math.max(1, total)) * 100}%` }} />
                 </>
               ) : (
-                storage.kinds.flatMap((k) => {
-                  const going = k.key === "photos" ? Math.min(k.bytes, leavingBytes) : 0;
+                [...storage.kinds, ...(storage.kinds.some((k) => k.key === kindKey) ? [] : [{ key: kindKey, label: "", color: null, bytes: leavingBytes }])].flatMap((k) => {
+                  const going = k.key === kindKey ? Math.min(k.bytes, leavingBytes) : 0;
                   const parts = [
                     <span key={k.key} className="storage-part" style={{ width: `${((k.bytes - going) / total) * 100}%`, background: k.color ?? undefined }} />,
                   ];
@@ -198,25 +226,59 @@ function FreeUpSheet({
 
           {!started && (
             <div className="free-up-choose">
-              <span>{t("settings.freeUpOlderThan")}</span>
-              <div className="segmented" role="group" aria-label={t("settings.freeUpOlderThan")}>
-                {AGES.map((a) => (
-                  <button key={a.months} className="segment" aria-pressed={months === a.months} onClick={() => { setMonths(a.months); setKept(new Set()); }}>
-                    {t(a.label)}
+              <div className="segmented" role="group" aria-label={t("settings.freeUpWhatAria")}>
+                {(["photos", "drive"] as const).map((w) => (
+                  <button key={w} className="segment" aria-pressed={what === w} onClick={() => { setWhat(w); setKept(new Set()); setProblem(null); }}>
+                    {t(w === "photos" ? "sidebar.photos" : "settings.icloudDrive")}
                   </button>
                 ))}
               </div>
+              {what === "photos" && (
+                <>
+                  <span className="free-up-age-label">{t("settings.freeUpOlderThan")}</span>
+                  <div className="segmented" role="group" aria-label={t("settings.freeUpOlderThan")}>
+                    {AGES.map((a) => (
+                      <button key={a.months} className="segment" aria-pressed={months === a.months} onClick={() => { setMonths(a.months); setKept(new Set()); }}>
+                        {t(a.label)}
+                      </button>
+                    ))}
+                  </div>
+                </>
+              )}
             </div>
           )}
 
           {!started && (
             <div className="free-up-body">
-              <div className="free-up-grid" role="group" aria-label={t("settings.freeUpPhotosAria")}>
-                {plan && plan.items.length === 0 && <p className="free-up-empty">{t("settings.freeUpNothing")}</p>}
-                {months_.map((m) => (
-                  <Month key={m.key} month={m} kept={kept} onToggle={(id) => setKept((k) => toggled(k, id))} />
-                ))}
-              </div>
+              {what === "photos" ? (
+                <div className="free-up-grid" role="group" aria-label={t("settings.freeUpPhotosAria")}>
+                  {plan && plan.items.length === 0 && <p className="free-up-empty">{t("settings.freeUpNothing")}</p>}
+                  {months_.map((m) => (
+                    <Month key={m.key} month={m} kept={kept} onToggle={(id) => setKept((k) => toggled(k, id))} />
+                  ))}
+                </div>
+              ) : (
+                <div className="free-up-grid" role="group" aria-label={t("settings.freeUpDriveAria")}>
+                  {!drivePlan && !problem && <p className="free-up-empty">{t("settings.freeUpReadingDrive")}</p>}
+                  {drivePlan && drivePlan.items.length === 0 && <p className="free-up-empty">{t("settings.freeUpNothingDrive")}</p>}
+                  {drivePlan && drivePlan.items.length > 0 && (
+                    <ul className="free-up-files">
+                      {drivePlan.items.map((f) => {
+                        const on = !kept.has(f.id);
+                        return (
+                          <li key={f.id}>
+                            <button className="free-up-file" role="checkbox" aria-checked={on} onClick={() => setKept((k) => toggled(k, f.id))}>
+                              <span className="free-up-file-name">{f.name}</span>
+                              <span className="free-up-file-folder">{f.folder || t("settings.icloudDrive")}</span>
+                              <span className="free-up-file-size">{icloudSize(f.bytes)}</span>
+                            </button>
+                          </li>
+                        );
+                      })}
+                    </ul>
+                  )}
+                </div>
+              )}
               <aside className="free-up-stays" aria-label={t("settings.freeUpStays")}>
                 <h3>
                   {t("settings.freeUpStays")}
@@ -244,7 +306,11 @@ function FreeUpSheet({
               {done && progress && (
                 <>
                   <p className="free-up-done">
-                    {t(progress.freed === 1 ? "settings.freeUpDoneOne" : "settings.freeUpDoneMany", {
+                    {t(
+                      what === "photos"
+                        ? progress.freed === 1 ? "settings.freeUpDoneOne" : "settings.freeUpDoneMany"
+                        : progress.freed === 1 ? "settings.freeUpDoneFilesOne" : "settings.freeUpDoneFilesMany",
+                      {
                       count: progress.freed.toLocaleString(),
                       size: icloudSize(progress.freedBytes),
                     })}

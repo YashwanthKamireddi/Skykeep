@@ -132,6 +132,30 @@ pub async fn free_up_start(ids: Vec<String>, app: AppHandle) -> Result<(), Strin
     Ok(())
 }
 
+/// Free up iCloud space in iCloud Drive: the backed-up files Apple still has, largest first,
+/// and what stays and why (quince_backup::free_up::drive_plan). Asks Apple which still exist.
+#[tauri::command]
+pub async fn free_up_drive_plan(
+    app: AppHandle,
+) -> Result<quince_backup::free_up::DrivePlan, String> {
+    quince_backup::free_up::drive_plan(&Desktop(app)).await
+}
+
+/// iCloud Drive files to Recently Deleted, each once its backup copy matches Apple's checksum,
+/// and only as the version the backup copied. Runs in the background, as [`free_up_start`].
+#[tauri::command]
+pub async fn free_up_drive_start(ids: Vec<String>, app: AppHandle) -> Result<(), String> {
+    let _ = APP.set(app.clone());
+    let host = Desktop(app);
+    let teller = host.clone();
+    tauri::async_runtime::spawn(async move {
+        if let Err(e) = quince_backup::free_up::run_drive(&host, ids).await {
+            teller.0.emit(FREE_UP_FAILED, e).ok();
+        }
+    });
+    Ok(())
+}
+
 /// Stops freeing up space after the photos being checked now.
 #[tauri::command]
 pub fn free_up_stop() {
