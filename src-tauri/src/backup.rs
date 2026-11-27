@@ -90,6 +90,13 @@ pub async fn backup_set(
     quince_backup::backup::set(&Desktop(app), folder, hidden, drive).await
 }
 
+/// Shared Albums in the backup, or left out.
+#[tauri::command]
+pub async fn backup_set_shared(app: AppHandle, on: bool) -> Result<Status, String> {
+    let _ = APP.set(app.clone());
+    quince_backup::backup::set_shared(&Desktop(app), on).await
+}
+
 /// At launch: the app kept for Photos' notices, which come from refresh.rs with no app of their
 /// own, so a launch in the tray (no window to sign in) still backs up.
 pub fn init(app: &AppHandle) {

@@ -19,7 +19,7 @@
 
 use crate::fetch::stream_to_new_file;
 use futures_util::future::BoxFuture;
-use quince_core::backup::{Copied, Progress, LIVE, ORIGINAL, PHOTOS};
+use quince_core::backup::{Copied, Progress, LIVE, ORIGINAL, PHOTOS, SHARED};
 use quince_core::photos::{Kind, Photo};
 use quince_sync::library_lock::LibraryLock;
 use std::collections::{HashMap, HashSet};
@@ -32,6 +32,11 @@ const FOLDER_KEY: &str = "backup.folder";
 const HIDDEN_KEY: &str = "backup.hidden";
 /// iCloud Drive in the backup too: on unless turned off ("0").
 const DRIVE_KEY: &str = "backup.drive";
+/// Shared Albums in the backup too: off unless turned on ("1"). Other people's photos, and a
+/// family album can be large, so it is asked for.
+const SHARED_KEY: &str = "backup.shared";
+/// Where shared albums' folders go.
+const SHARED_TOP: &str = "Shared Albums";
 
 /// Downloads at once: enough to keep a connection busy, few enough to stay polite.
 const AT_ONCE: usize = 3;
@@ -103,6 +108,10 @@ pub struct Status {
     pub drive_running: bool,
     /// What iCloud Drive's last pass couldn't copy, said in words.
     pub drive_note: Option<String>,
+    /// Shared Albums are in the backup too; their photos copied, of all there are.
+    pub shared: bool,
+    pub shared_copied: i64,
+    pub shared_total: i64,
     /// Why albums aren't folders in the backup, said in words, if they aren't.
     pub albums_note: Option<String>,
     /// Photos' bytes in the backup, and of all there are.
@@ -120,25 +129,29 @@ struct Settings {
     folder: Option<PathBuf>,
     hidden: bool,
     drive: bool,
+    shared: bool,
 }
 
 async fn settings<H: Host>(host: &H) -> Settings {
     // Read beside a sync pass, not in the writer's turn: Settings asks for the status while
     // a Photos store can hold the writer for seconds (desktop audit H1).
-    let [folder, hidden, drive] = host
+    let [folder, hidden, drive, shared] = host
         .library()
         .read(|library| {
-            Ok([FOLDER_KEY, HIDDEN_KEY, DRIVE_KEY].map(|key| library.state(key).ok().flatten()))
+            Ok([FOLDER_KEY, HIDDEN_KEY, DRIVE_KEY, SHARED_KEY]
+                .map(|key| library.state(key).ok().flatten()))
         })
         .await
         .unwrap_or_default();
     let folder = folder.filter(|f| !f.is_empty()).map(PathBuf::from);
     let hidden = hidden.as_deref() == Some("1");
     let drive = drive.as_deref() != Some("0");
+    let shared = shared.as_deref() == Some("1");
     Settings {
         folder,
         hidden,
         drive,
+        shared,
     }
 }
 
@@ -147,7 +160,13 @@ pub async fn status<H: Host>(host: &H) -> Status {
         folder,
         hidden,
         drive,
+        shared,
     } = settings(host).await;
+    let (shared_copied, shared_total) = host
+        .library()
+        .read(|library| library.backup_shared_progress())
+        .await
+        .unwrap_or_default();
     let Progress {
         copied,
         total,
@@ -188,6 +207,9 @@ pub async fn status<H: Host>(host: &H) -> Status {
         drive,
         drive_running: DRIVE_RUNNING.load(Ordering::SeqCst),
         drive_note: DRIVE_NOTE.lock().ok().and_then(|n| n.clone()),
+        shared,
+        shared_copied,
+        shared_total,
         albums_note: ALBUMS_NOTE.lock().ok().and_then(|n| n.clone()),
         photos_bytes: copied_bytes,
         photos_bytes_total: total_bytes,
@@ -273,6 +295,18 @@ pub async fn set<H: Host>(
     Ok(status(host).await)
 }
 
+/// Shared Albums in the backup, or left out. Nothing already copied is removed either way.
+pub async fn set_shared<H: Host>(host: &H, on: bool) -> Result<Status, String> {
+    {
+        let mut library = host.library().lock().await;
+        library
+            .set_state(SHARED_KEY, if on { "1" } else { "0" })
+            .map_err(|e| e.to_string())?;
+    }
+    kick(host);
+    Ok(status(host).await)
+}
+
 /// iCloud Drive changed at Apple (its change feed): gone through again on the next pass. The
 /// caller kicks a pass after.
 pub fn drive_due() {
@@ -316,6 +350,7 @@ async fn pass<H: Host>(host: &H) -> Result<(), String> {
         folder: Some(folder),
         hidden,
         drive,
+        shared,
     } = settings(host).await
     else {
         return Ok(());
@@ -330,6 +365,9 @@ async fn pass<H: Host>(host: &H) -> Result<(), String> {
         .map_err(|e| e.to_string())??;
     photos_pass(host, &folder, hidden).await?;
     albums_pass(host, &folder).await?;
+    if shared {
+        shared_pass(host, &folder).await?;
+    }
     if drive && DRIVE_DUE.swap(false, Ordering::SeqCst) {
         if let Err(e) = drive_pass(host, &folder).await {
             // Due again: the next pass (two minutes on) carries on where this one stopped.
@@ -471,6 +509,107 @@ async fn drive_pass<H: Host>(host: &H, folder: &Path) -> Result<(), String> {
     Ok(())
 }
 
+/// Shared Albums' photos into `Shared Albums/<album>/`, as Apple keeps them (full size for
+/// photos shared since iOS 27, Apple's smaller copies before). Never deletes: a photo taken out
+/// of a shared album, or an album that ends, stays in the backup.
+async fn shared_pass<H: Host>(host: &H, folder: &Path) -> Result<(), String> {
+    let taken = Arc::new(Mutex::new(Names::new({
+        let library = host.library().lock().await;
+        library.backup_paths().map_err(|e| e.to_string())?
+    })));
+    let mut refused: HashMap<String, u8> = HashMap::new();
+    let mut shown = std::time::Instant::now();
+    loop {
+        let skip = SKIPPED.lock().map(|s| s.clone()).unwrap_or_default();
+        let (round, recorded) = {
+            let library = host.library().lock().await;
+            (
+                library
+                    .backup_shared_pending(ROUND, &skip)
+                    .map_err(|e| e.to_string())?,
+                library.backup_files().map_err(|e| e.to_string())?,
+            )
+        };
+        if round.is_empty() {
+            return Ok(());
+        }
+        let albums: Vec<(String, Option<String>)> = round
+            .iter()
+            .map(|p| (p.place.zone.clone(), p.title.clone()))
+            .collect();
+        let dirs = shared_dirs(&recorded, &albums);
+        let round = round
+            .into_iter()
+            .map(|p| {
+                let dest = Dest {
+                    place: Some((p.place.zone.clone(), p.place.database, p.place.owner)),
+                    dir: dirs[&p.place.zone].clone(),
+                    source: SHARED,
+                    item: format!("{}/{}", p.place.zone, p.photo.id),
+                };
+                (p.photo, dest)
+            })
+            .collect();
+        for (item, outcome) in copy_round(host, folder, round, &taken).await? {
+            match outcome {
+                Outcome::Copied(files) => {
+                    let mut library = host.library().lock().await;
+                    library.backup_copied(&files).map_err(|e| e.to_string())?;
+                }
+                Outcome::Refreshed => {
+                    let tries = refused.entry(item.clone()).or_default();
+                    *tries += 1;
+                    if *tries >= TRIES {
+                        skip_this_run(item);
+                    }
+                }
+                Outcome::Skipped => skip_this_run(item),
+            }
+        }
+        if shown.elapsed() > Duration::from_secs(1) {
+            host.tell(status(host).await);
+            shown = std::time::Instant::now();
+        }
+    }
+}
+
+/// Each shared album's folder: the one its photos already went to, so a renamed album keeps
+/// its folder; for an album new to the backup, its title made one safe name, apart from every
+/// other shared album's (`Trip`, `Trip 2`).
+fn shared_dirs(
+    recorded: &[Copied],
+    albums: &[(String, Option<String>)],
+) -> HashMap<String, String> {
+    let mut dirs: HashMap<String, String> = HashMap::new();
+    for c in recorded.iter().filter(|c| c.source == SHARED) {
+        if let (Some((zone, _)), Some((dir, _))) = (c.item.split_once('/'), c.path.rsplit_once('/'))
+        {
+            dirs.entry(zone.to_string())
+                .or_insert_with(|| dir.to_string());
+        }
+    }
+    let mut used: HashSet<String> = dirs.values().map(|d| d.to_lowercase()).collect();
+    for (zone, title) in albums {
+        if dirs.contains_key(zone) {
+            continue;
+        }
+        let base = crate::names::file_name(title.as_deref().unwrap_or(""), "Shared Album");
+        let dir = (1..)
+            .map(|n| {
+                if n == 1 {
+                    format!("{SHARED_TOP}/{base}")
+                } else {
+                    format!("{SHARED_TOP}/{base} {n}")
+                }
+            })
+            .find(|d| !used.contains(&d.to_lowercase()))
+            .unwrap_or_else(|| format!("{SHARED_TOP}/{base}"));
+        used.insert(dir.to_lowercase());
+        dirs.insert(zone.clone(), dir);
+    }
+    dirs
+}
+
 /// Albums as folders of links to the photos just backed up (albums.rs): only links, made and
 /// taken away as Apple's albums change, after Photos' own pass so every photo has its file.
 async fn albums_pass<H: Host>(host: &H, folder: &Path) -> Result<(), String> {
@@ -574,6 +713,7 @@ async fn photos_pass<H: Host>(host: &H, folder: &Path, hidden: bool) -> Result<(
         if round.is_empty() {
             return Ok(());
         }
+        let round = own_dests(host, round).await?;
         for (id, outcome) in copy_round(host, &folder, round, &taken).await? {
             match outcome {
                 Outcome::Copied(files) => {
@@ -652,25 +792,52 @@ enum Outcome {
 /// Library's zone. One lookup per group.
 type PlaceKey = Option<(String, String, Option<String>)>;
 
-/// One round: links looked up together, files copied three at a time. Answers what came of
-/// each photo; `Err` an outage that ends the pass (offline, Apple refusing, the disk).
-async fn copy_round<H: Host>(
-    host: &H,
-    folder: &Path,
-    round: Vec<Photo>,
-    taken: &Arc<Mutex<Names>>,
-) -> Result<Vec<(String, Outcome)>, String> {
-    use futures_util::StreamExt;
-    let mut groups: HashMap<PlaceKey, Vec<Photo>> = HashMap::new();
-    {
-        let library = host.library().lock().await;
-        for photo in round {
-            let key = library
+/// Where a photo goes in the backup: the zone it is asked of, the folder it lands in, and
+/// how it is recorded (`source`, `item`).
+struct Dest {
+    place: PlaceKey,
+    dir: String,
+    source: &'static str,
+    item: String,
+}
+
+/// The library's own photos, each to its month's folder, asked of its Shared Library's zone
+/// when it is in one.
+async fn own_dests<H: Host>(host: &H, round: Vec<Photo>) -> Result<Vec<(Photo, Dest)>, String> {
+    let library = host.library().lock().await;
+    round
+        .into_iter()
+        .map(|photo| {
+            let place = library
                 .shared_library_of(&photo.id)
                 .map_err(|e| e.to_string())?
                 .map(|s| (s.zone, s.database, s.owner));
-            groups.entry(key).or_default().push(photo);
-        }
+            let dest = Dest {
+                place,
+                dir: month_folder(photo.taken_at),
+                source: PHOTOS,
+                item: photo.id.clone(),
+            };
+            Ok((photo, dest))
+        })
+        .collect()
+}
+
+/// One round: links looked up together, files copied three at a time. Answers what came of
+/// each item; `Err` an outage that ends the pass (offline, Apple refusing, the disk).
+async fn copy_round<H: Host>(
+    host: &H,
+    folder: &Path,
+    round: Vec<(Photo, Dest)>,
+    taken: &Arc<Mutex<Names>>,
+) -> Result<Vec<(String, Outcome)>, String> {
+    use futures_util::StreamExt;
+    let mut groups: HashMap<PlaceKey, Vec<(Photo, Dest)>> = HashMap::new();
+    for (photo, dest) in round {
+        groups
+            .entry(dest.place.clone())
+            .or_default()
+            .push((photo, dest));
     }
     let (http, root, params) = host.cloudkit().await?;
     let mut outcomes = Vec::new();
@@ -696,23 +863,23 @@ async fn copy_round<H: Host>(
                 (zc, zone)
             }
         };
-        let mut names: Vec<String> = photos.iter().map(|p| p.id.clone()).collect();
-        names.extend(photos.iter().map(|p| p.master.clone()));
+        let mut names: Vec<String> = photos.iter().map(|(p, _)| p.id.clone()).collect();
+        names.extend(photos.iter().map(|(p, _)| p.master.clone()));
         let records = zc
             .lookup_records(&zone, &names)
             .await
             .map_err(|e| e.to_string())?;
-        let jobs = photos.into_iter().map(|photo| {
+        let jobs = photos.into_iter().map(|(photo, dest)| {
             let (records, http) = (&records, &http);
             async move {
                 let outcome = match (records.get(&photo.id), records.get(&photo.master)) {
                     (Some(asset), Some(master)) => {
-                        copy_one(http, folder, &photo, asset, master, taken).await?
+                        copy_one(http, folder, &photo, &dest, asset, master, taken).await?
                     }
                     // Gone from iCloud since the library last heard.
                     _ => Outcome::Skipped,
                 };
-                Ok::<_, String>((photo.id, outcome))
+                Ok::<_, String>((dest.item, outcome))
             }
         });
         let mut done = futures_util::stream::iter(jobs).buffer_unordered(AT_ONCE);
@@ -730,6 +897,7 @@ async fn copy_one(
     http: &reqwest::Client,
     folder: &Path,
     photo: &Photo,
+    dest: &Dest,
     asset: &serde_json::Value,
     master: &serde_json::Value,
     taken: &Arc<Mutex<Names>>,
@@ -743,17 +911,17 @@ async fn copy_one(
     ) else {
         return Ok(Outcome::Skipped);
     };
-    let dir = month_folder(photo.taken_at);
+    let dir = dest.dir.as_str();
     let expected = size_of(master, "resOriginalRes");
     let mut files = Vec::new();
-    let rel = match fetch(http, folder, taken, &dir, &name, &url, expected).await? {
+    let rel = match fetch(http, folder, taken, dir, &name, &url, expected).await? {
         Fetched::Done(rel, size) => {
             dated(&folder.join(&rel), photo.taken_at).await;
-            files.push(copied(photo, ORIGINAL, &rel, size));
+            files.push(copied(dest, ORIGINAL, &rel, size));
             rel
         }
         Fetched::Found(rel, size) => {
-            files.push(copied(photo, ORIGINAL, &rel, size));
+            files.push(copied(dest, ORIGINAL, &rel, size));
             rel
         }
         Fetched::Refused => return Ok(Outcome::Refreshed),
@@ -770,7 +938,7 @@ async fn copy_one(
                 http,
                 folder,
                 taken,
-                &dir,
+                dir,
                 &format!("{stem}.MOV"),
                 &live,
                 expected,
@@ -779,9 +947,9 @@ async fn copy_one(
             {
                 Fetched::Done(live_rel, size) => {
                     dated(&folder.join(&live_rel), photo.taken_at).await;
-                    files.push(copied(photo, LIVE, &live_rel, size));
+                    files.push(copied(dest, LIVE, &live_rel, size));
                 }
-                Fetched::Found(live_rel, size) => files.push(copied(photo, LIVE, &live_rel, size)),
+                Fetched::Found(live_rel, size) => files.push(copied(dest, LIVE, &live_rel, size)),
                 Fetched::Refused => return Ok(Outcome::Refreshed),
                 // A still without its video is still a photo: kept, the video left out.
                 Fetched::Missing => {}
@@ -791,10 +959,10 @@ async fn copy_one(
     Ok(Outcome::Copied(files))
 }
 
-fn copied(photo: &Photo, part: &str, path: &str, size: u64) -> Copied {
+fn copied(dest: &Dest, part: &str, path: &str, size: u64) -> Copied {
     Copied {
-        source: PHOTOS.into(),
-        item: photo.id.clone(),
+        source: dest.source.into(),
+        item: dest.item.clone(),
         part: part.into(),
         path: path.into(),
         size: size as i64,
@@ -1013,6 +1181,31 @@ async fn dated(path: &Path, taken_at: i64) {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// A shared album keeps the folder its photos went to, renamed or not; new ones get their
+    /// title as a safe name, two of one title told apart.
+    #[test]
+    fn a_shared_album_keeps_its_folder() {
+        let recorded = [Copied {
+            source: SHARED.into(),
+            item: "z1/p".into(),
+            part: ORIGINAL.into(),
+            path: "Shared Albums/Goa/IMG_1.JPG".into(),
+            size: 1,
+            version: None,
+        }];
+        let albums = [
+            ("z1".to_string(), Some("Goa, renamed".to_string())),
+            ("z2".into(), Some("goa".into())),
+            ("z3".into(), Some("../../away".into())),
+            ("z4".into(), None),
+        ];
+        let dirs = shared_dirs(&recorded, &albums);
+        assert_eq!(dirs["z1"], "Shared Albums/Goa");
+        assert_eq!(dirs["z2"], "Shared Albums/goa 2");
+        assert_eq!(dirs["z3"], "Shared Albums/away");
+        assert_eq!(dirs["z4"], "Shared Albums/Shared Album");
+    }
 
     /// A backup writes only into its own folder: a new one, or one made before the mark, is
     /// marked; a mount point left empty by a drive not mounted is refused, with nothing written

@@ -54,6 +54,13 @@ for (const scheme of ["light", "dark"]) {
   await page.waitForTimeout(100);
   ok((await page.evaluate(() => window.__backupRevealed)) === 1, `${scheme}: Show in Folder opens it`);
   if (shots) await section.screenshot({ path: `${shots}/backup-on-${scheme}.png` });
+  // Shared Albums: off until asked for (other people's photos), then how far, as shared.
+  const shared = row.getByRole("switch", { name: "Include Shared Albums" });
+  const sharedRow = row.getByRole("group", { name: "Shared Albums in the backup" });
+  ok((await shared.getAttribute("aria-checked")) === "false" && (await sharedRow.innerText()).includes("Not in the backup"), `${scheme}: Shared Albums are left out until asked for`);
+  await shared.click();
+  await page.waitForTimeout(150);
+  ok((await shared.getAttribute("aria-checked")) === "true" && (await sharedRow.innerText()).includes("120 of 318 photos, at the size they were shared"), `${scheme}: included, it says how far, at the size shared`);
   // A drive with no hard links: albums can't be folders, and Photos says why.
   await page.evaluate(() => { window.__backup.albumsNote = "This backup drive can't keep albums as folders (it has no hard links, as FAT32 and exFAT don't), so photos are kept by date only."; });
   await drive.click();

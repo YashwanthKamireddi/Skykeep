@@ -379,6 +379,32 @@ function BackupRow({ onError }: { onError: (m: string) => void }) {
       {on && state?.driveRunning && state.driveFilesTotal > 0 && (
         <Progress value={state.driveFiles / state.driveFilesTotal} label={t("settings.driveBackupProgress")} />
       )}
+      <div className="backup-source" aria-label={t("settings.sharedInBackup")} role="group">
+        <AppMark app="photos" />
+        <span className="settings-label settings-stack">
+          {t("photos.sharedAlbums")}
+          <span className="settings-hint" aria-live="polite">
+            {!state
+              ? ""
+              : !state.shared
+                ? t("settings.notInBackup")
+                : t(state.sharedTotal === 1 ? "settings.sharedProgressOne" : "settings.sharedProgressMany", {
+                    copied: state.sharedCopied.toLocaleString(),
+                    total: state.sharedTotal.toLocaleString(),
+                  })}
+          </span>
+        </span>
+        <button
+          className="switch"
+          role="switch"
+          aria-checked={state?.shared ?? false}
+          aria-label={t("settings.includeShared")}
+          disabled={!state}
+          onClick={() => state && void backupApi.setShared(!state.shared).then(setState, (e) => onError(messageOf(e)))}
+        >
+          <span className="switch-knob" />
+        </button>
+      </div>
       {unlocking && (
         <UnlockSheet
           onCancel={() => setUnlocking(false)}
