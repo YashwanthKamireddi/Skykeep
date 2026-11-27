@@ -89,11 +89,19 @@ pub async fn backup_set(
     hidden: bool,
     drive: bool,
 ) -> Result<Status, String> {
-    if let Some(f) = &folder {
-        crate::grants::take_write(f)?;
-    }
     let _ = APP.set(app.clone());
-    quince_backup::backup::set(&Desktop(app), folder, hidden, drive).await
+    let host = Desktop(app);
+    // A folder chosen just now needs the person's choice of it (the dialog's grant); the one
+    // already saved does not. Asked every time, switching the Hidden album or iCloud Drive on
+    // a backup already running answered "Choose the file again": the grant was spent setting
+    // the folder, minutes or a launch ago.
+    let saved = quince_backup::backup::folder(&host).await;
+    if needs_grant(folder.as_deref(), saved.as_deref()) {
+        if let Some(f) = &folder {
+            crate::grants::take_write(f)?;
+        }
+    }
+    quince_backup::backup::set(&host, folder, hidden, drive).await
 }
 
 /// Free up iCloud space: the photos and videos taken more than `months` ago that may leave
@@ -169,6 +177,15 @@ pub async fn backup_set_shared(app: AppHandle, on: bool) -> Result<Status, Strin
     quince_backup::backup::set_shared(&Desktop(app), on).await
 }
 
+/// Whether setting `folder` needs the person's fresh choice of it: only a folder other than the
+/// one already saved. Off (`None`) needs none.
+fn needs_grant(folder: Option<&str>, saved: Option<&std::path::Path>) -> bool {
+    match folder {
+        None => false,
+        Some(f) => saved.is_none_or(|s| s != std::path::Path::new(f)),
+    }
+}
+
 /// At launch: the app kept for Photos' notices, which come from refresh.rs with no app of their
 /// own, so a launch in the tray (no window to sign in) still backs up.
 pub fn init(app: &AppHandle) {
@@ -194,4 +211,24 @@ pub fn drive_changed() {
 pub fn kick(app: &AppHandle) {
     let _ = APP.set(app.clone());
     quince_backup::backup::kick(&Desktop(app.clone()));
+}
+
+#[cfg(test)]
+mod tests {
+    use super::needs_grant;
+    use std::path::Path;
+
+    /// The folder already saved is set again by every switch on the card (Hidden, iCloud
+    /// Drive): no fresh choice needed. A new folder needs one; turning backup off needs none.
+    #[test]
+    fn only_a_new_folder_needs_the_persons_choice() {
+        let saved = Some(Path::new("/media/backup"));
+        assert!(
+            !needs_grant(Some("/media/backup"), saved),
+            "a switch on the card"
+        );
+        assert!(needs_grant(Some("/media/other"), saved), "a new folder");
+        assert!(needs_grant(Some("/media/backup"), None), "the first folder");
+        assert!(!needs_grant(None, saved), "off");
+    }
 }
