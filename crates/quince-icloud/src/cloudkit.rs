@@ -1675,6 +1675,9 @@ impl ZoneClient<'_> {
             .into_iter()
             .flatten()
             .filter(|z| z.get("serverErrorCode").is_none())
+            // A zone Apple lists as deleted is not there to read: a library Apple moved can
+            // leave its old zone listed so (icloudpd #1367, #1491).
+            .filter(|z| !z.get("deleted").and_then(Value::as_bool).unwrap_or(false))
             .filter_map(|z| z.pointer("/zoneID/zoneName").and_then(Value::as_str))
             .map(str::to_string)
             .collect())

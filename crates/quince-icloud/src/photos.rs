@@ -74,6 +74,31 @@ pub async fn library_zone(client: &ZoneClient<'_>) -> String {
         }
     }
 }
+/// What a pass says when Apple has no photo library zone for the account.
+fn no_library() -> crate::Error {
+    crate::Error::Refused(
+        "Apple didn't find a photo library for this account. If iCloud Photos is on, Skykeep \
+         looks again at the next sync."
+            .into(),
+    )
+}
+
+/// Another zone for the personal library than `gone`, which Apple says isn't there: the zones
+/// listed again (not the list kept for this run) and [`pick_zone`] among the rest. Kept for the
+/// rest of the run when found.
+async fn moved_zone(client: &ZoneClient<'_>, gone: &str) -> Option<String> {
+    let names = client.zone_names().await.ok()?;
+    let rest: Vec<String> = names.into_iter().filter(|n| n != gone).collect();
+    let zone = pick_zone(&rest)?.to_string();
+    quiet!("photos: zone {gone} is not there; reading {zone}");
+    ZONES
+        .lock()
+        .unwrap_or_else(std::sync::PoisonError::into_inner)
+        .get_or_insert_with(HashMap::new)
+        .insert(client.scope(), zone.clone());
+    Some(zone)
+}
+
 /// The library's sync token, in the library's sync state.
 pub const SERVICE: &str = "photos";
 
@@ -216,7 +241,20 @@ pub async fn fetch_in(
             Err(e) => return Err(e),
         }
     }
-    let (records, token, complete) = walk(&client, &zone, None).await?;
+    let (mut records, mut token, mut complete) = walk(&client, &zone, None).await?;
+    // The personal library's zone answered ZONE_NOT_FOUND (an empty walk with no position).
+    // Taken for an empty library, it stored nothing and said nothing: Photos stayed "Not synced
+    // yet" with no error (#305). Apple has moved some libraries to another zone and can still
+    // list the old one; the zones are listed afresh and a moved one read. None: said so.
+    if place.is_none() && token.is_none() && records.is_empty() {
+        let Some(moved) = moved_zone(&client, &zone).await else {
+            return Err(no_library());
+        };
+        (records, token, complete) = walk(&client, &moved, None).await?;
+        if token.is_none() && records.is_empty() {
+            return Err(no_library());
+        }
+    }
     Ok(PhotosFetch {
         records,
         token,
@@ -238,8 +276,8 @@ pub enum Readiness {
     },
 }
 
-/// What Apple's `CheckIndexingState` record says: `state` `FINISHED` is ready, anything else
-/// (`RUNNING`, with a `progress` of 0 to 100) is still preparing (icloudpd #1387, #1388; the
+/// What Apple's `CheckIndexingState` record says: `state` `FINISHED` (or `FAILED`, see below) is
+/// ready, anything else (`RUNNING`, with a `progress` of 0 to 100) is still preparing (icloudpd #1387, #1388; the
 /// same check icloud.com and pyicloud make before reading the library). No record, or none
 /// with a state, says nothing: read as ready, as it always was.
 #[must_use]
@@ -250,7 +288,10 @@ pub fn readiness_of(records: &[Value]) -> Readiness {
     let Some(state) = fields.pointer("/state/value").and_then(Value::as_str) else {
         return Readiness::Ready;
     };
-    if state.eq_ignore_ascii_case("FINISHED") {
+    // FAILED, with Apple's error naming a server index that is missing, has been answered for
+    // weeks on end to accounts whose library reads whole (icloudpd #1387 and #1495, rclone
+    // #10429, kei #1126): waiting never ends it, and the read does not use that index. Read.
+    if state.eq_ignore_ascii_case("FINISHED") || state.eq_ignore_ascii_case("FAILED") {
         return Readiness::Ready;
     }
     let progress = fields
@@ -2381,6 +2422,21 @@ mod tests {
             Readiness::Preparing { progress: Some(42) }
         );
         assert_eq!(ask(state("FINISHED", json!(100))).await, Readiness::Ready);
+        // FAILED, naming a missing server index, as Apple has answered some accounts for weeks
+        // (rclone #10429's capture): the library reads whole, and waiting never ends it.
+        assert_eq!(
+            ask(json!({ "records": [{
+                "recordName": "_0", "recordType": "CheckIndexingState",
+                "fields": {
+                    "progress": { "value": 100, "type": "INT64" },
+                    "state": { "value": "FAILED", "type": "STRING" },
+                    "error": { "value": "CKCloudDBException:No index with requested name: \
+                                         CPLContainerRelationNotHiddenOrDeletedByAddedDate",
+                               "type": "STRING" } }
+            }] }))
+            .await,
+            Readiness::Ready
+        );
         assert_eq!(ask(json!({ "records": [] })).await, Readiness::Ready);
         assert_eq!(
             readiness_of(&[json!({ "fields": { "state": { "value": "QUEUED" } } })]),
@@ -2410,6 +2466,72 @@ mod tests {
             .mount(&server)
             .await;
         server
+    }
+
+    /// A personal library whose zone Apple says is not there (ZONE_NOT_FOUND) is looked for in
+    /// the zones Apple lists — skipping one listed as deleted — and read from the one it moved
+    /// to; with none, the pass says so. It was taken for an empty library: nothing stored,
+    /// nothing said, and Photos "Not synced yet" for good (#305).
+    #[tokio::test]
+    async fn a_library_whose_zone_is_not_there_is_found_or_said() {
+        use wiremock::matchers::{body_string_contains, method, path_regex};
+        use wiremock::{Mock, MockServer, ResponseTemplate};
+        let zone = |name: &str| json!({ "zoneID": { "zoneName": name } });
+        let deleted = |name: &str| json!({ "zoneID": { "zoneName": name }, "deleted": true });
+        let serve = |listed: Vec<Value>| async move {
+            let server = MockServer::start().await;
+            Mock::given(method("POST"))
+                .and(path_regex(r".*/zones/list$"))
+                .respond_with(ResponseTemplate::new(200).set_body_json(json!({ "zones": listed })))
+                .mount(&server)
+                .await;
+            Mock::given(method("POST"))
+                .and(path_regex(r".*/changes/zone$"))
+                .and(body_string_contains("\"PrimarySync1\""))
+                .respond_with(zone_reply(json!({
+                    "records": [master_named("M1"), asset_named("A1", "M1")],
+                    "syncToken": "moved",
+                    "moreComing": false
+                })))
+                .mount(&server)
+                .await;
+            Mock::given(method("POST"))
+                .and(path_regex(r".*/changes/zone$"))
+                .and(body_string_contains("\"PrimarySync\""))
+                .respond_with(zone_reply(json!({
+                    "serverErrorCode": "ZONE_NOT_FOUND", "reason": "Zone does not exist"
+                })))
+                .mount(&server)
+                .await;
+            server
+        };
+        let http = reqwest::Client::new();
+        // An account of its own each (the zone found is kept per account and address, and the
+        // mock servers are pooled at the same addresses).
+        let account = |n: u32| vec![("dsid".to_string(), format!("305{n}"))];
+        // Moved, the old zone listed as deleted; and moved, the old one still listed.
+        for (n, listed) in [
+            vec![deleted("PrimarySync"), zone("PrimarySync1")],
+            vec![zone("PrimarySync"), zone("PrimarySync1")],
+        ]
+        .into_iter()
+        .enumerate()
+        {
+            let server = serve(listed.clone()).await;
+            let fetched = fetch(&http, &server.uri(), account(n as u32), None)
+                .await
+                .unwrap_or_else(|e| panic!("{listed:?}: the moved library is read: {e}"));
+            assert_eq!(fetched.token.as_deref(), Some("moved"), "{listed:?}");
+            assert_eq!(fetched.records.len(), 2, "{listed:?}");
+        }
+        // No other zone: said, not stored as an empty library.
+        let server = serve(vec![zone("PrimarySync")]).await;
+        let said = fetch(&http, &server.uri(), account(9), None).await;
+        assert!(
+            matches!(&said, Err(crate::Error::Refused(words)) if words.contains("photo library")),
+            "said: {:?}",
+            said.as_ref().map(|f| f.token.clone())
+        );
     }
 
     /// A change token Apple will no longer read (expired, or refused as a bad request) is
