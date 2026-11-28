@@ -834,6 +834,9 @@ pub fn trim_cache(app: &AppHandle) -> u64 {
 /// cap lets viewed pictures go before it. Before, the newest 600 were fetched whatever the cap:
 /// a library whose newest 600 outgrew it had them let go of and fetched again after every
 /// sync, 23 GB a day with nothing opened (#167).
+/// How long after launch [`keep_ahead`] first reads the disk.
+const LAUNCH_QUIET: std::time::Duration = std::time::Duration::from_secs(10);
+
 pub fn keep_ahead(app: AppHandle) {
     static RUNNING: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
     if RUNNING.swap(true, std::sync::atomic::Ordering::SeqCst) {
@@ -846,6 +849,13 @@ pub fn keep_ahead(app: AppHandle) {
         quince_record::Why::KeptAhead,
         async move {
             use futures_util::StreamExt;
+            // Not in a launch's first seconds: the window's own pictures are read first. Started
+            // as Photos opened, its stats and touches (about 1,700 opens at 600 kept ahead) were
+            // read from a cold disk beside the grid's: measured 28 Nov, the grid's 416 reads
+            // took 1.5 s and the first pictures showed 3.5 s after the window.
+            if let Some(wait) = LAUNCH_QUIET.checked_sub(crate::timing::uptime()) {
+                tokio::time::sleep(wait).await;
+            }
             // Read beside a pass, and only what is used: the newest 600 and the videos' ids. The
             // whole library read as photos, twice, under the writer's lock, was 1.3 GB at a
             // million and held up every pass behind it.

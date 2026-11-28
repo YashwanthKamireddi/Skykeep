@@ -17,6 +17,11 @@ pub fn start() {
     START.get_or_init(Instant::now);
 }
 
+/// How long since the process started.
+pub fn uptime() -> std::time::Duration {
+    START.get_or_init(Instant::now).elapsed()
+}
+
 /// One step, printed when timing is asked for.
 pub fn mark(what: impl std::fmt::Display) {
     if !on() {
